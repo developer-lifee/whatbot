@@ -1,6 +1,7 @@
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const mysql = require('mysql2/promise');
+const schedule = require('node-schedule');
 
 async function connectToDatabase() {
   const connection = await mysql.createConnection({
@@ -26,7 +27,38 @@ client.on('ready', () => {
     console.log('Conexión establecida correctamente');
 });
 
+
+//Se usa la libreria llamada "node-schedule", cualquier duda o cambio, REVISAR LA DOCUMENTACION <3
+// https://www.npmjs.com/package/node-schedule
+
+// Función para enviar mensajes recordando cuentas vencidas
+async function sendMessage(to, message) {
+    const chatId = to.includes('@c.us') ? to : `${to}@c.us`;
+    await client.sendMessage(chatId, message);
+}
+
+// Tarea programada para verificar y notificar sobre cuentas vencidas
+const job = schedule.scheduleJob('0 0 * * *', function() { // Se ejecuta todos los días a media noche
+    console.log('Verificando cuentas vencidas...');
+    const today = new Date().toISOString().slice(0, 10); // Formato AAAA-MM-DD, tener presente si se cambia el formato en la base de datos
+    const query = 'SELECT correo, streaming FROM datoscuenta WHERE fechaCuenta = ?';
+    
+    dbConnection.query(query, [today], (error, results) => {
+        if (error) {
+            return console.error('Error al buscar cuentas vencidas:', error);
+        }
+        results.forEach((account) => {
+            const message = `Recordatorio: La cuenta ${account.streaming} asociada al correo ${account.correo} vence hoy.`;
+            const phoneNumber = '573133890800';
+            sendMessage(phoneNumber, message);
+        });
+    });
+});
+
 const userStates = new Map();
+
+// uso de la libreria "whatsapp-web.js 1.23.0", cualquier duda o cambio, REVISAR LA DOCUMENTACION <3
+// https://docs.wwebjs.dev/index.html
 
 client.on('message', async (message) => {
     const userId = message.from;
