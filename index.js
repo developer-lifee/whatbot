@@ -5,10 +5,10 @@ const schedule = require('node-schedule');
 
 async function connectToDatabase() {
   const connection = await mysql.createConnection({
-    host: 'localhost',
-    user: 'root',
-    password: '',
-    database: 'esteban'
+    host: '200.118.60.37',
+    user: 'estavi0_sheerit',
+    password: '26o6ssCOA^',
+    database: 'estavi0_sheerit'
   });
   return connection;
 }
@@ -155,7 +155,7 @@ client.on('message', async (message) => {
     }
      else if (message.body.trim() === '5') {
         // Caso 5: Revision de credenciales
-        await message.reply("Entiendo que tienes una consulta diferente a las opciones brindadas. así que un asesor te atenderá lo mas pronto posible, muchas gracias.");
+        await message.reply("Entiendo que tienes una consulta diferente a las opciones brindadas así que un asesor te atenderá lo mas pronto posible, muchas gracias.");
     }
 });
 
