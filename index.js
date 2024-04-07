@@ -86,7 +86,7 @@ await message.reply(
     "Por favor, responde *SOLO* con el número de la opción que deseas."
 );
 
-    } else if (message.body.trim() === '1') {
+   if (message.body.trim() === '1') {
         // Caso 1: Comprar cuenta
         let connection;
         try {
