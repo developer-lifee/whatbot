@@ -1,3 +1,16 @@
+const http = require('http');
+
+const server = http.createServer((req, res) => {
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'text/plain');
+  res.end('Hola, mundo!\n');
+});
+
+const port = process.env.PORT || 3000;
+server.listen(port, () => {
+  console.log(`Servidor corriendo en el puerto ${port}`);
+});
+
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const mysql = require('mysql2/promise');
