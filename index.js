@@ -76,16 +76,16 @@ const userStates = new Map();
 client.on('message', async (message) => {
     const userId = message.from;
     
-    if (message.body === '/ayuda') {
-        await message.reply(
-            "Aquí tienes las opciones disponibles:\n" +
-            "1 - Comprar cuenta\n" +
-            "2 - Revisar credenciales\n" +
-            "3 - Precio de mis cuentas\n" +
-            "4 - No puedo acceder a mi cuenta\n" +
-            "5 - Otro\n" +
-            "Por favor, responde *SOLO* con el número de la opción que deseas."
-        );
+await message.reply(
+    "Aquí tienes las opciones disponibles:\n" +
+    "1 - Comprar cuenta\n" +
+    "2 - Revisar credenciales\n" +
+    "3 - Precio de mis cuentas\n" +
+    "4 - No puedo acceder a mi cuenta\n" +
+    "5 - Otro\n" +
+    "Por favor, responde *SOLO* con el número de la opción que deseas."
+);
+
     } else if (message.body.trim() === '1') {
         // Caso 1: Comprar cuenta
         let connection;
