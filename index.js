@@ -26,9 +26,12 @@ async function connectToDatabase() {
   return connection;
 }
 
-//Genera el token de usuario  
 const client = new Client({
-    authStrategy: new LocalAuth()
+    puppeteer: {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    },
+    authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }) // Asegura que la ruta es persistente en Render
 });
 
 //Genera el QR 
@@ -145,23 +148,76 @@ async function processBuyAccount(message, userId) {
         const [rows] = await connection.query('SELECT nombre_cuenta, precio FROM lista_maestra ORDER BY id_streaming');
         if (rows.length > 0) {
             let replyMessage = "A continuación, te proporciono la información de nuestras ventas de cuentas streaming:\n";
-            rows.forEach(account => {
-                replyMessage += `- ${account.nombre_cuenta}: $${account.precio}\n`;
+            rows.forEach((account, index) => {
+                replyMessage += `${index + 1}. ${account.nombre_cuenta}: $${account.precio}\n`;
             });
+            replyMessage += "\nPor favor, responde con el número de la opción que deseas comprar.";
             await message.reply(replyMessage);
+            userStates.set(userId, 'awaiting_account_selection');
         } else {
             await message.reply("Actualmente no tenemos información sobre cuentas disponibles.");
+            userStates.delete(userId); // Limpiar el estado después de manejar
         }
     } catch (error) {
         console.error('Error al buscar en la base de datos:', error);
         await message.reply("Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
+        userStates.delete(userId); // Limpiar el estado después de manejar
     } finally {
         if (connection) {
             await connection.end();
         }
     }
-    userStates.delete(userId); // Limpiar el estado después de manejar
 }
+
+client.on('message', async (message) => {
+    const userId = message.from;
+    const currentState = userStates.get(userId);
+    const userSelection = message.body.trim();
+
+    switch (currentState) {
+        case 'awaiting_account_selection':
+            // Procesar la elección de la cuenta
+            if (/^\d+$/.test(userSelection)) {  // Asegurarse de que es un número
+                let paymentOptions = "⭐Nequi\n⭐Transfiya\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
+                await message.reply(paymentOptions);
+                userStates.set(userId, 'awaiting_payment_method');
+            } else {
+                await message.reply("Por favor, selecciona una opción válida.");
+            }
+            break;
+        case 'awaiting_payment_method':
+            // Asumiendo que el usuario selecciona el método de pago correctamente
+            const paymentDetails = {
+                'nequi': "3107946794",
+                'daviplata': "3107946794",
+                'bancolombia': "23127094942\nBancolombia - ahorros\nLuisa Fernanda Daza Munar\nCC 1116542241",
+                'banco caja social': "24111572331\nESTEBAN AVILA\ncc: 1032936324",
+                'transfiya': "3118587974"
+            };
+            let foundKey = Object.keys(paymentDetails).find(key => message.body.toLowerCase().includes(key));
+            if (foundKey) {
+                await message.reply(paymentDetails[foundKey]);
+                userStates.set(userId, 'awaiting_payment_confirmation');
+            } else {
+                await message.reply("Por favor, selecciona un método de pago de la lista proporcionada.");
+            }
+            break;
+        case 'awaiting_payment_confirmation':
+            if (message.hasMedia) {
+                const media = await message.downloadMedia();
+                // Aquí puedes hacer algo con la imagen, como guardarla o procesarla
+                await message.reply("Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
+                userStates.delete(userId); // Limpiar el estado después de manejar
+            } else {
+                await message.reply("Por favor, envía el comprobante de la transacción.");
+            }
+            break;
+        default:
+            // Código para otros estados
+            break;
+    }
+});
+
 
 async function processCheckCredentials(message, userId) {
     let connection;
