@@ -147,7 +147,7 @@ async function processBuyAccount(message, userId) {
         connection = await connectToDatabase();
         const [rows] = await connection.query('SELECT nombre_cuenta, precio FROM lista_maestra ORDER BY id_streaming');
         if (rows.length > 0) {
-            let replyMessage = "A continuación, te proporciono la información de nuestras ventas de cuentas streaming:\n";
+            let replyMessage = "A continuación, te proporciono la información de nuestras cuentas streaming y sus precios:\n";
             rows.forEach((account, index) => {
                 replyMessage += `${index + 1}. ${account.nombre_cuenta}: $${account.precio}\n`;
             });
@@ -234,7 +234,7 @@ async function processCheckCredentials(message, userId) {
                 const [profiles] = await connection.query('SELECT idCuenta FROM perfil WHERE clienteID = ?', [client.clienteID]);
                 for (const profile of profiles) {
                     // Para cada idCuenta, buscar en datoscuenta para obtener los detalles de la cuenta
-                    const [accounts] = await connection.query('SELECT correo, clave FROM datoscuenta WHERE idCuenta = ?', [profile.idCuenta]);
+                    const [accounts] = await connection.query('SELECT correo, clave FROM datosCuenta WHERE idCuenta = ?', [profile.idCuenta]);
                     accounts.forEach((account, index) => {
                         replyMessage += `${index + 1}- ${account.correo} - ${account.clave}\n`;
                     });
@@ -242,7 +242,7 @@ async function processCheckCredentials(message, userId) {
             }
             await message.reply(replyMessage);
         } else {
-            await message.reply("No se encontraron cuentas asociadas a tu número.");
+            await message.reply(`No se encontraron cuentas asociadas al número ${phoneNumber}.`);
         }
     } catch (error) {
         console.error('Error al buscar en la base de datos:', error);
