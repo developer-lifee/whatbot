@@ -225,21 +225,38 @@ async function processCheckCredentials(message, userId) {
         connection = await connectToDatabase();
         const phoneNumber = userId.replace('@c.us', '');
         // Buscar el clienteID usando el número de teléfono
-        const [clients] = await connection.query('SELECT clienteID FROM datos_de_cliente WHERE numero = ?', [phoneNumber]);
+        const [clients] = await connection.query('SELECT clienteID, nombre FROM datos_de_cliente WHERE numero = ?', [phoneNumber]);
 
         if (clients.length > 0) {
             let replyMessage = "Estas son tus cuentas actuales:\n";
+            
             for (const client of clients) {
-                // Para cada clienteID, buscar en perfil para obtener los idCuenta
-                const [profiles] = await connection.query('SELECT idCuenta FROM perfil WHERE clienteID = ?', [client.clienteID]);
+                // Obtener los perfiles y el pin de perfil usando el clienteID.
+                const [profiles] = await connection.query('SELECT idCuenta, pinPerfil FROM perfil WHERE clienteID = ?', [client.clienteID]);
+                
                 for (const profile of profiles) {
-                    // Para cada idCuenta, buscar en datoscuenta para obtener los detalles de la cuenta
-                    const [accounts] = await connection.query('SELECT correo, clave FROM datosCuenta WHERE idCuenta = ?', [profile.idCuenta]);
-                    accounts.forEach((account, index) => {
-                        replyMessage += `${index + 1}- ${account.correo} - ${account.clave}\n`;
-                    });
+                    // Obtener los detalles de la cuenta usando idCuenta.
+                    const [accounts] = await connection.query(`
+                        SELECT c.correo, c.clave, c.fechaCuenta, lm.nombre_cuenta
+                        FROM datosCuenta c
+                        JOIN lista_maestra lm ON c.id_streaming = lm.id_streaming
+                        WHERE c.idCuenta = ?
+                    `, [profile.idCuenta]);
+                    
+                    for (const account of accounts) {
+                        replyMessage += `
+${account.nombre_cuenta.toUpperCase()}
+
+CORREO: ${account.correo}
+CONTRASEÑA: ${account.clave}
+PERFIL: ${client.nombre}-${profile.pinPerfil}
+
+EL SERVICIO VENCERÁ EL DÍA: ${new Date(account.fechaCuenta).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}
+`;
+                    }
                 }
             }
+            
             await message.reply(replyMessage);
         } else {
             await message.reply(`No se encontraron cuentas asociadas al número ${phoneNumber}.`);
