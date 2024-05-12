@@ -113,7 +113,8 @@ async function handleMainMenuSelection(message, userId) {
     switch (userSelection) {
         case '1':
             // Procesar la compra de cuenta
-            await processBuyAccount(message, userId);
+            await message.reply("para comprar una cuenta, por favor ingresa a nuestra pagina sheerit.lafaena.co y selecciona la cuenta o el combo que desees");
+            userStates.delete(userId); // Limpiar el estado después de manejar
             break;
         case '2':
             // Revisar credenciales
@@ -121,8 +122,7 @@ async function handleMainMenuSelection(message, userId) {
             break;
         case '3':
             // Informar sobre precios
-            await message.reply("Los precios de nuestras cuentas son...");
-            userStates.delete(userId); // Limpiar el estado después de manejar
+            await processCheckPrices(message, userId);
             break;
         case '4':
             // Problemas para acceder, mostrar opciones de servicio
@@ -141,49 +141,36 @@ async function handleMainMenuSelection(message, userId) {
     }
 }
 
-async function processBuyAccount(message, userId) {
-    let connection;
-    try {
-        connection = await connectToDatabase();
-        const [rows] = await connection.query('SELECT nombre_cuenta, precio FROM lista_maestra ORDER BY id_streaming');
-        if (rows.length > 0) {
-            let replyMessage = "A continuación, te proporciono la información de nuestras cuentas streaming y sus precios:\n";
-            rows.forEach((account, index) => {
-                replyMessage += `${index + 1}. ${account.nombre_cuenta}: $${account.precio}\n`;
-            });
-            replyMessage += "\nPor favor, responde con el número de la opción que deseas comprar.";
-            await message.reply(replyMessage);
-            userStates.set(userId, 'awaiting_account_selection');
-        } else {
-            await message.reply("Actualmente no tenemos información sobre cuentas disponibles.");
-            userStates.delete(userId); // Limpiar el estado después de manejar
-        }
-    } catch (error) {
-        console.error('Error al buscar en la base de datos:', error);
-        await message.reply("Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
-        userStates.delete(userId); // Limpiar el estado después de manejar
-    } finally {
-        if (connection) {
-            await connection.end();
-        }
-    }
-}
-
 client.on('message', async (message) => {
     const userId = message.from;
     const currentState = userStates.get(userId);
-    const userSelection = message.body.trim();
 
+    if (message.body.startsWith("Hola, estoy interesado en una suscripción de:")) {
+        const mensaje = message.body;
+        const indiceDosPuntos = mensaje.indexOf(":");
+        const indiceCosto = mensaje.indexOf("Costo");
+        const textoExtraido = mensaje.slice(indiceDosPuntos + 2, indiceCosto).trim();
+        const elementos = textoExtraido.split(", ");
+
+        // Accede a todos los elementos individuales
+        let responseText = "Has seleccionado suscripción para:\n";
+        elementos.forEach((elemento, index) => {
+            responseText += `${index + 1}. ${elemento}\n`;
+        });
+
+        await message.reply(responseText);
+
+        // Mostrar opciones de pago después de listar suscripciones
+        let paymentOptions = "⭐Nequi\n⭐Transfiya\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
+        await message.reply(paymentOptions);
+        userStates.set(userId, 'awaiting_payment_method');
+        return;  // Finaliza la ejecución para evitar entrar en otras condiciones
+    }
+
+    // Procesar respuesta basada en el estado actual
     switch (currentState) {
-        case 'awaiting_account_selection':
-            // Procesar la elección de la cuenta
-            if (/^\d+$/.test(userSelection)) {  // Asegurarse de que es un número
-                let paymentOptions = "⭐Nequi\n⭐Transfiya\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
-                await message.reply(paymentOptions);
-                userStates.set(userId, 'awaiting_payment_method');
-            } else {
-                await message.reply("Por favor, selecciona una opción válida.");
-            }
+        case 'main_menu':
+            // Manejo de menú principal...
             break;
         case 'awaiting_payment_method':
             // Asumiendo que el usuario selecciona el método de pago correctamente
@@ -205,7 +192,6 @@ client.on('message', async (message) => {
         case 'awaiting_payment_confirmation':
             if (message.hasMedia) {
                 const media = await message.downloadMedia();
-                // Aquí puedes hacer algo con la imagen, como guardarla o procesarla
                 await message.reply("Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
                 userStates.delete(userId); // Limpiar el estado después de manejar
             } else {
@@ -213,10 +199,13 @@ client.on('message', async (message) => {
             }
             break;
         default:
-            // Código para otros estados
+            // Si no hay estados aplicables, se puede pedir al usuario que reinicie la conversación
+            userStates.delete(userId);
+            await message.reply("No comprendo tu selección. Vamos a empezar de nuevo.");
             break;
     }
 });
+
 
 
 async function processCheckCredentials(message, userId) {
