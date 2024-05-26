@@ -102,9 +102,11 @@ client.on('message', async (message) => {
             break;
         default:
             // Estado desconocido o no manejado, limpiar estado y reiniciar
+            let currentState = userStates.get(userId);
             userStates.delete(userId);
-            await message.reply("No comprendo tu selección. Vamos a empezar de nuevo.");
+            await message.reply(`Estabas en el estado: '${currentState}'. linea 107 No comprendo tu selección. Vamos a empezar de nuevo.`);
             break;
+            
     }
 });
 
@@ -169,9 +171,6 @@ client.on('message', async (message) => {
 
     // Procesar respuesta basada en el estado actual
     switch (currentState) {
-        case 'main_menu':
-            // Manejo de menú principal...
-            break;
         case 'awaiting_payment_method':
             // Asumiendo que el usuario selecciona el método de pago correctamente
             const paymentDetails = {
@@ -197,12 +196,7 @@ client.on('message', async (message) => {
             } else {
                 await message.reply("Por favor, envía el comprobante de la transacción.");
             }
-            break;
-        default:
-            // Si no hay estados aplicables, se puede pedir al usuario que reinicie la conversación
-            userStates.delete(userId);
-            await message.reply("No comprendo tu selección. Vamos a empezar de nuevo.");
-            break;
+            break;            
     }
 });
 
