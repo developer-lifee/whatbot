@@ -76,6 +76,12 @@ client.on('message', async (message) => {
     const userId = message.from;
     const currentState = userStates.get(userId);
 
+    // Primero, verifica si el mensaje corresponde al inicio de una suscripción
+    if (message.body.startsWith("Hola, estoy interesado en una suscripción de:")) {
+        await handleSubscriptionInterest(message, userId);
+        return; // Evita que otros manejadores de estado interfieran
+    }
+
     // Procesar respuesta basada en el estado actual
     switch (currentState) {
         case undefined:
@@ -151,11 +157,7 @@ async function handleMainMenuSelection(message, userId) {
     }
 }
 
-client.on('message', async (message) => {
-    const userId = message.from;
-    const currentState = userStates.get(userId);
-
-    if (message.body.startsWith("Hola, estoy interesado en una suscripción de:")) {
+async function handleSubscriptionInterest(message, userId) {
         const mensaje = message.body;
         const indiceDosPuntos = mensaje.indexOf(":");
         const indiceCosto = mensaje.indexOf("Costo");
