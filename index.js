@@ -95,6 +95,14 @@ client.on('message', async (message) => {
             // Procesar la selección del menú principal
             await handleMainMenuSelection(message, userId);
             break;
+        case 'awaiting_payment_method':
+        //procesar el metodo de pago 
+            await AwaitingPaymentMethod(message, userId);
+            break;
+        case 'awaiting_payment_confirmation':
+        //procesar la confirmacion de pago
+            await AwaitingPaymentConfirmation(message, userId);
+            break;
         case 'seleccionar_servicio':
             // Manejar la selección del servicio si el estado es 'seleccionar_servicio'
             userStates.delete(userId); // Limpiar el estado después de manejar
@@ -161,7 +169,6 @@ client.on('message', async (message) => {
         });
 
         await message.reply(responseText);
-
         // Mostrar opciones de pago después de listar suscripciones
         let paymentOptions = "⭐Nequi\n⭐Transfiya\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
         await message.reply(paymentOptions);
@@ -170,8 +177,7 @@ client.on('message', async (message) => {
     }
 
     // Procesar respuesta basada en el estado actual
-    switch (currentState) {
-        case 'awaiting_payment_method':
+async function awaiting_payment_method(message, userId) {
             // Asumiendo que el usuario selecciona el método de pago correctamente
             const paymentDetails = {
                 'nequi': "3107946794",
@@ -187,18 +193,20 @@ client.on('message', async (message) => {
             } else {
                 await message.reply("Por favor, selecciona un método de pago de la lista proporcionada.");
             }
-            break;
-        case 'awaiting_payment_confirmation':
-            if (message.hasMedia) {
-                const media = await message.downloadMedia();
-                await message.reply("Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
-                userStates.delete(userId); // Limpiar el estado después de manejar
-            } else {
-                await message.reply("Por favor, envía el comprobante de la transacción.");
+        }
+
+    
+            
+ async function awaiting_payment_confirmation(message, userId) {
+                if (message.hasMedia) {
+                    const media = await message.downloadMedia();
+                    await message.reply("Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
+                    userStates.delete(userId); // Limpiar el estado después de manejar
+                } else {
+                    await message.reply("Por favor, envía el comprobante de la transacción.");
+                }
             }
-            break;            
-    }
-});
+        }    
 
 
 
