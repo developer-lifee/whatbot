@@ -101,7 +101,7 @@ async function handleMainMenuSelection(message, userId) {
   const userSelection = message.body.trim();
   switch (userSelection) {
     case '1':
-      await message.reply("Para comprar una cuenta, por favor ingresa a nuestra página sheerit.lafaena.co y selecciona la cuenta o el combo que desees.");
+      await message.reply("Para comprar una cuenta, por favor ingresa a nuestra página sheerit.com.co y selecciona la cuenta o el combo que desees.");
       userStates.delete(userId);
       break;
     case '2':
@@ -112,7 +112,7 @@ async function handleMainMenuSelection(message, userId) {
       break;
     case '4':
       userStates.set(userId, 'seleccionar_servicio');
-      await message.reply("Selecciona el servicio al que no puedes acceder...");
+      await message.reply("Tenemos una guia de articulos que te pueden ayudar a solucionar tu problema,\n\n sheerit.com.co/aiuda ");
       break;
     case '5':
       await message.reply("Un asesor te atenderá lo más pronto posible.");
@@ -175,10 +175,13 @@ async function processCheckCredentials(message, userId) {
   let connection;
   try {
     connection = await connectToDatabase();
-    const phoneNumber = userId.replace('@c.us', '');
-    // Buscar el clienteID usando el número de teléfono
-    const [clients] = await connection.query('SELECT clienteID, nombre FROM datos_de_cliente WHERE numero = ?', [phoneNumber]);
+    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); // Elimina todos los caracteres que no son dígitos
 
+    // Consulta SQL con normalización
+    const [clients] = await connection.query(
+        'SELECT clienteID, nombre FROM datos_de_cliente WHERE REPLACE(REPLACE(REPLACE(numero, " ", ""), "-", ""), ".", "") = ?',
+        [phoneNumber]
+    );
     if (clients.length > 0) {
       let replyMessage = "Estas son tus cuentas actuales:\n";
       for (const client of clients) {
