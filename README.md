@@ -52,7 +52,7 @@ Este documento sirve como guía técnica para la migración del bot actual (mono
 *Objetivo: Permitir que los clientes se logueen en el panel web usando un código enviado a su WhatsApp.*
 
 - [ ] **Infraestructura Redis:**
-  - Levantar instancia de Redis (Docker o servicio cloud gratuito).
+  - Levantar instancia de Redis (con Upstash).
 - [ ] **Flujo de Autenticación (Login):**
   1. Usuario ingresa teléfono en la Web.
   2. Web genera código (ej: `4591`) y lo guarda en Redis con TTL de 5 min:
