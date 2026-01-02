@@ -18,12 +18,17 @@ server.listen(port, () => {
 // Nota: usamos `./database.js` que expone `pool` (mysql2/promise pool)
 
 // Configuración del cliente de WhatsApp
+// Detectamos si estamos en Mac (darwin)
+const isMac = process.platform === 'darwin';
+
 const client = new Client({
-  puppeteer: {
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  },
-  authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }) // Asegura que la ruta es persistente en Render
+    puppeteer: {
+        // Si es Mac, usa tu Chrome. Si es Linux, usa el que trae Puppeteer (undefined)
+        executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    },
+    authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' })
 });
 
 // Generar QR para conexión
