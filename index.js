@@ -164,7 +164,7 @@ client.on('message', async (message) => {
     }
   }
 
-  if (message.body && message.body.startsWith("Hola, estoy interesado en una suscripción de:")) {
+  if (message.body && message.body.toLowerCase().startsWith("hola, estoy interesado en")) {
     await handleSubscriptionInterest(message, userId);
     return;
   }
@@ -237,7 +237,7 @@ async function handleMainMenuSelection(message, userId) {
     case '5':
       // Reportar al grupo para atención humana
       try {
-        await client.sendMessage(GROUP_ID, `🚨 Nuevo caso para atención: Usuario ${userId} seleccionó "Otro" y necesita ayuda de un asesor.`);
+        await client.sendMessage(GROUP_ID, `🚨 Nuevo caso para atención: Usuario ${userId.replace('@c.us', '')} seleccionó "Otro" y necesita ayuda de un asesor.`);
       } catch (error) {
         console.error('Error enviando mensaje al grupo:', error);
       }
@@ -255,9 +255,26 @@ async function handleMainMenuSelection(message, userId) {
 
 async function handleSubscriptionInterest(message, userId) {
   const mensaje = message.body;
-  const indiceDosPuntos = mensaje.indexOf(":");
-  const indiceCosto = mensaje.indexOf("Costo");
-  const textoExtraido = mensaje.slice(indiceDosPuntos + 2, indiceCosto).trim();
+  let textoExtraido;
+
+  if (mensaje.toLowerCase().includes("una suscripción de:")) {
+    // Formato original: "Hola, estoy interesado en una suscripción de: Netflix, Disney+ Costo"
+    const indiceDosPuntos = mensaje.indexOf(":");
+    const indiceCosto = mensaje.indexOf("Costo");
+    textoExtraido = mensaje.slice(indiceDosPuntos + 2, indiceCosto).trim();
+  } else {
+    // Nuevo formato: "Hola, estoy interesado en ChatGPT - Compartida por $ 20.000/mes"
+    const start = "Hola, estoy interesado en";
+    const afterStart = mensaje.slice(start.length).trim();
+    // Asumir que termina antes de " por $" si hay
+    const indicePor = afterStart.toLowerCase().indexOf(" por $");
+    if (indicePor !== -1) {
+      textoExtraido = afterStart.slice(0, indicePor).trim();
+    } else {
+      textoExtraido = afterStart;
+    }
+  }
+
   const elementos = textoExtraido.split(", ");
 
   const platforms = await getPlatforms();
@@ -293,7 +310,7 @@ async function handleSubscriptionInterest(message, userId) {
   if (invalidElements.length > 0 || selectedItems.some(s => s.plan === null)) {
     // Reportar al grupo para validación
     try {
-      await client.sendMessage(GROUP_ID, `🚨 Nuevo caso de interés: Usuario ${userId} expresó interés en: ${mensaje}. Necesita validación.`);
+      await client.sendMessage(GROUP_ID, `🚨 Nuevo caso de interés: Usuario ${userId.replace('@c.us', '')} expresó interés en: ${mensaje}. Necesita validación.`);
     } catch (error) {
       console.error('Error enviando mensaje al grupo:', error);
     }
