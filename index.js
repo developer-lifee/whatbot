@@ -179,7 +179,6 @@ client.on('message', async (message) => {
         "3 - Pagar mis cuentas\n" +
         "4 - No puedo acceder a mi cuenta\n" +
         "5 - Otro\n" +
-        "6 - Consultar plataformas disponibles\n" +
         "Por favor, responde *SOLO* con el número de la opción que deseas."
       );
       break;
@@ -195,8 +194,8 @@ client.on('message', async (message) => {
     case 'awaiting_payment_confirmation':
       await handleAwaitingPaymentConfirmation(message, userId);
       break;
-    case 'awaiting_platform_selection':
-      await handleAwaitingPlatformSelection(message, userId);
+    case 'awaiting_purchase_platforms':
+      await handleAwaitingPurchasePlatforms(message, userId);
       break;
     case 'selecting_plans':
       await handleSelectingPlans(message, userId);
@@ -221,8 +220,7 @@ async function handleMainMenuSelection(message, userId) {
   const userSelection = message.body.trim();
   switch (userSelection) {
     case '1':
-      await message.reply("Para comprar una cuenta, por favor ingresa a nuestra página sheerit.com.co y selecciona la cuenta o el combo que desees.");
-      userStates.delete(userId);
+      await startPurchaseProcess(message, userId);
       break;
     case '2':
       await processCheckCredentials(message, userId);
@@ -243,9 +241,6 @@ async function handleMainMenuSelection(message, userId) {
       }
       await message.reply("Un asesor te atenderá lo más pronto posible.");
       userStates.delete(userId);
-      break;
-    case '6':
-      await processConsultPlatforms(message, userId);
       break;
     default:
       await message.reply("Por favor, selecciona una opción válida del menú.");
@@ -460,36 +455,72 @@ async function processCheckCredentials(message, userId) {
   userStates.delete(userId);
 }
 
-async function processConsultPlatforms(message, userId) {
+async function startPurchaseProcess(message, userId) {
   const platforms = await getPlatforms();
   if (platforms.length === 0) {
     await message.reply("No se pudieron cargar las plataformas. Inténtalo más tarde.");
     userStates.delete(userId);
     return;
   }
-  let reply = "Plataformas disponibles:\n";
+  let reply = "Plataformas disponibles para compra:\n";
   platforms.forEach((p, index) => {
     reply += `${index + 1}. ${p.name} - Precio base: $${p.price}\n`;
   });
-  reply += "\nResponde con el número de la plataforma para ver detalles.";
+  reply += "\nResponde con los nombres de las plataformas que deseas, separados por coma (ej. Netflix, Disney+).";
   await message.reply(reply);
-  userStates.set(userId, 'awaiting_platform_selection');
+  userStates.set(userId, 'awaiting_purchase_platforms');
 }
 
-async function handleAwaitingPlatformSelection(message, userId) {
+async function handleAwaitingPurchasePlatforms(message, userId) {
+  const mensaje = message.body;
+  const elementos = mensaje.split(", ");
+
   const platforms = await getPlatforms();
-  const selection = parseInt(message.body.trim()) - 1;
-  if (isNaN(selection) || selection < 0 || selection >= platforms.length) {
-    await message.reply("Selección inválida. Responde con el número de la plataforma.");
+  const platformMap = new Map(platforms.map(p => [p.name.toLowerCase(), p]));
+
+  let selectedItems = [];
+  let invalidElements = [];
+  elementos.forEach(elem => {
+    const trimmed = elem.trim();
+    if (trimmed.includes(" - ")) {
+      const [platName, planName] = trimmed.split(" - ").map(s => s.trim());
+      const platform = platformMap.get(platName.toLowerCase());
+      if (platform) {
+        const plan = platform.plans.find(p => p.name.toLowerCase() === planName.toLowerCase());
+        if (plan) {
+          selectedItems.push({ platform, plan });
+        } else {
+          invalidElements.push(trimmed);
+        }
+      } else {
+        invalidElements.push(trimmed);
+      }
+    } else {
+      const platform = platformMap.get(trimmed.toLowerCase());
+      if (platform) {
+        selectedItems.push({ platform, plan: null }); // Sin plan especificado
+      } else {
+        invalidElements.push(trimmed);
+      }
+    }
+  });
+
+  if (invalidElements.length > 0) {
+    // Reportar al grupo para validación
+    try {
+      await client.sendMessage(GROUP_ID, `🚨 Nuevo caso de compra: Usuario ${userId.replace('@c.us', '')} intentó comprar: ${mensaje}. Necesita validación.`);
+    } catch (error) {
+      console.error('Error enviando mensaje al grupo:', error);
+    }
+    await message.reply("Tu solicitud ha sido enviada a un asesor para validación. Te atenderán pronto.");
+    userStates.delete(userId);
     return;
   }
-  const platform = platforms[selection];
-  let reply = `${platform.name}\n\nCaracterísticas:\n${platform.characteristics.join('\n')}\n\nPlanes:\n`;
-  platform.plans.forEach(plan => {
-    reply += `- ${plan.name}: $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
-  });
-  await message.reply(reply);
-  userStates.delete(userId);
+
+  // Iniciar selección de planes para las plataformas seleccionadas
+  let selected = selectedItems.map(s => ({ platform: s.platform, chosenPlan: s.plan }));
+  userStates.set(userId, { state: 'selecting_plans', selected, currentIndex: 0 });
+  await showPlanSelection(message, userId);
 }
 
 async function showPlanSelection(message, userId) {
