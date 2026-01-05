@@ -50,11 +50,14 @@ const userStates = new Map();
 // Admin/operator number to notify when a human intervention is required
 const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573107946794') + '@c.us';
 
+// Group ID for reporting cases
+const GROUP_ID = '120363102144405222@g.us';
+
 // Storage for temporary confirmations (e.g., pending cobros)
 const pendingConfirmations = new Map();
 
 // URL para obtener plataformas
-const PLATFORMS_URL = 'https://tusitio.com/data/platforms.json';
+const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
 
 // Función para obtener plataformas
 async function getPlatforms() {
@@ -66,12 +69,6 @@ async function getPlatforms() {
     console.error('Error fetching platforms:', error);
     return [];
   }
-}
-
-// Función para obtener grupo por nombre
-async function getGroupByName(name) {
-  const chats = await client.getChats();
-  return chats.find(chat => chat.isGroup && chat.name === name);
 }
 
 client.on('message', async (message) => {
@@ -240,12 +237,7 @@ async function handleMainMenuSelection(message, userId) {
     case '5':
       // Reportar al grupo para atención humana
       try {
-        const grupo = await getGroupByName('Sheer-it general📽️📽️');
-        if (grupo) {
-          await grupo.sendMessage(`🚨 Nuevo caso para atención: Usuario ${userId} seleccionó "Otro" y necesita ayuda de un asesor.`);
-        } else {
-          console.error('Grupo no encontrado');
-        }
+        await client.sendMessage(GROUP_ID, `🚨 Nuevo caso para atención: Usuario ${userId} seleccionó "Otro" y necesita ayuda de un asesor.`);
       } catch (error) {
         console.error('Error enviando mensaje al grupo:', error);
       }
@@ -301,12 +293,7 @@ async function handleSubscriptionInterest(message, userId) {
   if (invalidElements.length > 0 || selectedItems.some(s => s.plan === null)) {
     // Reportar al grupo para validación
     try {
-      const grupo = await getGroupByName('Sheer-it general📽️📽️');
-      if (grupo) {
-        await grupo.sendMessage(`🚨 Nuevo caso de interés: Usuario ${userId} expresó interés en: ${mensaje}. Necesita validación.`);
-      } else {
-        console.error('Grupo no encontrado');
-      }
+      await client.sendMessage(GROUP_ID, `🚨 Nuevo caso de interés: Usuario ${userId} expresó interés en: ${mensaje}. Necesita validación.`);
     } catch (error) {
       console.error('Error enviando mensaje al grupo:', error);
     }
