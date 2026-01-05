@@ -314,39 +314,46 @@ async function handleAwaitingPaymentMethod(message, userId) {
 }
 
 async function handleAwaitingCobrosConfirmation(message, userId) {
-  const body = (message.body || '').trim().toLowerCase();
-  if (body === 'si' || body === 'sí') {
-    const records = pendingConfirmations.get(userId) || [];
-    if (records.length === 0) {
-      await message.reply('No hay cobros pendientes para confirmar.');
+  try {
+    const body = (message.body || '').trim().toLowerCase();
+    if (body === 'si' || body === 'sí') {
+      const records = pendingConfirmations.get(userId) || [];
+      if (records.length === 0) {
+        await message.reply('No hay cobros pendientes para confirmar.');
+        userStates.delete(userId);
+        return;
+      }
+      // persist to pending_charges.json
+      const fs = require('fs');
+      const path = require('path');
+      const file = path.join(__dirname, 'pending_charges.json');
+      let existing = [];
+      try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) {}
+      const entry = { requester: userId, records, timestamp: new Date().toISOString() };
+      existing.push(entry);
+      fs.writeFileSync(file, JSON.stringify(existing, null, 2));
+
+      // send individual messages to each phone
+      for (const r of records) {
+        const dest = r.phone + '@c.us';
+        await client.sendMessage(dest, `Se enviará un cobro para *${r.name}* solicitado por ${userId}. Por favor, responde si el pago fue realizado.`);
+      }
+
+      await message.reply('He guardado los cobros y he notificado a cada número individualmente.');
+      pendingConfirmations.delete(userId);
       userStates.delete(userId);
-      return;
+    } else if (body === 'no') {
+      pendingConfirmations.delete(userId);
+      userStates.delete(userId);
+      await message.reply('Operación cancelada. No se enviaron cobros.');
+    } else {
+      await message.reply('Por favor responde *SI* para confirmar o *NO* para cancelar.');
     }
-    // persist to pending_charges.json
-    const fs = require('fs');
-    const path = require('path');
-    const file = path.join(__dirname, 'pending_charges.json');
-    let existing = [];
-    try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) {}
-    const entry = { requester: userId, records, timestamp: new Date().toISOString() };
-    existing.push(entry);
-    fs.writeFileSync(file, JSON.stringify(existing, null, 2));
-
-    // send individual messages to each phone
-    for (const r of records) {
-      const dest = r.phone + '@c.us';
-      await client.sendMessage(dest, `Se enviará un cobro para *${r.name}* solicitado por ${userId}. Por favor, responde si el pago fue realizado.`);
-    }
-
-    await message.reply('He guardado los cobros y he notificado a cada número individualmente.');
-    pendingConfirmations.delete(userId);
+  } catch (error) {
+    console.error("Error en confirmación de cobros:", error);
+    await message.reply("⚠️ Ocurrió un error procesando tu solicitud. Por favor contacta al administrador.");
+    // Opcional: Reiniciar estado del usuario para que no se quede trabado
     userStates.delete(userId);
-  } else if (body === 'no') {
-    pendingConfirmations.delete(userId);
-    userStates.delete(userId);
-    await message.reply('Operación cancelada. No se enviaron cobros.');
-  } else {
-    await message.reply('Por favor responde *SI* para confirmar o *NO* para cancelar.');
   }
 }
 
@@ -429,5 +436,16 @@ async function handleAwaitingPlatformSelection(message, userId) {
   await message.reply(reply);
   userStates.delete(userId);
 }
+
+// --- AL FINAL DEL ARCHIVO index.js ---
+
+// Esto evita que el bot se cierre si hay un error de código imprevisto
+process.on('uncaughtException', (err) => {
+    console.error('🔥 Error No Capturado (El bot sigue vivo):', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
+});
 
 client.initialize();
