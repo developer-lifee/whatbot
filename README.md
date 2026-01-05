@@ -72,4 +72,20 @@ Este documento sirve como guía técnica para la migración del bot actual (mono
   - Responder con el texto generado.
 
 ---
-*Última actualización: Diciembre 2025*
+
+💸 Manual de Operaciones: Módulo de Cobros
+El sistema cuenta con un parser inteligente de listas para cobranza masiva.
+
+1. Iniciar Proceso de Cobro
+
+Envía el mensaje con el prefijo exacto seguido de la lista (puedes copiar y pegar desde un Excel o TXT): @bot porfa haz los cobros para hoy de: Nombre, Teléfono
+
+2. Comandos de Administrador (Solo Operador)
+
+El número definido en OPERATOR_NUMBER tiene permisos especiales:
+
+liberar <teléfono>: Fuerza el cierre de la sesión de un usuario y le avisa que un humano lo atenderá.
+
+confirmar_cobros <teléfono>: Confirma manualmente los cobros pendientes de un usuario específico.
+
+*Última actualización: enero 2026*

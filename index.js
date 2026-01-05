@@ -53,6 +53,21 @@ const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573107946794') + '@c.us
 // Storage for temporary confirmations (e.g., pending cobros)
 const pendingConfirmations = new Map();
 
+// URL para obtener plataformas
+const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
+
+// Función para obtener plataformas
+async function getPlatforms() {
+  try {
+    const response = await fetch(PLATFORMS_URL);
+    if (!response.ok) throw new Error('Failed to fetch platforms');
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching platforms:', error);
+    return [];
+  }
+}
+
 client.on('message', async (message) => {
   const userId = message.from;
   const currentState = userStates.get(userId);
@@ -161,6 +176,7 @@ client.on('message', async (message) => {
         "3 - Pagar mis cuentas\n" +
         "4 - No puedo acceder a mi cuenta\n" +
         "5 - Otro\n" +
+        "6 - Consultar plataformas disponibles\n" +
         "Por favor, responde *SOLO* con el número de la opción que deseas."
       );
       break;
@@ -175,6 +191,9 @@ client.on('message', async (message) => {
       break;
     case 'awaiting_payment_confirmation':
       await handleAwaitingPaymentConfirmation(message, userId);
+      break;
+    case 'awaiting_platform_selection':
+      await handleAwaitingPlatformSelection(message, userId);
       break;
     case 'seleccionar_servicio':
       userStates.delete(userId);
@@ -210,6 +229,9 @@ async function handleMainMenuSelection(message, userId) {
       await message.reply("Un asesor te atenderá lo más pronto posible.");
       userStates.delete(userId);
       break;
+    case '6':
+      await processConsultPlatforms(message, userId);
+      break;
     default:
       await message.reply("Por favor, selecciona una opción válida del menú.");
       break;
@@ -222,14 +244,52 @@ async function handleSubscriptionInterest(message, userId) {
   const indiceCosto = mensaje.indexOf("Costo");
   const textoExtraido = mensaje.slice(indiceDosPuntos + 2, indiceCosto).trim();
   const elementos = textoExtraido.split(", ");
-   // Accede a todos los elementos individuales
-  let responseText = "Has seleccionado suscripción para:\n";
-  elementos.forEach((elemento, index) => {
-    responseText += `${index + 1}. ${elemento}\n`;
+
+  const platforms = await getPlatforms();
+  const platformMap = new Map(platforms.map(p => [p.name.toLowerCase(), p]));
+
+  let validElements = [];
+  let invalidElements = [];
+  elementos.forEach(elem => {
+    const name = elem.trim();
+    if (platformMap.has(name.toLowerCase())) {
+      validElements.push(platformMap.get(name.toLowerCase()));
+    } else {
+      invalidElements.push(name);
+    }
   });
 
+  if (invalidElements.length > 0) {
+    await message.reply(`Los siguientes elementos no son válidos: ${invalidElements.join(', ')}. Verifica los nombres.`);
+    userStates.delete(userId);
+    return;
+  }
+
+  let responseText = "Has seleccionado suscripción para:\n";
+  validElements.forEach((elem, index) => {
+    responseText += `${index + 1}. ${elem.name}\n`;
+  });
+
+  // Calcular precio total
+  let totalPrice = validElements.reduce((sum, p) => sum + p.price, 0);
+  const numPlatforms = validElements.length;
+  if (numPlatforms > 1) {
+    const discount = (numPlatforms - 1) * 1000;
+    totalPrice -= discount;
+  }
+
+  // Verificar si es anual o semestral
+  const lowerMsg = mensaje.toLowerCase();
+  if (lowerMsg.includes('anual')) {
+    totalPrice = totalPrice * 12 * 0.85; // 15% descuento
+  } else if (lowerMsg.includes('semestral')) {
+    totalPrice = totalPrice * 6 * 0.93; // 7% descuento
+  }
+
+  responseText += `\nCosto total: $${Math.round(totalPrice)}`;
+
   await message.reply(responseText);
-  //Mostar opciones de pago y guardar estado
+  //Mostrar opciones de pago y guardar estado
   let paymentOptions = "⭐Nequi\n⭐Transfiya\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
   userStates.set(userId, 'awaiting_payment_method');
@@ -335,6 +395,38 @@ async function processCheckCredentials(message, userId) {
     console.error('Error al buscar en la base de datos:', error);
     await message.reply("Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
   }
+  userStates.delete(userId);
+}
+
+async function processConsultPlatforms(message, userId) {
+  const platforms = await getPlatforms();
+  if (platforms.length === 0) {
+    await message.reply("No se pudieron cargar las plataformas. Inténtalo más tarde.");
+    userStates.delete(userId);
+    return;
+  }
+  let reply = "Plataformas disponibles:\n";
+  platforms.forEach((p, index) => {
+    reply += `${index + 1}. ${p.name} - Precio base: $${p.price}\n`;
+  });
+  reply += "\nResponde con el número de la plataforma para ver detalles.";
+  await message.reply(reply);
+  userStates.set(userId, 'awaiting_platform_selection');
+}
+
+async function handleAwaitingPlatformSelection(message, userId) {
+  const platforms = await getPlatforms();
+  const selection = parseInt(message.body.trim()) - 1;
+  if (isNaN(selection) || selection < 0 || selection >= platforms.length) {
+    await message.reply("Selección inválida. Responde con el número de la plataforma.");
+    return;
+  }
+  const platform = platforms[selection];
+  let reply = `${platform.name}\n\nCaracterísticas:\n${platform.characteristics.join('\n')}\n\nPlanes:\n`;
+  platform.plans.forEach(plan => {
+    reply += `- ${plan.name}: $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
+  });
+  await message.reply(reply);
   userStates.delete(userId);
 }
 
