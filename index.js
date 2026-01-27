@@ -28,7 +28,9 @@ const client = new Client({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox']
     },
-    authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' })
+    authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+    // Deshabilitar la marca automática de mensajes como vistos para evitar error de markedUnread
+    markOnlineAvailable: false
 });
 
 // Generar QR para conexión
@@ -235,7 +237,12 @@ async function handleMainMenuSelection(message, userId) {
     case '5':
       // Reportar al grupo para atención humana
       try {
-        await client.sendMessage(GROUP_ID, `🚨 Nuevo caso para atención: Usuario ${userId.replace('@c.us', '')} seleccionó "Otro" y necesita ayuda de un asesor.`);
+        const chat = await client.getChatById(GROUP_ID);
+        if (chat) {
+          await chat.sendMessage(`🚨 Nuevo caso para atención: Usuario ${userId.replace('@c.us', '')} seleccionó "Otro" y necesita ayuda de un asesor.`);
+        } else {
+          console.error('Grupo no encontrado con ID:', GROUP_ID);
+        }
       } catch (error) {
         console.error('Error enviando mensaje al grupo:', error);
       }
@@ -305,7 +312,12 @@ async function handleSubscriptionInterest(message, userId) {
   if (invalidElements.length > 0 || selectedItems.some(s => s.plan === null)) {
     // Reportar al grupo para validación
     try {
-      await client.sendMessage(GROUP_ID, `🚨 Nuevo caso de interés: Usuario ${userId.replace('@c.us', '')} expresó interés en: ${mensaje}. Necesita validación.`);
+      const chat = await client.getChatById(GROUP_ID);
+      if (chat) {
+        await chat.sendMessage(`🚨 Nuevo caso de interés: Usuario ${userId.replace('@c.us', '')} expresó interés en: ${mensaje}. Necesita validación.`);
+      } else {
+        console.error('Grupo no encontrado con ID:', GROUP_ID);
+      }
     } catch (error) {
       console.error('Error enviando mensaje al grupo:', error);
     }
@@ -508,7 +520,12 @@ async function handleAwaitingPurchasePlatforms(message, userId) {
   if (invalidElements.length > 0) {
     // Reportar al grupo para validación
     try {
-      await client.sendMessage(GROUP_ID, `🚨 Nuevo caso de compra: Usuario ${userId.replace('@c.us', '')} intentó comprar: ${mensaje}. Necesita validación.`);
+      const chat = await client.getChatById(GROUP_ID);
+      if (chat) {
+        await chat.sendMessage(`🚨 Nuevo caso de compra: Usuario ${userId.replace('@c.us', '')} intentó comprar: ${mensaje}. Necesita validación.`);
+      } else {
+        console.error('Grupo no encontrado con ID:', GROUP_ID);
+      }
     } catch (error) {
       console.error('Error enviando mensaje al grupo:', error);
     }

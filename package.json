@@ -14,6 +14,6 @@
     "node-schedule": "^2.1.1",
     "puppeteer": "^24.34.0",
     "qrcode-terminal": "^0.12.0",
-    "whatsapp-web.js": "^1.26.0"
+    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js"
   }
 }
