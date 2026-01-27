@@ -2,7 +2,9 @@ const http = require('http');
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { pool } = require('./database');
+const { pool } = require('./database');
 const schedule = require('node-schedule');
+const { parsePurchaseIntent, detectPaymentMethod } = require('./aiService');
 
 // Crear servidor HTTP
 const server = http.createServer((req, res) => {
@@ -22,15 +24,15 @@ server.listen(port, () => {
 const isMac = process.platform === 'darwin';
 
 const client = new Client({
-    puppeteer: {
-        // Si es Mac, usa tu Chrome. Si es Linux, usa el que trae Puppeteer (undefined)
-        executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    },
-    authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
-    // Deshabilitar la marca automática de mensajes como vistos para evitar error de markedUnread
-    markOnlineAvailable: false
+  puppeteer: {
+    // Si es Mac, usa tu Chrome. Si es Linux, usa el que trae Puppeteer (undefined)
+    executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  },
+  authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+  // Deshabilitar la marca automática de mensajes como vistos para evitar error de markedUnread
+  markOnlineAvailable: false
 });
 
 // Generar QR para conexión
@@ -77,7 +79,7 @@ client.on('message', async (message) => {
   const userId = message.from;
   const currentState = userStates.get(userId);
 
-    // Primero, verifica si el mensaje corresponde al inicio de una suscripción
+  // Primero, verifica si el mensaje corresponde al inicio de una suscripción
 
   // --- Cobros parser: mensaje especial ---
   if (message.body && message.body.toLowerCase().startsWith('@bot porfa haz los cobros para hoy de:')) {
@@ -148,7 +150,7 @@ client.on('message', async (message) => {
         const path = require('path');
         const file = path.join(__dirname, 'pending_charges.json');
         let existing = [];
-        try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) {}
+        try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
         const timestamp = new Date().toISOString();
         const entry = { requester: targetId, records, timestamp };
         existing.push(entry);
@@ -257,121 +259,130 @@ async function handleMainMenuSelection(message, userId) {
 
 async function handleSubscriptionInterest(message, userId) {
   const mensaje = message.body;
-  let textoExtraido;
 
-  if (mensaje.toLowerCase().includes("una suscripción de:")) {
-    // Formato original: "Hola, estoy interesado en una suscripción de: Netflix, Disney+ Costo"
-    const indiceDosPuntos = mensaje.indexOf(":");
-    const indiceCosto = mensaje.indexOf("Costo");
-    textoExtraido = mensaje.slice(indiceDosPuntos + 2, indiceCosto).trim();
-  } else {
-    // Nuevo formato: "Hola, estoy interesado en ChatGPT - Compartida por $ 20.000/mes"
-    const start = "Hola, estoy interesado en";
-    const afterStart = mensaje.slice(start.length).trim();
-    // Asumir que termina antes de " por $" si hay
-    const indicePor = afterStart.toLowerCase().indexOf(" por $");
-    if (indicePor !== -1) {
-      textoExtraido = afterStart.slice(0, indicePor).trim();
-    } else {
-      textoExtraido = afterStart;
-    }
-  }
+  // 1. Usar AI para parsear la intención
+  const intent = await parsePurchaseIntent(mensaje);
+  const { items, statedPrice, subscriptionType } = intent;
 
-  const elementos = textoExtraido.split(", ");
-
-  const platforms = await getPlatforms();
-  const platformMap = new Map(platforms.map(p => [p.name.toLowerCase(), p]));
-
-  let selectedItems = [];
-  let invalidElements = [];
-  elementos.forEach(elem => {
-    const trimmed = elem.trim();
-    if (trimmed.includes(" - ")) {
-      const [platName, planName] = trimmed.split(" - ").map(s => s.trim());
-      const platform = platformMap.get(platName.toLowerCase());
-      if (platform) {
-        const plan = platform.plans.find(p => p.name.toLowerCase() === planName.toLowerCase());
-        if (plan) {
-          selectedItems.push({ platform, plan });
-        } else {
-          invalidElements.push(trimmed);
-        }
-      } else {
-        invalidElements.push(trimmed);
-      }
-    } else {
-      const platform = platformMap.get(trimmed.toLowerCase());
-      if (platform) {
-        selectedItems.push({ platform, plan: null }); // Sin plan especificado
-      } else {
-        invalidElements.push(trimmed);
-      }
-    }
-  });
-
-  if (invalidElements.length > 0 || selectedItems.some(s => s.plan === null)) {
-    // Reportar al grupo para validación
-    try {
-      const chat = await client.getChatById(GROUP_ID);
-      if (chat) {
-        await chat.sendMessage(`🚨 Nuevo caso de interés: Usuario ${userId.replace('@c.us', '')} expresó interés en: ${mensaje}. Necesita validación.`);
-      } else {
-        console.error('Grupo no encontrado con ID:', GROUP_ID);
-      }
-    } catch (error) {
-      console.error('Error enviando mensaje al grupo:', error);
-    }
-    await message.reply("Tu solicitud ha sido enviada a un asesor para validación. Te atenderán pronto.");
-    userStates.delete(userId);
+  if (!items || items.length === 0) {
+    await message.reply("No pude entender qué servicios deseas. Por favor, intenta de nuevo especificando el nombre de la plataforma y el plan.");
     return;
   }
 
-  let responseText = "Has seleccionado:\n";
-  let totalPrice = 0;
-  selectedItems.forEach(s => {
-    totalPrice += s.plan.price;
-    responseText += `- ${s.platform.name} (${s.plan.name}): $${s.plan.price}\n`;
+  // 2. Obtener plataformas del sistema
+  const platforms = await getPlatforms();
+  // Validar y mapear items
+  let selectedItems = [];
+  let invalidElements = [];
+
+  items.forEach(item => {
+    // Fuzzy match platform name
+    const targetPlatform = item.platform.toLowerCase();
+    const platform = platforms.find(p => p.name.toLowerCase().includes(targetPlatform)) ||
+      platforms.find(p => targetPlatform.includes(p.name.toLowerCase()));
+
+    if (platform) {
+      // Fuzzy match plan name if provided
+      let plan = null;
+      if (item.plan) {
+        const targetPlan = item.plan.toLowerCase();
+        plan = platform.plans.find(p => p.name.toLowerCase().includes(targetPlan));
+      }
+      // Default to first plan if not found or not specified (user validation later? or just pick first?)
+      // Logic says: if user said "Netflix" without plan, we marked plan as null.
+      // If we want to force plan selection, we can keep it null.
+      selectedItems.push({ platform, plan, originalItem: item });
+    } else {
+      invalidElements.push(item.platform);
+    }
   });
 
+  if (invalidElements.length > 0) {
+    // Si la AI alucinó plataformas que no existen o el usuario pidió algo raro
+    await message.reply(`Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}.`);
+    return;
+  }
+
+  // 3. Calcular precio real
+  let calculatedTotal = 0;
+  let responseText = "Entendido, buscas:\n";
+
+  for (const s of selectedItems) {
+    if (s.plan) {
+      calculatedTotal += s.plan.price;
+      responseText += `- ${s.platform.name} (${s.plan.name}): $${s.plan.price}\n`;
+    } else {
+      // Si no hay plan, asumimos el más barato o pedimos aclaración?
+      // Simplificación: Tomamos el primer plan disponible como referencia
+      const defaultPlan = s.platform.plans[0];
+      calculatedTotal += defaultPlan.price;
+      s.plan = defaultPlan; // Asignamos por defecto para proceder
+      responseText += `- ${s.platform.name} (${defaultPlan.name}): $${defaultPlan.price} (Plan Básico asumido)\n`;
+    }
+  }
+
+  // Descuento por combo
   const numPlatforms = selectedItems.length;
   if (numPlatforms > 1) {
     const discount = (numPlatforms - 1) * 1000;
-    totalPrice -= discount;
+    calculatedTotal -= discount;
     responseText += `\nDescuento por combo: -$${discount}\n`;
   }
 
-  // Verificar si es anual o semestral
-  const lowerMsg = mensaje.toLowerCase();
-  if (lowerMsg.includes('anual')) {
-    totalPrice = totalPrice * 12 * 0.85; // 15% descuento
-  } else if (lowerMsg.includes('semestral')) {
-    totalPrice = totalPrice * 6 * 0.93; // 7% descuento
+  // Ajuste por periodo
+  let periodText = "/mes";
+  if (subscriptionType === 'anual') {
+    calculatedTotal = calculatedTotal * 12 * 0.85;
+    periodText = "/año";
+  } else if (subscriptionType === 'semestral') {
+    calculatedTotal = calculatedTotal * 6 * 0.93;
+    periodText = "/semestre";
   }
 
-  responseText += `Total: $${Math.round(totalPrice)}`;
+  calculatedTotal = Math.round(calculatedTotal);
+  responseText += `\nTotal calculado: $${calculatedTotal}${periodText}`;
+
+  // 4. Comparar con statedPrice
+  if (statedPrice !== null && Math.abs(statedPrice - calculatedTotal) > 2000) {
+    // Discrepancia significativa (> 2000 pesos)
+    responseText += `\n\nNoté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
+  }
 
   await message.reply(responseText);
-  //Mostrar opciones de pago y guardar estado
+
+  // Guardar estado para pago
+  // IMPORTANTE: Guardamos el calculatedTotal para saber cuánto cobrar
+  userStates.set(userId, { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems });
+
   let paymentOptions = "⭐Nequi\n⭐Transfiya\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
-  userStates.set(userId, 'awaiting_payment_method');
 }
 
 async function handleAwaitingPaymentMethod(message, userId) {
-        // Asumiendo que el usuario selecciona el método de pago correctamente
+  // Usar AI para detectar método de pago
+  const method = await detectPaymentMethod(message.body);
+
   const paymentDetails = {
     'nequi': "3118587974",
     'daviplata': "3107946794",
     'bancolombia': "46772753713\nBancolombia - ahorros\nNumero de cuenta: 46772753713\nCC1032936324",
     'banco caja social': "24111572331\nESTEBAN AVILA\ncc: 1032936324",
-    'llaves BRE-V': "3118587974"
+    'transfiya': "3118587974",
+    'llaves bre-v': "3118587974" // Normalized key from AI
   };
-  let foundKey = Object.keys(paymentDetails).find(key => message.body.toLowerCase().includes(key));
-  if (foundKey) {
-    await message.reply(paymentDetails[foundKey]);
-    userStates.set(userId, 'awaiting_payment_confirmation');
+
+  if (method && paymentDetails[method]) {
+    await message.reply(paymentDetails[method]);
+    userStates.set(userId, 'awaiting_payment_confirmation'); // Move validation logic
   } else {
-    await message.reply("Por favor, selecciona un método de pago de la lista proporcionada.");
+    // Fallback manual check
+    let foundKey = Object.keys(paymentDetails).find(key => message.body.toLowerCase().includes(key));
+    if (foundKey) {
+      await message.reply(paymentDetails[foundKey]);
+      userStates.set(userId, 'awaiting_payment_confirmation');
+    } else {
+      await message.reply("No entendí el método de pago. Por favor escribe uno de los siguientes: Nequi, Daviplata, Bancolombia, Banco Caja Social, Transfiya.");
+    }
   }
 }
 
@@ -390,7 +401,7 @@ async function handleAwaitingCobrosConfirmation(message, userId) {
       const path = require('path');
       const file = path.join(__dirname, 'pending_charges.json');
       let existing = [];
-      try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) {}
+      try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
       const entry = { requester: userId, records, timestamp: new Date().toISOString() };
       existing.push(entry);
       fs.writeFileSync(file, JSON.stringify(existing, null, 2));
@@ -421,11 +432,18 @@ async function handleAwaitingCobrosConfirmation(message, userId) {
 
 async function handleAwaitingPaymentConfirmation(message, userId) {
   if (message.hasMedia) {
-    const media = await message.downloadMedia();
+    // Si envían imagen, asumimos pago exitoso.
     await message.reply("Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
     userStates.delete(userId);
   } else {
-    await message.reply("Por favor, envía el comprobante de la transacción.");
+    // Check for text confirmation like "ya pague" using simple regex or AI if critical
+    const body = message.body.toLowerCase();
+    if (body.includes("ya pague") || body.includes("listo") || body.includes("claro que si")) {
+      await message.reply("Perfecto, estaré atento al comprobante. Si ya lo enviaste, un asesor te responderá pronto.");
+      userStates.delete(userId); // O mantener en estado 'waiting_for_credential'
+    } else {
+      await message.reply("Por favor, envía el comprobante de la transacción.");
+    }
   }
 }
 
@@ -435,8 +453,8 @@ async function processCheckCredentials(message, userId) {
 
     // Consulta SQL con normalización usando el pool
     const [clients] = await pool.query(
-        'SELECT clienteID, nombre FROM datos_de_cliente WHERE REPLACE(REPLACE(REPLACE(numero, " ", ""), "-", ""), ".", "") = ?',
-        [phoneNumber]
+      'SELECT clienteID, nombre FROM datos_de_cliente WHERE REPLACE(REPLACE(REPLACE(numero, " ", ""), "-", ""), ".", "") = ?',
+      [phoneNumber]
     );
     if (clients.length > 0) {
       let replyMessage = "Estas son tus cuentas actuales:\n";
@@ -677,11 +695,11 @@ async function calculateAndShowPrice(message, userId) {
 
 // Esto evita que el bot se cierre si hay un error de código imprevisto
 process.on('uncaughtException', (err) => {
-    console.error('🔥 Error No Capturado (El bot sigue vivo):', err);
+  console.error('🔥 Error No Capturado (El bot sigue vivo):', err);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
+  console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
 });
 
 client.initialize();
