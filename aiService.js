@@ -1,10 +1,18 @@
 require('dotenv').config();
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+
+// List of models to try in order. Prioritizes flash models.
+const MODELS = [
+  "gemini-2.0-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-3-flash"
+];
 
 /**
  * Call Gemini API with a given prompt and system instruction.
+ * Implements a fallback mechanism rotating through available models in case of 429 Quota Exceeded.
  * @param {string} prompt 
  * @param {string} systemInstruction 
  * @returns {Promise<string>}
@@ -28,23 +36,52 @@ async function callGemini(prompt, systemInstruction = "You are a helpful assista
     }
   };
 
-  try {
-    const response = await fetch(`${API_URL}?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+  for (const modelName of MODELS) {
+    const startTime = Date.now();
+    try {
+      // console.log(`Attempting with model: ${modelName}...`);
+      const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini API Error: ${response.status} ${response.statusText} - ${errText}`);
+      const response = await fetch(`${API_URL}?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.status === 404) {
+        console.warn(`⚠️ Model ${modelName} not found (404). Check API availability. Trying next...`);
+        continue;
+      }
+
+      if (response.status === 429) {
+        console.warn(`⚠️ Quota exceeded for ${modelName} (429). Rotating to next model...`);
+        continue;
+      }
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gemini API Error (${modelName}): ${response.status} ${response.statusText} - ${errText}`);
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!text) {
+        // Sometimes response might be empty or blocked, treat as failure to try next?
+        // Or throw? Let's just return "{}" if it looks valid but empty.
+        return "{}";
+      }
+
+      // console.log(`Success with ${modelName}`);
+      return text;
+
+    } catch (error) {
+      console.error(`Error with ${modelName}:`, error.message);
+      // If it's the last model, throw the error
+      if (modelName === MODELS[MODELS.length - 1]) {
+        throw new Error("All fallback models failed or exceeded quota.");
+      }
     }
-
-    const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-  } catch (error) {
-    console.error("Error calling Gemini API:", error);
-    throw error;
   }
 }
 
