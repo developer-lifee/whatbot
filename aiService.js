@@ -17,7 +17,7 @@ const MODELS = [
  * @param {string} systemInstruction 
  * @returns {Promise<string>}
  */
-async function callGemini(prompt, systemInstruction = "You are a helpful assistant.") {
+async function callGemini(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.") {
   if (!GEMINI_API_KEY) {
     console.error("GEMINI_API_KEY is missing in .env");
     throw new Error("GEMINI_API_KEY not configured");

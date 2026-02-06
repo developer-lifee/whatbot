@@ -442,6 +442,8 @@ async function processPaymentSelection(message, userId, text) {
 async function handleAwaitingPaymentConfirmation(message, userId) {
   // Check if user is trying to switch payment method
   const newMethodCheck = await detectPaymentMethod(message.body);
+  console.log(`[DEBUG] Payment switch check for '${message.body}': ${newMethodCheck}`);
+
   if (newMethodCheck) {
     await message.reply("Entendido, cambiamos el método de pago.");
     await processPaymentSelection(message, userId, message.body);
