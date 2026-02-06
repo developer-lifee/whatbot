@@ -573,10 +573,11 @@ async function startPurchaseProcess(message, userId) {
     return;
   }
   let reply = "Plataformas disponibles para compra:\n";
-  platforms.forEach((p, index) => {
-    reply += `${index + 1}. ${p.name} - Precio base: $${p.price}\n`;
+  platforms.forEach((p) => {
+    reply += `• ${p.name} - Precio base: $${p.plans[0].price}\n`;
   });
-  reply += "\nResponde con los nombres de las plataformas que deseas, separados por coma (ej. Netflix, Disney+).";
+
+  reply += '\nResponde con los nombres de las plataformas que deseas, separados por coma (ej. Netflix, Disney+).';
   await message.reply(reply);
   userStates.set(userId, 'awaiting_purchase_platforms');
 }
@@ -738,10 +739,10 @@ async function showAvailablePlatforms(message, userId) {
   }
 
   let reply = 'Plataformas disponibles para agregar:\n';
-  available.forEach((p, idx) => {
-    reply += `${idx + 1}. ${p.name}\n`;
+  available.forEach((p) => {
+    reply += `• ${p.name}\n`;
   });
-  reply += '\nResponde con el número de la plataforma para agregar, o "volver" para continuar con la selección actual.';
+  reply += '\nResponde con el nombre de la plataforma para agregar, o "volver" para continuar con la selección actual.';
 
   await message.reply(reply);
 }
@@ -832,7 +833,7 @@ async function calculateAndShowPrice(message, userId) {
 
   await message.reply(responseText);
 
-  let paymentOptions = "⭐Nequi\n⭐Transfiya\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
+  let paymentOptions = "⭐Nequi\n⭐Llave Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
   // Pasamos el total calculado al siguiente estado
   userStates.set(userId, { state: 'awaiting_payment_method', total: totalPrice, items: selected });
