@@ -540,58 +540,62 @@ async function startPurchaseProcess(message, userId) {
 
 async function handleAwaitingPurchasePlatforms(message, userId) {
   const mensaje = message.body;
-  const elementos = mensaje.split(", ");
+
+  // Usar AI para extraer intención
+  const intent = await parsePurchaseIntent(mensaje);
+  console.log("[DEBUG] Purchase Option 1 Intent:", JSON.stringify(intent, null, 2));
+  const { items, subscriptionType } = intent;
+
+  if (!items || items.length === 0) {
+    await message.reply("No pude identificar las plataformas. Por favor intenta escribiendo los nombres claros, por ejemplo: Netflix, Disney.");
+    return;
+  }
 
   const platforms = await getPlatforms();
   const platformMap = new Map(platforms.map(p => [p.name.toLowerCase(), p]));
 
   let selectedItems = [];
   let invalidElements = [];
-  elementos.forEach(elem => {
-    const trimmed = elem.trim();
-    if (trimmed.includes(" - ")) {
-      const [platName, planName] = trimmed.split(" - ").map(s => s.trim());
-      const platform = platformMap.get(platName.toLowerCase());
-      if (platform) {
-        const plan = platform.plans.find(p => p.name.toLowerCase() === planName.toLowerCase());
-        if (plan) {
-          selectedItems.push({ platform, plan });
-        } else {
-          invalidElements.push(trimmed);
-        }
-      } else {
-        invalidElements.push(trimmed);
+
+  // Mapear items retornados por AI a plataformas reales
+  items.forEach(item => {
+    // Fuzzy match platform name
+    const targetPlatform = item.platform.toLowerCase();
+    const platform = platforms.find(p => p.name.toLowerCase().includes(targetPlatform)) ||
+      platforms.find(p => targetPlatform.includes(p.name.toLowerCase()));
+
+    if (platform) {
+      let chosenPlan = null;
+      if (item.plan) {
+        const targetPlan = item.plan.toLowerCase();
+        chosenPlan = platform.plans.find(p => p.name.toLowerCase().includes(targetPlan));
       }
+      selectedItems.push({ platform, chosenPlan });
     } else {
-      const platform = platformMap.get(trimmed.toLowerCase());
-      if (platform) {
-        selectedItems.push({ platform, plan: null }); // Sin plan especificado
-      } else {
-        invalidElements.push(trimmed);
-      }
+      invalidElements.push(item.platform);
     }
   });
 
   if (invalidElements.length > 0) {
-    // Reportar al grupo para validación
+    // Reportar al grupo para validación si hay alucinaciones o plataformas no soportadas
     try {
       const chat = await client.getChatById(GROUP_ID);
       if (chat) {
-        await chat.sendMessage(`🚨 Nuevo caso de compra: Usuario ${userId.replace('@c.us', '')} intentó comprar: ${mensaje}. Necesita validación.`);
-      } else {
-        console.error('Grupo no encontrado con ID:', GROUP_ID);
+        await chat.sendMessage(`🚨 Nuevo caso de compra (Opt 1): Usuario ${userId.replace('@c.us', '')} pidió: ${mensaje}. IA identificó inválidos: ${invalidElements.join(', ')}.`);
       }
     } catch (error) {
       console.error('Error enviando mensaje al grupo:', error);
     }
-    await message.reply("Tu solicitud ha sido enviada a un asesor para validación. Te atenderán pronto.");
+    await message.reply(`Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}. Contactaremos a un asesor.`);
     userStates.delete(userId);
     return;
   }
 
-  // Iniciar selección de planes para las plataformas seleccionadas
-  let selected = selectedItems.map(s => ({ platform: s.platform, chosenPlan: s.plan }));
-  userStates.set(userId, { state: 'selecting_plans', selected, currentIndex: 0 });
+  // Iniciar selección de planes si hace falta alguno
+  // Guardamos subscriptionType en el estado para el cálculo final
+  userStates.set(userId, { state: 'selecting_plans', selected: selectedItems, currentIndex: 0, subscriptionType: subscriptionType || 'mensual' });
+
+  // Si ya todos tienen plan (porque el usuario fue específico), showPlanSelection detectará que puede avanzar o verificar
   await showPlanSelection(message, userId);
 }
 
@@ -601,12 +605,20 @@ async function showPlanSelection(message, userId) {
 
   const { selected, currentIndex } = state;
 
+  // Si ya recorrimos todos los items
   if (currentIndex >= selected.length) {
     await calculateAndShowPrice(message, userId);
     return;
   }
 
   const current = selected[currentIndex];
+  // Si ya tiene plan asignado (por la IA), saltamos al siguiente
+  if (current.chosenPlan) {
+    state.currentIndex++;
+    await showPlanSelection(message, userId); // Recursivo / Iterativo
+    return;
+  }
+
   const platform = current.platform;
 
   let reply = `Selecciona el plan para ${platform.name}:\n`;
@@ -626,7 +638,7 @@ async function handleSelectingPlans(message, userId) {
   const body = message.body.trim().toLowerCase();
 
   if (body === 'agregar') {
-    userStates.set(userId, { state: 'adding_platform', selected });
+    userStates.set(userId, { state: 'adding_platform', selected, subscriptionType: state.subscriptionType }); // Preserve subscriptionType
     await showAvailablePlatforms(message, userId);
     return;
   }
@@ -657,7 +669,7 @@ async function showAvailablePlatforms(message, userId) {
 
   if (available.length === 0) {
     await message.reply('No hay más plataformas disponibles para agregar.');
-    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: state.selected.length - 1 });
+    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: state.selected.length - 1, subscriptionType: state.subscriptionType });
     await showPlanSelection(message, userId);
     return;
   }
@@ -678,7 +690,7 @@ async function handleAddingPlatform(message, userId) {
   const body = message.body.trim().toLowerCase();
 
   if (body === 'volver') {
-    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: 0 });
+    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: 0, subscriptionType: state.subscriptionType });
     await showPlanSelection(message, userId);
     return;
   }
@@ -695,13 +707,15 @@ async function handleAddingPlatform(message, userId) {
   }
 
   state.selected.push({ platform: available[selection], chosenPlan: null });
-  userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: state.selected.length - 1 });
+  // Regresar a loop de seleccion
+  userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: state.selected.length - 1, subscriptionType: state.subscriptionType });
   await showPlanSelection(message, userId);
 }
 
 async function calculateAndShowPrice(message, userId) {
   const state = userStates.get(userId);
   const selected = state.selected;
+  const subscriptionType = state.subscriptionType || 'mensual'; // Recuperar tipo de suscripción
 
   let totalPrice = 0;
   let responseText = 'Has seleccionado:\n';
@@ -719,13 +733,25 @@ async function calculateAndShowPrice(message, userId) {
     responseText += `\nDescuento por combo: -$${discount}\n`;
   }
 
-  responseText += `Total: $${totalPrice}`;
+  // Ajuste por periodo (Lógica copiada de handleSubscriptionInterest)
+  let periodText = "/mes";
+  if (subscriptionType === 'anual') {
+    totalPrice = totalPrice * 12 * 0.85;
+    periodText = "/año";
+  } else if (subscriptionType === 'semestral') {
+    totalPrice = totalPrice * 6 * 0.93;
+    periodText = "/semestre";
+  }
+
+  totalPrice = Math.round(totalPrice);
+  responseText += `\nTotal (${subscriptionType}): $${totalPrice}${periodText}`;
 
   await message.reply(responseText);
 
   let paymentOptions = "⭐Nequi\n⭐Transfiya\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
-  userStates.set(userId, 'awaiting_payment_method');
+  // Pasamos el total calculado al siguiente estado
+  userStates.set(userId, { state: 'awaiting_payment_method', total: totalPrice, items: selected });
 }
 
 // --- AL FINAL DEL ARCHIVO index.js ---

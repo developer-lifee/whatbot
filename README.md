@@ -1,3 +1,64 @@
+# 🤖 Sheerit WhatBot Documentation
+
+Este repositorio contiene el código fuente del bot de WhatsApp para **Sheerit**, encargado de automatizar ventas, gestión de credenciales y cobranza de servicios de streaming.
+
+## 🌟 Características Principales
+
+### 1. 🧠 Inteligencia Artificial (Gemini Powered)
+El bot utiliza modelos de Google Gemini (`gemini-2.0-flash`, `gemini-3-flash`, etc.) para entender el lenguaje natural del usuario en puntos clave:
+- **Intención de Compra**: Detecta qué plataformas, planes y periodos (mensual, anual) desea el usuario, incluso si lo escribe de forma coloquial (ej: _"Quiero netfi y disni por un año"_).
+- **Métodos de Pago**: Identifica dinámicamente el banco o billetera que el usuario quiere usar (Nequi, Daviplata, Bancolombia, etc.).
+- **Fallback Automático**: Si un modelo de IA falla o excede la cuota de uso, el sistema rota automáticamente a otro modelo disponible.
+
+### 2. 🛒 Flujo de Compra Automatizado
+- **Activación**: Opción 1 del menú o frase "Hola, estoy interesado en...".
+- **Selección Inteligente**:
+    1. El usuario dice qué quiere.
+    2. La IA extrae los items (Plataformas/Planes).
+    3. El bot valida contra `data/platforms.json`.
+    4. Se calculan precios, descuentos por combo y ajustes por periodo (anual/semestral).
+- **Proceso de Pago**: El bot entrega los datos de la cuenta bancaria correcta según la elección del usuario.
+
+### 3. 🔐 Consulta de Credenciales
+- **Activación**: Opción 2 del menú.
+- **Funcionamiento**: Consulta la base de datos MySQL (`datos_de_cliente`, `perfil`, `datosCuenta`) usando el número de teléfono del usuario.
+- **Resultado**: Entrega correo, contraseña, perfil, PIN y fecha de vencimiento de las cuentas activas.
+
+### 4. 💰 Sistema de Cobranza (Modo Operador)
+Comandos especiales para el administrador (definido en `OPERATOR_NUMBER`):
+- **Calculadora de Cobros**: Enviando `@bot porfa haz los cobros para hoy de: <lista>`, el bot parsea la lista, contacta a los usuarios individualmente y gestiona las confirmaciones.
+- **Liberar Sesión**: `liberar 3001234567` para desconectar al bot de un usuario y permitir atención humana.
+- **Confirmar Cobros**: `confirmar_cobros 3001234567` para registrar pagos manualmente.
+
+## 📂 Estructura del Proyecto
+
+- `index.js`: **Cerebro Principal**. Maneja la conexión de WhatsApp, escucha eventos y orquesta los estados del usuario.
+- `aiService.js`: **Módulo de IA**. Contiene la lógica para llamar a la API de Gemini, manejar reintentos y parsear respuestas JSON.
+- `database.js`: Configuración de la conexión a MySQL.
+- `scheduledTasks.js` / `getInfo.js`: Tareas programadas y utilidades de información.
+- `.wwebjs_auth/`: Almacena la sesión de WhatsApp (¡No borrar a menos que sea necesario re-escanear!).
+
+## 🚀 Cómo Iniciar
+
+1. **Instalar dependencias**:
+   ```bash
+   npm install
+   ```
+2. **Configurar entorno**:
+   - Asegúrate de tener el archivo `.env` con `GEMINI_API_KEY` y credenciales de BD.
+3. **Iniciar el bot**:
+   ```bash
+   npm start
+   ```
+   _Escanea el código QR si es la primera vez._
+
+## 🐛 Solución de Problemas Comunes
+
+- **El bot no responde**: Revisa si el proceso "zombie" de Node está corriendo (`ps aux | grep node`) o si hay logs de `auth_failure`.
+- **Error de Puppeteer/Chrome**: Verifica que no haya procesos de Chrome "colgados". El bot usa su propia versión de Chromium.
+
+---
+
 # 🚀 Roadmap de Refactorización & Modernización - WhatBot
 
 Este documento sirve como guía técnica para la migración del bot actual (monolítico) a una arquitectura escalable, segura y administrable dinámicamente.
@@ -70,22 +131,3 @@ Este documento sirve como guía técnica para la migración del bot actual (mono
   - Si el flujo actual tiene `usar_ia = 1`, capturar el input del usuario.
   - Enviar prompt con contexto de negocio.
   - Responder con el texto generado.
-
----
-
-💸 Manual de Operaciones: Módulo de Cobros
-El sistema cuenta con un parser inteligente de listas para cobranza masiva.
-
-1. Iniciar Proceso de Cobro
-
-Envía el mensaje con el prefijo exacto seguido de la lista (puedes copiar y pegar desde un Excel o TXT): @bot porfa haz los cobros para hoy de: Nombre, Teléfono
-
-2. Comandos de Administrador (Solo Operador)
-
-El número definido en OPERATOR_NUMBER tiene permisos especiales:
-
-liberar <teléfono>: Fuerza el cierre de la sesión de un usuario y le avisa que un humano lo atenderá.
-
-confirmar_cobros <teléfono>: Confirma manualmente los cobros pendientes de un usuario específico.
-
-*Última actualización: enero 2026*
