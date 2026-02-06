@@ -104,7 +104,14 @@ async function getPlatforms() {
 client.on('message', async (message) => {
   console.log('[DEBUG] Mensaje recibido de:', message.from, 'Contenido:', message.body);
   const userId = message.from;
-  const currentState = userStates.get(userId);
+  let currentStateData = userStates.get(userId);
+  let currentState = currentStateData;
+
+  // Si el estado es un objeto (nuevo formato), extraemos el string 'state' 
+  // para que el switch funcione.
+  if (currentStateData && typeof currentStateData === 'object') {
+    currentState = currentStateData.state;
+  }
 
   // Primero, verifica si el mensaje corresponde al inicio de una suscripción
 
@@ -380,6 +387,7 @@ async function handleSubscriptionInterest(message, userId) {
   responseText += `\nTotal calculado: $${calculatedTotal}${periodText}`;
 
   // 4. Comparar con statedPrice
+  // 4. Comparar con statedPrice
   if (statedPrice !== null && Math.abs(statedPrice - calculatedTotal) > 2000) {
     // Discrepancia significativa (> 2000 pesos)
     responseText += `\n\nNoté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
@@ -391,34 +399,67 @@ async function handleSubscriptionInterest(message, userId) {
   // IMPORTANTE: Guardamos el calculatedTotal para saber cuánto cobrar
   userStates.set(userId, { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems });
 
-  let paymentOptions = "⭐Nequi\n⭐Transfiya\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
+  let paymentOptions = "⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
 }
 
 async function handleAwaitingPaymentMethod(message, userId) {
+  await processPaymentSelection(message, userId, message.body);
+}
+
+async function processPaymentSelection(message, userId, text) {
   // Usar AI para detectar método de pago
-  const method = await detectPaymentMethod(message.body);
+  const method = await detectPaymentMethod(text);
 
   const paymentDetails = {
     'nequi': "3118587974",
     'daviplata': "3107946794",
     'bancolombia': "46772753713\nBancolombia - ahorros\nNumero de cuenta: 46772753713\nCC1032936324",
     'banco caja social': "24111572331\nESTEBAN AVILA\ncc: 1032936324",
-    'transfiya': "3118587974",
-    'llaves bre-v': "3118587974" // Normalized key from AI
+    'transfiya': "*LLAVE*\n3118587974", // Legacy support
+    'llaves bre-v': "*LLAVE*\n3118587974",
+    'llave bre-b': "*LLAVE*\n3118587974"
   };
 
   if (method && paymentDetails[method]) {
     await message.reply(paymentDetails[method]);
-    userStates.set(userId, 'awaiting_payment_confirmation'); // Move validation logic
+    // Save last selected method to allow switching
+    const state = userStates.get(userId);
+    userStates.set(userId, { ...state, state: 'awaiting_payment_confirmation' });
   } else {
     // Fallback manual check
-    let foundKey = Object.keys(paymentDetails).find(key => message.body.toLowerCase().includes(key));
+    let foundKey = Object.keys(paymentDetails).find(key => text.toLowerCase().includes(key));
     if (foundKey) {
       await message.reply(paymentDetails[foundKey]);
-      userStates.set(userId, 'awaiting_payment_confirmation');
+      const state = userStates.get(userId);
+      userStates.set(userId, { ...state, state: 'awaiting_payment_confirmation' });
     } else {
-      await message.reply("No entendí el método de pago. Por favor escribe uno de los siguientes: Nequi, Daviplata, Bancolombia, Banco Caja Social, Transfiya.");
+      await message.reply("No entendí el método de pago. Por favor escribe uno de los siguientes: Nequi, Daviplata, Bancolombia, Banco Caja Social, Llave Bre-B.");
+    }
+  }
+}
+
+async function handleAwaitingPaymentConfirmation(message, userId) {
+  // Check if user is trying to switch payment method
+  const newMethodCheck = await detectPaymentMethod(message.body);
+  if (newMethodCheck) {
+    await message.reply("Entendido, cambiamos el método de pago.");
+    await processPaymentSelection(message, userId, message.body);
+    return;
+  }
+
+  if (message.hasMedia) {
+    // Si envían imagen, asumimos pago exitoso.
+    await message.reply("Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
+    userStates.delete(userId);
+  } else {
+    // Check for text confirmation like "ya pague" using simple regex or AI if critical
+    const body = message.body.toLowerCase();
+    if (body.includes("ya pague") || body.includes("listo") || body.includes("claro que si")) {
+      await message.reply("Perfecto, estaré atento al comprobante. Si ya lo enviaste, un asesor te responderá pronto.");
+      userStates.delete(userId); // O mantener en estado 'waiting_for_credential'
+    } else {
+      await message.reply("Por favor, envía el comprobante de la transacción.");
     }
   }
 }
@@ -620,6 +661,15 @@ async function showPlanSelection(message, userId) {
   }
 
   const platform = current.platform;
+
+  // AUTO-SELECT: Si la plataforma solo tiene 1 plan, lo seleccionamos automáticamente
+  if (platform.plans.length === 1) {
+    selected[currentIndex].chosenPlan = platform.plans[0];
+    state.currentIndex++;
+    // Recursivo para procesar el siguiente item
+    await showPlanSelection(message, userId);
+    return;
+  }
 
   let reply = `Selecciona el plan para ${platform.name}:\n`;
   platform.plans.forEach((plan, idx) => {

@@ -127,7 +127,7 @@ async function parsePurchaseIntent(messageContent) {
 async function detectPaymentMethod(messageContent) {
   const prompt = `
     Identifica el método de pago mencionado en: "${messageContent}".
-    Opciones válidas: "nequi", "daviplata", "bancolombia", "banco caja social", "transfiya", "llaves bre-v".
+    Opciones válidas: "nequi", "daviplata", "bancolombia", "banco caja social", "transfiya", "llaves bre-v", "llave bre-b".
     
     Salida esperada JSON:
     {
