@@ -24,8 +24,8 @@ const isMac = process.platform === 'darwin';
 
 const client = new Client({
   puppeteer: {
-    // Si es Mac, usa tu Chrome. Si es Linux, usa el que trae Puppeteer (undefined)
-    executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
+    // executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
+    // Comentamos la ruta local para forzar el uso del Chromium que descarga Puppeteer automáticamente
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   },
@@ -76,6 +76,16 @@ const GROUP_ID = '120363102144405222@g.us';
 // Storage for temporary confirmations (e.g., pending cobros)
 const pendingConfirmations = new Map();
 
+client.on('message_create', (msg) => {
+  // message_create logs ALL messages, including those sent by the bot.
+  // If this fires but 'message' doesn't, we know the connection works but the filter is strict.
+  console.log('[DEBUG] Evento message_create disparado. De:', msg.from, 'Body:', msg.body);
+});
+
+client.on('change_state', state => {
+  console.log('CAMBIO DE ESTADO:', state);
+});
+
 // URL para obtener plataformas
 const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
 
@@ -92,6 +102,7 @@ async function getPlatforms() {
 }
 
 client.on('message', async (message) => {
+  console.log('[DEBUG] Mensaje recibido de:', message.from, 'Contenido:', message.body);
   const userId = message.from;
   const currentState = userStates.get(userId);
 
