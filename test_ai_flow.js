@@ -7,7 +7,7 @@ async function test() {
         console.warn("⚠️ Warning: GEMINI_API_KEY not found in .env. Tests will fail if they rely on real API calls.");
     }
 
-    // Test Case 1: Purchase Intent
+    // Test Case 1: Purchase Intent (Exact User Message)
     const msg1 = "Hola, estoy interesado en el siguiente combo: Netflix - Básico, ChatGPT - Compartida. Precio total: $ 32.000/mes";
     console.log(`\nInput 1: "${msg1}"`);
     const result1 = await parsePurchaseIntent(msg1);

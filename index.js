@@ -2,7 +2,6 @@ const http = require('http');
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { pool } = require('./database');
-const { pool } = require('./database');
 const schedule = require('node-schedule');
 const { parsePurchaseIntent, detectPaymentMethod } = require('./aiService');
 
@@ -168,7 +167,16 @@ client.on('message', async (message) => {
     }
   }
 
-  if (message.body && message.body.toLowerCase().startsWith("hola, estoy interesado en")) {
+  // Clean message body: remove starting/ending quotes if present, trim
+  let cleanBody = message.body ? message.body.trim() : "";
+  if (cleanBody.startsWith('"') && cleanBody.endsWith('"')) {
+    cleanBody = cleanBody.slice(1, -1).trim();
+  }
+
+  if (cleanBody.toLowerCase().startsWith("hola, estoy interesado en")) {
+    console.log(`[DEBUG] Triggered purchase flow with: "${cleanBody}"`);
+    // Mutate body directly to preserve prototypes (message.reply function)
+    message.body = cleanBody;
     await handleSubscriptionInterest(message, userId);
     return;
   }
@@ -262,6 +270,7 @@ async function handleSubscriptionInterest(message, userId) {
 
   // 1. Usar AI para parsear la intención
   const intent = await parsePurchaseIntent(mensaje);
+  console.log("[DEBUG] AI Intent Result:", JSON.stringify(intent, null, 2));
   const { items, statedPrice, subscriptionType } = intent;
 
   if (!items || items.length === 0) {
