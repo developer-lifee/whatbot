@@ -43,6 +43,23 @@ client.on('ready', () => {
   console.log('Conexión establecida correctamente');
 });
 
+client.on('loading_screen', (percent, message) => {
+  console.log('CARGANDO PANTALLA', percent, message);
+});
+
+client.on('authenticated', () => {
+  console.log('AUTENTICADO');
+});
+
+client.on('auth_failure', msg => {
+  // Fails if the session is not restored successfully
+  console.error('FALLO DE AUTENTICACION', msg);
+});
+
+client.on('disconnected', (reason) => {
+  console.log('Cliente desconectado', reason);
+});
+
 // Map para manejar el estado de los usuarios
 //Se usa la libreria llamada "node-schedule", cualquier duda o cambio, REVISAR LA DOCUMENTACION <3
 // https://www.npmjs.com/package/node-schedule 
@@ -711,4 +728,4 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
 });
 
-client.initialize();
+client.initialize().catch(err => console.error('Error al inicializar cliente:', err));
