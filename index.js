@@ -688,7 +688,8 @@ async function handleSelectingPlans(message, userId) {
   const body = message.body.trim().toLowerCase();
 
   if (body === 'agregar') {
-    userStates.set(userId, { state: 'adding_platform', selected, subscriptionType: state.subscriptionType }); // Preserve subscriptionType
+    // Save current index to return to it later
+    userStates.set(userId, { state: 'adding_platform', selected, subscriptionType: state.subscriptionType, returnIndex: currentIndex });
     await showAvailablePlatforms(message, userId);
     return;
   }
@@ -696,8 +697,16 @@ async function handleSelectingPlans(message, userId) {
   const selection = parseInt(body) - 1;
   const current = selected[currentIndex];
 
+  // Defensive check
+  if (!current || !current.platform) {
+    console.error("[ERROR] Current item is undefined in handleSelectingPlans. Resetting index.");
+    state.currentIndex = 0;
+    await showPlanSelection(message, userId);
+    return;
+  }
+
   if (isNaN(selection) || selection < 0 || selection >= current.platform.plans.length) {
-    await message.reply('Selección inválida. Responde con el número del plan o "agregar".');
+    await message.reply('No te entendí. Por favor dime el número del plan (ej: 1) o escribe "agregar" si quieres algo más.');
     return;
   }
 
@@ -719,7 +728,9 @@ async function showAvailablePlatforms(message, userId) {
 
   if (available.length === 0) {
     await message.reply('No hay más plataformas disponibles para agregar.');
-    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: state.selected.length - 1, subscriptionType: state.subscriptionType });
+    // Restore index
+    const nextIndex = state.returnIndex !== undefined ? state.returnIndex : state.selected.length - 1;
+    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: nextIndex, subscriptionType: state.subscriptionType });
     await showPlanSelection(message, userId);
     return;
   }
@@ -740,7 +751,8 @@ async function handleAddingPlatform(message, userId) {
   const body = message.body.trim().toLowerCase();
 
   if (body === 'volver') {
-    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: 0, subscriptionType: state.subscriptionType });
+    const nextIndex = state.returnIndex !== undefined ? state.returnIndex : 0;
+    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: nextIndex, subscriptionType: state.subscriptionType });
     await showPlanSelection(message, userId);
     return;
   }
@@ -757,8 +769,10 @@ async function handleAddingPlatform(message, userId) {
   }
 
   state.selected.push({ platform: available[selection], chosenPlan: null });
-  // Regresar a loop de seleccion
-  userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: state.selected.length - 1, subscriptionType: state.subscriptionType });
+
+  // Restore index to continue where we left off (or process the new item if queue was empty)
+  const nextIndex = state.returnIndex !== undefined ? state.returnIndex : state.selected.length - 1;
+  userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: nextIndex, subscriptionType: state.subscriptionType });
   await showPlanSelection(message, userId);
 }
 
@@ -769,12 +783,30 @@ async function calculateAndShowPrice(message, userId) {
 
   let totalPrice = 0;
   let responseText = 'Has seleccionado:\n';
+  let hasErrors = false;
 
   selected.forEach(s => {
     const plan = s.chosenPlan;
+    if (!plan) {
+      // Should not happen if logic is correct, but prevents crash
+      hasErrors = true;
+      return;
+    }
     totalPrice += plan.price;
     responseText += `- ${s.platform.name} (${plan.name}): $${plan.price}\n`;
   });
+
+  if (hasErrors) {
+    // Recovery mode: filter out invalid items or restart selection?
+    // For now, let's just restart selection for those missing items
+    const firstMissingIndex = selected.findIndex(s => !s.chosenPlan);
+    if (firstMissingIndex !== -1) {
+      console.log("Found missing plan at index", firstMissingIndex, "restarting selection loop.");
+      userStates.set(userId, { state: 'selecting_plans', selected: selected, currentIndex: firstMissingIndex, subscriptionType });
+      await showPlanSelection(message, userId);
+      return;
+    }
+  }
 
   const numPlatforms = selected.length;
   if (numPlatforms > 1) {
