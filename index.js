@@ -27,7 +27,15 @@ const client = new Client({
     // executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
     // Comentamos la ruta local para forzar el uso del Chromium que descarga Puppeteer automáticamente
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--disable-gpu'
+    ]
   },
   authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
   // Deshabilitar la marca automática de mensajes como vistos para evitar error de markedUnread
@@ -103,6 +111,12 @@ async function getPlatforms() {
 
 client.on('message', async (message) => {
   console.log('[DEBUG] Mensaje recibido de:', message.from, 'Contenido:', message.body);
+
+  // Ignorar mensajes de grupos y estados
+  if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) {
+    return;
+  }
+
   const userId = message.from;
   let currentStateData = userStates.get(userId);
   let currentState = currentStateData;
