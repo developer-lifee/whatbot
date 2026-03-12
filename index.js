@@ -3,7 +3,7 @@ const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { pool } = require('./database');
 const schedule = require('node-schedule');
-const { parsePurchaseIntent, detectPaymentMethod } = require('./aiService');
+const { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse } = require('./aiService');
 
 // Crear servidor HTTP
 const server = http.createServer((req, res) => {
@@ -545,35 +545,32 @@ async function processCheckCredentials(message, userId) {
   try {
     const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); // Elimina todos los caracteres que no son dígitos
 
-    // Consulta SQL con normalización usando el pool
-    const [clients] = await pool.query(
-      'SELECT clienteID, nombre FROM datos_de_cliente WHERE REPLACE(REPLACE(REPLACE(numero, " ", ""), "-", ""), ".", "") = ?',
-      [phoneNumber]
-    );
-    if (clients.length > 0) {
-      let replyMessage = "Estas son tus cuentas actuales:\n";
-      for (const client of clients) {
-        // Obtener los perfiles y el pin de perfil usando el clienteID.
-        const [profiles] = await pool.query('SELECT idCuenta, pinPerfil FROM perfil WHERE clienteID = ?', [client.clienteID]);
-        for (const profile of profiles) {
-          // Obtener los detalles de la cuenta usando idCuenta.
-          const [accounts] = await pool.query(`
-            SELECT c.correo, c.clave, c.fechaCuenta, lm.nombre_cuenta
-            FROM datosCuenta c
-            JOIN lista_maestra lm ON c.id_streaming = lm.id_streaming
-            WHERE c.idCuenta = ?
-          `, [profile.idCuenta]);
-          for (const account of accounts) {
-            replyMessage += `\n${account.nombre_cuenta.toUpperCase()}\n\nCORREO: ${account.correo}\nCONTRASEÑA: ${account.clave}\nPERFIL: ${client.nombre}-${profile.pinPerfil}\n\nEL SERVICIO VENCERÁ EL DÍA: ${new Date(account.fechaCuenta).toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' })}\n`;
-          }
-        }
-      }
-      await message.reply(replyMessage);
-    } else {
-      await message.reply(`No se encontraron cuentas asociadas al número ${phoneNumber}.`);
+    // Conectar a la API de Azure con los datos del Excel
+    const url = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readexcelfunction";
+    const response = await fetch(url);
+    const json = await response.json();
+    const clientes = json.data;
+
+    if (!clientes || !Array.isArray(clientes)) {
+      throw new Error("Formato de datos no válido desde Azure");
     }
+
+    // Filtrar filas vacías (donde Nombre no exista o esté vacío)
+    const clientesLimpios = clientes.filter(cliente => cliente.Nombre && cliente.Nombre.trim() !== "");
+
+    // Buscar los registros que coinciden con el número
+    const userAccounts = clientesLimpios.filter(c => {
+      if (!c.numero) return false;
+      const normalizedJsonNumber = c.numero.toString().replace(/\D/g, '');
+      return normalizedJsonNumber === phoneNumber || (normalizedJsonNumber.length >= 10 && phoneNumber.endsWith(normalizedJsonNumber.slice(-10)));
+    });
+
+    // Generar la respuesta usando IA para un tono humano
+    const aiResponse = await generateCredentialsResponse(userAccounts);
+    await message.reply(aiResponse);
+
   } catch (error) {
-    console.error('Error al buscar en la base de datos:', error);
+    console.error('Error al buscar en la base de datos de Azure:', error);
     await message.reply("Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
   }
   userStates.delete(userId);

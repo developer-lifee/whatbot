@@ -17,7 +17,7 @@ const MODELS = [
  * @param {string} systemInstruction 
  * @returns {Promise<string>}
  */
-async function callGemini(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.") {
+async function callGemini(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true) {
   if (!GEMINI_API_KEY) {
     console.error("GEMINI_API_KEY is missing in .env");
     throw new Error("GEMINI_API_KEY not configured");
@@ -30,11 +30,14 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
     }],
     systemInstruction: {
       parts: [{ text: systemInstruction }]
-    },
-    generationConfig: {
-      responseMimeType: "application/json"
     }
   };
+
+  if (isJson) {
+    payload.generationConfig = {
+      responseMimeType: "application/json"
+    };
+  }
 
   for (const modelName of MODELS) {
     const startTime = Date.now();
@@ -67,17 +70,13 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!text) {
-        // Sometimes response might be empty or blocked, treat as failure to try next?
-        // Or throw? Let's just return "{}" if it looks valid but empty.
-        return "{}";
+        return isJson ? "{}" : "";
       }
 
-      // console.log(`Success with ${modelName}`);
       return text;
 
     } catch (error) {
       console.error(`Error with ${modelName}:`, error.message);
-      // If it's the last model, throw the error
       if (modelName === MODELS[MODELS.length - 1]) {
         throw new Error("All fallback models failed or exceeded quota.");
       }
@@ -111,7 +110,7 @@ async function parsePurchaseIntent(messageContent) {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un asistente que extrae datos estructurados de pedidos.");
+    const jsonString = await callGemini(prompt, "Eres un asistente que extrae datos estructurados de pedidos.", true);
     return JSON.parse(jsonString);
   } catch (error) {
     console.error("Error parsing purchase intent:", error);
@@ -136,7 +135,7 @@ async function detectPaymentMethod(messageContent) {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un clasificador de métodos de pago. Responde solo con JSON.");
+    const jsonString = await callGemini(prompt, "Eres un clasificador de métodos de pago. Responde solo con JSON.", true);
     const result = JSON.parse(jsonString);
     return result.method; // Puede ser null
   } catch (error) {
@@ -145,4 +144,54 @@ async function detectPaymentMethod(messageContent) {
   }
 }
 
-module.exports = { parsePurchaseIntent, detectPaymentMethod };
+/**
+ * Generates a human-like response for delivering credentials to the user.
+ * @param {Array} userAccounts - The accounts found for the user.
+ * @returns {Promise<string>}
+ */
+async function generateCredentialsResponse(userAccounts) {
+  let cuentasTexto = "";
+  if (!userAccounts || userAccounts.length === 0) {
+     cuentasTexto = "El usuario no tiene cuentas activas en este momento o no encontramos registros asociados a su número.";
+  } else {
+     userAccounts.forEach(acc => {
+       const streamingName = (acc.Streaming || "Servicio").toUpperCase();
+       const correo = acc.correo || "N/A";
+       const clave = acc["contraseña"] || "N/A";
+       const perfil = `${acc.Nombre || ""}-${acc["pin perfil"] || ""}`;
+       
+       let fechaVencimiento = "Fecha desconocida";
+       if (acc.deben && !isNaN(parseFloat(acc.deben))) {
+           const excelDate = parseFloat(acc.deben);
+           const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+           fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+       } else if (acc.vencimiento) {
+           fechaVencimiento = acc.vencimiento;
+       }
+       cuentasTexto += `- Plataforma: ${streamingName}\n  Correo: ${correo}\n  Clave: ${clave}\n  Perfil: ${perfil}\n  Vencimiento: ${fechaVencimiento}\n\n`;
+     });
+  }
+
+  const prompt = `
+  Eres un agente humano y empático de servicio al cliente de "Sheerit".
+  Un cliente nos ha pedido revisar sus credenciales de streaming.
+  
+  Aquí están los datos de sus plataformas:
+  ${cuentasTexto}
+
+  Por favor, redacta un mensaje de WhatsApp para el cliente entregándole esta información de manera amable, clara y amigable.
+  Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
+  
+  No incluyas saludos genéricos como "[Tu Nombre]". Puedes despedirte en nombre del equipo de Sheerit.
+  `;
+
+  try {
+    const responseText = await callGemini(prompt, "Eres un asesor de servicio al cliente en WhatsApp para Sheerit. Escribe de forma humana, directa y empática.", false);
+    return responseText.trim();
+  } catch (error) {
+    console.error("Error generating credentials response:", error);
+    return "Hola! Aquí tienes tus credenciales:\n\n" + cuentasTexto + "\nSi necesitas ayuda, avísame.";
+  }
+}
+
+module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse };
