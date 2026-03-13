@@ -109,13 +109,31 @@ async function getPlatforms() {
   }
 }
 
+const BOT_START_TIME = Math.floor(Date.now() / 1000);
+
 client.on('message', async (message) => {
-  console.log('[DEBUG] Mensaje recibido de:', message.from, 'Contenido:', message.body);
+  // Ignorar mensajes antiguos (los que se enviaron antes de que el bot arrancara)
+  // Esto evita que responda a todos los no leídos de golpe.
+  if (message.timestamp < BOT_START_TIME) {
+    // console.log('[DEBUG] Ignorando mensaje antiguo de:', message.from);
+    return;
+  }
+
+  // Ignorar si el mensaje fue enviado por el propio bot (para evitar bucles)
+  if (message.fromMe) {
+    return;
+  }
 
   // Ignorar mensajes de grupos y estados
   if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) {
     return;
   }
+  
+  if (message.from.includes('@lid')) {
+    return; // Ignorar identificadores de WhatsApp nativos si no son números normales
+  }
+
+  console.log('[DEBUG] Mensaje recibido de:', message.from, 'Contenido:', message.body);
 
   const userId = message.from;
   let currentStateData = userStates.get(userId);
@@ -335,16 +353,16 @@ async function handleSubscriptionInterest(message, userId) {
 
   items.forEach(item => {
     // Fuzzy match platform name
-    const targetPlatform = item.platform.toLowerCase();
-    const platform = platforms.find(p => p.name.toLowerCase().includes(targetPlatform)) ||
-      platforms.find(p => targetPlatform.includes(p.name.toLowerCase()));
+    const targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const platform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
+      platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
 
     if (platform) {
       // Fuzzy match plan name if provided
       let plan = null;
       if (item.plan) {
-        const targetPlan = item.plan.toLowerCase();
-        plan = platform.plans.find(p => p.name.toLowerCase().includes(targetPlan));
+        const targetPlan = item.plan.toLowerCase().replace(/[^a-z0-9]/g, '');
+        plan = platform.plans.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlan));
       }
       // Default to first plan if not found or not specified (user validation later? or just pick first?)
       // Logic says: if user said "Netflix" without plan, we marked plan as null.
@@ -615,15 +633,15 @@ async function handleAwaitingPurchasePlatforms(message, userId) {
   // Mapear items retornados por AI a plataformas reales
   items.forEach(item => {
     // Fuzzy match platform name
-    const targetPlatform = item.platform.toLowerCase();
-    const platform = platforms.find(p => p.name.toLowerCase().includes(targetPlatform)) ||
-      platforms.find(p => targetPlatform.includes(p.name.toLowerCase()));
+    const targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const platform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
+      platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
 
     if (platform) {
       let chosenPlan = null;
       if (item.plan) {
-        const targetPlan = item.plan.toLowerCase();
-        chosenPlan = platform.plans.find(p => p.name.toLowerCase().includes(targetPlan));
+        const targetPlan = item.plan.toLowerCase().replace(/[^a-z0-9]/g, '');
+        chosenPlan = platform.plans.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlan));
       }
       selectedItems.push({ platform, chosenPlan });
     } else {
