@@ -14,6 +14,14 @@ const server = http.createServer((req, res) => {
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
   console.log(`Servidor corriendo en el puerto ${port}`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`🔥 ERROR: El puerto ${port} ya está en uso.`);
+    console.error(`Intenta matar el proceso ejecutando: lsof -i :${port} y luego kill -9 <PID>`);
+    process.exit(1);
+  } else {
+    console.error('Error al iniciar el servidor:', err);
+  }
 });
 
 // Nota: usamos `./database.js` que expone `pool` (mysql2/promise pool)
@@ -25,7 +33,6 @@ const isMac = process.platform === 'darwin';
 const client = new Client({
   puppeteer: {
     // executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
-    // Comentamos la ruta local para forzar el uso del Chromium que descarga Puppeteer automáticamente
     headless: true,
     args: [
       '--no-sandbox',
@@ -34,13 +41,31 @@ const client = new Client({
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
       '--no-zygote',
-      '--disable-gpu'
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-software-rasterizer'
     ]
   },
   authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
-  // Deshabilitar la marca automática de mensajes como vistos para evitar error de markedUnread
-  markOnlineAvailable: false
+  markOnlineAvailable: false,
+  takeoverOnConflict: true, // Intenta retomar la sesión si hay conflicto
+  takeoverTimeoutMs: 10000
 });
+
+// Manejo de cierres limpios
+async function shutdown() {
+  console.log('Cerrando bot de forma limpia...');
+  try {
+    if (client) await client.destroy();
+    if (server) server.close();
+    process.exit(0);
+  } catch (e) {
+    process.exit(1);
+  }
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
 
 // Generar QR para conexión
 client.on('qr', (qr) => {
