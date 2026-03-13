@@ -110,18 +110,20 @@ const GROUP_ID = '120363102144405222@g.us';
 const pendingConfirmations = new Map();
 
 client.on('message_create', async (msg) => {
-  // message_create logs ALL messages, including those sent by the bot.
-  // console.log('[DEBUG] Evento message_create disparado. De:', msg.from, 'Body:', msg.body);
+  // Ignorar si el mensaje es antiguo
+  if (msg.timestamp < BOT_START_TIME) return;
 
   // DETECTAR INTERVENCIÓN HUMANA: Si el mensaje lo envío yo manualmente
-  // a un chat que NO es un grupo, silenciamos el bot para ese usuario.
+  // a un chat que NO es un grupo y NO tiene el emoji del bot.
   if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast')) {
     const targetId = msg.to;
-    // Si el mensaje NO contiene prefijos típicos del bot (opcional, para ser precisos)
-    // O simplemente cualquier mensaje enviado manualmente "pisa" al bot.
-    if (userStates.get(targetId) !== 'waiting_human') {
-      console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Pasando a estado 'waiting_human'.`);
-      userStates.set(targetId, 'waiting_human');
+    
+    // Si el mensaje NO contiene el emoji 🤖, asumimos que fue enviado manualmente.
+    if (!msg.body.includes('🤖')) {
+      if (userStates.get(targetId) !== 'waiting_human') {
+        console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Pasando a estado 'waiting_human'.`);
+        userStates.set(targetId, 'waiting_human');
+      }
     }
   }
 });
@@ -225,19 +227,28 @@ client.on('message', async (message) => {
     return;
   }
 
-  // Admin/operator commands: liberar <phone>
+  // Comandos de operador/administrador
   if (message.from === OPERATOR_NUMBER) {
-    const body = (message.body || '').trim();
-    if (body.toLowerCase().startsWith('liberar ')) {
-      const phone = body.split(' ')[1].replace(/\D/g, '');
-      const targetId = phone + '@c.us';
-      if (userStates.has(targetId)) {
-        userStates.delete(targetId);
-        await client.sendMessage(targetId, 'Tu caso ha sido retomado por un agente humano. Un asesor te atenderá pronto.');
-        await message.reply(`Se liberó la intervención para ${phone}`);
-      } else {
-        await message.reply(`No hay ninguna sesión en espera para ${phone}`);
+    const body = (message.body || '').trim().toLowerCase();
+    
+    // Comando para liberar el bot (quitar modo humano)
+    if (body.startsWith('!bot') || body.startsWith('!liberar') || body.startsWith('liberar ')) {
+      let targetPhone = body.replace('!bot', '').replace('!liberar', '').replace('liberar', '').trim().replace(/\D/g, '');
+      
+      // Si no especificó número, intentamos usar el del chat actual si es privado
+      if (!targetPhone && !message.from.includes('@g.us')) {
+        targetPhone = userId.replace(/\D/g, '');
       }
+
+      if (targetPhone) {
+        const targetId = targetPhone + '@c.us';
+        userStates.delete(targetId);
+        await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
+        await message.reply(`✅ Bot reactivado para ${targetPhone}`);
+      } else {
+        await message.reply('❌ Por favor especifica el número (ej: !bot 57311...)');
+      }
+      return;
     }
     // allow operator to confirm pending charges on behalf of user: confirmar_cobros <phone>
     if (body.toLowerCase().startsWith('confirmar_cobros ')) {
@@ -288,12 +299,13 @@ client.on('message', async (message) => {
     case undefined:
       userStates.set(userId, 'main_menu');
       await message.reply(
+        "🤖 *Hola! Soy el asistente de Sheerit.*\n\n" +
         "Aquí tienes las opciones disponibles:\n" +
         "1 - Comprar cuenta\n" +
         "2 - Revisar credenciales\n" +
         "3 - Pagar mis cuentas\n" +
         "4 - No puedo acceder a mi cuenta\n" +
-        "5 - Otro\n" +
+        "5 - Otro\n\n" +
         "Por favor, responde *SOLO* con el número de la opción que deseas."
       );
       break;
@@ -326,12 +338,12 @@ client.on('message', async (message) => {
       break;
     case 'seleccionar_servicio':
       userStates.delete(userId);
-      await message.reply("ERROR");
+      await message.reply("🤖 ERROR");
       break;
     default:
       let state = currentState;
       userStates.delete(userId);
-      await message.reply(`Estabas en el estado: '${state}'. No comprendo tu selección. Vamos a empezar de nuevo.`);
+      await message.reply(`🤖 Estabas en el estado: '${state}'. No comprendo tu selección. Vamos a empezar de nuevo.`);
       break;
   }
 });
@@ -351,7 +363,7 @@ async function handleMainMenuSelection(message, userId) {
       break;
     case '4':
       userStates.set(userId, 'seleccionar_servicio');
-      await message.reply("Tenemos una guia de articulos que te pueden ayudar a solucionar tu problema,\n\n sheerit.com.co/aiuda ");
+      await message.reply("🤖 Tenemos una guia de articulos que te pueden ayudar a solucionar tu problema,\n\n sheerit.com.co/aiuda ");
       break;
     case '5':
       // Reportar al grupo para atención humana
@@ -365,11 +377,11 @@ async function handleMainMenuSelection(message, userId) {
       } catch (error) {
         console.error('Error enviando mensaje al grupo:', error);
       }
-      await message.reply("Un asesor te atenderá lo más pronto posible. He silenciado mis respuestas automáticas para que puedas hablar con un humano.");
+      await message.reply("🤖 Un asesor te atenderá lo más pronto posible. He silenciado mis respuestas automáticas para que puedas hablar con un humano.");
       userStates.set(userId, 'waiting_human');
       break;
     default:
-      await message.reply("Por favor, selecciona una opción válida del menú.");
+      await message.reply("🤖 Por favor, selecciona una opción válida del menú.");
       break;
   }
 }
@@ -383,7 +395,7 @@ async function handleSubscriptionInterest(message, userId) {
   const { items, statedPrice, subscriptionType } = intent;
 
   if (!items || items.length === 0) {
-    await message.reply("No pude entender qué servicios deseas. Por favor, intenta de nuevo especificando el nombre de la plataforma y el plan.");
+    await message.reply("🤖 No pude entender qué servicios deseas. Por favor, intenta de nuevo especificando el nombre de la plataforma y el plan.");
     return;
   }
 
@@ -417,7 +429,7 @@ async function handleSubscriptionInterest(message, userId) {
 
   if (invalidElements.length > 0) {
     // Si la AI alucinó plataformas que no existen o el usuario pidió algo raro
-    await message.reply(`Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}.`);
+    await message.reply(`🤖 Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}.`);
     return;
   }
 
@@ -467,13 +479,13 @@ async function handleSubscriptionInterest(message, userId) {
     responseText += `\n\nNoté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
   }
 
-  await message.reply(responseText);
+  await message.reply('🤖 ' + responseText);
 
   // Guardar estado para pago
   // IMPORTANTE: Guardamos el calculatedTotal para saber cuánto cobrar
   userStates.set(userId, { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems });
 
-  let paymentOptions = "⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
+  let paymentOptions = "🤖 ⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
 }
 
@@ -508,7 +520,7 @@ async function processPaymentSelection(message, userId, text) {
       const state = userStates.get(userId);
       userStates.set(userId, { ...state, state: 'awaiting_payment_confirmation' });
     } else {
-      await message.reply("No entendí el método de pago. Por favor escribe uno de los siguientes: Nequi, Daviplata, Bancolombia, Banco Caja Social, Llave Bre-B.");
+      await message.reply("🤖 No entendí el método de pago. Por favor escribe uno de los siguientes: Nequi, Daviplata, Bancolombia, Banco Caja Social, Llave Bre-B.");
     }
   }
 }
@@ -519,23 +531,23 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
   console.log(`[DEBUG] Payment switch check for '${message.body}': ${newMethodCheck}`);
 
   if (newMethodCheck) {
-    await message.reply("Entendido, cambiamos el método de pago.");
+    await message.reply("🤖 Entendido, cambiamos el método de pago.");
     await processPaymentSelection(message, userId, message.body);
     return;
   }
 
   if (message.hasMedia) {
     // Si envían imagen, asumimos pago exitoso.
-    await message.reply("Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
+    await message.reply("🤖 Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
     userStates.delete(userId);
   } else {
     // Check for text confirmation like "ya pague" using simple regex or AI if critical
     const body = message.body.toLowerCase();
     if (body.includes("ya pague") || body.includes("listo") || body.includes("claro que si")) {
-      await message.reply("Perfecto, estaré atento al comprobante. Si ya lo enviaste, un asesor te responderá pronto.");
+      await message.reply("🤖 Perfecto, estaré atento al comprobante. Si ya lo enviaste, un asesor te responderá pronto.");
       userStates.delete(userId); // O mantener en estado 'waiting_for_credential'
     } else {
-      await message.reply("Por favor, envía el comprobante de la transacción.");
+      await message.reply("🤖 Por favor, envía el comprobante de la transacción.");
     }
   }
 }
@@ -546,7 +558,7 @@ async function handleAwaitingCobrosConfirmation(message, userId) {
     if (body === 'si' || body === 'sí') {
       const records = pendingConfirmations.get(userId) || [];
       if (records.length === 0) {
-        await message.reply('No hay cobros pendientes para confirmar.');
+        await message.reply('🤖 No hay cobros pendientes para confirmar.');
         userStates.delete(userId);
         return;
       }
@@ -566,19 +578,19 @@ async function handleAwaitingCobrosConfirmation(message, userId) {
         await client.sendMessage(dest, `Se enviará un cobro para *${r.name}* solicitado por ${userId}. Por favor, responde si el pago fue realizado.`);
       }
 
-      await message.reply('He guardado los cobros y he notificado a cada número individualmente.');
+      await message.reply('🤖 He guardado los cobros y he notificado a cada número individualmente.');
       pendingConfirmations.delete(userId);
       userStates.delete(userId);
     } else if (body === 'no') {
       pendingConfirmations.delete(userId);
       userStates.delete(userId);
-      await message.reply('Operación cancelada. No se enviaron cobros.');
+      await message.reply('🤖 Operación cancelada. No se enviaron cobros.');
     } else {
-      await message.reply('Por favor responde *SI* para confirmar o *NO* para cancelar.');
+      await message.reply('🤖 Por favor responde *SI* para confirmar o *NO* para cancelar.');
     }
   } catch (error) {
     console.error("Error en confirmación de cobros:", error);
-    await message.reply("⚠️ Ocurrió un error procesando tu solicitud. Por favor contacta al administrador.");
+    await message.reply("🤖 ⚠️ Ocurrió un error procesando tu solicitud. Por favor contacta al administrador.");
     // Opcional: Reiniciar estado del usuario para que no se quede trabado
     userStates.delete(userId);
   }
@@ -614,7 +626,7 @@ async function processCheckCredentials(message, userId) {
 
   } catch (error) {
     console.error('Error al buscar en la base de datos de Azure:', error);
-    await message.reply("Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
+    await message.reply("🤖 Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
   }
   userStates.delete(userId);
 }
@@ -669,19 +681,19 @@ async function processCheckPrices(message, userId) {
         replyMessage += `\n\nTotal estimado: $${totalToPay}`;
       }
 
-      replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia";
+      replyMessage += "\n\n🤖 ¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia";
       
       await message.reply(replyMessage);
       
       // Guardar estado para esperar comprobante/método de pago
       userStates.set(userId, { state: 'awaiting_payment_method', total: totalToPay > 0 ? totalToPay : null, isRenewal: true, items: userAccounts });
     } else {
-      await message.reply(`No encontramos cuentas pendientes o asociadas al número ${phoneNumber}. Si crees que hay un error, contacta a un asesor. 😊`);
+      await message.reply(`🤖 No encontramos cuentas pendientes o asociadas al número ${phoneNumber}. Si crees que hay un error, contacta a un asesor. 😊`);
       userStates.delete(userId);
     }
   } catch (error) {
     console.error('Error en processCheckPrices con la base de datos de Azure:', error);
-    await message.reply("Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
+    await message.reply("🤖 Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
     userStates.delete(userId);
   }
 }
@@ -689,7 +701,7 @@ async function processCheckPrices(message, userId) {
 async function startPurchaseProcess(message, userId) {
   const platforms = await getPlatforms();
   if (platforms.length === 0) {
-    await message.reply("No se pudieron cargar las plataformas. Inténtalo más tarde.");
+    await message.reply("🤖 No se pudieron cargar las plataformas. Inténtalo más tarde.");
     userStates.delete(userId);
     return;
   }
@@ -698,7 +710,7 @@ async function startPurchaseProcess(message, userId) {
     reply += `• ${p.name} - Precio base: $${p.plans[0].price}\n`;
   });
 
-  reply += '\nResponde con los nombres de las plataformas que deseas, separados por coma (ej. Netflix, Disney+).';
+  reply += '\n🤖 Responde con los nombres de las plataformas que deseas, separados por coma (ej. Netflix, Disney+).';
   await message.reply(reply);
   userStates.set(userId, 'awaiting_purchase_platforms');
 }
@@ -712,7 +724,7 @@ async function handleAwaitingPurchasePlatforms(message, userId) {
   const { items, subscriptionType } = intent;
 
   if (!items || items.length === 0) {
-    await message.reply("No pude identificar las plataformas. Por favor intenta escribiendo los nombres claros, por ejemplo: Netflix, Disney.");
+    await message.reply("🤖 No pude identificar las plataformas. Por favor intenta escribiendo los nombres claros, por ejemplo: Netflix, Disney.");
     return;
   }
 
@@ -751,7 +763,7 @@ async function handleAwaitingPurchasePlatforms(message, userId) {
     } catch (error) {
       console.error('Error enviando mensaje al grupo:', error);
     }
-    await message.reply(`Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}. Contactaremos a un asesor.`);
+    await message.reply(`🤖 Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}. Contactaremos a un asesor.`);
     userStates.delete(userId);
     return;
   }
@@ -799,7 +811,7 @@ async function showPlanSelection(message, userId) {
   platform.plans.forEach((plan, idx) => {
     reply += `${idx + 1}. ${plan.name} - $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
   });
-  reply += `\nResponde con el número del plan, o 'agregar' para añadir otra plataforma.`;
+  reply += `\n🤖 Responde con el número del plan, o 'agregar' para añadir otra plataforma.`;
 
   await message.reply(reply);
 }
@@ -830,7 +842,7 @@ async function handleSelectingPlans(message, userId) {
   }
 
   if (isNaN(selection) || selection < 0 || selection >= current.platform.plans.length) {
-    await message.reply('No te entendí. Por favor dime el número del plan (ej: 1) o escribe "agregar" si quieres algo más.');
+    await message.reply('🤖 No te entendí. Por favor dime el número del plan (ej: 1) o escribe "agregar" si quieres algo más.');
     return;
   }
 
@@ -851,7 +863,7 @@ async function showAvailablePlatforms(message, userId) {
   const available = platforms.filter(p => !selectedIds.includes(p.id));
 
   if (available.length === 0) {
-    await message.reply('No hay más plataformas disponibles para agregar.');
+    await message.reply('🤖 No hay más plataformas disponibles para agregar.');
     // Restore index
     const nextIndex = state.returnIndex !== undefined ? state.returnIndex : state.selected.length - 1;
     userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: nextIndex, subscriptionType: state.subscriptionType });
@@ -863,7 +875,7 @@ async function showAvailablePlatforms(message, userId) {
   available.forEach((p) => {
     reply += `• ${p.name}\n`;
   });
-  reply += '\nResponde con el nombre de la plataforma para agregar, o "volver" para continuar con la selección actual.';
+  reply += '\n🤖 Responde con el nombre de la plataforma para agregar, o "volver" para continuar con la selección actual.';
 
   await message.reply(reply);
 }
@@ -888,7 +900,7 @@ async function handleAddingPlatform(message, userId) {
   const selection = parseInt(body) - 1;
 
   if (isNaN(selection) || selection < 0 || selection >= available.length) {
-    await message.reply('Selección inválida. Responde con el número o "volver".');
+    await message.reply('🤖 Selección inválida. Responde con el número o "volver".');
     return;
   }
 
@@ -952,9 +964,9 @@ async function calculateAndShowPrice(message, userId) {
   totalPrice = Math.round(totalPrice);
   responseText += `\nTotal (${subscriptionType}): $${totalPrice}${periodText}`;
 
-  await message.reply(responseText);
+  await message.reply('🤖 ' + responseText);
 
-  let paymentOptions = "⭐Nequi\n⭐Llave Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
+  let paymentOptions = "🤖 ⭐Nequi\n⭐Llave Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
   // Pasamos el total calculado al siguiente estado
   userStates.set(userId, { state: 'awaiting_payment_method', total: totalPrice, items: selected });

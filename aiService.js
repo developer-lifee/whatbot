@@ -182,6 +182,7 @@ async function generateCredentialsResponse(userAccounts) {
   Por favor, redacta un mensaje de WhatsApp para el cliente entregándole esta información de manera amable, clara y amigable.
   Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
   
+  ⚠️ IMPORTANTE: Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.
   No incluyas saludos genéricos como "[Tu Nombre]". Puedes despedirte en nombre del equipo de Sheerit.
   `;
 
