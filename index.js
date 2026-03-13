@@ -109,10 +109,21 @@ const GROUP_ID = '120363102144405222@g.us';
 // Storage for temporary confirmations (e.g., pending cobros)
 const pendingConfirmations = new Map();
 
-client.on('message_create', (msg) => {
+client.on('message_create', async (msg) => {
   // message_create logs ALL messages, including those sent by the bot.
-  // If this fires but 'message' doesn't, we know the connection works but the filter is strict.
-  console.log('[DEBUG] Evento message_create disparado. De:', msg.from, 'Body:', msg.body);
+  // console.log('[DEBUG] Evento message_create disparado. De:', msg.from, 'Body:', msg.body);
+
+  // DETECTAR INTERVENCIÓN HUMANA: Si el mensaje lo envío yo manualmente
+  // a un chat que NO es un grupo, silenciamos el bot para ese usuario.
+  if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast')) {
+    const targetId = msg.to;
+    // Si el mensaje NO contiene prefijos típicos del bot (opcional, para ser precisos)
+    // O simplemente cualquier mensaje enviado manualmente "pisa" al bot.
+    if (userStates.get(targetId) !== 'waiting_human') {
+      console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Pasando a estado 'waiting_human'.`);
+      userStates.set(targetId, 'waiting_human');
+    }
+  }
 });
 
 client.on('change_state', state => {
@@ -298,6 +309,12 @@ client.on('message', async (message) => {
     case 'awaiting_payment_confirmation':
       await handleAwaitingPaymentConfirmation(message, userId);
       break;
+    case 'waiting_human':
+      // El bot está en modo silencioso por intervención humana.
+      // Se puede reactivar si el operador manda 'liberar <numero>' o si el usuario
+      // explícitamente pide volver al menú? Por ahora, silencio total.
+      console.log(`[DEBUG] Usuario ${userId} en modo waiting_human. Bot ignorando.`);
+      break;
     case 'awaiting_purchase_platforms':
       await handleAwaitingPurchasePlatforms(message, userId);
       break;
@@ -348,8 +365,8 @@ async function handleMainMenuSelection(message, userId) {
       } catch (error) {
         console.error('Error enviando mensaje al grupo:', error);
       }
-      await message.reply("Un asesor te atenderá lo más pronto posible.");
-      userStates.delete(userId);
+      await message.reply("Un asesor te atenderá lo más pronto posible. He silenciado mis respuestas automáticas para que puedas hablar con un humano.");
+      userStates.set(userId, 'waiting_human');
       break;
     default:
       await message.reply("Por favor, selecciona una opción válida del menú.");
@@ -564,23 +581,6 @@ async function handleAwaitingCobrosConfirmation(message, userId) {
     await message.reply("⚠️ Ocurrió un error procesando tu solicitud. Por favor contacta al administrador.");
     // Opcional: Reiniciar estado del usuario para que no se quede trabado
     userStates.delete(userId);
-  }
-}
-
-async function handleAwaitingPaymentConfirmation(message, userId) {
-  if (message.hasMedia) {
-    // Si envían imagen, asumimos pago exitoso.
-    await message.reply("Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
-    userStates.delete(userId);
-  } else {
-    // Check for text confirmation like "ya pague" using simple regex or AI if critical
-    const body = message.body.toLowerCase();
-    if (body.includes("ya pague") || body.includes("listo") || body.includes("claro que si")) {
-      await message.reply("Perfecto, estaré atento al comprobante. Si ya lo enviaste, un asesor te responderá pronto.");
-      userStates.delete(userId); // O mantener en estado 'waiting_for_credential'
-    } else {
-      await message.reply("Por favor, envía el comprobante de la transacción.");
-    }
   }
 }
 
