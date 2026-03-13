@@ -428,9 +428,15 @@ async function handleSubscriptionInterest(message, userId) {
   });
 
   if (invalidElements.length > 0) {
-    // Si la AI alucinó plataformas que no existen o el usuario pidió algo raro
     await message.reply(`🤖 Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}.`);
-    return;
+    // Si no quedaron plataformas válidas, pedimos ayuda humana.
+    if (selectedItems.length === 0) {
+      userStates.set(userId, 'waiting_human');
+      await message.reply("🤖 Un asesor te contactará pronto para ver si podemos ayudarte con algo más.");
+      return;
+    }
+    // Si quedan plataformas válidas, simplemente seguimos informando cuáles sí procesaremos.
+    await message.reply(`🤖 Pero ¡buena noticia! Sí podemos ayudarte con el resto de tu pedido.`);
   }
 
   // 3. Calcular precio real
@@ -536,19 +542,27 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
     return;
   }
 
-  if (message.hasMedia) {
-    // Si envían imagen, asumimos pago exitoso.
-    await message.reply("🤖 Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
-    userStates.delete(userId);
-  } else {
-    // Check for text confirmation like "ya pague" using simple regex or AI if critical
-    const body = message.body.toLowerCase();
-    if (body.includes("ya pague") || body.includes("listo") || body.includes("claro que si")) {
-      await message.reply("🤖 Perfecto, estaré atento al comprobante. Si ya lo enviaste, un asesor te responderá pronto.");
-      userStates.delete(userId); // O mantener en estado 'waiting_for_credential'
-    } else {
-      await message.reply("🤖 Por favor, envía el comprobante de la transacción.");
+  if (message.hasMedia || body.includes("ya pague") || body.includes("listo") || body.includes("claro que si")) {
+    // Si envían imagen o confirman por texto, informamos al grupo y silenciamos bot
+    try {
+      const chat = await client.getChatById(GROUP_ID);
+      if (chat) {
+        const type = message.hasMedia ? "📸 Comprobante" : "✅ Confirmación de pago";
+        await chat.sendMessage(`🚨 ${type} recibido de @${userId.replace('@c.us', '')}. Por favor revisar.`);
+      }
+    } catch (error) {
+      console.error('Error enviando notificación de pago al grupo:', error);
     }
+
+    if (message.hasMedia) {
+      await message.reply("🤖 Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
+    } else {
+      await message.reply("🤖 Perfecto, estaré atento al comprobante. Si ya lo enviaste, un asesor te responderá pronto.");
+    }
+    
+    userStates.set(userId, 'waiting_human');
+  } else {
+    await message.reply("🤖 Por favor, envía el comprobante de la transacción.");
   }
 }
 
@@ -758,14 +772,21 @@ async function handleAwaitingPurchasePlatforms(message, userId) {
     try {
       const chat = await client.getChatById(GROUP_ID);
       if (chat) {
-        await chat.sendMessage(`🚨 Nuevo caso de compra (Opt 1): Usuario ${userId.replace('@c.us', '')} pidió: ${mensaje}. IA identificó inválidos: ${invalidElements.join(', ')}.`);
+        await chat.sendMessage(`🚨 Plataformas no identificables: Usuario ${userId.replace('@c.us', '')} pidió: ${mensaje}. Inválidos: ${invalidElements.join(', ')}.`);
       }
     } catch (error) {
       console.error('Error enviando mensaje al grupo:', error);
     }
-    await message.reply(`🤖 Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}. Contactaremos a un asesor.`);
-    userStates.delete(userId);
-    return;
+
+    await message.reply(`🤖 Lo siento, de momento no manejamos: ${invalidElements.join(', ')}.`);
+
+    if (selectedItems.length === 0) {
+      await message.reply("🤖 Enviaré tu caso a un asesor para que te ayude personalmente.");
+      userStates.set(userId, 'waiting_human');
+      return;
+    }
+
+    await message.reply(`🤖 Sigamos adelante con las plataformas que sí tenemos disponibles.`);
   }
 
   // Iniciar selección de planes si hace falta alguno
