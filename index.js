@@ -594,6 +594,73 @@ async function processCheckCredentials(message, userId) {
   userStates.delete(userId);
 }
 
+async function processCheckPrices(message, userId) {
+  try {
+    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); // Elimina todos los caracteres que no son dígitos
+
+    // Conectar a la API de Azure con los datos del Excel
+    const url = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readexcelfunction";
+    const response = await fetch(url);
+    const json = await response.json();
+    const clientes = json.data;
+
+    if (!clientes || !Array.isArray(clientes)) {
+      throw new Error("Formato de datos no válido desde Azure");
+    }
+
+    // Filtrar filas vacías (donde Nombre no exista o esté vacío)
+    const clientesLimpios = clientes.filter(cliente => cliente.Nombre && cliente.Nombre.trim() !== "");
+
+    // Buscar los registros que coinciden con el número
+    const userAccounts = clientesLimpios.filter(c => {
+      if (!c.numero) return false;
+      const normalizedJsonNumber = c.numero.toString().replace(/\D/g, '');
+      return normalizedJsonNumber === phoneNumber || (normalizedJsonNumber.length >= 10 && phoneNumber.endsWith(normalizedJsonNumber.slice(-10)));
+    });
+
+    if (userAccounts.length > 0) {
+      let replyMessage = "Tus cuentas actuales para renovar o pagar son:\n";
+      let totalToPay = 0;
+
+      for (const account of userAccounts) {
+        let fechaVencimiento = "Fecha desconocida";
+        if (account.deben && !isNaN(parseFloat(account.deben))) {
+            const excelDate = parseFloat(account.deben);
+            const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+            fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+        } else if (account.vencimiento) {
+            fechaVencimiento = account.vencimiento;
+        }
+
+        const streamingName = (account.Streaming || "SERVICIO").toUpperCase();
+        const price = parseFloat(account["Ingreso Mensual"]) || 0;
+        totalToPay += price;
+
+        replyMessage += `\n• ${streamingName} (Vence el ${fechaVencimiento})`;
+        if (price > 0) replyMessage += ` - $${price}`;
+      }
+      
+      if (totalToPay > 0) {
+        replyMessage += `\n\nTotal estimado: $${totalToPay}`;
+      }
+
+      replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia";
+      
+      await message.reply(replyMessage);
+      
+      // Guardar estado para esperar comprobante/método de pago
+      userStates.set(userId, { state: 'awaiting_payment_method', total: totalToPay > 0 ? totalToPay : null, isRenewal: true, items: userAccounts });
+    } else {
+      await message.reply(`No encontramos cuentas pendientes o asociadas al número ${phoneNumber}. Si crees que hay un error, contacta a un asesor. 😊`);
+      userStates.delete(userId);
+    }
+  } catch (error) {
+    console.error('Error en processCheckPrices con la base de datos de Azure:', error);
+    await message.reply("Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
+    userStates.delete(userId);
+  }
+}
+
 async function startPurchaseProcess(message, userId) {
   const platforms = await getPlatforms();
   if (platforms.length === 0) {
