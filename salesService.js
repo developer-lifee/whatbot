@@ -1,4 +1,4 @@
-const { parsePurchaseIntent } = require('./aiService');
+const { parsePurchaseIntent, parsePlanSelection } = require('./aiService');
 
 const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
 
@@ -252,17 +252,19 @@ async function handleSelectingPlans(message, userId, userStates) {
     return;
   }
 
-  const selection = parseInt(body) - 1;
   const current = selected[currentIndex];
+  let selection = parseInt(body) - 1;
 
-  if (!current || !current.platform) {
-    state.currentIndex = 0;
-    await showPlanSelection(message, userId, userStates);
-    return;
+  // Si no es un número directo, intentar con IA para entender la opción
+  if (isNaN(selection) || selection < 0) {
+    const aiSelection = await parsePlanSelection(message.body, current.platform.plans);
+    if (aiSelection !== null) {
+      selection = aiSelection - 1;
+    }
   }
 
   if (isNaN(selection) || selection < 0 || selection >= current.platform.plans.length) {
-    await message.reply('🤖 No te entendí. Por favor dime el número del plan (ej: 1) o escribe "agregar" si quieres algo más.');
+    await message.reply('🤖 No te entendí. Por favor dime el número del plan (ej: 1), di su nombre o escribe "agregar" si quieres algo más.');
     return;
   }
 

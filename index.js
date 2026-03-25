@@ -3,7 +3,7 @@ const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { pool } = require('./database');
 const schedule = require('node-schedule');
-const { detectPaymentMethod, generateCredentialsResponse } = require('./aiService');
+const { detectPaymentMethod, generateCredentialsResponse, generateEmpatheticFallback } = require('./aiService');
 const { getAccountsByPhone } = require('./apiService');
 const {
   startPurchaseProcess,
@@ -295,9 +295,18 @@ client.on('message', async (message) => {
 
   if (cleanBody.toLowerCase().startsWith("hola, estoy interesado en")) {
     console.log(`[DEBUG] Triggered purchase flow with: "${cleanBody}"`);
-    // Mutate body directly to preserve prototypes (message.reply function)
     message.body = cleanBody;
     await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+    return;
+  }
+
+  // --- FALLBACK GLOBAL PARA MULTIMEDIA (Stickers, Imágenes) ---
+  // Si envían algo que no sea texto y NO estamos esperando un comprobante de pago
+  if (message.hasMedia && currentState !== 'awaiting_payment_confirmation') {
+    const { getChatHistoryText } = require('./salesService');
+    const history = await getChatHistoryText(message);
+    const fallbackMsg = await generateEmpatheticFallback(message.body, true, history);
+    await message.reply(fallbackMsg);
     return;
   }
 
@@ -347,9 +356,11 @@ client.on('message', async (message) => {
       await message.reply("🤖 ERROR");
       break;
     default:
-      let state = currentState;
-      userStates.delete(userId);
-      await message.reply(`🤖 Estabas en el estado: '${state}'. No comprendo tu selección. Vamos a empezar de nuevo.`);
+      // Si el texto no encaja en ningún flujo y no es un comando conocido
+      const { getChatHistoryText } = require('./salesService');
+      const historyText = await getChatHistoryText(message);
+      const fallbackResponse = await generateEmpatheticFallback(message.body, false, historyText);
+      await message.reply(fallbackResponse);
       break;
   }
 });

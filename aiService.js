@@ -200,4 +200,67 @@ async function generateCredentialsResponse(userAccounts) {
   }
 }
 
-module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse };
+/**
+ * Identifies the selected plan from a user's natural language message.
+ * @param {string} messageContent 
+ * @param {Array} availablePlans 
+ * @returns {Promise<number|null>} The 1-based index of the plan or null.
+ */
+async function parsePlanSelection(messageContent, availablePlans) {
+  const plansText = availablePlans.map((p, i) => `${i + 1}. ${p.name} ($${p.price})`).join('\n');
+  const prompt = `
+    El usuario debe elegir un plan de la siguiente lista:
+    ${plansText}
+    
+    El mensaje del usuario es: "${messageContent}"
+    
+    Salida esperada JSON:
+    {
+        "selectedIndex": number | null // El número de la opción (1, 2, 3...) o null si no se entiende.
+    }
+  `;
+
+  try {
+    const jsonString = await callGemini(prompt, "Eres un asistente que identifica la opción elegida por el usuario. Responde solo con JSON.", true);
+    const result = JSON.parse(jsonString);
+    return result.selectedIndex;
+  } catch (error) {
+    console.error("Error parsing plan selection:", error);
+    return null;
+  }
+}
+
+/**
+ * Generates an empathetic response for unsupported media or off-script messages.
+ * @param {string} userMessage 
+ * @param {boolean} isMedia 
+ * @param {string} chatHistory 
+ * @returns {Promise<string>}
+ */
+async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = "") {
+  const prompt = `
+    El usuario envió un mensaje que el bot no puede procesar técnicamente (es un sticker, una imagen o un comentario fuera de lo que el bot está programado para hacer).
+    
+    Contexto de la conversación:
+    ${chatHistory}
+    
+    Mensaje/Archivo actual: "${isMedia ? "[ARCHIVO MULTIMEDIA/STICKER]" : userMessage}"
+    
+    Instrucciones:
+    1. Responde de forma cálida, empática y amigable.
+    2. Si es multimedia, menciona que te gustó (o un halago genérico) pero que por ahora solo entiendes texto.
+    3. Si es un comentario fuera de contexto, agradécelo amablemente.
+    4. Cierra invitando sutilmente al usuario a continuar con su solicitud técnica (comprar, renovar, etc.).
+    5. No más de 2 o 3 líneas. Incluye el emoji 🤖 al final.
+  `;
+
+  try {
+    const responseText = await callGemini(prompt, "Eres un asistente de servicio al cliente muy empático y humano.", false);
+    return responseText.trim();
+  } catch (error) {
+    console.error("Error generating empathetic fallback:", error);
+    return "¡Me encantó! Aunque por ahora solo entiendo texto, ¿en qué te puedo ayudar con tu cuenta? 🤖";
+  }
+}
+
+module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback };

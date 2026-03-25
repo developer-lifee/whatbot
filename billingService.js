@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getAccountsByPhone } = require('./apiService');
+const { getPlatforms } = require('./salesService');
 
 async function handleCobrosParser(message, userId, userStates, pendingConfirmations) {
   const payload = message.body.split(':')[1] || '';
@@ -82,34 +83,72 @@ async function processCheckPrices(message, userId, userStates) {
   try {
     const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); 
     const userAccounts = await getAccountsByPhone(phoneNumber);
+    const platforms = await getPlatforms();
 
     if (userAccounts.length > 0) {
       let replyMessage = "Tus cuentas actuales para renovar o pagar son:\n";
       let totalToPay = 0;
+      let dateGroups = new Map();
 
       for (const account of userAccounts) {
-        let fechaVencimiento = "Fecha desconocida";
+        let fechaVencimientoObj = null;
+        let fechaVencimientoStr = "Fecha desconocida";
+        
         if (account.deben && !isNaN(parseFloat(account.deben))) {
             const excelDate = parseFloat(account.deben);
-            const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
-            fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+            fechaVencimientoObj = new Date((excelDate - 25569) * 86400 * 1000);
+            fechaVencimientoObj = new Date(fechaVencimientoObj.getFullYear(), fechaVencimientoObj.getMonth(), fechaVencimientoObj.getDate());
+            fechaVencimientoStr = fechaVencimientoObj.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
         } else if (account.vencimiento) {
-            fechaVencimiento = account.vencimiento;
+            fechaVencimientoStr = account.vencimiento;
         }
 
         const streamingName = (account.Streaming || "SERVICIO").toUpperCase();
-        const price = parseFloat(account["Ingreso Mensual"]) || 0;
+        
+        // Intentar buscar el precio actualizado en el catálogo de ventas de forma robusta
+        let price = parseFloat(account["Ingreso Mensual"]) || 0;
+        const normalizedExcelName = streamingName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const catalogPlatform = platforms.find(p => {
+          const normalizedCatalogName = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+          return normalizedCatalogName === normalizedExcelName || normalizedExcelName.includes(normalizedCatalogName) || normalizedCatalogName.includes(normalizedExcelName);
+        });
+        
+        if (catalogPlatform && catalogPlatform.plans && catalogPlatform.plans.length > 0) {
+          // Usamos el precio del primer plan como base de renovación
+          const catalogPrice = catalogPlatform.plans[0].price;
+          if (catalogPrice > 0) {
+            price = catalogPrice;
+          }
+        }
+        
         totalToPay += price;
 
-        replyMessage += `\n• ${streamingName} (Vence el ${fechaVencimiento})`;
+        replyMessage += `\n• ${streamingName} (Vence el ${fechaVencimientoStr})`;
         if (price > 0) replyMessage += ` - $${price}`;
+
+        if (fechaVencimientoObj) {
+          const dateKey = fechaVencimientoObj.getTime();
+          dateGroups.set(dateKey, (dateGroups.get(dateKey) || 0) + 1);
+        }
       }
       
+      let totalDiscount = 0;
+      dateGroups.forEach((count) => {
+        if (count > 1) {
+          totalDiscount += (count - 1) * 1000;
+        }
+      });
+
+      if (totalDiscount > 0) {
+        totalToPay -= totalDiscount;
+        replyMessage += `\n\nDescuento por combo (vencimiento mismo día): -$${totalDiscount}`;
+      }
+
       if (totalToPay > 0) {
         replyMessage += `\n\nTotal a pagar: $${totalToPay} COP`;
       }
 
-      replyMessage += "\n\n🤖 *Importante:* Hemos sumado los precios estándar de tus servicios. Si tienes alguna duda sobre tu factura o crees que aplicas a algún descuento especial, por favor espera un momento a que un asesor humano revise tu caso personalmente. 😊";
+      replyMessage += "\n\n🤖 *Importante:* Hemos sumado los precios estándar de tus servicios con los descuentos por combo correspondientes. Si tienes alguna duda sobre tu factura o crees que aplicas a algún descuento adicional, por favor espera un momento a que un asesor humano revise tu caso personalmente. 😊";
 
       replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia";
       
