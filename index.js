@@ -135,6 +135,14 @@ client.on('message_create', async (msg) => {
   if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast')) {
     const targetId = msg.to;
     
+    // Comando directo en el chat para reactivar el bot
+    if (msg.body.trim().toLowerCase() === '@bot') {
+       userStates.delete(targetId);
+       console.log(`[BOT UNMUTE] Reactivado manualmente en el chat ${targetId}.`);
+       await client.sendMessage(targetId, '🤖 *HOLA DE NUEVO*: Un asesor me ha pedido retomar la atención automática. ¿En qué te puedo ayudar?');
+       return;
+    }
+
     // Si el mensaje NO contiene el emoji 🤖, asumimos que fue enviado manualmente.
     if (!msg.body.includes('🤖')) {
       if (userStates.get(targetId) !== 'waiting_human') {
