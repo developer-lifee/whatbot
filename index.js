@@ -98,6 +98,7 @@ client.on('disconnected', (reason) => {
 // https://www.npmjs.com/package/node-schedule 
 //se tiene que llamar la funcion de database y scheduledTask
 const userStates = new Map();
+let globalBotSleep = false;
 
 // Manejar mensajes entrantes
 // Admin/operator number to notify when a human intervention is required
@@ -163,10 +164,42 @@ client.on('message', async (message) => {
   }
 
   // Ignorar mensajes de grupos y estados
-  if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) {
-    return;
+  if (message.from.includes('@g.us')) {
+      // Interceptar comandos en el grupo personal
+      if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
+          const command = message.body.toLowerCase().replace('@bot', '').trim();
+          if (command === 'duermete') {
+              globalBotSleep = true;
+              await message.reply('😴 Modo dormido activado. No responderé a los clientes automáticamente hasta que me despiertes con *@bot despiertate*.');
+              return;
+          } else if (command === 'despiertate') {
+              globalBotSleep = false;
+              await message.reply('😃 ¡He despertado! Vuelvo a atender a los clientes.');
+              return;
+          } else if (command === 'funciones' || command === 'ayuda') {
+              await message.reply('🤖 *Mis funciones internas:*\n\n' +
+                '1. *Flujo de Ventas*: Atiendo a clientes, detecto intención de compra, calculo precios y ofrezco medios de pago mediante IA.\n' +
+                '2. *Consulta de Credenciales*: Busco en la base de datos a través de la API externa para entregar accesos a los clientes.\n' +
+                '3. *Cobranza Automática*: Genero notificaciones masivas de cobros al enviarme lista de deudores.\n' +
+                '4. *Modo Humano*: El comando `liberar <numero>` por parte de un operador desactiva la atención automática a un usuario.\n' +
+                '5. *Dormir/Despertar*: Con los comandos `@bot duermete` y `@bot despiertate` en este grupo puedo pausar/reanudar mis respuestas a todos los usuarios.'
+              );
+              return;
+          }
+      }
+      return; // Ignorar otros mensajes en grupos
   }
   
+  if (message.from.includes('status@broadcast')) {
+    return;
+  }
+
+  // Ignorar si el bot está dormido globalmente
+  if (globalBotSleep && message.from !== OPERATOR_NUMBER) {
+      console.log(`[DEBUG] Bot en modo dormido. Ignorando mensaje de: ${message.from}`);
+      return;
+  }
+
   if (message.from.includes('@lid')) {
     return; // Ignorar identificadores de WhatsApp nativos si no son números normales
   }

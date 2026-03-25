@@ -61,73 +61,59 @@ Comandos especiales para el administrador (definido en `OPERATOR_NUMBER`):
 
 # 🚀 Roadmap de Refactorización & Modernización - WhatBot
 
-Este documento sirve como guía técnica para la migración del bot actual (monolítico) a una arquitectura escalable, segura y administrable dinámicamente.
+Este documento sirve como guía técnica para la mejora continua del bot, priorizando la arquitectura basada en API sobre migraciones complejas de framework.
 
 ## 📌 Estado del Proyecto
-- [ ] **Fase 1:** Seguridad y Optimización Básica
-- [ ] **Fase 2:** Migración de Framework (BuilderBot)
-- [ ] **Fase 3:** Lógica Dinámica (Base de Datos)
-- [ ] **Fase 4:** Panel Web & Autenticación (Redis)
-- [ ] **Fase 5:** Integración Híbrida de IA
+- [/] **Fase 1:** Mejoras de Uso y Optimización Básica (En progreso)
+- [ ] **Fase 2:** Optimización de Integración API (Azure Functions)
+- [ ] **Fase 3:** Panel Web & Autenticación (Redis)
+- [ ] **Fase 4:** Integración Híbrida de IA
+- [~] *(Opcional)* Migración de Framework (BuilderBot) - *Postergado/Secundario*
 
 ---
 
-## 🛠️ Fase 1: Seguridad y Optimización (Inmediato)
-*Objetivo: Solucionar vulnerabilidades y problemas de rendimiento en el código actual.*
+## 🛠️ Fase 1: Mejoras de Uso y Optimización (En Progreso)
+*Objetivo: Mejorar la experiencia de uso actual, facilitar el control para operadores humanos y estabilizar la conexión.*
 
-- [ ] **Variables de Entorno (.env):**
-  - Sacar credenciales de `database.js`.
-  - Instalar `dotenv`.
-  - Crear archivo `.env` (y agregarlo a `.gitignore`).
-- [ ] **Connection Pool MySQL:**
-  - Modificar `database.js`.
-  - Reemplazar `mysql.createConnection` por `mysql.createPool`.
-  - **Motivo:** Evitar el error "Too many connections" y mejorar la velocidad de respuesta.
-- [ ] **Limpieza de Consultas:**
-  - Optimizar la sanitización de números telefónicos en JS antes de enviarlos a la SQL Query.
+- [x] **Mejoras de Operación y Control (Implementadas):**
+  - Se añadieron comandos directos en grupos (`@bot duermete`, `@bot despiertate`) para gestión humana ágil.
+  - Documentación en línea para el equipo (`@bot funciones`).
+- [ ] **Seguridad de Variables de Entorno:**
+  - Sacar credenciales en código (`database.js`) y moverlas a `.env`.
+- [ ] **Optimización de Base de Datos:**
+  - Reemplazar `mysql.createConnection` por `mysql.createPool` para prevenir errores de límite de conexiones simultáneas.
 
-## 🏗️ Fase 2: El Nuevo Cerebro (BuilderBot)
-*Objetivo: Cambiar la estructura de `switch/case` por flujos modernos.*
+## 🗄️ Fase 2: Optimización de Integración API
+*Objetivo: Centralizar la inteligencia del negocio en la nube (Azure Functions). Esto reduce la necesidad de un framework complejo local, ya que el bot actúa principalmente como interfaz comunicativa.*
 
-- [ ] **Instalación:**
-  - Inicializar proyecto con BuilderBot (`@builderbot/bot`, `@builderbot/provider-baileys`, `@builderbot/database-mysql`).
-- [ ] **Migración de Lógica:**
-  - Eliminar el bloque gigante `switch` de `index.js`.
-  - Crear flujos independientes (ej: `flowVentas`, `flowSoporte`).
-- [ ] **Adaptador MySQL:**
-  - Configurar BuilderBot para que guarde el estado de la sesión (contexto) automáticamente en la base de datos SQL existente.
+- [ ] **Desacoplar Lógica de Negocio:**
+  - Mover cálculos, formateos complejos y decisiones a las Azure Functions, aligerando el archivo `index.js`.
+- [ ] **Gestión Ágil de Endpoints:**
+  - Centralizar los llamados a `/api/readexcelfunction` y futuros endpoints en un módulo de servicios dedicado.
+- [ ] **Resiliencia (Manejo de Errores y Retries):**
+  - Implementar reconexiones automáticas si la API de Azure no responde para evitar caídas del flujo conversacional.
 
-## 🗄️ Fase 3: Lógica Dinámica (Table-Driven)
-*Objetivo: Que el bot lea qué decir desde la base de datos, permitiendo cambios sin tocar código.*
+## 🔐 Fase 3: Autenticación Web & Redis (OTP)
+*Objetivo: Permitir que los clientes se logueen en el panel web usando un código cifrado enviado a su WhatsApp.*
 
-- [ ] **Nuevas Tablas SQL:**
-  - Crear tabla `flujos` (id, nombre, mensaje_respuesta, tipo_accion).
-  - Crear tabla `opciones` (id, flujo_padre_id, keyword, flujo_destino_id).
-- [ ] **Router Inteligente:**
-  - Crear un "Flujo Maestro" en el bot que consulte estas tablas:
-    ```sql
-    SELECT * FROM opciones WHERE flujo_padre_id = ? AND keyword = ?
-    ```
+- [ ] **Infraestructura Ágil de Caché (Redis):**
+  - Levantar instancia de BD en memoria (Redis vía Upstash, etc.).
+- [ ] **Flujo de Login por WhatsApp:**
+  1. Usuario ingresa teléfono en el portal Web.
+  2. Web genera un PIN temporal y lo guarda en Redis con TTL de 5 min (`SET auth:57300... "4591"`).
+  3. Web notifica internamente al Bot y este lo envía: *"Tu código de acceso es: 4591"*.
+  4. Usuario ingresa el código en la Web validando su identidad de forma segura.
 
-## 🔐 Fase 4: Autenticación Web & Redis (OTP)
-*Objetivo: Permitir que los clientes se logueen en el panel web usando un código enviado a su WhatsApp.*
+## 🤖 Fase 4: Inteligencia Artificial (Híbrido Avanzado)
+*Objetivo: Usar la IA solo donde brinda valor agregado o resolución de consultas complejas.*
 
-- [ ] **Infraestructura Redis:**
-  - Levantar instancia de Redis (con Upstash).
-- [ ] **Flujo de Autenticación (Login):**
-  1. Usuario ingresa teléfono en la Web.
-  2. Web genera código (ej: `4591`) y lo guarda en Redis con TTL de 5 min:
-     `SET auth:573001234567 "4591" EX 300`
-  3. Web notifica al Bot (vía API interna o Pub/Sub).
-  4. Bot envía mensaje: *"Tu código de acceso es: 4591"*.
-  5. Usuario ingresa código en la Web -> Web valida contra Redis.
+- [ ] **IA con Contexto Directo:**
+  - Si el bot detecta dudas de soporte (ej. "Pantalla incorrecta"), extraer contexto desde Azure e inyectarlo en el Prompt de Gemini para una respuesta resolutiva inmediata.
+- [ ] **Optimización de Costos:**
+  - Clasificar intenciones de mensajes con expresiones regulares rápidas para evitar llamados a Gemini cuando no es necesario.
 
-## 🤖 Fase 5: Inteligencia Artificial (Híbrido)
-*Objetivo: Usar IA solo cuando sea necesario (FAQ compleja).*
+---
 
-- [ ] **Columna Flag IA:**
-  - Agregar columna `usar_ia` (boolean) en la tabla `flujos`.
-- [ ] **Integración OpenAI/Gemini:**
-  - Si el flujo actual tiene `usar_ia = 1`, capturar el input del usuario.
-  - Enviar prompt con contexto de negocio.
-  - Responder con el texto generado.
+## 🏗️ *(Opcional)* Migración de Framework a BuilderBot
+*Nota: Este objetivo anterior queda pospuesto.*
+- [ ] Al trasladar la lógica pesada a las funciones de Azure, la estructura actual con `whatsapp-web.js` se vuelve suficiente. Solo migraremos a BuilderBot si el enrutamiento de menús estáticos se vuelve insostenible.
