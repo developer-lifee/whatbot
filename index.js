@@ -59,12 +59,13 @@ const client = new Client({
       '--disable-gpu',
       '--disable-extensions',
       '--disable-software-rasterizer'
-    ]
+    ],
+    timeout: 60000, // Aumentar a 60 segundos
   },
   authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
   markOnlineAvailable: false,
-  takeoverOnConflict: true, // Intenta retomar la sesión si hay conflicto
-  takeoverTimeoutMs: 10000
+  takeoverOnConflict: true, 
+  takeoverTimeoutMs: 15000 
 });
 
 // Manejo de cierres limpios

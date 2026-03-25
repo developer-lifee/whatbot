@@ -106,10 +106,12 @@ async function processCheckPrices(message, userId, userStates) {
       }
       
       if (totalToPay > 0) {
-        replyMessage += `\n\nTotal estimado: $${totalToPay}`;
+        replyMessage += `\n\nTotal a pagar: $${totalToPay} COP`;
       }
 
-      replyMessage += "\n\n🤖 ¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia";
+      replyMessage += "\n\n🤖 *Importante:* Hemos sumado los precios estándar de tus servicios. Si tienes alguna duda sobre tu factura o crees que aplicas a algún descuento especial, por favor espera un momento a que un asesor humano revise tu caso personalmente. 😊";
+
+      replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia";
       
       await message.reply(replyMessage);
       userStates.set(userId, { state: 'awaiting_payment_method', total: totalToPay > 0 ? totalToPay : null, isRenewal: true, items: userAccounts });

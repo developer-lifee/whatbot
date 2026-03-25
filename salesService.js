@@ -374,8 +374,9 @@ async function calculateAndShowPrice(message, userId, userStates) {
     periodText = "/semestre";
   }
 
-  totalPrice = Math.round(totalPrice);
   responseText += `\nTotal (${subscriptionType}): $${totalPrice}${periodText}`;
+
+  responseText += "\n\n🤖 *Aviso:* He sumado los precios estándar. Si tienes dudas sobre el total o crees que aplicas a un descuento especial, no te preocupes, puedes esperar a que un asesor humano revise tu solicitud. 😊";
 
   await message.reply('🤖 ' + responseText);
 
