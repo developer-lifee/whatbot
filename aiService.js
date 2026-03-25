@@ -255,22 +255,34 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     ? "El usuario ha enviado una imagen o sticker que está adjunta a este prompt. Obsérvala detenidamente y analiza su contenido/emoción."
     : "";
 
+  let priceContext = "";
+  try {
+    const { getPlatforms } = require('./salesService');
+    const platforms = getPlatforms();
+    if (platforms && platforms.length > 0) {
+      priceContext = "Lista de precios mensuales actuales (si preguntan valores, cíñete a esto): " + 
+                     platforms.map(p => `${p.name}: $${p.price}`).join(', ') + ".";
+    }
+  } catch (e) { }
+
   const prompt = `
     El usuario envió un mensaje que el bot no puede procesar técnicamente mediante los flujos regulares.
     ${mediaInstruction}
     
-    Contexto de la conversación:
+    Contexto previo de la conversación:
     ${chatHistory}
+    
+    ${priceContext}
     
     Mensaje textual/Tipo: "${isMedia ? "[ARCHIVO MULTIMEDIA/STICKER]" : userMessage}"
     
     Instrucciones:
     1. Responde de forma cálida, empática y amigable.
-    2. Si adjuntó un sticker/imagen, haz referencia a lo que logras ver (la emoción, colores, si es un meme, o un error técnico) y explícale con tacto que por ahora prefieres que escriba o seleccione opciones textuales.
-    3. Si parece una captura de error técnico, recomiéndale visitar el centro de ayuda (sheerit.com.co/aiuda) o pedir la Opción 5 para hablar con un asesor.
-    4. Si es un comentario fuera de contexto, agradécelo amablemente.
-    5. Cierra invitando sutilmente al usuario a continuar con su solicitud.
-    6. No más de 3 líneas. Incluye el emoji 🤖 al final.
+    2. Si el usuario está preguntando por el precio de una plataforma o sobre un solo servicio antes de pagar, RESPÓNDE SU DUDA directamente basado en los "Precios actuales" listados arriba.
+    3. Si adjuntó un sticker/imagen, haz referencia a lo que logras ver (la emoción, colores, meme, o error técnico) y explícale con tacto que por ahora prefieres texto.
+    4. Si parece una captura de error técnico, recomiéndale visitar (sheerit.com.co/aiuda) o pedir la Opción 5 para hablar con un asesor.
+    5. Cierra invitando sutilmente al usuario a continuar con su solicitud (ej. "¿Por dónde te gustaría transferir?").
+    6. Sé directo, sin rodeos innecesarios. Máximo 4 líneas. Incluye el emoji 🤖 al final.
   `;
 
   try {

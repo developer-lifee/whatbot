@@ -474,18 +474,22 @@ async function processPaymentSelection(message, userId, text) {
 
   if (method && paymentDetails[method]) {
     await message.reply(paymentDetails[method]);
-    // Save last selected method to allow switching
     const state = userStates.get(userId);
-    userStates.set(userId, { ...state, state: 'awaiting_payment_confirmation' });
+    userStates.set(userId, typeof state === 'string' ? 'awaiting_payment_confirmation' : { ...state, state: 'awaiting_payment_confirmation' });
   } else {
     // Fallback manual check
     let foundKey = Object.keys(paymentDetails).find(key => text.toLowerCase().includes(key));
     if (foundKey) {
       await message.reply(paymentDetails[foundKey]);
       const state = userStates.get(userId);
-      userStates.set(userId, { ...state, state: 'awaiting_payment_confirmation' });
+      userStates.set(userId, typeof state === 'string' ? 'awaiting_payment_confirmation' : { ...state, state: 'awaiting_payment_confirmation' });
     } else {
-      await message.reply("🤖 No entendí el método de pago. Por favor escribe uno de los siguientes: Nequi, Daviplata, Bancolombia, Banco Caja Social, Llave Bre-B.");
+      // Usar la IA en vez del mensaje genérico terco (esto responde precios exactos gracias a aiService)
+      const { getChatHistoryText } = require('./salesService');
+      const { generateEmpatheticFallback } = require('./aiService');
+      const historyText = await getChatHistoryText(message);
+      const fallbackResponse = await generateEmpatheticFallback(message.body, false, historyText);
+      await message.reply(fallbackResponse);
     }
   }
 }
