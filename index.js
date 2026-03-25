@@ -481,6 +481,8 @@ async function processPaymentSelection(message, userId, text) {
 }
 
 async function handleAwaitingPaymentConfirmation(message, userId) {
+  const body = (message.body || '').toLowerCase().trim();
+
   // Check if user is trying to switch payment method
   const newMethodCheck = await detectPaymentMethod(message.body);
   console.log(`[DEBUG] Payment switch check for '${message.body}': ${newMethodCheck}`);
@@ -491,12 +493,12 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
     return;
   }
 
-  if (message.hasMedia || body.includes("ya pague") || body.includes("listo") || body.includes("claro que si")) {
+  if (message.hasMedia || body.includes("ya pagu") || body.includes("listo") || body.includes("claro que si") || body.includes("enviado") || body.includes("transferencia") || body.includes("comprobante")) {
     // Si envían imagen o confirman por texto, informamos al grupo y silenciamos bot
     try {
       const chat = await client.getChatById(GROUP_ID);
       if (chat) {
-        const type = message.hasMedia ? "📸 Comprobante" : "✅ Confirmación de pago";
+        const type = message.hasMedia ? "📸 Comprobante" : "✅ Confirmación de pago u observación";
         await chat.sendMessage(`🚨 ${type} recibido de @${userId.replace('@c.us', '')}. Por favor revisar.`);
       }
     } catch (error) {
@@ -504,14 +506,19 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
     }
 
     if (message.hasMedia) {
-      await message.reply("🤖 Hemos recibido tu comprobante. Una persona revisará el comprobante para pasarte tus credenciales.");
+      await message.reply("🤖 Hemos recibido tu comprobante. Una persona validará el pago en un momento para pasarte tus accesos.");
     } else {
-      await message.reply("🤖 Perfecto, estaré atento al comprobante. Si ya lo enviaste, un asesor te responderá pronto.");
+      await message.reply("🤖 Estaré atento. Si ya lo enviaste, un humano te responderá pronto para entregarte tu cuenta.");
     }
     
     userStates.set(userId, 'waiting_human');
   } else {
-    await message.reply("🤖 Por favor, envía el comprobante de la transacción.");
+    // En vez de repetir robóticamente, usamos IA para responder dudas si el usuario pregunta algo
+    const { getChatHistoryText } = require('./salesService');
+    const { generateEmpatheticFallback } = require('./aiService');
+    const historyText = await getChatHistoryText(message);
+    const fallbackResponse = await generateEmpatheticFallback(message.body, false, historyText);
+    await message.reply(fallbackResponse);
   }
 }
 
