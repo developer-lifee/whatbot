@@ -334,6 +334,15 @@ client.on('message', async (message) => {
 
   switch (currentState) {
     case undefined:
+      // Si el usuario escribe directamente un número del menú principal, evitar la IA e ir directo:
+      const cleanInput = (message.body || '').trim();
+      if (['1', '2', '3', '4', '5'].includes(cleanInput)) {
+         console.log(`[DEBUG] Fast-track numérico detectado: ${cleanInput}`);
+         userStates.set(userId, 'main_menu');
+         await handleMainMenuSelection({ ...message, body: cleanInput }, userId);
+         return;
+      }
+
       // Intentar detectar la intención desde el primer mensaje
       const hist = await getChatHistoryText(message);
       const detection = await detectInitialIntent(message.body, hist);

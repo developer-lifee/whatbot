@@ -296,7 +296,7 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     
     Categorías:
     - "comprar": El usuario quiere adquirir una cuenta nueva.
-    - "credenciales": El usuario pide sus claves, dice que no le sirven, o no puede entrar.
+    - "credenciales": El usuario pide sus claves, dice que no le sirven, no puede entrar, pide pin, contraseñas de perfil, o menciona perfiles bloqueados.
     - "pagar": El usuario quiere renovar, pagar, sabe precios o renovar suscripción.
     - "soporte": El usuario tiene problemas técnicos o pide ayuda general.
     - "desconocido": No se identifica una intención clara.
