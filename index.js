@@ -4,6 +4,7 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 const { pool } = require('./database');
 const schedule = require('node-schedule');
 const { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse } = require('./aiService');
+const { getAccountsByPhone } = require('./apiService');
 
 // Crear servidor HTTP
 const server = http.createServer((req, res) => {
@@ -647,25 +648,8 @@ async function processCheckCredentials(message, userId) {
   try {
     const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); // Elimina todos los caracteres que no son dígitos
 
-    // Conectar a la API de Azure con los datos del Excel
-    const url = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readexcelfunction";
-    const response = await fetch(url);
-    const json = await response.json();
-    const clientes = json.data;
-
-    if (!clientes || !Array.isArray(clientes)) {
-      throw new Error("Formato de datos no válido desde Azure");
-    }
-
-    // Filtrar filas vacías (donde Nombre no exista o esté vacío)
-    const clientesLimpios = clientes.filter(cliente => cliente.Nombre && cliente.Nombre.trim() !== "");
-
-    // Buscar los registros que coinciden con el número
-    const userAccounts = clientesLimpios.filter(c => {
-      if (!c.numero) return false;
-      const normalizedJsonNumber = c.numero.toString().replace(/\D/g, '');
-      return normalizedJsonNumber === phoneNumber || (normalizedJsonNumber.length >= 10 && phoneNumber.endsWith(normalizedJsonNumber.slice(-10)));
-    });
+    // Conectar a la API de Azure a través de nuestro apiService (con retries)
+    const userAccounts = await getAccountsByPhone(phoneNumber);
 
     // Generar la respuesta usando IA para un tono humano
     const aiResponse = await generateCredentialsResponse(userAccounts);
@@ -682,25 +666,8 @@ async function processCheckPrices(message, userId) {
   try {
     const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); // Elimina todos los caracteres que no son dígitos
 
-    // Conectar a la API de Azure con los datos del Excel
-    const url = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readexcelfunction";
-    const response = await fetch(url);
-    const json = await response.json();
-    const clientes = json.data;
-
-    if (!clientes || !Array.isArray(clientes)) {
-      throw new Error("Formato de datos no válido desde Azure");
-    }
-
-    // Filtrar filas vacías (donde Nombre no exista o esté vacío)
-    const clientesLimpios = clientes.filter(cliente => cliente.Nombre && cliente.Nombre.trim() !== "");
-
-    // Buscar los registros que coinciden con el número
-    const userAccounts = clientesLimpios.filter(c => {
-      if (!c.numero) return false;
-      const normalizedJsonNumber = c.numero.toString().replace(/\D/g, '');
-      return normalizedJsonNumber === phoneNumber || (normalizedJsonNumber.length >= 10 && phoneNumber.endsWith(normalizedJsonNumber.slice(-10)));
-    });
+    // Conectar a la API de Azure a través de nuestro apiService
+    const userAccounts = await getAccountsByPhone(phoneNumber);
 
     if (userAccounts.length > 0) {
       let replyMessage = "Tus cuentas actuales para renovar o pagar son:\n";

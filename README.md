@@ -64,33 +64,33 @@ Comandos especiales para el administrador (definido en `OPERATOR_NUMBER`):
 Este documento sirve como guía técnica para la mejora continua del bot, priorizando la arquitectura basada en API sobre migraciones complejas de framework.
 
 ## 📌 Estado del Proyecto
-- [/] **Fase 1:** Mejoras de Uso y Optimización Básica (En progreso)
-- [ ] **Fase 2:** Optimización de Integración API (Azure Functions)
+- [x] **Fase 1:** Mejoras de Uso y Optimización Básica (Completado)
+- [x] **Fase 2:** Optimización de Integración API (Completado)
 - [ ] **Fase 3:** Panel Web & Autenticación (Redis)
 - [ ] **Fase 4:** Integración Híbrida de IA
 - [~] *(Opcional)* Migración de Framework (BuilderBot) - *Postergado/Secundario*
 
 ---
 
-## 🛠️ Fase 1: Mejoras de Uso y Optimización (En Progreso)
+## 🛠️ Fase 1: Mejoras de Uso y Optimización (Completado)
 *Objetivo: Mejorar la experiencia de uso actual, facilitar el control para operadores humanos y estabilizar la conexión.*
 
 - [x] **Mejoras de Operación y Control (Implementadas):**
   - Se añadieron comandos directos en grupos (`@bot duermete`, `@bot despiertate`) para gestión humana ágil.
   - Documentación en línea para el equipo (`@bot funciones`).
-- [ ] **Seguridad de Variables de Entorno:**
-  - Sacar credenciales en código (`database.js`) y moverlas a `.env`.
-- [ ] **Optimización de Base de Datos:**
-  - Reemplazar `mysql.createConnection` por `mysql.createPool` para prevenir errores de límite de conexiones simultáneas.
+- [x] **Seguridad de Variables de Entorno:**
+  - Sacar credenciales en código (`database.js`) y moverlas a `.env`. (Completado)
+- [x] **Optimización de Base de Datos:**
+  - Reemplazar `mysql.createConnection` por `mysql.createPool` para prevenir errores de límite de conexiones simultáneas. (Completado)
 
-## 🗄️ Fase 2: Optimización de Integración API
+## 🗄️ Fase 2: Optimización de Integración API (Completado)
 *Objetivo: Centralizar la inteligencia del negocio en la nube (Azure Functions). Esto reduce la necesidad de un framework complejo local, ya que el bot actúa principalmente como interfaz comunicativa.*
 
-- [ ] **Desacoplar Lógica de Negocio:**
+- [x] **Desacoplar Lógica de Negocio:**
   - Mover cálculos, formateos complejos y decisiones a las Azure Functions, aligerando el archivo `index.js`.
-- [ ] **Gestión Ágil de Endpoints:**
-  - Centralizar los llamados a `/api/readexcelfunction` y futuros endpoints en un módulo de servicios dedicado.
-- [ ] **Resiliencia (Manejo de Errores y Retries):**
+- [x] **Gestión Ágil de Endpoints:**
+  - Centralizar los llamados a `/api/readexcelfunction` y futuros endpoints en un módulo de servicios dedicado (`apiService.js`).
+- [x] **Resiliencia (Manejo de Errores y Retries):**
   - Implementar reconexiones automáticas si la API de Azure no responde para evitar caídas del flujo conversacional.
 
 ## 🔐 Fase 3: Autenticación Web & Redis (OTP)
