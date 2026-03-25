@@ -3,8 +3,21 @@ const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { pool } = require('./database');
 const schedule = require('node-schedule');
-const { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse } = require('./aiService');
+const { detectPaymentMethod, generateCredentialsResponse } = require('./aiService');
 const { getAccountsByPhone } = require('./apiService');
+const {
+  startPurchaseProcess,
+  handleSubscriptionInterest,
+  handleAwaitingPurchasePlatforms,
+  handleSelectingPlans,
+  handleAddingPlatform
+} = require('./salesService');
+const {
+  handleCobrosParser,
+  handleAwaitingCobrosConfirmation,
+  processCheckPrices
+} = require('./billingService');
+
 
 // Crear servidor HTTP
 const server = http.createServer((req, res) => {
@@ -134,20 +147,7 @@ client.on('change_state', state => {
   console.log('CAMBIO DE ESTADO:', state);
 });
 
-// URL para obtener plataformas
-const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
 
-// Función para obtener plataformas
-async function getPlatforms() {
-  try {
-    const response = await fetch(PLATFORMS_URL);
-    if (!response.ok) throw new Error('Failed to fetch platforms');
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching platforms:', error);
-    return [];
-  }
-}
 
 const BOT_START_TIME = Math.floor(Date.now() / 1000);
 
@@ -221,43 +221,7 @@ client.on('message', async (message) => {
 
   // --- Cobros parser: mensaje especial ---
   if (message.body && message.body.toLowerCase().startsWith('@bot porfa haz los cobros para hoy de:')) {
-    // Parse incoming list lines
-    const payload = message.body.split(':')[1] || '';
-    const lines = payload.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const records = [];
-    for (let line of lines) {
-      // Normalize tabs and multiple spaces, split by comma
-      line = line.replace(/\t/g, ' ');
-      const parts = line.split(',');
-      const name = (parts[0] || '').trim();
-      const rest = (parts.slice(1).join(',') || '').trim();
-      // extract digits
-      const digits = (rest.match(/\d+/g) || []).join('');
-      if (name && digits) {
-        // Ensure country code exists; if starts with '57' keep it, otherwise try to add 57
-        let phone = digits;
-        if (!phone.startsWith('57')) {
-          // If number length is 10 (typical mobile) add 57
-          if (phone.length === 10) phone = '57' + phone;
-        }
-        records.push({ name, phone });
-      }
-    }
-
-    if (records.length === 0) {
-      await message.reply('No pude parsear las líneas. Verifica el formato y vuelve a intentarlo.');
-      return;
-    }
-
-    const names = records.map(r => r.name);
-    const summary = records.length > 1
-      ? `Al día de hoy tienes vencidas las cuentas de ${names.join(', ')}. ¿Deseas renovar?`
-      : `Al día de hoy tienes vencida la cuenta de ${names[0]}. ¿Deseas renovar?`;
-
-    // Save pending confirmation
-    pendingConfirmations.set(userId, records);
-    userStates.set(userId, 'awaiting_cobros_confirmation');
-    await message.reply(`Recibí los siguientes cargos (tal cual los enviaste):\n\n${lines.join('\n')}\n\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`);
+    await handleCobrosParser(message, userId, userStates, pendingConfirmations);
     return;
   }
 
@@ -325,7 +289,7 @@ client.on('message', async (message) => {
     console.log(`[DEBUG] Triggered purchase flow with: "${cleanBody}"`);
     // Mutate body directly to preserve prototypes (message.reply function)
     message.body = cleanBody;
-    await handleSubscriptionInterest(message, userId);
+    await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
     return;
   }
 
@@ -350,7 +314,7 @@ client.on('message', async (message) => {
       await handleAwaitingPaymentMethod(message, userId);
       break;
     case 'awaiting_cobros_confirmation':
-      await handleAwaitingCobrosConfirmation(message, userId);
+      await handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client);
       break;
     case 'awaiting_payment_confirmation':
       await handleAwaitingPaymentConfirmation(message, userId);
@@ -362,13 +326,13 @@ client.on('message', async (message) => {
       console.log(`[DEBUG] Usuario ${userId} en modo waiting_human. Bot ignorando.`);
       break;
     case 'awaiting_purchase_platforms':
-      await handleAwaitingPurchasePlatforms(message, userId);
+      await handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID);
       break;
     case 'selecting_plans':
-      await handleSelectingPlans(message, userId);
+      await handleSelectingPlans(message, userId, userStates);
       break;
     case 'adding_platform':
-      await handleAddingPlatform(message, userId);
+      await handleAddingPlatform(message, userId, userStates);
       break;
     case 'seleccionar_servicio':
       userStates.delete(userId);
@@ -387,13 +351,13 @@ async function handleMainMenuSelection(message, userId) {
   const userSelection = message.body.trim();
   switch (userSelection) {
     case '1':
-      await startPurchaseProcess(message, userId);
+      await startPurchaseProcess(message, userId, userStates);
       break;
     case '2':
       await processCheckCredentials(message, userId);
       break;
     case '3':
-      await processCheckPrices(message, userId);
+      await processCheckPrices(message, userId, userStates);
       break;
     case '4':
       userStates.set(userId, 'seleccionar_servicio');
@@ -420,114 +384,6 @@ async function handleMainMenuSelection(message, userId) {
   }
 }
 
-async function handleSubscriptionInterest(message, userId) {
-  const mensaje = message.body;
-
-  // 1. Usar AI para parsear la intención
-  const intent = await parsePurchaseIntent(mensaje);
-  console.log("[DEBUG] AI Intent Result:", JSON.stringify(intent, null, 2));
-  const { items, statedPrice, subscriptionType } = intent;
-
-  if (!items || items.length === 0) {
-    await message.reply("🤖 No pude entender qué servicios deseas. Por favor, intenta de nuevo especificando el nombre de la plataforma y el plan.");
-    return;
-  }
-
-  // 2. Obtener plataformas del sistema
-  const platforms = await getPlatforms();
-  // Validar y mapear items
-  let selectedItems = [];
-  let invalidElements = [];
-
-  items.forEach(item => {
-    // Fuzzy match platform name
-    const targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const platform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
-      platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
-
-    if (platform) {
-      // Fuzzy match plan name if provided
-      let plan = null;
-      if (item.plan) {
-        const targetPlan = item.plan.toLowerCase().replace(/[^a-z0-9]/g, '');
-        plan = platform.plans.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlan));
-      }
-      // Default to first plan if not found or not specified (user validation later? or just pick first?)
-      // Logic says: if user said "Netflix" without plan, we marked plan as null.
-      // If we want to force plan selection, we can keep it null.
-      selectedItems.push({ platform, plan, originalItem: item });
-    } else {
-      invalidElements.push(item.platform);
-    }
-  });
-
-  if (invalidElements.length > 0) {
-    await message.reply(`🤖 Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}.`);
-    // Si no quedaron plataformas válidas, pedimos ayuda humana.
-    if (selectedItems.length === 0) {
-      userStates.set(userId, 'waiting_human');
-      await message.reply("🤖 Un asesor te contactará pronto para ver si podemos ayudarte con algo más.");
-      return;
-    }
-    // Si quedan plataformas válidas, simplemente seguimos informando cuáles sí procesaremos.
-    await message.reply(`🤖 Pero ¡buena noticia! Sí podemos ayudarte con el resto de tu pedido.`);
-  }
-
-  // 3. Calcular precio real
-  let calculatedTotal = 0;
-  let responseText = "Entendido, buscas:\n";
-
-  for (const s of selectedItems) {
-    if (s.plan) {
-      calculatedTotal += s.plan.price;
-      responseText += `- ${s.platform.name} (${s.plan.name}): $${s.plan.price}\n`;
-    } else {
-      // Si no hay plan, asumimos el más barato o pedimos aclaración?
-      // Simplificación: Tomamos el primer plan disponible como referencia
-      const defaultPlan = s.platform.plans[0];
-      calculatedTotal += defaultPlan.price;
-      s.plan = defaultPlan; // Asignamos por defecto para proceder
-      responseText += `- ${s.platform.name} (${defaultPlan.name}): $${defaultPlan.price} (Plan Básico asumido)\n`;
-    }
-  }
-
-  // Descuento por combo
-  const numPlatforms = selectedItems.length;
-  if (numPlatforms > 1) {
-    const discount = (numPlatforms - 1) * 1000;
-    calculatedTotal -= discount;
-    responseText += `\nDescuento por combo: -$${discount}\n`;
-  }
-
-  // Ajuste por periodo
-  let periodText = "/mes";
-  if (subscriptionType === 'anual') {
-    calculatedTotal = calculatedTotal * 12 * 0.85;
-    periodText = "/año";
-  } else if (subscriptionType === 'semestral') {
-    calculatedTotal = calculatedTotal * 6 * 0.93;
-    periodText = "/semestre";
-  }
-
-  calculatedTotal = Math.round(calculatedTotal);
-  responseText += `\nTotal calculado: $${calculatedTotal}${periodText}`;
-
-  // 4. Comparar con statedPrice
-  // 4. Comparar con statedPrice
-  if (statedPrice !== null && Math.abs(statedPrice - calculatedTotal) > 2000) {
-    // Discrepancia significativa (> 2000 pesos)
-    responseText += `\n\nNoté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
-  }
-
-  await message.reply('🤖 ' + responseText);
-
-  // Guardar estado para pago
-  // IMPORTANTE: Guardamos el calculatedTotal para saber cuánto cobrar
-  userStates.set(userId, { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems });
-
-  let paymentOptions = "🤖 ⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
-  await message.reply(paymentOptions);
-}
 
 async function handleAwaitingPaymentMethod(message, userId) {
   await processPaymentSelection(message, userId, message.body);
@@ -600,49 +456,7 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
   }
 }
 
-async function handleAwaitingCobrosConfirmation(message, userId) {
-  try {
-    const body = (message.body || '').trim().toLowerCase();
-    if (body === 'si' || body === 'sí') {
-      const records = pendingConfirmations.get(userId) || [];
-      if (records.length === 0) {
-        await message.reply('🤖 No hay cobros pendientes para confirmar.');
-        userStates.delete(userId);
-        return;
-      }
-      // persist to pending_charges.json
-      const fs = require('fs');
-      const path = require('path');
-      const file = path.join(__dirname, 'pending_charges.json');
-      let existing = [];
-      try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
-      const entry = { requester: userId, records, timestamp: new Date().toISOString() };
-      existing.push(entry);
-      fs.writeFileSync(file, JSON.stringify(existing, null, 2));
 
-      // send individual messages to each phone
-      for (const r of records) {
-        const dest = r.phone + '@c.us';
-        await client.sendMessage(dest, `Se enviará un cobro para *${r.name}* solicitado por ${userId}. Por favor, responde si el pago fue realizado.`);
-      }
-
-      await message.reply('🤖 He guardado los cobros y he notificado a cada número individualmente.');
-      pendingConfirmations.delete(userId);
-      userStates.delete(userId);
-    } else if (body === 'no') {
-      pendingConfirmations.delete(userId);
-      userStates.delete(userId);
-      await message.reply('🤖 Operación cancelada. No se enviaron cobros.');
-    } else {
-      await message.reply('🤖 Por favor responde *SI* para confirmar o *NO* para cancelar.');
-    }
-  } catch (error) {
-    console.error("Error en confirmación de cobros:", error);
-    await message.reply("🤖 ⚠️ Ocurrió un error procesando tu solicitud. Por favor contacta al administrador.");
-    // Opcional: Reiniciar estado del usuario para que no se quede trabado
-    userStates.delete(userId);
-  }
-}
 
 async function processCheckCredentials(message, userId) {
   try {
@@ -662,336 +476,7 @@ async function processCheckCredentials(message, userId) {
   userStates.delete(userId);
 }
 
-async function processCheckPrices(message, userId) {
-  try {
-    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); // Elimina todos los caracteres que no son dígitos
 
-    // Conectar a la API de Azure a través de nuestro apiService
-    const userAccounts = await getAccountsByPhone(phoneNumber);
-
-    if (userAccounts.length > 0) {
-      let replyMessage = "Tus cuentas actuales para renovar o pagar son:\n";
-      let totalToPay = 0;
-
-      for (const account of userAccounts) {
-        let fechaVencimiento = "Fecha desconocida";
-        if (account.deben && !isNaN(parseFloat(account.deben))) {
-            const excelDate = parseFloat(account.deben);
-            const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
-            fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
-        } else if (account.vencimiento) {
-            fechaVencimiento = account.vencimiento;
-        }
-
-        const streamingName = (account.Streaming || "SERVICIO").toUpperCase();
-        const price = parseFloat(account["Ingreso Mensual"]) || 0;
-        totalToPay += price;
-
-        replyMessage += `\n• ${streamingName} (Vence el ${fechaVencimiento})`;
-        if (price > 0) replyMessage += ` - $${price}`;
-      }
-      
-      if (totalToPay > 0) {
-        replyMessage += `\n\nTotal estimado: $${totalToPay}`;
-      }
-
-      replyMessage += "\n\n🤖 ¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia";
-      
-      await message.reply(replyMessage);
-      
-      // Guardar estado para esperar comprobante/método de pago
-      userStates.set(userId, { state: 'awaiting_payment_method', total: totalToPay > 0 ? totalToPay : null, isRenewal: true, items: userAccounts });
-    } else {
-      await message.reply(`🤖 No encontramos cuentas pendientes o asociadas al número ${phoneNumber}. Si crees que hay un error, contacta a un asesor. 😊`);
-      userStates.delete(userId);
-    }
-  } catch (error) {
-    console.error('Error en processCheckPrices con la base de datos de Azure:', error);
-    await message.reply("🤖 Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
-    userStates.delete(userId);
-  }
-}
-
-async function startPurchaseProcess(message, userId) {
-  const platforms = await getPlatforms();
-  if (platforms.length === 0) {
-    await message.reply("🤖 No se pudieron cargar las plataformas. Inténtalo más tarde.");
-    userStates.delete(userId);
-    return;
-  }
-  let reply = "Plataformas disponibles para compra:\n";
-  platforms.forEach((p) => {
-    reply += `• ${p.name} - Precio base: $${p.plans[0].price}\n`;
-  });
-
-  reply += '\n🤖 Responde con los nombres de las plataformas que deseas, separados por coma (ej. Netflix, Disney+).';
-  await message.reply(reply);
-  userStates.set(userId, 'awaiting_purchase_platforms');
-}
-
-async function handleAwaitingPurchasePlatforms(message, userId) {
-  const mensaje = message.body;
-
-  // Usar AI para extraer intención
-  const intent = await parsePurchaseIntent(mensaje);
-  console.log("[DEBUG] Purchase Option 1 Intent:", JSON.stringify(intent, null, 2));
-  const { items, subscriptionType } = intent;
-
-  if (!items || items.length === 0) {
-    await message.reply("🤖 No pude identificar las plataformas. Por favor intenta escribiendo los nombres claros, por ejemplo: Netflix, Disney.");
-    return;
-  }
-
-  const platforms = await getPlatforms();
-  const platformMap = new Map(platforms.map(p => [p.name.toLowerCase(), p]));
-
-  let selectedItems = [];
-  let invalidElements = [];
-
-  // Mapear items retornados por AI a plataformas reales
-  items.forEach(item => {
-    // Fuzzy match platform name
-    const targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const platform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
-      platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
-
-    if (platform) {
-      let chosenPlan = null;
-      if (item.plan) {
-        const targetPlan = item.plan.toLowerCase().replace(/[^a-z0-9]/g, '');
-        chosenPlan = platform.plans.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlan));
-      }
-      selectedItems.push({ platform, chosenPlan });
-    } else {
-      invalidElements.push(item.platform);
-    }
-  });
-
-  if (invalidElements.length > 0) {
-    // Reportar al grupo para validación si hay alucinaciones o plataformas no soportadas
-    try {
-      const chat = await client.getChatById(GROUP_ID);
-      if (chat) {
-        await chat.sendMessage(`🚨 Plataformas no identificables: Usuario ${userId.replace('@c.us', '')} pidió: ${mensaje}. Inválidos: ${invalidElements.join(', ')}.`);
-      }
-    } catch (error) {
-      console.error('Error enviando mensaje al grupo:', error);
-    }
-
-    await message.reply(`🤖 Lo siento, de momento no manejamos: ${invalidElements.join(', ')}.`);
-
-    if (selectedItems.length === 0) {
-      await message.reply("🤖 Enviaré tu caso a un asesor para que te ayude personalmente.");
-      userStates.set(userId, 'waiting_human');
-      return;
-    }
-
-    await message.reply(`🤖 Sigamos adelante con las plataformas que sí tenemos disponibles.`);
-  }
-
-  // Iniciar selección de planes si hace falta alguno
-  // Guardamos subscriptionType en el estado para el cálculo final
-  userStates.set(userId, { state: 'selecting_plans', selected: selectedItems, currentIndex: 0, subscriptionType: subscriptionType || 'mensual' });
-
-  // Si ya todos tienen plan (porque el usuario fue específico), showPlanSelection detectará que puede avanzar o verificar
-  await showPlanSelection(message, userId);
-}
-
-async function showPlanSelection(message, userId) {
-  const state = userStates.get(userId);
-  if (!state || state.state !== 'selecting_plans') return;
-
-  const { selected, currentIndex } = state;
-
-  // Si ya recorrimos todos los items
-  if (currentIndex >= selected.length) {
-    await calculateAndShowPrice(message, userId);
-    return;
-  }
-
-  const current = selected[currentIndex];
-  // Si ya tiene plan asignado (por la IA), saltamos al siguiente
-  if (current.chosenPlan) {
-    state.currentIndex++;
-    await showPlanSelection(message, userId); // Recursivo / Iterativo
-    return;
-  }
-
-  const platform = current.platform;
-
-  // AUTO-SELECT: Si la plataforma solo tiene 1 plan, lo seleccionamos automáticamente
-  if (platform.plans.length === 1) {
-    selected[currentIndex].chosenPlan = platform.plans[0];
-    state.currentIndex++;
-    // Recursivo para procesar el siguiente item
-    await showPlanSelection(message, userId);
-    return;
-  }
-
-  let reply = `Selecciona el plan para ${platform.name}:\n`;
-  platform.plans.forEach((plan, idx) => {
-    reply += `${idx + 1}. ${plan.name} - $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
-  });
-  reply += `\n🤖 Responde con el número del plan, o 'agregar' para añadir otra plataforma.`;
-
-  await message.reply(reply);
-}
-
-async function handleSelectingPlans(message, userId) {
-  const state = userStates.get(userId);
-  if (!state || state.state !== 'selecting_plans') return;
-
-  const { selected, currentIndex } = state;
-  const body = message.body.trim().toLowerCase();
-
-  if (body === 'agregar') {
-    // Save current index to return to it later
-    userStates.set(userId, { state: 'adding_platform', selected, subscriptionType: state.subscriptionType, returnIndex: currentIndex });
-    await showAvailablePlatforms(message, userId);
-    return;
-  }
-
-  const selection = parseInt(body) - 1;
-  const current = selected[currentIndex];
-
-  // Defensive check
-  if (!current || !current.platform) {
-    console.error("[ERROR] Current item is undefined in handleSelectingPlans. Resetting index.");
-    state.currentIndex = 0;
-    await showPlanSelection(message, userId);
-    return;
-  }
-
-  if (isNaN(selection) || selection < 0 || selection >= current.platform.plans.length) {
-    await message.reply('🤖 No te entendí. Por favor dime el número del plan (ej: 1) o escribe "agregar" si quieres algo más.');
-    return;
-  }
-
-  selected[currentIndex].chosenPlan = current.platform.plans[selection];
-  state.currentIndex++;
-
-  if (state.currentIndex >= selected.length) {
-    await calculateAndShowPrice(message, userId);
-  } else {
-    await showPlanSelection(message, userId);
-  }
-}
-
-async function showAvailablePlatforms(message, userId) {
-  const platforms = await getPlatforms();
-  const state = userStates.get(userId);
-  const selectedIds = state.selected.map(s => s.platform.id);
-  const available = platforms.filter(p => !selectedIds.includes(p.id));
-
-  if (available.length === 0) {
-    await message.reply('🤖 No hay más plataformas disponibles para agregar.');
-    // Restore index
-    const nextIndex = state.returnIndex !== undefined ? state.returnIndex : state.selected.length - 1;
-    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: nextIndex, subscriptionType: state.subscriptionType });
-    await showPlanSelection(message, userId);
-    return;
-  }
-
-  let reply = 'Plataformas disponibles para agregar:\n';
-  available.forEach((p) => {
-    reply += `• ${p.name}\n`;
-  });
-  reply += '\n🤖 Responde con el nombre de la plataforma para agregar, o "volver" para continuar con la selección actual.';
-
-  await message.reply(reply);
-}
-
-async function handleAddingPlatform(message, userId) {
-  const state = userStates.get(userId);
-  if (!state || state.state !== 'adding_platform') return;
-
-  const body = message.body.trim().toLowerCase();
-
-  if (body === 'volver') {
-    const nextIndex = state.returnIndex !== undefined ? state.returnIndex : 0;
-    userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: nextIndex, subscriptionType: state.subscriptionType });
-    await showPlanSelection(message, userId);
-    return;
-  }
-
-  const platforms = await getPlatforms();
-  const selectedIds = state.selected.map(s => s.platform.id);
-  const available = platforms.filter(p => !selectedIds.includes(p.id));
-
-  const selection = parseInt(body) - 1;
-
-  if (isNaN(selection) || selection < 0 || selection >= available.length) {
-    await message.reply('🤖 Selección inválida. Responde con el número o "volver".');
-    return;
-  }
-
-  state.selected.push({ platform: available[selection], chosenPlan: null });
-
-  // Restore index to continue where we left off (or process the new item if queue was empty)
-  const nextIndex = state.returnIndex !== undefined ? state.returnIndex : state.selected.length - 1;
-  userStates.set(userId, { state: 'selecting_plans', selected: state.selected, currentIndex: nextIndex, subscriptionType: state.subscriptionType });
-  await showPlanSelection(message, userId);
-}
-
-async function calculateAndShowPrice(message, userId) {
-  const state = userStates.get(userId);
-  const selected = state.selected;
-  const subscriptionType = state.subscriptionType || 'mensual'; // Recuperar tipo de suscripción
-
-  let totalPrice = 0;
-  let responseText = 'Has seleccionado:\n';
-  let hasErrors = false;
-
-  selected.forEach(s => {
-    const plan = s.chosenPlan;
-    if (!plan) {
-      // Should not happen if logic is correct, but prevents crash
-      hasErrors = true;
-      return;
-    }
-    totalPrice += plan.price;
-    responseText += `- ${s.platform.name} (${plan.name}): $${plan.price}\n`;
-  });
-
-  if (hasErrors) {
-    // Recovery mode: filter out invalid items or restart selection?
-    // For now, let's just restart selection for those missing items
-    const firstMissingIndex = selected.findIndex(s => !s.chosenPlan);
-    if (firstMissingIndex !== -1) {
-      console.log("Found missing plan at index", firstMissingIndex, "restarting selection loop.");
-      userStates.set(userId, { state: 'selecting_plans', selected: selected, currentIndex: firstMissingIndex, subscriptionType });
-      await showPlanSelection(message, userId);
-      return;
-    }
-  }
-
-  const numPlatforms = selected.length;
-  if (numPlatforms > 1) {
-    const discount = (numPlatforms - 1) * 1000;
-    totalPrice -= discount;
-    responseText += `\nDescuento por combo: -$${discount}\n`;
-  }
-
-  // Ajuste por periodo (Lógica copiada de handleSubscriptionInterest)
-  let periodText = "/mes";
-  if (subscriptionType === 'anual') {
-    totalPrice = totalPrice * 12 * 0.85;
-    periodText = "/año";
-  } else if (subscriptionType === 'semestral') {
-    totalPrice = totalPrice * 6 * 0.93;
-    periodText = "/semestre";
-  }
-
-  totalPrice = Math.round(totalPrice);
-  responseText += `\nTotal (${subscriptionType}): $${totalPrice}${periodText}`;
-
-  await message.reply('🤖 ' + responseText);
-
-  let paymentOptions = "🤖 ⭐Nequi\n⭐Llave Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
-  await message.reply(paymentOptions);
-  // Pasamos el total calculado al siguiente estado
-  userStates.set(userId, { state: 'awaiting_payment_method', total: totalPrice, items: selected });
-}
 
 // --- AL FINAL DEL ARCHIVO index.js ---
 
