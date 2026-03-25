@@ -263,4 +263,38 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
   }
 }
 
-module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback };
+/**
+ * Analyzes the first message to identify the user's intent.
+ * @param {string} messageContent 
+ * @param {string} chatHistory 
+ * @returns {Promise<{intent: string, confidence: number}>}
+ */
+async function detectInitialIntent(messageContent, chatHistory = "") {
+  const prompt = `
+    Analiza el primer mensaje del usuario para identificar qué desea hacer.
+    Contexto previo: ${chatHistory}
+    Mensaje actual: "${messageContent}"
+    
+    Categorías:
+    - "comprar": El usuario quiere adquirir una cuenta nueva.
+    - "credenciales": El usuario pide sus claves, dice que no le sirven, o no puede entrar.
+    - "pagar": El usuario quiere renovar, pagar, sabe precios o renovar suscripción.
+    - "soporte": El usuario tiene problemas técnicos o pide ayuda general.
+    - "desconocido": No se identifica una intención clara.
+    
+    Salida esperada JSON:
+    {
+        "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "desconocido"
+    }
+  `;
+
+  try {
+    const jsonString = await callGemini(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true);
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error("Error detecting initial intent:", error);
+    return { intent: "desconocido" };
+  }
+}
+
+module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback, detectInitialIntent };

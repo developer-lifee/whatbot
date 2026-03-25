@@ -3,7 +3,7 @@ const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { pool } = require('./database');
 const schedule = require('node-schedule');
-const { detectPaymentMethod, generateCredentialsResponse, generateEmpatheticFallback } = require('./aiService');
+const { detectPaymentMethod, generateCredentialsResponse, generateEmpatheticFallback, detectInitialIntent } = require('./aiService');
 const { getAccountsByPhone } = require('./apiService');
 const {
   startPurchaseProcess,
@@ -157,9 +157,11 @@ client.on('message', async (message) => {
   // Ignorar mensajes antiguos (los que se enviaron antes de que el bot arrancara)
   // Esto evita que responda a todos los no leídos de golpe.
   if (message.timestamp < BOT_START_TIME) {
-    // console.log('[DEBUG] Ignorando mensaje antiguo de:', message.from);
     return;
   }
+
+  // Importar utilidad de historial (evitar duplicados en el scope)
+  const { getChatHistoryText } = require('./salesService');
 
   // Ignorar si el mensaje fue enviado por el propio bot (para evitar bucles)
   if (message.fromMe) {
@@ -303,7 +305,6 @@ client.on('message', async (message) => {
   // --- FALLBACK GLOBAL PARA MULTIMEDIA (Stickers, Imágenes) ---
   // Si envían algo que no sea texto y NO estamos esperando un comprobante de pago
   if (message.hasMedia && currentState !== 'awaiting_payment_confirmation') {
-    const { getChatHistoryText } = require('./salesService');
     const history = await getChatHistoryText(message);
     const fallbackMsg = await generateEmpatheticFallback(message.body, true, history);
     await message.reply(fallbackMsg);
@@ -312,16 +313,36 @@ client.on('message', async (message) => {
 
   switch (currentState) {
     case undefined:
+      // Intentar detectar la intención desde el primer mensaje
+      const hist = await getChatHistoryText(message);
+      const detection = await detectInitialIntent(message.body, hist);
+      console.log(`[DEBUG] Initial Intent Detection: ${detection.intent}`);
+
+      if (detection.intent === 'comprar') {
+        await message.reply("🤖 ¡Hola! Claro que sí, con gusto te ayudo con tu compra.");
+        await startPurchaseProcess(message, userId, userStates);
+        return;
+      } else if (detection.intent === 'credenciales') {
+        await message.reply("🤖 Entendido, te ayudaré a revisar tus credenciales de inmediato.");
+        await processCheckCredentials(message, userId);
+        return;
+      } else if (detection.intent === 'pagar') {
+        await message.reply("🤖 ¡Claro! Vamos a revisar tus cuentas para el pago.");
+        await processCheckPrices(message, userId, userStates);
+        return;
+      }
+
+      // Si no hay intención clara, mostrar el menú refinado
       userStates.set(userId, 'main_menu');
       await message.reply(
         "🤖 *Hola! Soy el asistente de Sheerit.*\n\n" +
-        "Aquí tienes las opciones disponibles:\n" +
-        "1 - Comprar cuenta\n" +
-        "2 - Revisar credenciales\n" +
-        "3 - Pagar mis cuentas\n" +
-        "4 - No puedo acceder a mi cuenta\n" +
-        "5 - Otro\n\n" +
-        "Por favor, responde *SOLO* con el número de la opción que deseas."
+        "¿En qué puedo ayudarte hoy?\n" +
+        "1 - Comprar cuenta nueva\n" +
+        "2 - Revisar mis credenciales (claves/perfiles)\n" +
+        "3 - Pagar o renovar mis cuentas\n" +
+        "4 - Guías y Soporte Técnico (Autoayuda)\n" +
+        "5 - Hablar con un asesor (Otro)\n\n" +
+        "Si prefieres, cuéntame directamente qué necesitas. 😊"
       );
       break;
     case 'main_menu':
@@ -357,7 +378,6 @@ client.on('message', async (message) => {
       break;
     default:
       // Si el texto no encaja en ningún flujo y no es un comando conocido
-      const { getChatHistoryText } = require('./salesService');
       const historyText = await getChatHistoryText(message);
       const fallbackResponse = await generateEmpatheticFallback(message.body, false, historyText);
       await message.reply(fallbackResponse);
@@ -379,8 +399,7 @@ async function handleMainMenuSelection(message, userId) {
       await processCheckPrices(message, userId, userStates);
       break;
     case '4':
-      userStates.set(userId, 'seleccionar_servicio');
-      await message.reply("🤖 Tenemos una guia de articulos que te pueden ayudar a solucionar tu problema,\n\n sheerit.com.co/aiuda ");
+      await message.reply("🤖 *Centro de Ayuda Sheerit*\n\nTenemos una guía detallada con artículos que te ayudarán a solucionar problemas comunes de acceso y configuración:\n\n🌐 https://sheerit.com.co/aiuda\n\nSi después de revisar la guía sigues con dudas, escribe *5* para hablar con un asesor.");
       break;
     case '5':
       // Reportar al grupo para atención humana
