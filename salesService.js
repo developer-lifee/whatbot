@@ -396,5 +396,6 @@ module.exports = {
   handleSelectingPlans,
   showAvailablePlatforms,
   handleAddingPlatform,
-  calculateAndShowPrice
+  calculateAndShowPrice,
+  getChatHistoryText
 };
