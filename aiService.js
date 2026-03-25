@@ -15,18 +15,30 @@ const MODELS = [
  * Implements a fallback mechanism rotating through available models in case of 429 Quota Exceeded.
  * @param {string} prompt 
  * @param {string} systemInstruction 
+ * @param {boolean} isJson
+ * @param {object|null} mediaData { data: 'base64', mimeType: 'image/jpeg' }
  * @returns {Promise<string>}
  */
-async function callGemini(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true) {
+async function callGemini(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true, mediaData = null) {
   if (!GEMINI_API_KEY) {
     console.error("GEMINI_API_KEY is missing in .env");
     throw new Error("GEMINI_API_KEY not configured");
   }
 
+  const parts = [{ text: prompt }];
+  if (mediaData && mediaData.data && mediaData.mimeType) {
+    parts.push({
+      inlineData: {
+        data: mediaData.data,
+        mimeType: mediaData.mimeType
+      }
+    });
+  }
+
   const payload = {
     contents: [{
       role: 'user',
-      parts: [{ text: prompt }]
+      parts: parts
     }],
     systemInstruction: {
       parts: [{ text: systemInstruction }]
@@ -235,27 +247,34 @@ async function parsePlanSelection(messageContent, availablePlans) {
  * @param {string} userMessage 
  * @param {boolean} isMedia 
  * @param {string} chatHistory 
+ * @param {object|null} mediaData { data: 'base64', mimeType: 'image/jpeg' }
  * @returns {Promise<string>}
  */
-async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = "") {
+async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = "", mediaData = null) {
+  const mediaInstruction = isMedia && mediaData 
+    ? "El usuario ha enviado una imagen o sticker que está adjunta a este prompt. Obsérvala detenidamente y analiza su contenido/emoción."
+    : "";
+
   const prompt = `
-    El usuario envió un mensaje que el bot no puede procesar técnicamente (es un sticker, una imagen o un comentario fuera de lo que el bot está programado para hacer).
+    El usuario envió un mensaje que el bot no puede procesar técnicamente mediante los flujos regulares.
+    ${mediaInstruction}
     
     Contexto de la conversación:
     ${chatHistory}
     
-    Mensaje/Archivo actual: "${isMedia ? "[ARCHIVO MULTIMEDIA/STICKER]" : userMessage}"
+    Mensaje textual/Tipo: "${isMedia ? "[ARCHIVO MULTIMEDIA/STICKER]" : userMessage}"
     
     Instrucciones:
     1. Responde de forma cálida, empática y amigable.
-    2. Si es multimedia, menciona que te gustó (o un halago genérico) pero que por ahora solo entiendes texto.
-    3. Si es un comentario fuera de contexto, agradécelo amablemente.
-    4. Cierra invitando sutilmente al usuario a continuar con su solicitud técnica (comprar, renovar, etc.).
-    5. No más de 2 o 3 líneas. Incluye el emoji 🤖 al final.
+    2. Si adjuntó un sticker/imagen, haz referencia a lo que logras ver (la emoción, colores, si es un meme, o un error técnico) y explícale con tacto que por ahora prefieres que escriba o seleccione opciones textuales.
+    3. Si parece una captura de error técnico, recomiéndale visitar el centro de ayuda (sheerit.com.co/aiuda) o pedir la Opción 5 para hablar con un asesor.
+    4. Si es un comentario fuera de contexto, agradécelo amablemente.
+    5. Cierra invitando sutilmente al usuario a continuar con su solicitud.
+    6. No más de 3 líneas. Incluye el emoji 🤖 al final.
   `;
 
   try {
-    const responseText = await callGemini(prompt, "Eres un asistente de servicio al cliente muy empático y humano.", false);
+    const responseText = await callGemini(prompt, "Eres un asistente de servicio al cliente muy empático, perspicaz y humano.", false, mediaData);
     return responseText.trim();
   } catch (error) {
     console.error("Error generating empathetic fallback:", error);

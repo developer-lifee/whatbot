@@ -306,7 +306,20 @@ client.on('message', async (message) => {
   // Si envían algo que no sea texto y NO estamos esperando un comprobante de pago
   if (message.hasMedia && currentState !== 'awaiting_payment_confirmation') {
     const history = await getChatHistoryText(message);
-    const fallbackMsg = await generateEmpatheticFallback(message.body, true, history);
+    
+    let mediaData = null;
+    try {
+      const media = await message.downloadMedia();
+      if (media && media.data && media.mimetype) {
+         // Limpiar mimetype por si trae codecs (ej. image/webp; codecs=vp8)
+         const cleanMime = media.mimetype.split(';')[0];
+         mediaData = { data: media.data, mimeType: cleanMime };
+      }
+    } catch(err) {
+      console.error("[DEBUG] Error descargando multimedia para fallback:", err.message);
+    }
+
+    const fallbackMsg = await generateEmpatheticFallback(message.body, true, history, mediaData);
     await message.reply(fallbackMsg);
     return;
   }
