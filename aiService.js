@@ -89,10 +89,13 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
  * @param {string} messageContent The user's message.
  * @returns {Promise<{items: Array, statedPrice: number|null, subscriptionType: string}>}
  */
-async function parsePurchaseIntent(messageContent) {
+async function parsePurchaseIntent(messageContent, chatHistory = "") {
   const prompt = `
     Analiza el siguiente mensaje de un usuario interesado en servicios de streaming y extrae la información en formato JSON.
-    El mensaje es: "${messageContent}"
+    Contexto de la conversación anterior (úsalo para entender mejor a qué se refiere el usuario): 
+    ${chatHistory}
+
+    El mensaje principal es: "${messageContent}"
 
     Salida esperada JSON:
     {

@@ -124,8 +124,119 @@ async function processCheckPrices(message, userId, userStates) {
   }
 }
 
+async function handleAutoCobros(message, userId, userStates, pendingConfirmations) {
+  try {
+    const { fetchCustomersData } = require('./apiService');
+    const clientes = await fetchCustomersData();
+    
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    let records = [];
+    
+    clientes.forEach(account => {
+      let isTargetDate = false;
+      let accountDate = null;
+      
+      if (account.deben && !isNaN(parseFloat(account.deben))) {
+        const excelDate = parseFloat(account.deben);
+        const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+        accountDate = new Date(jsDate.getFullYear(), jsDate.getMonth(), jsDate.getDate());
+        
+        // Incluir cualquier fecha que sea hoy o en el pasado (hoy, ayer, hace una semana, etc.)
+        if (accountDate.getTime() <= today.getTime()) {
+           isTargetDate = true;
+        }
+      }
+      
+      if (isTargetDate && account.numero) {
+        let phone = account.numero.toString().replace(/\D/g, '');
+        if (!phone.startsWith('57')) {
+          if (phone.length === 10) phone = '57' + phone;
+        }
+        
+        const observacion = (account.observaciones || '').toString().trim();
+        const dateStr = accountDate ? accountDate.toLocaleDateString('es-ES') : '';
+        records.push({ 
+          name: account.Nombre || 'Cliente', 
+          phone, 
+          service: account.Streaming || 'Servicio',
+          dateStr,
+          observacion
+        });
+      }
+    });
+
+    if (records.length === 0) {
+      await message.reply('🤖 Revisé la base de datos y no encontré cobros pendientes para hoy o fechas anteriores en la columna "deben".');
+      return;
+    }
+
+    const uniqueRecordsMap = new Map();
+    records.forEach(r => {
+      if (!uniqueRecordsMap.has(r.phone)) {
+        uniqueRecordsMap.set(r.phone, { name: r.name, phone: r.phone, services: [r.service], date: r.dateStr, notas: [] });
+      } else {
+        uniqueRecordsMap.get(r.phone).services.push(r.service);
+      }
+      if (r.observacion) {
+        uniqueRecordsMap.get(r.phone).notas.push(r.observacion);
+      }
+    });
+    
+    const toCharge = [];
+    const toReview = [];
+    
+    Array.from(uniqueRecordsMap.values()).forEach(r => {
+      if (r.notas.length > 0) {
+        toReview.push(r);
+      } else {
+        toCharge.push(r);
+      }
+    });
+    
+    if (toCharge.length === 0 && toReview.length === 0) {
+      return;
+    }
+
+    let replyMessage = "Recibí los siguientes cargos automáticos de Azure:\n\n";
+
+    if (toReview.length > 0) {
+      replyMessage += `⚠️ *REVISIÓN MANUAL (tienen notas/saldos):*\n`;
+      toReview.forEach(r => {
+        replyMessage += `• ${r.name} (${r.services.join(', ')}) - Tel: ${r.phone}\n  Notas: ${r.notas.join(' | ')}\n`;
+      });
+      replyMessage += `(A estos clientes NO se les cobrará automáticamente)\n\n`;
+    }
+
+    if (toCharge.length > 0) {
+      replyMessage += `✅ *LISTOS PARA COBRO AUTOMÁTICO:*\n`;
+      const lines = toCharge.map(r => `• ${r.name} (${r.services.join(', ')}) - Venció: ${r.date}`);
+      replyMessage += lines.join('\n');
+      
+      const summary = toCharge.length > 1
+        ? `Encontré ${toCharge.length} cuentas vencidas listas para cobrar. ¿Deseas cobrarles?`
+        : `Encontré 1 cuenta vencida lista para cobrar. ¿Deseas cobrar?`;
+      
+      replyMessage += `\n\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`;
+      
+      pendingConfirmations.set(userId, toCharge.map(r => ({ name: r.name, phone: r.phone, textToShow: `${r.name} (${r.services.join(', ')})` })));
+      userStates.set(userId, 'awaiting_cobros_confirmation');
+    } else {
+      replyMessage += `🤖 Todos los cobros vencidos requieren revisión manual por sus notas. No hay ninguno para envío automático.`;
+    }
+    
+    await message.reply(replyMessage);
+
+  } catch (err) {
+    console.error('Error calculando cobros automáticos:', err);
+    await message.reply('Ocurrió un error al consultar Azure. Intenta nuevamente.');
+  }
+}
+
 module.exports = {
   handleCobrosParser,
   handleAwaitingCobrosConfirmation,
-  processCheckPrices
+  processCheckPrices,
+  handleAutoCobros
 };

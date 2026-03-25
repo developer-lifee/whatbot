@@ -15,7 +15,8 @@ const {
 const {
   handleCobrosParser,
   handleAwaitingCobrosConfirmation,
-  processCheckPrices
+  processCheckPrices,
+  handleAutoCobros
 } = require('./billingService');
 
 
@@ -222,6 +223,12 @@ client.on('message', async (message) => {
   // --- Cobros parser: mensaje especial ---
   if (message.body && message.body.toLowerCase().startsWith('@bot porfa haz los cobros para hoy de:')) {
     await handleCobrosParser(message, userId, userStates, pendingConfirmations);
+    return;
+  }
+
+  // --- Cobros automáticos: mensaje especial ---
+  if (message.body && message.body.toLowerCase().trim() === '@bot cobros automáticos') {
+    await handleAutoCobros(message, userId, userStates, pendingConfirmations);
     return;
   }
 

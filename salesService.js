@@ -30,10 +30,24 @@ async function startPurchaseProcess(message, userId, userStates) {
   userStates.set(userId, 'awaiting_purchase_platforms');
 }
 
+async function getChatHistoryText(message) {
+  let chatHistoryText = "";
+  try {
+    const chat = await message.getChat();
+    const messages = await chat.fetchMessages({ limit: 6 });
+    const history = messages.filter(m => m.id._serialized !== message.id._serialized).slice(-5);
+    chatHistoryText = history.map(m => `${m.fromMe ? 'Asistente' : 'Usuario'}: ${m.body}`).join('\n');
+  } catch (err) {
+    console.error("Error fetching chat history", err);
+  }
+  return chatHistoryText;
+}
+
 async function handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID) {
   const mensaje = message.body;
 
-  const intent = await parsePurchaseIntent(mensaje);
+  const chatHistoryText = await getChatHistoryText(message);
+  const intent = await parsePurchaseIntent(mensaje, chatHistoryText);
   console.log("[DEBUG] AI Intent Result:", JSON.stringify(intent, null, 2));
   const { items, statedPrice, subscriptionType } = intent;
 
@@ -122,7 +136,8 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
 async function handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID) {
   const mensaje = message.body;
 
-  const intent = await parsePurchaseIntent(mensaje);
+  const chatHistoryText = await getChatHistoryText(message);
+  const intent = await parsePurchaseIntent(mensaje, chatHistoryText);
   const { items, subscriptionType } = intent;
 
   if (!items || items.length === 0) {
