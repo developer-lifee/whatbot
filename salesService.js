@@ -36,7 +36,17 @@ async function getChatHistoryText(message) {
     const chat = await message.getChat();
     const messages = await chat.fetchMessages({ limit: 6 });
     const history = messages.filter(m => m.id._serialized !== message.id._serialized).slice(-5);
-    chatHistoryText = history.map(m => `${m.fromMe ? 'Asistente' : 'Usuario'}: ${m.body}`).join('\n');
+    
+    const now = new Date();
+    chatHistoryText += `[Hora actual del sistema: ${now.toLocaleString('es-CO')}]\n\nHistorial reciente:\n`;
+    
+    chatHistoryText += history.map(m => {
+      const timeStr = new Date(m.timestamp * 1000).toLocaleString('es-CO');
+      return `[${timeStr}] ${m.fromMe ? 'Asistente' : 'Usuario'}: ${m.body}`;
+    }).join('\n');
+    
+    const currentMsgTime = new Date(message.timestamp * 1000).toLocaleString('es-CO');
+    chatHistoryText += `\n[${currentMsgTime}] Usuario (Mensaje Actual): ${message.body}`;
   } catch (err) {
     console.error("Error fetching chat history", err);
   }
@@ -49,7 +59,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   const chatHistoryText = await getChatHistoryText(message);
   const intent = await parsePurchaseIntent(mensaje, chatHistoryText);
   console.log("[DEBUG] AI Intent Result:", JSON.stringify(intent, null, 2));
-  const { items, statedPrice, subscriptionType } = intent;
+  const { items, statedPrice, subscriptionType, empathyGreeting } = intent;
 
   if (!items || items.length === 0) {
     await message.reply("🤖 No pude entender qué servicios deseas. Por favor, intenta de nuevo especificando el nombre de la plataforma y el plan.");
@@ -88,7 +98,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   }
 
   let calculatedTotal = 0;
-  let responseText = "Entendido, buscas:\n";
+  let responseText = empathyGreeting ? `🤖 ${empathyGreeting}\n\nEntendido, buscas:\n` : "Entendido, buscas:\n";
 
   for (const s of selectedItems) {
     if (s.plan) {
@@ -138,7 +148,11 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
 
   const chatHistoryText = await getChatHistoryText(message);
   const intent = await parsePurchaseIntent(mensaje, chatHistoryText);
-  const { items, subscriptionType } = intent;
+  const { items, subscriptionType, empathyGreeting } = intent;
+
+  if (empathyGreeting) {
+    await message.reply(`🤖 ${empathyGreeting}`);
+  }
 
   if (!items || items.length === 0) {
     await message.reply("🤖 No pude identificar las plataformas. Por favor intenta escribiendo los nombres claros, por ejemplo: Netflix, Disney.");

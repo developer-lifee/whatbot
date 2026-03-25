@@ -103,13 +103,15 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
         { "platform": "NombrePlataforma", "plan": "NombrePlan" }
       ],
       "statedPrice": number | null, // Si el usuario menciona un precio total, inclúyelo (solo números).
-      "subscriptionType": "mensual" | "semestral" | "anual" // "mensual" por defecto.
+      "subscriptionType": "mensual" | "semestral" | "anual", // "mensual" por defecto.
+      "empathyGreeting": string | null // Un saludo empático si hubo mucha demora en responder.
     }
     
     Reglas:
     - Normaliza los nombres de planes y plataformas (ej. "Netflix - Básico" -> platform: "Netflix", plan: "Básico").
     - Si no se especifica plan, pon null en "plan".
     - Si detectas "ChatGPT", normalizalo como platform: "ChatGPT".
+    - Revisa las fechas/horas en el contexto. Si ha pasado mucho tiempo (varias horas o 1 día) entre el último mensaje del usuario y la respuesta (Hora actual del sistema), genera un breve "empathyGreeting" (ej. "¡Hola! Qué pena la demora en responderte..."). Si no hay demora significativa, déjalo en null.
   `;
 
   try {
