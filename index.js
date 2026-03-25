@@ -312,7 +312,8 @@ client.on('message', async (message) => {
 
   // --- FALLBACK GLOBAL PARA MULTIMEDIA (Stickers, Imágenes) ---
   // Si envían algo que no sea texto y NO estamos esperando un comprobante de pago
-  if (message.hasMedia && currentState !== 'awaiting_payment_confirmation') {
+  // Y tampoco estamos en modo silencioso (waiting_human)
+  if (message.hasMedia && currentState !== 'awaiting_payment_confirmation' && currentState !== 'waiting_human') {
     const history = await getChatHistoryText(message);
     
     let mediaData = null;
