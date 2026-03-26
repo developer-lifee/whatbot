@@ -215,13 +215,22 @@ async function generateCredentialsResponse(userAccounts) {
 /**
  * Formats credentials in a direct, plain-text format for mass sending without AI conversation.
  * @param {Array} userAccounts - The accounts found for the user.
+ * @param {string} requestedPlatform - Optional. If provided, filters by this platform name.
  * @returns {string|null}
  */
-function formatDirectCredentials(userAccounts) {
+function formatDirectCredentials(userAccounts, requestedPlatform = null) {
   if (!userAccounts || userAccounts.length === 0) return null;
   
+  let accountsToFormat = userAccounts;
+  if (requestedPlatform) {
+      const term = requestedPlatform.toLowerCase();
+      accountsToFormat = userAccounts.filter(acc => (acc.Streaming || "").toLowerCase().includes(term));
+  }
+  
+  if (accountsToFormat.length === 0) return null;
+  
   const formattedAccounts = [];
-  userAccounts.forEach(acc => {
+  accountsToFormat.forEach(acc => {
     const streamingName = (acc.Streaming || "SERVICIO").toUpperCase();
     const correo = acc.correo || "N/A";
     const clave = acc["contraseña"] || "N/A";

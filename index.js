@@ -200,7 +200,20 @@ client.on('message', async (message) => {
               );
               return;
           } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
-              await message.reply('⏳ Procesando lista de clientes para enviarles sus credenciales actualizadas...');
+              const knownPlatforms = ['disney', 'netflix', 'amazon', 'spotify', 'max', 'paramount', 'crunchyroll', 'vix', 'youtube', 'canva', 'apple', 'plex', 'iptv', 'magis'];
+              let requestedPlatform = null;
+              for (const plat of knownPlatforms) {
+                  if (command.includes(plat)) {
+                      requestedPlatform = plat;
+                      break;
+                  }
+              }
+              
+              if (requestedPlatform) {
+                  await message.reply(`⏳ Procesando lista de clientes para enviarles sus credenciales actualizadas ÚNICAMENTE de *${requestedPlatform.toUpperCase()}*...`);
+              } else {
+                  await message.reply('⏳ Procesando lista de clientes para enviarles TODAS sus credenciales actualizadas (Si querías una específica, incluye el nombre de la plataforma en tu comando, ej: enviar credenciales disney)...');
+              }
               
               const listText = message.body.split('\n').length > 1 ? message.body.split('\n').slice(1).join('\n') : command;
               // Extraer números con y sin espacios: 57 300 4268037 o 573028240488
@@ -220,7 +233,7 @@ client.on('message', async (message) => {
                  const cleanPhone = phoneStr.replace(/\s+/g, '');
                  try {
                      const accounts = await getAccountsByPhone(cleanPhone);
-                     const formattedMsg = formatDirectCredentials(accounts);
+                     const formattedMsg = formatDirectCredentials(accounts, requestedPlatform);
                      
                      if (formattedMsg) {
                          const targetId = cleanPhone + '@c.us';
