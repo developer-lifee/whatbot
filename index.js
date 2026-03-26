@@ -195,8 +195,50 @@ client.on('message', async (message) => {
                 '2. *Consulta de Credenciales*: Busco en la base de datos a través de la API externa para entregar accesos a los clientes.\n' +
                 '3. *Cobranza Automática*: Genero notificaciones masivas de cobros al enviarme lista de deudores.\n' +
                 '4. *Modo Humano*: El comando `liberar <numero>` por parte de un operador desactiva la atención automática a un usuario.\n' +
-                '5. *Dormir/Despertar*: Con los comandos `@bot duermete` y `@bot despiertate` en este grupo puedo pausar/reanudar mis respuestas a todos los usuarios.'
+                '5. *Dormir/Despertar*: Con los comandos `@bot duermete` y `@bot despiertate` en este grupo puedo pausar/reanudar mis respuestas a todos los usuarios.\n' +
+                '6. *Actualización de Claves*: Usa `@bot enviale credenciales nueva a estos clientes\n[lista de números]` para notificar a los usuarios sus accesos más recientes.'
               );
+              return;
+          } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
+              await message.reply('⏳ Procesando lista de clientes para enviarles sus credenciales actualizadas...');
+              
+              const listText = message.body.split('\n').length > 1 ? message.body.split('\n').slice(1).join('\n') : command;
+              // Extraer números con y sin espacios: 57 300 4268037 o 573028240488
+              const regex = /57\s*3\d{2}\s*\d{7}|57\s*3\d{9}/g;
+              const matches = listText.match(regex);
+              
+              if (!matches || matches.length === 0) {
+                 await message.reply('❌ No encontré ningún número de teléfono válido (formato Colombia 573...) en tu mensaje.');
+                 return;
+              }
+              
+              let enviados = 0;
+              let fallidos = 0;
+              const { formatDirectCredentials } = require('./aiService');
+              
+              for (const phoneStr of matches) {
+                 const cleanPhone = phoneStr.replace(/\s+/g, '');
+                 try {
+                     const accounts = await getAccountsByPhone(cleanPhone);
+                     const formattedMsg = formatDirectCredentials(accounts);
+                     
+                     if (formattedMsg) {
+                         const targetId = cleanPhone + '@c.us';
+                         await client.sendMessage(targetId, formattedMsg);
+                         enviados++;
+                     } else {
+                         fallidos++;
+                     }
+                 } catch(err) {
+                     console.error(`Error enviando credenciales masivas a ${cleanPhone}:`, err.message);
+                     fallidos++;
+                 }
+                 
+                 // Pausa de seguridad (3s anti-spam)
+                 await new Promise(resolve => setTimeout(resolve, 3000));
+              }
+              
+              await message.reply(`✅ *Proceso Finalizado*\nSe enviaron exitosamente las credenciales a ${enviados} clientes.\nNo se encontraron cuentas activas (o fallaron) para ${fallidos} clientes.`);
               return;
           }
       }

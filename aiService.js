@@ -213,6 +213,40 @@ async function generateCredentialsResponse(userAccounts) {
 }
 
 /**
+ * Formats credentials in a direct, plain-text format for mass sending without AI conversation.
+ * @param {Array} userAccounts - The accounts found for the user.
+ * @returns {string|null}
+ */
+function formatDirectCredentials(userAccounts) {
+  if (!userAccounts || userAccounts.length === 0) return null;
+  
+  const formattedAccounts = [];
+  userAccounts.forEach(acc => {
+    const streamingName = (acc.Streaming || "SERVICIO").toUpperCase();
+    const correo = acc.correo || "N/A";
+    const clave = acc["contraseña"] || "N/A";
+    const perfil = acc["pin perfil"] ? `${acc.Nombre || "N/A"} - ${acc["pin perfil"]}` : (acc.Nombre || "N/A");
+    
+    let fechaVencimiento = "Fecha desconocida";
+    if (acc.deben && !isNaN(parseFloat(acc.deben))) {
+        const excelDate = parseFloat(acc.deben);
+        const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+        const day = jsDate.getDate();
+        const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
+        const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
+        const year = jsDate.getFullYear();
+        fechaVencimiento = `${day} de ${month} de ${year}`;
+    } else if (acc.vencimiento) {
+        fechaVencimiento = acc.vencimiento;
+    }
+    
+    formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfil}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+  });
+  
+  return formattedAccounts.join('\n\n-------------------\n\n');
+}
+
+/**
  * Identifies the selected plan from a user's natural language message.
  * @param {string} messageContent 
  * @param {Array} availablePlans 
@@ -328,4 +362,4 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
   }
 }
 
-module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback, detectInitialIntent };
+module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback, detectInitialIntent, formatDirectCredentials };
