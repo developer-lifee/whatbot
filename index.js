@@ -193,7 +193,7 @@ client.on('message', async (message) => {
               await message.reply('🤖 *Mis funciones internas:*\n\n' +
                 '1. *Flujo de Ventas*: Atiendo a clientes, detecto intención de compra, calculo precios y ofrezco medios de pago mediante IA.\n' +
                 '2. *Consulta de Credenciales*: Busco en la base de datos a través de la API externa para entregar accesos a los clientes.\n' +
-                '3. *Cobranza Automática*: Genero notificaciones masivas de cobros al enviarme lista de deudores.\n' +
+                '3. *Cobranza Automática*:\n   - Usa `@bot cobros automáticos` para escanear y generar avisos de vencimiento masivos (para hoy, vencidos y para mañana).\n   - Usa `@bot porfa haz los cobros para hoy de:\n[lista]` para cobrar a personas específicas.\n' +
                 '4. *Modo Humano*: El comando `liberar <numero>` por parte de un operador desactiva la atención automática a un usuario.\n' +
                 '5. *Dormir/Despertar*: Con los comandos `@bot duermete` y `@bot despiertate` en este grupo puedo pausar/reanudar mis respuestas a todos los usuarios.\n' +
                 '6. *Actualización de Claves*: Usa `@bot enviale credenciales nueva a estos clientes\n[lista de números]` para notificar a los usuarios sus accesos más recientes.'

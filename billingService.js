@@ -59,7 +59,19 @@ async function handleAwaitingCobrosConfirmation(message, userId, userStates, pen
 
       for (const r of records) {
         const dest = r.phone + '@c.us';
-        await client.sendMessage(dest, `Se enviará un cobro para *${r.name}* solicitado por ${userId}. Por favor, responde si el pago fue realizado.`);
+        
+        let vencimientoTxt = "tu suscripción está próxima a renovarse o ya venció";
+        if (r.date) {
+            if (r.date === "MAÑANA") {
+               vencimientoTxt = "el día de mañana se vence tu cuenta";
+            } else {
+               vencimientoTxt = `el día ${r.date} se venció tu cuenta`;
+            }
+        }
+        
+        const serviceName = r.textToShow || r.services?.join(', ') || 'tus servicios';
+        
+        await client.sendMessage(dest, `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${serviceName}\n\nEscribe *3* en este chat para conocer el valor a pagar y ver los medios de transferencia. ¡Gracias por preferirnos!`);
       }
 
       await message.reply('🤖 He guardado los cobros y he notificado a cada número individualmente.');
@@ -184,8 +196,11 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
         accountDate = new Date(jsDate.getFullYear(), jsDate.getMonth(), jsDate.getDate());
         
-        // Incluir cualquier fecha que sea hoy o en el pasado (hoy, ayer, hace una semana, etc.)
-        if (accountDate.getTime() <= today.getTime()) {
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        // Incluir cualquier fecha que sea mañana o en el pasado
+        if (accountDate.getTime() <= tomorrow.getTime()) {
            isTargetDate = true;
         }
       }
@@ -197,7 +212,11 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         }
         
         const observacion = (account.observaciones || '').toString().trim();
-        const dateStr = accountDate ? accountDate.toLocaleDateString('es-ES') : '';
+        let dateStr = accountDate ? accountDate.toLocaleDateString('es-ES') : '';
+        if (accountDate && accountDate.getTime() === tomorrow.getTime()) {
+            dateStr = "MAÑANA";
+        }
+        
         records.push({ 
           name: account.Nombre || 'Cliente', 
           phone, 
@@ -252,7 +271,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
 
     if (toCharge.length > 0) {
       replyMessage += `✅ *LISTOS PARA COBRO AUTOMÁTICO:*\n`;
-      const lines = toCharge.map(r => `• ${r.name} (${r.services.join(', ')}) - Venció: ${r.date}`);
+      const lines = toCharge.map(r => `• ${r.name} (${r.services.join(', ')}) - Fecha: ${r.date}`);
       replyMessage += lines.join('\n');
       
       const summary = toCharge.length > 1
@@ -261,7 +280,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
       
       replyMessage += `\n\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`;
       
-      pendingConfirmations.set(userId, toCharge.map(r => ({ name: r.name, phone: r.phone, textToShow: `${r.name} (${r.services.join(', ')})` })));
+      pendingConfirmations.set(userId, toCharge.map(r => ({ name: r.name, phone: r.phone, textToShow: `${r.name} (${r.services.join(', ')})`, date: r.date })));
       userStates.set(userId, 'awaiting_cobros_confirmation');
     } else {
       replyMessage += `🤖 Todos los cobros vencidos requieren revisión manual por sus notas. No hay ninguno para envío automático.`;
