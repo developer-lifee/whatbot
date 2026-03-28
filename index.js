@@ -189,7 +189,7 @@ client.on('message', async (message) => {
               globalBotSleep = false;
               await message.reply('😃 ¡He despertado! Vuelvo a atender a los clientes.');
               return;
-          } else if (command === 'funciones' || command === 'ayuda') {
+          } else if (command === '' || command === 'funciones' || command === 'ayuda') {
               await message.reply('🤖 *Mis funciones internas:*\n\n' +
                 '1. *Flujo de Ventas*: Atiendo a clientes, detecto intención de compra, calculo precios y ofrezco medios de pago mediante IA.\n' +
                 '2. *Consulta de Credenciales*: Busco en la base de datos a través de la API externa para entregar accesos a los clientes.\n' +
@@ -263,11 +263,18 @@ client.on('message', async (message) => {
           // Continúa el flujo
       } else {
           // Ignorar otros mensajes de grupo que no sean comandos o continuaciones
-          // También dejamos pasar los comandos especiales de cobro (empiezan con @bot cobros... o @bot porfa...)
+          // También dejamos pasar los comandos especiales de cobro y administrador
+          const b = message.body ? message.body.toLowerCase().trim() : '';
           if (message.from === GROUP_ID && message.body && (
-              message.body.toLowerCase().startsWith('@bot porfa haz los cobros') ||
-              message.body.toLowerCase().trim() === '@bot cobros automáticos' ||
-              message.body.toLowerCase().trim() === '@bot cobros automaticos'
+              b.startsWith('@bot porfa haz los cobros') ||
+              b === '@bot cobros automáticos' ||
+              b === '@bot cobros automaticos' ||
+              b === '!liberar masivo' ||
+              b === 'liberar masivo' ||
+              b.startsWith('!bot') ||
+              b.startsWith('!liberar') ||
+              b.startsWith('liberar ') ||
+              b.startsWith('confirmar_cobros ')
           )) {
               // Continúa el flujo principal donde estos están definidos
           } else {
@@ -281,7 +288,7 @@ client.on('message', async (message) => {
   }
 
   // Ignorar si el bot está dormido globalmente
-  if (globalBotSleep && message.from !== OPERATOR_NUMBER) {
+  if (globalBotSleep && message.from !== OPERATOR_NUMBER && message.from !== GROUP_ID) {
       console.log(`[DEBUG] Bot en modo dormido. Ignorando mensaje de: ${message.from}`);
       return;
   }
@@ -318,7 +325,7 @@ client.on('message', async (message) => {
   }
 
   // Comandos de operador/administrador
-  if (message.from === OPERATOR_NUMBER) {
+  if (message.from === OPERATOR_NUMBER || message.from === GROUP_ID) {
     const body = (message.body || '').trim().toLowerCase();
     
     // Comando para liberar el bot (quitar modo humano)
