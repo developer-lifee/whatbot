@@ -255,7 +255,25 @@ client.on('message', async (message) => {
               return;
           }
       }
-      return; // Ignorar otros mensajes en grupos
+      
+      // Si estamos esperando confirmación de cobros en el grupo, dejamos pasar el mensaje ("si" / "no")
+      let groupState = userStates.get(message.from);
+      if (groupState && typeof groupState === 'object') groupState = groupState.state;
+      if (message.from === GROUP_ID && groupState === 'awaiting_cobros_confirmation') {
+          // Continúa el flujo
+      } else {
+          // Ignorar otros mensajes de grupo que no sean comandos o continuaciones
+          // También dejamos pasar los comandos especiales de cobro (empiezan con @bot cobros... o @bot porfa...)
+          if (message.from === GROUP_ID && message.body && (
+              message.body.toLowerCase().startsWith('@bot porfa haz los cobros') ||
+              message.body.toLowerCase().trim() === '@bot cobros automáticos' ||
+              message.body.toLowerCase().trim() === '@bot cobros automaticos'
+          )) {
+              // Continúa el flujo principal donde estos están definidos
+          } else {
+              return;
+          }
+      }
   }
   
   if (message.from.includes('status@broadcast')) {
@@ -293,7 +311,8 @@ client.on('message', async (message) => {
   }
 
   // --- Cobros automáticos: mensaje especial ---
-  if (message.body && message.body.toLowerCase().trim() === '@bot cobros automáticos') {
+  const checkCobros = message.body ? message.body.toLowerCase().trim() : '';
+  if (checkCobros === '@bot cobros automáticos' || checkCobros === '@bot cobros automaticos') {
     await handleAutoCobros(message, userId, userStates, pendingConfirmations);
     return;
   }
@@ -303,6 +322,19 @@ client.on('message', async (message) => {
     const body = (message.body || '').trim().toLowerCase();
     
     // Comando para liberar el bot (quitar modo humano)
+    if (body === '!liberar masivo' || body === 'liberar masivo') {
+      let count = 0;
+      for (const [key, val] of userStates.entries()) {
+        let stateStr = typeof val === 'object' ? val.state : val;
+        if (stateStr === 'waiting_human') {
+          userStates.delete(key);
+          count++;
+        }
+      }
+      await message.reply(`✅ *Liberación masiva completada!*\nSe reactivó el bot para ${count} clientes que estaban en espera.`);
+      return;
+    }
+
     if (body.startsWith('!bot') || body.startsWith('!liberar') || body.startsWith('liberar ')) {
       let targetPhone = body.replace('!bot', '').replace('!liberar', '').replace('liberar', '').trim().replace(/\D/g, '');
       
