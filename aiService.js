@@ -173,20 +173,45 @@ async function generateCredentialsResponse(userAccounts) {
   } else {
      userAccounts.forEach(acc => {
        const streamingName = (acc.Streaming || "Servicio").toUpperCase();
+       
+       // Excluir cuentas familiares
+       const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'family'];
+       const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
+       if (isFamily) return;
+
        const correo = acc.correo || "N/A";
-       const clave = acc["contraseña"] || "N/A";
+       let clave = acc["contraseña"] || "N/A";
        const perfil = `${acc.Nombre || ""}-${acc["pin perfil"] || ""}`;
        
        let fechaVencimiento = "Fecha desconocida";
+       let isExpired = false;
+
        if (acc.deben && !isNaN(parseFloat(acc.deben))) {
            const excelDate = parseFloat(acc.deben);
            const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
            fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+
+           const today = new Date();
+           today.setHours(0,0,0,0);
+           const compareDate = new Date(jsDate);
+           compareDate.setHours(0,0,0,0);
+           if (compareDate.getTime() < today.getTime()) {
+               isExpired = true;
+           }
        } else if (acc.vencimiento) {
            fechaVencimiento = acc.vencimiento;
        }
+
+       if (isExpired) {
+           clave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
+       }
+
        cuentasTexto += `- Plataforma: ${streamingName}\n  Correo: ${correo}\n  Clave: ${clave}\n  Perfil: ${perfil}\n  Vencimiento: ${fechaVencimiento}\n\n`;
      });
+
+     if (cuentasTexto === "") {
+        cuentasTexto = "El usuario no tiene cuentas activas o mostradas en este momento.";
+     }
   }
 
   const prompt = `
@@ -232,11 +257,19 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
   const formattedAccounts = [];
   accountsToFormat.forEach(acc => {
     const streamingName = (acc.Streaming || "SERVICIO").toUpperCase();
+
+    // Excluir cuentas familiares
+    const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'family'];
+    const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
+    if (isFamily) return;
+
     const correo = acc.correo || "N/A";
-    const clave = acc["contraseña"] || "N/A";
+    let clave = acc["contraseña"] || "N/A";
     const perfil = acc["pin perfil"] ? `${acc.Nombre || "N/A"} - ${acc["pin perfil"]}` : (acc.Nombre || "N/A");
     
     let fechaVencimiento = "Fecha desconocida";
+    let isExpired = false;
+
     if (acc.deben && !isNaN(parseFloat(acc.deben))) {
         const excelDate = parseFloat(acc.deben);
         const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
@@ -245,8 +278,20 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
         const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
         const year = jsDate.getFullYear();
         fechaVencimiento = `${day} de ${month} de ${year}`;
+
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const compareDate = new Date(jsDate);
+        compareDate.setHours(0,0,0,0);
+        if (compareDate.getTime() < today.getTime()) {
+            isExpired = true;
+        }
     } else if (acc.vencimiento) {
         fechaVencimiento = acc.vencimiento;
+    }
+    
+    if (isExpired) {
+        clave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
     }
     
     formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfil}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
