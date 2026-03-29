@@ -185,6 +185,9 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
     let records = [];
     
     clientes.forEach(account => {
@@ -195,9 +198,6 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         const excelDate = parseFloat(account.deben);
         const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
         accountDate = new Date(jsDate.getFullYear(), jsDate.getMonth(), jsDate.getDate());
-        
-        const tomorrow = new Date(today);
-        tomorrow.setDate(tomorrow.getDate() + 1);
         
         // Incluir cualquier fecha que sea mañana o en el pasado
         if (accountDate.getTime() <= tomorrow.getTime()) {
