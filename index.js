@@ -434,7 +434,7 @@ client.on('message', async (message) => {
       if (['1', '2', '3', '4', '5'].includes(cleanInput)) {
          console.log(`[DEBUG] Fast-track numérico detectado: ${cleanInput}`);
          userStates.set(userId, 'main_menu');
-         await handleMainMenuSelection({ ...message, body: cleanInput }, userId);
+         await handleMainMenuSelection(message, userId);
          return;
       }
 
