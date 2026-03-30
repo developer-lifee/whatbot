@@ -72,6 +72,9 @@ async function handleAwaitingCobrosConfirmation(message, userId, userStates, pen
         const serviceName = r.textToShow || r.services?.join(', ') || 'tus servicios';
         
         await client.sendMessage(dest, `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${serviceName}\n\nEscribe *3* en este chat para conocer el valor a pagar y ver los medios de transferencia. ¡Gracias por preferirnos!`);
+        
+        // Pausa de seguridad (3s anti-spam)
+        await new Promise(resolve => setTimeout(resolve, 3000));
       }
 
       await message.reply('🤖 He guardado los cobros y he notificado a cada número individualmente.');
