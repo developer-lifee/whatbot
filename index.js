@@ -161,11 +161,48 @@ client.on('change_state', state => {
 
 const BOT_START_TIME = Math.floor(Date.now() / 1000);
 
+let startupLock = Promise.resolve();
+
 client.on('message', async (message) => {
-  // Ignorar mensajes antiguos (los que se enviaron antes de que el bot arrancara)
-  // Esto evita que responda a todos los no leídos de golpe.
+  // Manejo de mensajes antiguos (los que se enviaron antes de que el bot arrancara)
   if (message.timestamp < BOT_START_TIME) {
-    return;
+    // Nunca procesar mensajes viejos de grupos o estados
+    if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) {
+        return; 
+    }
+    
+    // Usamos un candado (Lock) para procesar los mensajes acumulados uno por uno y no causar SPAM
+    const shouldProcess = await new Promise(resolve => {
+         startupLock = startupLock.then(async () => {
+             try {
+                const chat = await message.getChat();
+                const msgs = await chat.fetchMessages({ limit: 5 });
+                let isHuman = false;
+                for (const m of msgs) {
+                    if (m.fromMe && !m.body.includes('🤖')) {
+                        isHuman = true; 
+                        break;
+                    }
+                }
+                
+                if (isHuman) {
+                   console.log(`[STARTUP] Ignorando msg antiguo de ${message.from} por intervención humana reciente.`);
+                   userStates.set(message.from, 'waiting_human');
+                   resolve(false);
+                } else {
+                   console.log(`[STARTUP] Procesando msg acumulado de ${message.from}`);
+                   await new Promise(r => setTimeout(r, 2500)); // Pausa de 2.5s entre mensajes resueltos
+                   resolve(true);
+                }
+             } catch(e) { 
+                resolve(false); 
+             }
+         });
+    });
+    
+    if (!shouldProcess) {
+        return;
+    }
   }
 
   // Importar utilidad de historial (evitar duplicados en el scope)
