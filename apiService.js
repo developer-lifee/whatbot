@@ -2,6 +2,7 @@ const fetch = require('node-fetch'); // Assuming node-fetch is available or usin
 
 const AZURE_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readexcelfunction";
 const AZURE_HISTORICO_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readhistoricofunction";
+const AZURE_WRITE_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/writeexcelfunction";
 
 /**
  * Llama a la API de Azure con lógica de reintentos (Retries).
@@ -176,9 +177,38 @@ function procesarHistoricoArray(matriz2D) {
     return datosGenerales;
 }
 
+/**
+ * Actualiza los datos de una fila en el Excel a través de la API de Azure.
+ * @param {number} rowNumber - El número de fila en Excel (empieza en 1, los datos suelen empezar en 2).
+ * @param {Object} updates - Un objeto con las columnas a actualizar { "columna": "nuevo_valor" }.
+ * @returns {Promise<Object>} - La respuesta de la API.
+ */
+async function updateExcelData(rowNumber, updates) {
+  try {
+    const response = await fetch(AZURE_WRITE_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ rowNumber, updates })
+    });
+    
+    if (!response.ok) {
+       throw new Error(`HTTP Error al escribir! Status: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error("[API Service] Error al escribir en Excel:", error);
+    throw error;
+  }
+}
+
 module.exports = {
   fetchCustomersData,
   getAccountsByPhone,
   fetchHistoricoData,
-  procesarHistoricoArray
+  procesarHistoricoArray,
+  updateExcelData
 };
