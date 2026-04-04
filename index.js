@@ -561,7 +561,7 @@ async function handleMainMenuSelection(message, userId) {
       await processCheckPrices(message, userId, userStates);
       break;
     case '4':
-      await message.reply("🤖 *Centro de Ayuda Sheerit*\n\nTenemos una guía detallada con artículos que te ayudarán a solucionar problemas comunes de acceso y configuración:\n\n🌐 https://sheerit.com.co/aiuda\n\nSi después de revisar la guía sigues con dudas, escribe *5* para hablar con un asesor.");
+      await message.reply("🤖 *Soporte Técnico Sheerit*\n\nPor favor describe tu problema detalladamente o envíame una captura de pantalla del error que estás experimentando. Te guiaré paso a paso para solucionarlo. Si el problema es complejo, escribe *5* en cualquier momento para hablar con un asesor humano.");
       break;
     case '5':
       // Reportar al grupo para atención humana

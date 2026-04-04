@@ -344,12 +344,21 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     : "";
 
   let priceContext = "";
+  let supportContext = "";
   try {
     const { getPlatforms } = require('./salesService');
     const platforms = getPlatforms();
     if (platforms && platforms.length > 0) {
       priceContext = "Lista de precios mensuales actuales (si preguntan valores, cíñete a esto): " + 
                      platforms.map(p => `${p.name}: $${p.price}`).join(', ') + ".";
+    }
+  } catch (e) { }
+
+  try {
+    const { getSupportKnowledge } = require('./apiService');
+    const supportData = await getSupportKnowledge();
+    if (supportData && supportData.length > 0) {
+      supportContext = "Base de conocimiento de Soporte Técnico (SOLUCIONARIO DE PROBLEMAS):\n" + JSON.stringify(supportData) + "\n\n(Usa ESTOS pasos si el problema del usuario o la captura de pantalla coincide con alguno de estos errores. Dale las instrucciones o pídele los datos que ahí se mencionan. Sé asertivo, es el conocimiento oficial.)";
     }
   } catch (e) { }
 
@@ -362,15 +371,17 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     
     ${priceContext}
     
+    ${supportContext}
+    
     Mensaje textual/Tipo: "${isMedia ? "[ARCHIVO MULTIMEDIA/STICKER]" : userMessage}"
     
     Instrucciones:
     1. Responde de forma cálida, empática y amigable.
     2. Si el usuario está preguntando por el precio de una plataforma o sobre un solo servicio antes de pagar, RESPÓNDE SU DUDA directamente basado en los "Precios actuales" listados arriba.
-    3. Si adjuntó un sticker/imagen, haz referencia a lo que logras ver (la emoción, colores, meme, o error técnico) y explícale con tacto que por ahora prefieres texto.
-    4. Si parece una captura de error técnico, recomiéndale visitar (sheerit.com.co/aiuda) o pedir la Opción 5 para hablar con un asesor.
-    5. Cierra invitando sutilmente al usuario a continuar con su solicitud (ej. "¿Por dónde te gustaría transferir?").
-    6. Sé directo, sin rodeos innecesarios. Máximo 4 líneas. Incluye el emoji 🤖 al final.
+    3. Si adjuntó un sticker/imagen, haz referencia a lo que logras ver (la emoción, colores, meme, o error técnico). 
+    4. Si plantea un ERROR TÉCNICO o envía una captura de un error: Revisa exhaustivamente la 'Base de conocimiento de Soporte Técnico' adjunta. Si encuentras su problema ahí, DALE LAS INSTRUCCIONES EXACTAS paso a paso que estipula el JSON para ayudarle directamente por este chat. ¡NO lo mandes a otra página! Si el problema no está en la base de datos o parece muy complejo, ofrece que envíe la Opción 5 para hablar con un asesor.
+    5. Cierra invitando sutilmente al usuario a continuar con su solicitud técnica o comercial según el contexto.
+    6. Sé directo y útil, sin rodeos innecesarios. Máximo 5 líneas. Incluye el emoji 🤖 al final.
   `;
 
   try {

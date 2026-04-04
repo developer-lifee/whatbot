@@ -3,6 +3,7 @@ const fetch = require('node-fetch'); // Assuming node-fetch is available or usin
 const AZURE_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readexcelfunction";
 const AZURE_HISTORICO_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readhistoricofunction";
 const AZURE_WRITE_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/writeexcelfunction";
+const SUPPORT_API_URL = "https://sheerit.com.co/api/support.json";
 
 /**
  * Llama a la API de Azure con lógica de reintentos (Retries).
@@ -205,10 +206,29 @@ async function updateExcelData(rowNumber, updates) {
   }
 }
 
+/**
+ * Obtiene la base de conocimiento de soporte en formato JSON.
+ * @returns {Promise<Array>} - El array de plataformas y problemas técnicos.
+ */
+async function getSupportKnowledge() {
+  try {
+    const response = await fetch(SUPPORT_API_URL);
+    if (!response.ok) {
+       throw new Error(`HTTP Error fetching support data: ${response.status}`);
+    }
+    const json = await response.json();
+    return json;
+  } catch (error) {
+    console.error("[API Service] Error obteniendo base de soporte:", error);
+    return [];
+  }
+}
+
 module.exports = {
   fetchCustomersData,
   getAccountsByPhone,
   fetchHistoricoData,
   procesarHistoricoArray,
-  updateExcelData
+  updateExcelData,
+  getSupportKnowledge
 };
