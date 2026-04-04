@@ -175,7 +175,7 @@ async function generateCredentialsResponse(userAccounts) {
        const streamingName = (acc.Streaming || "Servicio").toUpperCase();
        
        // Excluir cuentas familiares y extras
-       const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'family', 'netflix extra'];
+       const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'netflix extra'];
        const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
        if (isFamily) return;
 
@@ -259,7 +259,7 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
     const streamingName = (acc.Streaming || "SERVICIO").toUpperCase();
 
     // Excluir cuentas familiares y extras
-    const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'family', 'netflix extra'];
+    const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'netflix extra'];
     const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
     if (isFamily) return;
 
