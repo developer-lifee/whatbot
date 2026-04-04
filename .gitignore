@@ -3,3 +3,8 @@ node_modules
 .wwebjs_cache
 .env
 .env.local
+# Credentials
+credentials.json
+token.json
+pending_charges.json
+
