@@ -331,14 +331,15 @@ async function parsePlanSelection(messageContent, availablePlans) {
 }
 
 /**
- * Generates an empathetic response for unsupported media or off-script messages.
+ * Generates an empathetic response for unsupported media or off-script messages, and decides if it needs human escalation.
  * @param {string} userMessage 
  * @param {boolean} isMedia 
  * @param {string} chatHistory 
  * @param {object|null} mediaData { data: 'base64', mimeType: 'image/jpeg' }
- * @returns {Promise<string>}
+ * @param {Array} userAccounts Cuentas del usuario obtenidas de la base
+ * @returns {Promise<Object>} { replyMessage, needsEscalation, escalationSummary }
  */
-async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = "", mediaData = null) {
+async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = "", mediaData = null, userAccounts = []) {
   const mediaInstruction = isMedia && mediaData 
     ? "El usuario ha enviado una imagen o sticker que está adjunta a este prompt. Obsérvala detenidamente y analiza su contenido/emoción."
     : "";
@@ -362,8 +363,18 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     }
   } catch (e) { }
 
+  let accountsContext = "";
+  if (userAccounts && userAccounts.length > 0) {
+     const simplifiedAccounts = userAccounts.map(acc => ({
+        Plataforma: acc.Streaming,
+        Correo: acc.correo,
+        Vencimiento: acc.vencimiento || acc.deben
+     }));
+     accountsContext = "Cuentas del usuario en nuestro sistema:\n" + JSON.stringify(simplifiedAccounts);
+  }
+
   const prompt = `
-    El usuario envió un mensaje que el bot no puede procesar técnicamente mediante los flujos regulares.
+    El usuario envió un mensaje que el bot no puede procesar técnicamente mediante los flujos regulares o requiere soporte técnico.
     ${mediaInstruction}
     
     Contexto previo de la conversación:
@@ -372,24 +383,36 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     ${priceContext}
     
     ${supportContext}
+
+    ${accountsContext}
     
     Mensaje textual/Tipo: "${isMedia ? "[ARCHIVO MULTIMEDIA/STICKER]" : userMessage}"
     
     Instrucciones:
-    1. Responde de forma cálida, empática y amigable.
-    2. Si el usuario está preguntando por el precio de una plataforma o sobre un solo servicio antes de pagar, RESPÓNDE SU DUDA directamente basado en los "Precios actuales" listados arriba.
-    3. Si adjuntó un sticker/imagen, haz referencia a lo que logras ver (la emoción, colores, meme, o error técnico). 
-    4. Si plantea un ERROR TÉCNICO o envía una captura de un error: Revisa exhaustivamente la 'Base de conocimiento de Soporte Técnico' adjunta. Si encuentras su problema ahí, DALE LAS INSTRUCCIONES EXACTAS paso a paso que estipula el JSON para ayudarle directamente por este chat. ¡NO lo mandes a otra página! Si el problema no está en la base de datos o parece muy complejo, ofrece que envíe la Opción 5 para hablar con un asesor.
-    5. Cierra invitando sutilmente al usuario a continuar con su solicitud técnica o comercial según el contexto.
-    6. Sé directo y útil, sin rodeos innecesarios. Máximo 5 líneas. Incluye el emoji 🤖 al final.
+    Eres un asistente de servicio al cliente. Debes dar una respuesta estructurada en formato JSON estricto.
+    1. Si es una duda comercial, responde la duda en "replyMessage" y manda "needsEscalation": false.
+    2. Si es una solicitud de soporte técnico que ESTÁ en la base de datos de soporte: Si la instrucción dice que indiques un paso a paso, dalo en "replyMessage" y pon "needsEscalation": false. Pero si la guía de soporte dice que "nos envíe una captura", o "solicita la clave a soporte", o "renovar", o cualquier labor manual humana, pon "needsEscalation": true y llena "escalationSummary" detallando la cuenta y el error detectado (usa la lista de cuentas del usuario si es posible para darle el correo/contraseña específico a enviar al grupo de operadores). En "replyMessage" explícale sutilmente que ya notificaste el caso al área encargada.
+    3. Si el problema es técnico, muy complejo o no está en la base, pon "needsEscalation": true y escribe un reporte en "escalationSummary".
+    4. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
+
+    Salida esperada JSON:
+    {
+       "replyMessage": "Texto empático para el usuario...",
+       "needsEscalation": boolean,
+       "escalationSummary": "Reporte para operadores o null"
+    }
   `;
 
   try {
-    const responseText = await callGemini(prompt, "Eres un asistente de servicio al cliente muy empático, perspicaz y humano.", false, mediaData);
-    return responseText.trim();
+    const jsonString = await callGemini(prompt, "Eres un asistente de servicio al cliente experto. Responde ÚNICAMENTE con formato JSON.", true, mediaData);
+    return JSON.parse(jsonString);
   } catch (error) {
-    console.error("Error generating empathetic fallback:", error);
-    return "¡Me encantó! Aunque por ahora solo entiendo texto, ¿en qué te puedo ayudar con tu cuenta? 🤖";
+    console.error("Error generating empathetic fallback JSON:", error);
+    return {
+       replyMessage: "¡He notificado a tu asesor! Dame unos minutos en lo que entra a revisar tu caso en detalle. 🤖",
+       needsEscalation: true,
+       escalationSummary: "Falla de conectividad local con la IA al procesar: " + userMessage
+    };
   }
 }
 

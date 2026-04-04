@@ -163,6 +163,35 @@ const BOT_START_TIME = Math.floor(Date.now() / 1000);
 
 let startupLock = Promise.resolve();
 
+async function processFallbackWithEscalation(message, userId, isMedia, mediaData, historyText) {
+    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+    let userAccounts = [];
+    try { userAccounts = await getAccountsByPhone(phoneNumber); } catch(e){}
+    
+    // Si isMedia y no hay texto, body podría estar vacío, igual se pasa.
+    const fallbackResult = await generateEmpatheticFallback(message.body || "", isMedia, historyText, mediaData, userAccounts);
+    
+    // Puede que devuelva solo string si algo falló gravemente, por precaución validamos
+    if (typeof fallbackResult === 'string') {
+        await message.reply(fallbackResult);
+        return;
+    }
+
+    if (fallbackResult.replyMessage) {
+        await message.reply(fallbackResult.replyMessage);
+    }
+    
+    if (fallbackResult.needsEscalation) {
+         try {
+            const chat = await client.getChatById(GROUP_ID);
+            if (chat) {
+               await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${phoneNumber}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
+            }
+         } catch(e) { console.error('Error enviando escalamiento:', e); }
+         userStates.set(userId, 'waiting_human');
+    }
+}
+
 client.on('message', async (message) => {
   // Manejo de mensajes antiguos (los que se enviaron antes de que el bot arrancara)
   if (message.timestamp < BOT_START_TIME) {
@@ -340,6 +369,21 @@ client.on('message', async (message) => {
   let currentStateData = userStates.get(userId);
   let currentState = currentStateData;
 
+  // VERIFICAR SI EL NÚMERO ESTÁ GUARDADO (SOLO CHATS DIRECTOS Y NO BOTS)
+  if (!message.fromMe && !message.from.includes('@g.us') && !message.from.includes('status@broadcast')) {
+      try {
+          const contact = await message.getContact();
+          // isMyContact te dice si lo tenemos agregado, o name si está ya registrado en whatsapp
+          if (!contact.isMyContact && !contact.name && currentState !== 'awaiting_name_for_contact' && currentState !== 'waiting_human') {
+              userStates.set(userId, 'awaiting_name_for_contact');
+              await message.reply("🤖 ¡Hola! Bienvenido a Sheerit. Veo que aún no nos conocemos, ¿me regalas tu nombre y apellido para guardarte en mis contactos antes de empezar? (Escribe tu nombre abajo)");
+              return;
+          }
+      } catch (err) {
+          console.error('[DEBUG] Error validando estado de contacto:', err);
+      }
+  }
+
   // Si el estado es un objeto (nuevo formato), extraemos el string 'state' 
   // para que el switch funcione.
   if (currentStateData && typeof currentStateData === 'object') {
@@ -459,8 +503,7 @@ client.on('message', async (message) => {
       console.error("[DEBUG] Error descargando multimedia para fallback:", err.message);
     }
 
-    const fallbackMsg = await generateEmpatheticFallback(message.body, true, history, mediaData);
-    await message.reply(fallbackMsg);
+    await processFallbackWithEscalation(message, userId, true, mediaData, history);
     return;
   }
 
@@ -538,11 +581,22 @@ client.on('message', async (message) => {
       userStates.delete(userId);
       await message.reply("🤖 ERROR");
       break;
+    case 'awaiting_name_for_contact':
+      const name = (message.body || "").trim();
+      const phoneToSave = userId.replace('@c.us', '');
+      try {
+          const { addNewContact } = require('./googleContactsService');
+          await addNewContact(name, phoneToSave);
+      } catch(e) {
+          console.error("Error intentando agregar contacto:", e);
+      }
+      userStates.set(userId, 'main_menu');
+      await message.reply("🤖 ¡Un placer conocerte, *" + name + "*! Ya quedaste agendado. Ahora sí, ¿en qué te puedo ayudar hoy?\n\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
+      break;
     default:
       // Si el texto no encaja en ningún flujo y no es un comando conocido
       const historyText = await getChatHistoryText(message);
-      const fallbackResponse = await generateEmpatheticFallback(message.body, false, historyText);
-      await message.reply(fallbackResponse);
+      await processFallbackWithEscalation(message, userId, false, null, historyText);
       break;
   }
 });
@@ -617,10 +671,8 @@ async function processPaymentSelection(message, userId, text) {
     } else {
       // Usar la IA en vez del mensaje genérico terco (esto responde precios exactos gracias a aiService)
       const { getChatHistoryText } = require('./salesService');
-      const { generateEmpatheticFallback } = require('./aiService');
       const historyText = await getChatHistoryText(message);
-      const fallbackResponse = await generateEmpatheticFallback(message.body, false, historyText);
-      await message.reply(fallbackResponse);
+      await processFallbackWithEscalation(message, userId, false, null, historyText);
     }
   }
 }
@@ -660,10 +712,8 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
   } else {
     // En vez de repetir robóticamente, usamos IA para responder dudas si el usuario pregunta algo
     const { getChatHistoryText } = require('./salesService');
-    const { generateEmpatheticFallback } = require('./aiService');
     const historyText = await getChatHistoryText(message);
-    const fallbackResponse = await generateEmpatheticFallback(message.body, false, historyText);
-    await message.reply(fallbackResponse);
+    await processFallbackWithEscalation(message, userId, false, null, historyText);
   }
 }
 
