@@ -455,49 +455,62 @@ async function processIncomingMessage(message) {
 }
 
 /**
- * Busca todos los usuarios en estado waiting_human y procesa su último mensaje.
+ * Busca todos los chats individuales con mensajes sin leer o en estado waiting_human y los procesa.
  */
 async function handleBatchUnanswered(adminMessage) {
   let count = 0;
-  const pendingUsers = [];
+  await adminMessage.reply('⏳ Escaneando todos tus chats en busca de mensajes no leídos o casos pendientes...');
+  
+  try {
+    const chats = await client.getChats();
+    const pendingChats = chats.filter(chat => {
+        // No procesar grupos ni anuncios
+        if (chat.isGroup || chat.id._serialized.includes('@broadcast')) return false;
 
-  for (const [userId, state] of userStates.entries()) {
-    let stateStr = typeof state === 'object' ? state.state : state;
-    if (stateStr === 'waiting_human') {
-      pendingUsers.push(userId);
+        // Criterio 1: Mensajes sin leer
+        if (chat.unreadCount > 0) return true;
+        
+        // Criterio 2: Marcado explícitamente en memoria como esperando humano
+        const state = userStates.get(chat.id._serialized);
+        const stateStr = typeof state === 'object' ? state.state : state;
+        if (stateStr === 'waiting_human') return true;
+        
+        return false;
+    });
+
+    if (pendingChats.length === 0) {
+      await adminMessage.reply('🤖 No encontré ningún chat sin leer ni clientes marcados en "espera de asesor".');
+      return;
     }
-  }
 
-  if (pendingUsers.length === 0) {
-    await adminMessage.reply('🤖 No hay clientes pendientes de atención en este momento.');
-    return;
-  }
+    await adminMessage.reply(`🤖 He detectado *${pendingChats.length}* chats que requieren atención. Iniciando respuestas automáticas...`);
 
-  await adminMessage.reply(`⏳ Iniciando respuesta automática para ${pendingUsers.length} clientes pendientes...`);
-
-  for (const userId of pendingUsers) {
-    try {
-      const chat = await client.getChatById(userId);
-      const messages = await chat.fetchMessages({ limit: 1 });
-      
-      if (messages.length > 0) {
-        const lastMsg = messages[0];
-        // Solo procesar si el último mensaje lo envió el cliente
-        if (!lastMsg.fromMe) {
-          console.log(`[BATCH] Procesando pendiente para ${userId}`);
-          userStates.delete(userId); // Reactivar bot
-          await processIncomingMessage(lastMsg);
-          count++;
+    for (const chat of pendingChats) {
+      try {
+        const messages = await chat.fetchMessages({ limit: 1 });
+        if (messages.length > 0) {
+          const lastMsg = messages[0];
+          // Solo procesar si el último mensaje es del cliente
+          if (!lastMsg.fromMe) {
+            console.log(`[BATCH] Procesando chat: ${chat.id._serialized}`);
+            userStates.delete(chat.id._serialized); // Reactivar bot para este chat
+            await processIncomingMessage(lastMsg);
+            count++;
+          }
         }
+      } catch (err) {
+        console.error(`Error procesando chat ${chat.id._serialized} en batch:`, err.message);
       }
-    } catch (err) {
-      console.error(`Error en batch para ${userId}:`, err.message);
+      // Pausa de seguridad para evitar spam/bloqueos
+      await new Promise(r => setTimeout(r, 3500));
     }
-    // Pausa de seguridad para evitar bloqueos
-    await new Promise(r => setTimeout(r, 3500));
-  }
 
-  await adminMessage.reply(`✅ *Proceso Finalizado*\nSe atendieron ${count} clientes que estaban sin contestar.`);
+    await adminMessage.reply(`✅ *Proceso Finalizado*\nSe atendieron exitosamente ${count} chats que estaban pendientes.`);
+
+  } catch (err) {
+    console.error('Error en handleBatchUnanswered:', err);
+    await adminMessage.reply('❌ Lo siento, hubo un problema al intentar escanear los chats.');
+  }
 }
 
 client.on('message', async (message) => {
