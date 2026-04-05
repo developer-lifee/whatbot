@@ -27,7 +27,9 @@ async function startPurchaseProcess(message, userId, userStates) {
 
   reply += '\n🤖 Responde con los nombres de las plataformas que deseas, separados por coma (ej. Netflix, Disney+).';
   await message.reply(reply);
-  userStates.set(userId, 'awaiting_purchase_platforms');
+  const existing = userStates.get(userId);
+  const stateData = typeof existing === 'object' ? { ...existing, state: 'awaiting_purchase_platforms' } : { state: 'awaiting_purchase_platforms' };
+  userStates.set(userId, stateData);
 }
 
 async function getChatHistoryText(message) {
@@ -137,7 +139,11 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
 
   await message.reply('🤖 ' + responseText);
 
-  userStates.set(userId, { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems, subscriptionType: subscriptionType || 'mensual' });
+  const existing = userStates.get(userId);
+  const stateData = typeof existing === 'object' 
+    ? { ...existing, state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems, subscriptionType: subscriptionType || 'mensual' }
+    : { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems, subscriptionType: subscriptionType || 'mensual' };
+  userStates.set(userId, stateData);
 
   let paymentOptions = "🤖 ⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
@@ -199,7 +205,11 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
     await message.reply(`🤖 Sigamos adelante con las plataformas que sí tenemos disponibles.`);
   }
 
-  userStates.set(userId, { state: 'selecting_plans', selected: selectedItems, currentIndex: 0, subscriptionType: subscriptionType || 'mensual' });
+  const existing = userStates.get(userId);
+  const stateData = typeof existing === 'object'
+    ? { ...existing, state: 'selecting_plans', selected: selectedItems, currentIndex: 0, subscriptionType: subscriptionType || 'mensual' }
+    : { state: 'selecting_plans', selected: selectedItems, currentIndex: 0, subscriptionType: subscriptionType || 'mensual' };
+  userStates.set(userId, stateData);
   await showPlanSelection(message, userId, userStates);
 }
 
@@ -247,7 +257,11 @@ async function handleSelectingPlans(message, userId, userStates) {
   const body = message.body.trim().toLowerCase();
 
   if (body === 'agregar') {
-    userStates.set(userId, { state: 'adding_platform', selected, subscriptionType: state.subscriptionType, returnIndex: currentIndex });
+    const existing = userStates.get(userId);
+    const stateData = typeof existing === 'object'
+      ? { ...existing, state: 'adding_platform', selected, subscriptionType: state.subscriptionType, returnIndex: currentIndex }
+      : { state: 'adding_platform', selected, subscriptionType: state.subscriptionType, returnIndex: currentIndex };
+    userStates.set(userId, stateData);
     await showAvailablePlatforms(message, userId, userStates);
     return;
   }
@@ -384,7 +398,11 @@ async function calculateAndShowPrice(message, userId, userStates) {
 
   let paymentOptions = "🤖 ⭐Nequi\n⭐Llave Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
-  userStates.set(userId, { state: 'awaiting_payment_method', total: totalPrice, items: selected, subscriptionType });
+  const existing = userStates.get(userId);
+  const stateData = typeof existing === 'object'
+    ? { ...existing, state: 'awaiting_payment_method', total: totalPrice, items: selected, subscriptionType }
+    : { state: 'awaiting_payment_method', total: totalPrice, items: selected, subscriptionType };
+  userStates.set(userId, stateData);
 }
 
 module.exports = {

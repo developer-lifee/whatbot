@@ -21,6 +21,8 @@ const {
   handleAutoCobros
 } = require('./billingService');
 const { recordNewSale } = require('./salesRegistryService');
+const { handleBatchUnanswered, showAdminFunctions } = require('./adminService');
+const { searchContactByPhone, addNewContact } = require('./googleContactsService');
 
 
 // Crear servidor HTTP
@@ -391,13 +393,16 @@ async function processIncomingMessage(message) {
     case undefined:
       const cleanInput = (message.body || '').trim();
       if (['1', '2', '3', '4', '5'].includes(cleanInput)) {
-         userStates.set(userId, 'main_menu');
+         userStates.set(userId, { state: 'main_menu' });
          await handleMainMenuSelection(message, userId);
          return;
       }
+      
       const hist = await getChatHistoryText(message);
       const detection = await detectInitialIntent(message.body, hist);
+      
       if (detection.intent === 'comprar') {
+        userStates.set(userId, { state: 'awaiting_purchase_platforms' });
         await message.reply("🤖 ¡Hola! Claro que sí, con gusto te ayudo con tu compra.");
         await startPurchaseProcess(message, userId, userStates);
         return;
@@ -410,10 +415,17 @@ async function processIncomingMessage(message) {
         await processCheckPrices(message, userId, userStates);
         return;
       }
-      userStates.set(userId, 'main_menu');
-      await message.reply(
-        "🤖 *Hola! Soy el asistente de Sheerit.*\n\n¿En qué puedo ayudarte hoy?\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales (claves/perfiles)\n3 - Pagar o renovar mis cuentas\n4 - Guías y Soporte Técnico (Autoayuda)\n5 - Hablar con un asesor (Otro)\n\nSi prefieres, cuéntame directamente qué necesitas. 😊"
-      );
+
+      // Si no detectamos intención clara, buscamos contacto antes de preguntar nombre
+      const foundName = await searchContactByPhone(userId);
+      if (foundName) {
+        console.log(`[Silent Detection] Usuario ${userId} identificado como: ${foundName}`);
+        userStates.set(userId, { state: 'main_menu', nombre: foundName });
+        await message.reply(`🤖 ¡Hola de nuevo, *${foundName}*! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
+      } else {
+        await message.reply("🤖 ¡Hola! Soy el asistente virtual de *Sheerit*. No te tengo agendado aún. ¿Me podrías decir tu nombre y apellido para saludarte correctamente? 😊");
+        userStates.set(userId, 'awaiting_name_for_contact');
+      }
       break;
     case 'main_menu':
       await handleMainMenuSelection(message, userId);
@@ -445,7 +457,7 @@ async function processIncomingMessage(message) {
           const { addNewContact } = require('./googleContactsService');
           await addNewContact(name, userId.replace('@c.us', ''));
       } catch(e) {}
-      userStates.set(userId, 'main_menu');
+      userStates.set(userId, { state: 'main_menu', nombre: name });
       await message.reply("🤖 ¡Un placer conocerte, *" + name + "*! Ya quedaste agendado. Ahora sí, ¿en qué te puedo ayudar hoy?\n\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
       break;
     default:
@@ -456,63 +468,8 @@ async function processIncomingMessage(message) {
 }
 
 /**
- * Busca todos los chats individuales con mensajes sin leer o en estado waiting_human y los procesa.
+ * El bot no procesaba handleBatchUnanswered aquí, ahora está en adminService.
  */
-async function handleBatchUnanswered(adminMessage) {
-  let count = 0;
-  await adminMessage.reply('⏳ Escaneando todos tus chats en busca de mensajes no leídos o casos pendientes...');
-  
-  try {
-    const chats = await client.getChats();
-    const pendingChats = chats.filter(chat => {
-        // No procesar grupos ni anuncios
-        if (chat.isGroup || chat.id._serialized.includes('@broadcast')) return false;
-
-        // Criterio 1: Mensajes sin leer
-        if (chat.unreadCount > 0) return true;
-        
-        // Criterio 2: Marcado explícitamente en memoria como esperando humano
-        const state = userStates.get(chat.id._serialized);
-        const stateStr = typeof state === 'object' ? state.state : state;
-        if (stateStr === 'waiting_human') return true;
-        
-        return false;
-    });
-
-    if (pendingChats.length === 0) {
-      await adminMessage.reply('🤖 No encontré ningún chat sin leer ni clientes marcados en "espera de asesor".');
-      return;
-    }
-
-    await adminMessage.reply(`🤖 He detectado *${pendingChats.length}* chats que requieren atención. Iniciando respuestas automáticas...`);
-
-    for (const chat of pendingChats) {
-      try {
-        const messages = await chat.fetchMessages({ limit: 1 });
-        if (messages.length > 0) {
-          const lastMsg = messages[0];
-          // Solo procesar si el último mensaje es del cliente
-          if (!lastMsg.fromMe) {
-            console.log(`[BATCH] Procesando chat: ${chat.id._serialized}`);
-            userStates.delete(chat.id._serialized); // Reactivar bot para este chat
-            await processIncomingMessage(lastMsg);
-            count++;
-          }
-        }
-      } catch (err) {
-        console.error(`Error procesando chat ${chat.id._serialized} en batch:`, err.message);
-      }
-      // Pausa de seguridad para evitar spam/bloqueos
-      await new Promise(r => setTimeout(r, 3500));
-    }
-
-    await adminMessage.reply(`✅ *Proceso Finalizado*\nSe atendieron exitosamente ${count} chats que estaban pendientes.`);
-
-  } catch (err) {
-    console.error('Error en handleBatchUnanswered:', err);
-    await adminMessage.reply('❌ Lo siento, hubo un problema al intentar escanear los chats.');
-  }
-}
 
 client.on('message', async (message) => {
   // Manejo de mensajes antiguos

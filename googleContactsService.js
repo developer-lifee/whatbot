@@ -92,7 +92,50 @@ async function addNewContact(name, phone) {
     }
 }
 
+/**
+ * Busca un contacto por su número de teléfono en Google Contacts.
+ * @param {string} phone El número de celular a buscar.
+ * @returns {Promise<string|null>} El nombre del contacto si se encuentra, null de lo contrario.
+ */
+async function searchContactByPhone(phone) {
+    if (!personasAPI) return null;
+
+    try {
+        let formattedPhone = phone.toString().replace(/\D/g, '');
+        if (formattedPhone.startsWith('57') && formattedPhone.length === 12) {
+             formattedPhone = '+' + formattedPhone;
+        }
+
+        // Usamos searchContacts para buscar por el número
+        const response = await personasAPI.people.searchContacts({
+            query: formattedPhone,
+            readMask: 'names,phoneNumbers',
+        });
+
+        const results = response.data.results || [];
+        for (const res of results) {
+            const person = res.person;
+            const phoneNumbers = person.phoneNumbers || [];
+            // Verificar que el número sea el correcto (search puede dar coincidencias parciales)
+            const matches = phoneNumbers.some(pn => {
+                const pnValue = pn.value ? pn.value.replace(/\D/g, '') : '';
+                const searchVal = formattedPhone.replace(/\D/g, '');
+                return pnValue.endsWith(searchVal);
+            });
+
+            if (matches && person.names && person.names.length > 0) {
+                return person.names[0].displayName || person.names[0].givenName;
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('❌ Error al buscar contacto en Google:', error.message);
+        return null;
+    }
+}
+
 module.exports = {
     addNewContact,
+    searchContactByPhone,
     initGoogleClient
 };
