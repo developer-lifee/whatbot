@@ -34,13 +34,18 @@ function initGoogleClient() {
         }
 
         const token = fs.readFileSync(TOKEN_PATH, 'utf8');
-        oAuth2Client.setCredentials(JSON.parse(token));
+        try {
+            oAuth2Client.setCredentials(JSON.parse(token));
+        } catch (tokenErr) {
+            console.error('❌ El archivo token.json existe pero es inválido o está corrupto:', tokenErr.message);
+            return false;
+        }
         
         personasAPI = google.people({ version: 'v1', auth: oAuth2Client });
         console.log('✅ Google Contacts Service inicializado exitosamente.');
         return true;
     } catch (error) {
-        console.error('❌ Error inicializando Google Contacts:', error);
+        console.error('❌ Error crítico inicializando Google Contacts:', error.message);
         return false;
     }
 }
@@ -56,8 +61,11 @@ initGoogleClient();
  */
 async function addNewContact(name, phone) {
     if (!personasAPI) {
-        console.warn('⚠️ Google API no ha sido inicializada.');
-        return false;
+        initGoogleClient();
+        if (!personasAPI) {
+            console.warn('⚠️ Google API no ha sido inicializada (faltan credenciales o token).');
+            return false;
+        }
     }
 
     try {
@@ -100,7 +108,10 @@ async function addNewContact(name, phone) {
  * @returns {Promise<string|null>} El nombre del contacto si se encuentra, null de lo contrario.
  */
 async function searchContactByPhone(phone) {
-    if (!personasAPI) return null;
+    if (!personasAPI) {
+        initGoogleClient();
+        if (!personasAPI) return null; // Fallback silencioso para no spammer al cliente
+    }
 
     try {
         // Obtenemos los últimos 10 dígitos (el número móvil core en Colombia)
