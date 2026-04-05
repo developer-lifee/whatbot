@@ -137,7 +137,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
 
   await message.reply('🤖 ' + responseText);
 
-  userStates.set(userId, { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems });
+  userStates.set(userId, { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems, subscriptionType: subscriptionType || 'mensual' });
 
   let paymentOptions = "🤖 ⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
@@ -384,7 +384,7 @@ async function calculateAndShowPrice(message, userId, userStates) {
 
   let paymentOptions = "🤖 ⭐Nequi\n⭐Llave Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
   await message.reply(paymentOptions);
-  userStates.set(userId, { state: 'awaiting_payment_method', total: totalPrice, items: selected });
+  userStates.set(userId, { state: 'awaiting_payment_method', total: totalPrice, items: selected, subscriptionType });
 }
 
 module.exports = {

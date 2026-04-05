@@ -11,33 +11,33 @@ const SUPPORT_API_URL = "https://sheerit.com.co/api/support.json";
  * @param {number} delay - Demora en ms entre intentos.
  * @returns {Promise<Array>} - Arreglo con los datos limpios de clientes.
  */
-async function fetchCustomersData(retries = 3, delay = 2000) {
+/**
+ * Obtiene la data cruda completa del Excel (sin filtrar).
+ */
+async function fetchRawData(retries = 3, delay = 2000) {
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(AZURE_API_URL);
-      if (!response.ok) {
-        throw new Error(`HTTP Error! Status: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
       
       const json = await response.json();
-      const clientes = json.data;
-
-      if (!clientes || !Array.isArray(clientes)) {
-        throw new Error("Formato de datos no válido desde Azure");
-      }
-
-      // Filtrar filas vacías
-      const clientesLimpios = clientes.filter(cliente => cliente.Nombre && cliente.Nombre.trim() !== "");
-      return clientesLimpios;
-
+      return json.data || [];
+      
     } catch (error) {
       console.error(`[API Service] Error al obtener datos (Intento ${i + 1}/${retries}):`, error.message);
-      if (i === retries - 1) {
-        throw new Error("Fallaron todos los intentos de conexión a la API de Azure.");
-      }
-      // Esperar antes del siguiente intento
+      if (i === retries - 1) throw error;
       await new Promise(res => setTimeout(res, delay));
     }
+  }
+}
+
+async function fetchCustomersData(retries = 3, delay = 2000) {
+  try {
+    const data = await fetchRawData(retries, delay);
+    if (!Array.isArray(data)) return [];
+    return data.filter(cliente => cliente.Nombre && cliente.Nombre.trim() !== "");
+  } catch (err) {
+    throw err;
   }
 }
 
@@ -225,6 +225,7 @@ async function getSupportKnowledge() {
 }
 
 module.exports = {
+  fetchRawData,
   fetchCustomersData,
   getAccountsByPhone,
   fetchHistoricoData,

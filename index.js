@@ -20,6 +20,7 @@ const {
   processCheckPrices,
   handleAutoCobros
 } = require('./billingService');
+const { recordNewSale } = require('./salesRegistryService');
 
 
 // Crear servidor HTTP
@@ -674,6 +675,15 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
       await message.reply("🤖 Hemos recibido tu comprobante. Una persona validará el pago en un momento para pasarte tus accesos.");
     } else {
       await message.reply("🤖 Estaré atento. Si ya lo enviaste, un humano te responderá pronto para entregarte tu cuenta.");
+    }
+
+    // Registrar venta en Excel (Automation)
+    const userState = userStates.get(userId);
+    if (userState && typeof userState === 'object') {
+       // Intentamos detectar el método de pago del mensaje actual o previo si no está en el objeto
+       const paymentMethod = await detectPaymentMethod(message.body) || userState.paymentMethod || "Confirmado por usuario";
+       // No bloqueamos el flujo principal si el registro falla (async sin await para velocidad o con catch)
+       recordNewSale(userId, userState, paymentMethod).catch(e => console.error("Error silencioso en registro de venta:", e.message));
     }
     
     userStates.set(userId, 'waiting_human');
