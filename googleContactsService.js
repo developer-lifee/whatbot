@@ -13,6 +13,8 @@ let personasAPI = null;
  */
 function initGoogleClient() {
     try {
+        console.log('⏳ Iniciando servicio de Google Contacts...');
+        
         if (!fs.existsSync(CREDENTIALS_PATH)) {
             console.log('⚠️ No se encontró credentials.json. La integración con Google Contacts está deshabilitada.');
             return false;
@@ -27,7 +29,7 @@ function initGoogleClient() {
         oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
 
         if (!fs.existsSync(TOKEN_PATH)) {
-            console.log('⚠️ No se encontró token.json. Por favor corre "node setup_google_auth.js" primero.');
+            console.warn('⚠️ No se encontró token.json. Google Contacts funcionará una vez que completes el flujo de autenticación.');
             return false;
         }
 
@@ -35,7 +37,7 @@ function initGoogleClient() {
         oAuth2Client.setCredentials(JSON.parse(token));
         
         personasAPI = google.people({ version: 'v1', auth: oAuth2Client });
-        console.log('✅ Google Contacts Service inicializado.');
+        console.log('✅ Google Contacts Service inicializado exitosamente.');
         return true;
     } catch (error) {
         console.error('❌ Error inicializando Google Contacts:', error);
