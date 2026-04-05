@@ -101,32 +101,44 @@ async function searchContactByPhone(phone) {
     if (!personasAPI) return null;
 
     try {
-        let formattedPhone = phone.toString().replace(/\D/g, '');
-        if (formattedPhone.startsWith('57') && formattedPhone.length === 12) {
-             formattedPhone = '+' + formattedPhone;
+        // Obtenemos los últimos 10 dígitos (el número móvil core en Colombia)
+        const digitsOnly = phone.toString().replace(/\D/g, '');
+        const coreNumber = digitsOnly.slice(-10);
+
+        if (coreNumber.length < 10) {
+            console.log(`[Search] Número demasiado corto para buscar: ${digitsOnly}`);
+            return null;
         }
 
-        // Usamos searchContacts para buscar por el número
+        console.log(`[Search] Buscando contacto en Google para: *${coreNumber}* (Original: ${digitsOnly})`);
+
+        // Buscamos solo por los últimos 10 dígitos para máxima compatibilidad
         const response = await personasAPI.people.searchContacts({
-            query: formattedPhone,
+            query: coreNumber,
             readMask: 'names,phoneNumbers',
         });
 
         const results = response.data.results || [];
+        console.log(`[Search] Resultados encontrados en Google para ${coreNumber}: ${results.length}`);
+
         for (const res of results) {
             const person = res.person;
             const phoneNumbers = person.phoneNumbers || [];
-            // Verificar que el número sea el correcto (search puede dar coincidencias parciales)
+            
+            // Verificamos que al menos uno de los números termine en los 10 dígitos buscados
             const matches = phoneNumbers.some(pn => {
                 const pnValue = pn.value ? pn.value.replace(/\D/g, '') : '';
-                const searchVal = formattedPhone.replace(/\D/g, '');
-                return pnValue.endsWith(searchVal);
+                return pnValue.endsWith(coreNumber);
             });
 
             if (matches && person.names && person.names.length > 0) {
-                return person.names[0].displayName || person.names[0].givenName;
+                const foundName = person.names[0].displayName || person.names[0].givenName;
+                console.log(`[Search] ✅ Usuario identificado como: ${foundName}`);
+                return foundName;
             }
         }
+        
+        console.log(`[Search] ❌ No se encontró coincidencia exacta para los últimos 10 dígitos de ${digitsOnly}`);
         return null;
     } catch (error) {
         console.error('❌ Error al buscar contacto en Google:', error.message);
