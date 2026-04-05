@@ -429,9 +429,9 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     Mensaje actual: "${messageContent}"
     
     Categorías:
-    - "comprar": El usuario quiere adquirir una cuenta nueva.
+    - "comprar": El usuario quiere adquirir una cuenta nueva (ej: "quiero netflix", "precios").
     - "credenciales": El usuario pide sus claves, dice que no le sirven, no puede entrar, pide pin, contraseñas de perfil, o menciona perfiles bloqueados.
-    - "pagar": El usuario quiere renovar, pagar, sabe precios o renovar suscripción.
+    - "pagar": El usuario quiere renovar, pagar, o identifica un medio de pago para una transacción pendiente (ej: "nequi", "daviplata", "si, dímelos", "ya voy a pagar"). **Nota**: Si el mensaje es solo un nombre de banco o plataforma de pago, asume "pagar".
     - "soporte": El usuario tiene problemas técnicos o pide ayuda general.
     - "desconocido": No se identifica una intención clara.
     

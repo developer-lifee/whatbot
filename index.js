@@ -147,7 +147,39 @@ client.on('disconnected', (reason) => {
 //Se usa la libreria llamada "node-schedule", cualquier duda o cambio, REVISAR LA DOCUMENTACION <3
 // https://www.npmjs.com/package/node-schedule 
 //se tiene que llamar la funcion de database y scheduledTask
-const userStates = new Map();
+const { loadStates, saveStates } = require('./stateService');
+
+// Inicializar estados con persistencia
+const rawStates = loadStates();
+const userStates = new Proxy(rawStates, {
+  get(target, prop) {
+    const value = target[prop];
+    if (typeof value === 'function') {
+      return value.bind(target);
+    }
+    return value;
+  },
+  set(target, prop, value) {
+    const res = Reflect.set(target, prop, value);
+    if (prop === 'set' || prop === 'delete' || typeof prop === 'string') {
+        // Guardamos después de cada modificación importante
+        saveStates(target);
+    }
+    return res;
+  }
+});
+
+// Nota: Para interceptar Map.set y Map.delete, necesitamos interceptar las llamadas a funciones
+userStates.set = function(key, value) {
+    const res = rawStates.set(key, value);
+    saveStates(rawStates);
+    return res;
+};
+userStates.delete = function(key) {
+    const res = rawStates.delete(key);
+    saveStates(rawStates);
+    return res;
+};
 let globalBotSleep = false;
 
 // Manejar mensajes entrantes
