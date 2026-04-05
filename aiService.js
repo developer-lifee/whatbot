@@ -428,16 +428,23 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     Contexto previo: ${chatHistory}
     Mensaje actual: "${messageContent}"
     
-    Categorías:
-    - "comprar": El usuario quiere adquirir una cuenta nueva (ej: "quiero netflix", "precios").
-    - "credenciales": El usuario pide sus claves, dice que no le sirven, no puede entrar, pide pin, contraseñas de perfil, o menciona perfiles bloqueados.
-    - "pagar": El usuario quiere renovar, pagar, o identifica un medio de pago para una transacción pendiente (ej: "nequi", "daviplata", "si, dímelos", "ya voy a pagar"). **Nota**: Si el mensaje es solo un nombre de banco o plataforma de pago, asume "pagar".
-    - "soporte": El usuario tiene problemas técnicos o pide ayuda general.
-    - "desconocido": No se identifica una intención clara.
+    Categorías para "intent":
+    - "comprar": El usuario quiere iniciar una compra o saber precios.
+    - "credenciales": El usuario pide sus claves o reporta fallas de acceso.
+    - "pagar": El usuario quiere renovar, pagar, o identifica un medio de pago para una transacción pendiente (ej: "nequi", "daviplata").
+    - "soporte": Problemas técnicos.
+    - "desconocido": Sin intención clara.
+
+    Lógica de recuperación ("recoveredState"):
+    - Si el mensaje es un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un precio total, pon "recoveredState": "awaiting_payment_method" y llena "metadata" con "total" y "items" (de la charla previa).
+    - Si el usuario está eligiendo plataformas, pon "recoveredState": "awaiting_purchase_platforms".
+    - Si no hay un flujo claro a medias, pon null.
     
     Salida esperada JSON:
     {
-        "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "desconocido"
+        "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "desconocido",
+        "recoveredState": string | null,
+        "metadata": object | null
     }
   `;
 

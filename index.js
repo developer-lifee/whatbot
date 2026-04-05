@@ -147,39 +147,8 @@ client.on('disconnected', (reason) => {
 //Se usa la libreria llamada "node-schedule", cualquier duda o cambio, REVISAR LA DOCUMENTACION <3
 // https://www.npmjs.com/package/node-schedule 
 //se tiene que llamar la funcion de database y scheduledTask
-const { loadStates, saveStates } = require('./stateService');
-
-// Inicializar estados con persistencia
-const rawStates = loadStates();
-const userStates = new Proxy(rawStates, {
-  get(target, prop) {
-    const value = target[prop];
-    if (typeof value === 'function') {
-      return value.bind(target);
-    }
-    return value;
-  },
-  set(target, prop, value) {
-    const res = Reflect.set(target, prop, value);
-    if (prop === 'set' || prop === 'delete' || typeof prop === 'string') {
-        // Guardamos después de cada modificación importante
-        saveStates(target);
-    }
-    return res;
-  }
-});
-
-// Nota: Para interceptar Map.set y Map.delete, necesitamos interceptar las llamadas a funciones
-userStates.set = function(key, value) {
-    const res = rawStates.set(key, value);
-    saveStates(rawStates);
-    return res;
-};
-userStates.delete = function(key) {
-    const res = rawStates.delete(key);
-    saveStates(rawStates);
-    return res;
-};
+// Map para manejar el estado de los usuarios (Solo en RAM, se recupera vía IA en reinicios)
+const userStates = new Map();
 let globalBotSleep = false;
 
 // Manejar mensajes entrantes
@@ -452,19 +421,32 @@ async function processIncomingMessage(message) {
       const hist = await getChatHistoryText(message);
       const detection = await detectInitialIntent(message.body, hist);
       
+      // RECUPERACIÓN INTELIGENTE (Stateless Recovery)
+      if (detection.recoveredState) {
+          console.log(`[Flow Recovery] Recuperando estado: ${detection.recoveredState} para @${userId.replace('@c.us', '')}`);
+          const metadata = detection.metadata || {};
+          userStates.set(userId, { state: detection.recoveredState, ...metadata });
+          
+          if (detection.recoveredState === 'awaiting_payment_method') {
+              await message.reply("🤖 ¡Hola! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)");
+              return;
+          }
+          // Puedes agregar más saltos directos aquí si es necesario
+      }
+
       if (detection.intent === 'comprar') {
-        userStates.set(userId, { state: 'awaiting_purchase_platforms' });
-        await message.reply("🤖 ¡Hola! Claro que sí, con gusto te ayudo con tu compra.");
-        await startPurchaseProcess(message, userId, userStates);
-        return;
+          userStates.set(userId, { state: 'awaiting_purchase_platforms' });
+          await message.reply("🤖 ¡Hola! Claro que sí, con gusto te ayudo con tu compra.");
+          await startPurchaseProcess(message, userId, userStates);
+          return;
       } else if (detection.intent === 'credenciales') {
-        await message.reply("🤖 Entendido, te ayudaré a revisar tus credenciales de inmediato.");
-        await processCheckCredentials(message, userId);
-        return;
+          await message.reply("🤖 Entendido, te ayudaré a revisar tus credenciales de inmediato.");
+          await processCheckCredentials(message, userId);
+          return;
       } else if (detection.intent === 'pagar') {
-        await message.reply("🤖 ¡Claro! Vamos a revisar tus cuentas para el pago.");
-        await processCheckPrices(message, userId, userStates);
-        return;
+          await message.reply("🤖 ¡Claro! Vamos a revisar tus cuentas para el pago.");
+          await processCheckPrices(message, userId, userStates);
+          return;
       }
 
       // Si no detectamos intención clara, buscamos contacto antes de preguntar nombre
@@ -475,7 +457,7 @@ async function processIncomingMessage(message) {
         await message.reply(`🤖 ¡Hola de nuevo, *${foundName}*! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
       } else {
         await message.reply("🤖 ¡Hola! Soy el asistente virtual de *Sheerit*. No te tengo agendado aún. ¿Me podrías decir tu nombre y apellido para saludarte correctamente? 😊");
-        userStates.set(userId, 'awaiting_name_for_contact');
+        userStates.set(userId, { state: 'awaiting_name_for_contact' });
       }
       break;
     case 'main_menu':
