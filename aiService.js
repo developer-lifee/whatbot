@@ -444,6 +444,7 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     {
         "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "desconocido",
         "recoveredState": string | null,
+        "userName": string | null, // Si el usuario se presentó o dijo su nombre en el historial, extráelo aquí.
         "metadata": object | null
     }
   `;

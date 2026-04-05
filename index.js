@@ -417,42 +417,54 @@ async function processIncomingMessage(message) {
          await handleMainMenuSelection(message, userId);
          return;
       }
+
+      // 1. IDENTIDAD PRIMERO: Buscar en Google Contacts por teléfono
+      let foundName = await searchContactByPhone(userId);
       
       const hist = await getChatHistoryText(message);
       const detection = await detectInitialIntent(message.body, hist);
-      
-      // RECUPERACIÓN INTELIGENTE (Stateless Recovery)
+
+      // 2. IDENTIDAD SEGUNDO: Si no está en contactos, revisar si la IA halló el nombre en el historial
+      if (!foundName && detection.userName) {
+          foundName = detection.userName;
+          console.log(`[AI Discovery] Nombre hallado en historial para @${userId.replace('@c.us', '')}: ${foundName}`);
+      }
+
+      // 3. RECUPERACIÓN DE ESTADO (Stateless Recovery)
       if (detection.recoveredState) {
           console.log(`[Flow Recovery] Recuperando estado: ${detection.recoveredState} para @${userId.replace('@c.us', '')}`);
           const metadata = detection.metadata || {};
-          userStates.set(userId, { state: detection.recoveredState, ...metadata });
+          userStates.set(userId, { state: detection.recoveredState, nombre: foundName, ...metadata });
           
           if (detection.recoveredState === 'awaiting_payment_method') {
-              await message.reply("🤖 ¡Hola! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)");
+              await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)`);
               return;
           }
-          // Puedes agregar más saltos directos aquí si es necesario
+      }
+
+      if (foundName && detection.intent === 'desconocido') {
+          userStates.set(userId, { state: 'main_menu', nombre: foundName });
+          await message.reply(`🤖 ¡Hola de nuevo, *${foundName}*! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
+          return;
       }
 
       if (detection.intent === 'comprar') {
-          userStates.set(userId, { state: 'awaiting_purchase_platforms' });
-          await message.reply("🤖 ¡Hola! Claro que sí, con gusto te ayudo con tu compra.");
+          userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
+          await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Claro que sí, con gusto te ayudo con tu compra.`);
           await startPurchaseProcess(message, userId, userStates);
           return;
       } else if (detection.intent === 'credenciales') {
-          await message.reply("🤖 Entendido, te ayudaré a revisar tus credenciales de inmediato.");
+          await message.reply(`🤖 Entendido${foundName ? ' ' + foundName : ''}, te ayudaré a revisar tus credenciales de inmediato.`);
           await processCheckCredentials(message, userId);
           return;
       } else if (detection.intent === 'pagar') {
-          await message.reply("🤖 ¡Claro! Vamos a revisar tus cuentas para el pago.");
+          await message.reply(`🤖 ¡Claro${foundName ? ' ' + foundName : '' }! Vamos a revisar tus cuentas para el pago.`);
           await processCheckPrices(message, userId, userStates);
           return;
       }
 
-      // Si no detectamos intención clara, buscamos contacto antes de preguntar nombre
-      const foundName = await searchContactByPhone(userId);
+      // 4. SI NO HAY NOMBRE AÚN: Preguntar como último recurso
       if (foundName) {
-        console.log(`[Silent Detection] Usuario ${userId} identificado como: ${foundName}`);
         userStates.set(userId, { state: 'main_menu', nombre: foundName });
         await message.reply(`🤖 ¡Hola de nuevo, *${foundName}*! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
       } else {
