@@ -72,7 +72,47 @@ async function showAdminFunctions(message) {
     await message.reply(funciones);
 }
 
+/**
+ * Maneja el envío de credenciales masivo desde el grupo de administración.
+ */
+async function handleSendBulkCredentials(message, command, client, getAccountsByPhone) {
+    const knownPlatforms = ['disney', 'netflix', 'amazon', 'spotify', 'max', 'paramount', 'crunchyroll', 'vix', 'youtube', 'canva', 'apple', 'plex', 'iptv', 'magis'];
+    let requestedPlatform = null;
+    for (const plat of knownPlatforms) {
+        if (command.includes(plat)) { requestedPlatform = plat; break; }
+    }
+    
+    await message.reply(requestedPlatform ? `⏳ Enviando credenciales de *${requestedPlatform.toUpperCase()}*...` : '⏳ Enviando TODAS las credenciales...');
+    
+    const listText = message.body.split('\n').length > 1 ? message.body.split('\n').slice(1).join('\n') : command;
+    const regex = /57\s*3\d{2}\s*\d{7}|57\s*3\d{9}/g;
+    const matches = listText.match(regex);
+    
+    if (!matches) {
+       await message.reply('❌ No encontré números válidos en el mensaje o lista.');
+       return;
+    }
+    
+    let enviados = 0, fallidos = 0;
+    const { formatDirectCredentials } = require('./aiService');
+    for (const phoneStr of matches) {
+        const cleanPhone = phoneStr.replace(/\s+/g, '');
+        try {
+            const accounts = await getAccountsByPhone(cleanPhone);
+            const formattedMsg = formatDirectCredentials(accounts, requestedPlatform);
+            if (formattedMsg) {
+                await client.sendMessage(cleanPhone + '@c.us', formattedMsg);
+                enviados++;
+            } else { fallidos++; }
+        } catch(err) { fallidos++; }
+        // Pausa anti-spam
+        await new Promise(r => setTimeout(r, 3000));
+    }
+    await message.reply(`✅ *Proceso Finalizado*\nÉxito: ${enviados} | Fallidos: ${fallidos}`);
+}
+
 module.exports = {
   handleBatchUnanswered,
+  handleSendBulkCredentials,
   showAdminFunctions
 };

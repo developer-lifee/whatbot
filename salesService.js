@@ -145,7 +145,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     : { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems, subscriptionType: subscriptionType || 'mensual' };
   userStates.set(userId, stateData);
 
-  let paymentOptions = "🤖 ⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
+  let paymentOptions = "🤖 ⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?\n\n💡 *Tip:* Si deseas pagar por *QR*, dímelo y te enviaré la imagen o los datos para que sea más fácil.";
   await message.reply(paymentOptions);
 }
 
@@ -396,7 +396,7 @@ async function calculateAndShowPrice(message, userId, userStates) {
 
   await message.reply('🤖 ' + responseText);
 
-  let paymentOptions = "🤖 ⭐Nequi\n⭐Llave Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?";
+  let paymentOptions = "🤖 ⭐Nequi\n⭐Llave Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?\n\n💡 *Tip:* Si deseas pagar por *QR*, dímelo y te enviaré la imagen o los datos para que sea más fácil.";
   await message.reply(paymentOptions);
   const existing = userStates.get(userId);
   const stateData = typeof existing === 'object'

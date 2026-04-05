@@ -316,50 +316,15 @@ async function processIncomingMessage(message) {
           await message.reply('😃 ¡He despertado! Vuelvo a atender a los clientes.');
           return;
       } else if (command.includes('contesta') || command.includes('atiende pendientes')) {
-          await handleBatchUnanswered(message);
+          await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
           return;
       } else if (command === '' || command === 'funciones' || command === 'ayuda') {
-          await message.reply('🤖 *Mis funciones internas:*\n\n' +
-            '1. *Flujo de Ventas*: Atiendo a clientes, detecto intención de compra, calculo precios y ofrezco medios de pago mediante IA.\n' +
-            '2. *Consulta de Credenciales*: Busco en la base de datos a través de la API externa para entregar accesos a los clientes.\n' +
-            '3. *Cobranza Automática*:\n   - Usa `@bot cobros automáticos` para escanear y generar avisos de vencimiento masivos.\n   - Usa `@bot porfa haz los cobros para hoy de:\n[lista]` para cobrar a personas específicas.\n' +
-            '4. *Modo Humano*: El comando `liberar <numero>` desactiva la atención automática.\n' +
-            '5. *Dormir/Despertar*: `@bot duermete` y `@bot despiertate` pausan/reanudan mis respuestas.\n' +
-            '6. *Lote de Respuestas*: `@bot contesta los que estan sin contestar` para atender a clientes que quedaron pendientes de un asesor humano.'
-          );
+          await showAdminFunctions(message);
           return;
       } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
-          const knownPlatforms = ['disney', 'netflix', 'amazon', 'spotify', 'max', 'paramount', 'crunchyroll', 'vix', 'youtube', 'canva', 'apple', 'plex', 'iptv', 'magis'];
-          let requestedPlatform = null;
-          for (const plat of knownPlatforms) {
-              if (command.includes(plat)) { requestedPlatform = plat; break; }
-          }
-          await message.reply(requestedPlatform ? `⏳ Enviando credenciales de *${requestedPlatform.toUpperCase()}*...` : '⏳ Enviando TODAS las credenciales...');
-          
-          const listText = message.body.split('\n').length > 1 ? message.body.split('\n').slice(1).join('\n') : command;
-          const regex = /57\s*3\d{2}\s*\d{7}|57\s*3\d{9}/g;
-          const matches = listText.match(regex);
-          
-          if (!matches) {
-             await message.reply('❌ No encontré números válidos.');
-             return;
-          }
-          
-          let enviados = 0, fallidos = 0;
-          const { formatDirectCredentials } = require('./aiService');
-          for (const phoneStr of matches) {
-             const cleanPhone = phoneStr.replace(/\s+/g, '');
-             try {
-                 const accounts = await getAccountsByPhone(cleanPhone);
-                 const formattedMsg = formatDirectCredentials(accounts, requestedPlatform);
-                 if (formattedMsg) {
-                     await client.sendMessage(cleanPhone + '@c.us', formattedMsg);
-                     enviados++;
-                 } else { fallidos++; }
-             } catch(err) { fallidos++; }
-             await new Promise(r => setTimeout(r, 3000));
-          }
-          await message.reply(`✅ Finalizado: ${enviados} enviados, ${fallidos} fallidos.`);
+          const { handleSendBulkCredentials } = require('./adminService');
+          const { getAccountsByPhone } = require('./apiService');
+          await handleSendBulkCredentials(message, command, client, getAccountsByPhone);
           return;
       }
   }
@@ -468,9 +433,8 @@ async function processIncomingMessage(message) {
 }
 
 /**
- * El bot no procesaba handleBatchUnanswered aquí, ahora está en adminService.
+ * Event Listener principal
  */
-
 client.on('message', async (message) => {
   // Manejo de mensajes antiguos
   if (message.timestamp < BOT_START_TIME) {
