@@ -1,4 +1,11 @@
 const http = require('http');
+// Sobrescribir consola para añadir timestamps
+const originalLog = console.log;
+console.log = function() {
+    const now = new Date();
+    const timestamp = `[${now.toLocaleString('es-CO', { timeZone: 'America/Bogota' })}]`;
+    originalLog.apply(console, [timestamp, ...arguments]);
+};
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
@@ -34,6 +41,12 @@ const server = http.createServer((req, res) => {
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
   console.log(`Servidor corriendo en el puerto ${port}`);
+  
+  // Heartbeat cada 30 minutos
+  setInterval(() => {
+    const state = client ? client.getState() : 'UNINITIALIZED';
+    console.log(`💓 Heartbeat: Proceso vivo. Estado del cliente: ${state}`);
+  }, 30 * 60 * 1000);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`🔥 ERROR: El puerto ${port} ya está en uso.`);
@@ -95,6 +108,22 @@ client.on('qr', (qr) => {
 
 client.on('ready', () => {
   console.log('Conexión establecida correctamente');
+});
+
+client.on('disconnected', (reason) => {
+  console.error('❌ El cliente se desconectó. Razón:', reason);
+  // Si usas PM2, esto forzará un reinicio
+  console.log('⚠️ Intentando forzar reinicio del proceso...');
+  process.exit(1);
+});
+
+client.on('auth_failure', (msg) => {
+  console.error('❌ FALLO DE AUTENTICACIÓN:', msg);
+  process.exit(1);
+});
+
+client.on('change_state', (state) => {
+  console.log('🔄 Cambio de estado detectado:', state);
 });
 
 client.on('loading_screen', (percent, message) => {
