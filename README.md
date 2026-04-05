@@ -27,7 +27,8 @@ El bot utiliza modelos de Google Gemini (`gemini-2.0-flash`, `gemini-3-flash`, e
 ### 4. 💰 Sistema de Cobranza (Modo Operador)
 Comandos especiales para el administrador (definido en `OPERATOR_NUMBER`):
 - **Calculadora de Cobros**: Enviando `@bot porfa haz los cobros para hoy de: <lista>`, el bot parsea la lista, contacta a los usuarios individualmente y gestiona las confirmaciones.
-- **Liberar Sesión**: `liberar 3001234567` para desconectar al bot de un usuario y permitir atención humana.
+- **Liberar Sesión**: `liberar 3001234567` para desconectar al bot de un usuario y permitir atención humana. Se puede usar `liberar masivo` para reactivar a todos los que estaban en espera.
+- **Atención de Pendientes (NUEVO)**: `@bot contesta los que estan sin contestar` o `@bot atiende pendientes`. El bot escanea a los usuarios en espera de un humano y les responde automáticamente con ayuda de la IA para retomar el servicio.
 - **Confirmar Cobros**: `confirmar_cobros 3001234567` para registrar pagos manualmente.
 
 ## 📂 Estructura del Proyecto
