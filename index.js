@@ -28,7 +28,7 @@ const {
   handleAutoCobros
 } = require('./billingService');
 const { recordNewSale } = require('./salesRegistryService');
-const { handleBatchUnanswered, showAdminFunctions, handleAdminPaymentConfirmation } = require('./adminService');
+const { handleBatchUnanswered, showAdminFunctions, handleAdminPaymentConfirmation, processPendingChats } = require('./adminService');
 const { searchContactByPhone, addNewContact } = require('./googleContactsService');
 
 
@@ -242,20 +242,6 @@ async function processIncomingMessage(message) {
 
   console.log('[DEBUG] Procesando mensaje de:', userId, 'Contenido:', message.body);
 
-  // VERIFICAR SI EL NÚMERO ESTÁ GUARDADO (SOLO CHATS DIRECTOS Y NO BOTS)
-  if (!message.fromMe && !message.from.includes('@g.us') && !message.from.includes('status@broadcast')) {
-      try {
-          const contact = await message.getContact();
-          if (!contact.isMyContact && !contact.name && currentState !== 'awaiting_name_for_contact' && currentState !== 'waiting_human') {
-              userStates.set(userId, 'awaiting_name_for_contact');
-              await message.reply("🤖 ¡Hola! Bienvenido a Sheerit. Veo que aún no nos conocemos, ¿me regalas tu nombre y apellido para guardarte en mis contactos antes de empezar? (Escribe tu nombre abajo)");
-              return;
-          }
-      } catch (err) {
-          console.error('[DEBUG] Error validando estado de contacto:', err);
-      }
-  }
-
   if (currentStateData && typeof currentStateData === 'object') {
     currentState = currentStateData.state;
   }
@@ -418,19 +404,25 @@ async function processIncomingMessage(message) {
          return;
       }
 
-      // 1. IDENTIDAD PRIMERO: Buscar en Google Contacts por teléfono
-      let foundName = await searchContactByPhone(userId);
+      // 1. IDENTIDAD PRIMERO: WhatsApp (Pushname o Nombre Agendado en Celular)
+      const contact = await message.getContact();
+      let foundName = contact.name || contact.pushname;
+
+      // 2. IDENTIDAD SEGUNDO: Google Contacts (por teléfono)
+      if (!foundName) {
+          foundName = await searchContactByPhone(userId);
+      }
       
       const hist = await getChatHistoryText(message);
       const detection = await detectInitialIntent(message.body, hist);
 
-      // 2. IDENTIDAD SEGUNDO: Si no está en contactos, revisar si la IA halló el nombre en el historial
+      // 3. IDENTIDAD TERCERO: IA revisando historial
       if (!foundName && detection.userName) {
           foundName = detection.userName;
           console.log(`[AI Discovery] Nombre hallado en historial para @${userId.replace('@c.us', '')}: ${foundName}`);
       }
 
-      // 3. RECUPERACIÓN DE ESTADO (Stateless Recovery)
+      // 4. RECUPERACIÓN DE ESTADO (Stateless Recovery)
       if (detection.recoveredState) {
           console.log(`[Flow Recovery] Recuperando estado: ${detection.recoveredState} para @${userId.replace('@c.us', '')}`);
           const metadata = detection.metadata || {};
@@ -442,34 +434,40 @@ async function processIncomingMessage(message) {
           }
       }
 
-      if (foundName && detection.intent === 'desconocido') {
-          userStates.set(userId, { state: 'main_menu', nombre: foundName });
-          await message.reply(`🤖 ¡Hola de nuevo, *${foundName}*! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
-          return;
-      }
-
+      // 5. MANEJO DE INTENCIONES
       if (detection.intent === 'comprar') {
+          if (!foundName) {
+              await message.reply("🤖 ¡Hola! Claro que sí, con gusto te ayudo con tu compra. Antes de iniciar, ¿me podrías decir tu nombre y apellido para saludarte correctamente? 😊");
+              userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
+              return;
+          }
           userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
-          await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Claro que sí, con gusto te ayudo con tu compra.`);
+          await message.reply(`🤖 ¡Hola ${foundName}! Claro que sí, con gusto te ayudo con tu compra.`);
           await startPurchaseProcess(message, userId, userStates);
           return;
       } else if (detection.intent === 'credenciales') {
-          await message.reply(`🤖 Entendido${foundName ? ' ' + foundName : ''}, te ayudaré a revisar tus credenciales de inmediato.`);
+          if (!foundName) {
+              await message.reply("🤖 ¡Hola! Con gusto te ayudo. ¿Me podrías decir tu nombre para buscar tus cuentas? 😊");
+              userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
+              return;
+          }
+          await message.reply(`🤖 Entendido ${foundName}, te ayudaré a revisar tus credenciales de inmediato.`);
           await processCheckCredentials(message, userId);
           return;
       } else if (detection.intent === 'pagar') {
-          await message.reply(`🤖 ¡Claro${foundName ? ' ' + foundName : '' }! Vamos a revisar tus cuentas para el pago.`);
+          await message.reply(`🤖 ¡Claro${foundName ? ' ' + foundName : ''}! Vamos a revisar tus cuentas para el pago.`);
           await processCheckPrices(message, userId, userStates);
           return;
       }
 
-      // 4. SI NO HAY NOMBRE AÚN: Preguntar como último recurso
+      // 6. FLUJO POR DEFECTO (Si no hay intención clara, no forzamos nombre aún)
       if (foundName) {
         userStates.set(userId, { state: 'main_menu', nombre: foundName });
         await message.reply(`🤖 ¡Hola de nuevo, *${foundName}*! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
       } else {
-        await message.reply("🤖 ¡Hola! Soy el asistente virtual de *Sheerit*. No te tengo agendado aún. ¿Me podrías decir tu nombre y apellido para saludarte correctamente? 😊");
-        userStates.set(userId, { state: 'awaiting_name_for_contact' });
+        // En lugar de preguntar nombre de entrada, saludamos amable y mostramos menú
+        await message.reply("🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nEscoge una opción para ayudarte:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
+        userStates.set(userId, { state: 'main_menu' });
       }
       break;
     case 'main_menu':
@@ -725,3 +723,9 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 client.initialize().catch(err => console.error('Error al inicializar cliente:', err));
+
+// Escáner de mensajes no leídos (cada 5 minutos)
+setInterval(async () => {
+    console.log('[Scanner] Iniciando escaneo automático de chats no leídos...');
+    await processPendingChats(client, userStates, processIncomingMessage);
+}, 5 * 60 * 1000);
