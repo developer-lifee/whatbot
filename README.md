@@ -117,3 +117,6 @@ Este documento sirve como guía técnica para la mejora continua del bot, priori
 ## 🏗️ *(Opcional)* Migración de Framework a BuilderBot
 *Nota: Este objetivo anterior queda pospuesto.*
 - [ ] Al trasladar la lógica pesada a las funciones de Azure, la estructura actual con `whatsapp-web.js` se vuelve suficiente. Solo migraremos a BuilderBot si el enrutamiento de menús estáticos se vuelve insostenible.
+
+## 🏗️ *pagos
+enlazar a jordimemes que es el correo de pagos y validar solo con qr es decir llave asi haciendo mas funciones automatizadas como la actualizaicon de pago etcetera

@@ -192,188 +192,25 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
     }
 }
 
-client.on('message', async (message) => {
-  // Manejo de mensajes antiguos (los que se enviaron antes de que el bot arrancara)
-  if (message.timestamp < BOT_START_TIME) {
-    // Nunca procesar mensajes viejos de grupos o estados
-    if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) {
-        return; 
-    }
-    
-    // Usamos un candado (Lock) para procesar los mensajes acumulados uno por uno y no causar SPAM
-    const shouldProcess = await new Promise(resolve => {
-         startupLock = startupLock.then(async () => {
-             try {
-                const chat = await message.getChat();
-                const msgs = await chat.fetchMessages({ limit: 5 });
-                let isHuman = false;
-                for (const m of msgs) {
-                    if (m.fromMe && !m.body.includes('🤖')) {
-                        isHuman = true; 
-                        break;
-                    }
-                }
-                
-                if (isHuman) {
-                   console.log(`[STARTUP] Ignorando msg antiguo de ${message.from} por intervención humana reciente.`);
-                   userStates.set(message.from, 'waiting_human');
-                   resolve(false);
-                } else {
-                   console.log(`[STARTUP] Procesando msg acumulado de ${message.from}`);
-                   await new Promise(r => setTimeout(r, 2500)); // Pausa de 2.5s entre mensajes resueltos
-                   resolve(true);
-                }
-             } catch(e) { 
-                resolve(false); 
-             }
-         });
-    });
-    
-    if (!shouldProcess) {
-        return;
-    }
-  }
 
-  // Importar utilidad de historial (evitar duplicados en el scope)
-  const { getChatHistoryText } = require('./salesService');
-
-  // Ignorar si el mensaje fue enviado por el propio bot (para evitar bucles)
-  if (message.fromMe) {
-    return;
-  }
-
-  // Ignorar mensajes de grupos y estados
-  if (message.from.includes('@g.us')) {
-      // Interceptar comandos en el grupo personal
-      if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
-          const command = message.body.toLowerCase().replace('@bot', '').trim();
-          if (command === 'duermete') {
-              globalBotSleep = true;
-              await message.reply('😴 Modo dormido activado. No responderé a los clientes automáticamente hasta que me despiertes con *@bot despiertate*.');
-              return;
-          } else if (command === 'despiertate') {
-              globalBotSleep = false;
-              await message.reply('😃 ¡He despertado! Vuelvo a atender a los clientes.');
-              return;
-          } else if (command === '' || command === 'funciones' || command === 'ayuda') {
-              await message.reply('🤖 *Mis funciones internas:*\n\n' +
-                '1. *Flujo de Ventas*: Atiendo a clientes, detecto intención de compra, calculo precios y ofrezco medios de pago mediante IA.\n' +
-                '2. *Consulta de Credenciales*: Busco en la base de datos a través de la API externa para entregar accesos a los clientes.\n' +
-                '3. *Cobranza Automática*:\n   - Usa `@bot cobros automáticos` para escanear y generar avisos de vencimiento masivos (para hoy, vencidos y para mañana).\n   - Usa `@bot porfa haz los cobros para hoy de:\n[lista]` para cobrar a personas específicas.\n' +
-                '4. *Modo Humano*: El comando `liberar <numero>` por parte de un operador desactiva la atención automática a un usuario.\n' +
-                '5. *Dormir/Despertar*: Con los comandos `@bot duermete` y `@bot despiertate` en este grupo puedo pausar/reanudar mis respuestas a todos los usuarios.\n' +
-                '6. *Actualización de Claves*: Usa `@bot enviale credenciales nueva a estos clientes\n[lista de números]` para notificar a los usuarios sus accesos más recientes.'
-              );
-              return;
-          } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
-              const knownPlatforms = ['disney', 'netflix', 'amazon', 'spotify', 'max', 'paramount', 'crunchyroll', 'vix', 'youtube', 'canva', 'apple', 'plex', 'iptv', 'magis'];
-              let requestedPlatform = null;
-              for (const plat of knownPlatforms) {
-                  if (command.includes(plat)) {
-                      requestedPlatform = plat;
-                      break;
-                  }
-              }
-              
-              if (requestedPlatform) {
-                  await message.reply(`⏳ Procesando lista de clientes para enviarles sus credenciales actualizadas ÚNICAMENTE de *${requestedPlatform.toUpperCase()}*...`);
-              } else {
-                  await message.reply('⏳ Procesando lista de clientes para enviarles TODAS sus credenciales actualizadas (Si querías una específica, incluye el nombre de la plataforma en tu comando, ej: enviar credenciales disney)...');
-              }
-              
-              const listText = message.body.split('\n').length > 1 ? message.body.split('\n').slice(1).join('\n') : command;
-              // Extraer números con y sin espacios: 57 300 4268037 o 573028240488
-              const regex = /57\s*3\d{2}\s*\d{7}|57\s*3\d{9}/g;
-              const matches = listText.match(regex);
-              
-              if (!matches || matches.length === 0) {
-                 await message.reply('❌ No encontré ningún número de teléfono válido (formato Colombia 573...) en tu mensaje.');
-                 return;
-              }
-              
-              let enviados = 0;
-              let fallidos = 0;
-              const { formatDirectCredentials } = require('./aiService');
-              
-              for (const phoneStr of matches) {
-                 const cleanPhone = phoneStr.replace(/\s+/g, '');
-                 try {
-                     const accounts = await getAccountsByPhone(cleanPhone);
-                     const formattedMsg = formatDirectCredentials(accounts, requestedPlatform);
-                     
-                     if (formattedMsg) {
-                         const targetId = cleanPhone + '@c.us';
-                         await client.sendMessage(targetId, formattedMsg);
-                         enviados++;
-                     } else {
-                         fallidos++;
-                     }
-                 } catch(err) {
-                     console.error(`Error enviando credenciales masivas a ${cleanPhone}:`, err.message);
-                     fallidos++;
-                 }
-                 
-                 // Pausa de seguridad (3s anti-spam)
-                 await new Promise(resolve => setTimeout(resolve, 3000));
-              }
-              
-              await message.reply(`✅ *Proceso Finalizado*\nSe enviaron exitosamente las credenciales a ${enviados} clientes.\nNo se encontraron cuentas activas (o fallaron) para ${fallidos} clientes.`);
-              return;
-          }
-      }
-      
-      // Si estamos esperando confirmación de cobros en el grupo, dejamos pasar el mensaje ("si" / "no")
-      let groupState = userStates.get(message.from);
-      if (groupState && typeof groupState === 'object') groupState = groupState.state;
-      if (message.from === GROUP_ID && groupState === 'awaiting_cobros_confirmation') {
-          // Continúa el flujo
-      } else {
-          // Ignorar otros mensajes de grupo que no sean comandos o continuaciones
-          // También dejamos pasar los comandos especiales de cobro y administrador
-          const b = message.body ? message.body.toLowerCase().trim() : '';
-          if (message.from === GROUP_ID && message.body && (
-              b.startsWith('@bot porfa haz los cobros') ||
-              b === '@bot cobros automáticos' ||
-              b === '@bot cobros automaticos' ||
-              b === '!liberar masivo' ||
-              b === 'liberar masivo' ||
-              b.startsWith('!bot') ||
-              b.startsWith('!liberar') ||
-              b.startsWith('liberar ') ||
-              b.startsWith('confirmar_cobros ')
-          )) {
-              // Continúa el flujo principal donde estos están definidos
-          } else {
-              return;
-          }
-      }
-  }
-  
-  if (message.from.includes('status@broadcast')) {
-    return;
-  }
-
-  // Ignorar si el bot está dormido globalmente
-  if (globalBotSleep && message.from !== OPERATOR_NUMBER && message.from !== GROUP_ID) {
-      console.log(`[DEBUG] Bot en modo dormido. Ignorando mensaje de: ${message.from}`);
-      return;
-  }
-
-  if (message.from.includes('@lid')) {
-    return; // Ignorar identificadores de WhatsApp nativos si no son números normales
-  }
-
-  console.log('[DEBUG] Mensaje recibido de:', message.from, 'Contenido:', message.body);
-
+/**
+ * Procesa un mensaje entrante siguiendo la lógica de estados del bot.
+ * @param {Message} message 
+ */
+async function processIncomingMessage(message) {
   const userId = message.from;
   let currentStateData = userStates.get(userId);
   let currentState = currentStateData;
+
+  // Importar utilidades necesarias
+  const { getChatHistoryText } = require('./salesService');
+
+  console.log('[DEBUG] Procesando mensaje de:', userId, 'Contenido:', message.body);
 
   // VERIFICAR SI EL NÚMERO ESTÁ GUARDADO (SOLO CHATS DIRECTOS Y NO BOTS)
   if (!message.fromMe && !message.from.includes('@g.us') && !message.from.includes('status@broadcast')) {
       try {
           const contact = await message.getContact();
-          // isMyContact te dice si lo tenemos agregado, o name si está ya registrado en whatsapp
           if (!contact.isMyContact && !contact.name && currentState !== 'awaiting_name_for_contact' && currentState !== 'waiting_human') {
               userStates.set(userId, 'awaiting_name_for_contact');
               await message.reply("🤖 ¡Hola! Bienvenido a Sheerit. Veo que aún no nos conocemos, ¿me regalas tu nombre y apellido para guardarte en mis contactos antes de empezar? (Escribe tu nombre abajo)");
@@ -384,13 +221,9 @@ client.on('message', async (message) => {
       }
   }
 
-  // Si el estado es un objeto (nuevo formato), extraemos el string 'state' 
-  // para que el switch funcione.
   if (currentStateData && typeof currentStateData === 'object') {
     currentState = currentStateData.state;
   }
-
-  // Primero, verifica si el mensaje corresponde al inicio de una suscripción
 
   // --- Cobros parser: mensaje especial ---
   if (message.body && message.body.toLowerCase().startsWith('@bot porfa haz los cobros para hoy de:')) {
@@ -409,7 +242,6 @@ client.on('message', async (message) => {
   if (message.from === OPERATOR_NUMBER || message.from === GROUP_ID) {
     const body = (message.body || '').trim().toLowerCase();
     
-    // Comando para liberar el bot (quitar modo humano)
     if (body === '!liberar masivo' || body === 'liberar masivo') {
       let count = 0;
       for (const [key, val] of userStates.entries()) {
@@ -425,8 +257,6 @@ client.on('message', async (message) => {
 
     if (body.startsWith('!bot') || body.startsWith('!liberar') || body.startsWith('liberar ')) {
       let targetPhone = body.replace('!bot', '').replace('!liberar', '').replace('liberar', '').trim().replace(/\D/g, '');
-      
-      // Si no especificó número, intentamos usar el del chat actual si es privado
       if (!targetPhone && !message.from.includes('@g.us')) {
         targetPhone = userId.replace(/\D/g, '');
       }
@@ -441,25 +271,20 @@ client.on('message', async (message) => {
       }
       return;
     }
-    // allow operator to confirm pending charges on behalf of user: confirmar_cobros <phone>
+
     if (body.toLowerCase().startsWith('confirmar_cobros ')) {
       const phone = body.split(' ')[1].replace(/\D/g, '');
       const targetId = phone + '@c.us';
-      // attempt to find pending confirmation saved under that user's id
-      // (this is best-effort; usually the requester triggers confirmation)
       if (pendingConfirmations.has(targetId)) {
         const records = pendingConfirmations.get(targetId);
-        // save to file and send individual messages
         const fs = require('fs');
         const path = require('path');
         const file = path.join(__dirname, 'pending_charges.json');
         let existing = [];
         try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
-        const timestamp = new Date().toISOString();
-        const entry = { requester: targetId, records, timestamp };
+        const entry = { requester: targetId, records, timestamp: new Date().toISOString() };
         existing.push(entry);
         fs.writeFileSync(file, JSON.stringify(existing, null, 2));
-        // send messages to each number
         for (const r of records) {
           const dest = r.phone + '@c.us';
           await client.sendMessage(dest, `Se ha generado un cobro para *${r.name}* solicitado por ${targetId}. Por favor, responde si este pago fue procesado.`);
@@ -472,57 +297,103 @@ client.on('message', async (message) => {
     }
   }
 
-  // Clean message body: remove starting/ending quotes if present, trim
+  // Comandos de Grupo / Admin
+  if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
+      const bodyLower = message.body.toLowerCase();
+      const command = bodyLower.replace('@bot', '').trim();
+
+      if (command === 'duermete') {
+          globalBotSleep = true;
+          await message.reply('😴 Modo dormido activado. No responderé a los clientes automáticamente hasta que me despiertes con *@bot despiertate*.');
+          return;
+      } else if (command === 'despiertate') {
+          globalBotSleep = false;
+          await message.reply('😃 ¡He despertado! Vuelvo a atender a los clientes.');
+          return;
+      } else if (command.includes('contesta') || command.includes('atiende pendientes')) {
+          await handleBatchUnanswered(message);
+          return;
+      } else if (command === '' || command === 'funciones' || command === 'ayuda') {
+          await message.reply('🤖 *Mis funciones internas:*\n\n' +
+            '1. *Flujo de Ventas*: Atiendo a clientes, detecto intención de compra, calculo precios y ofrezco medios de pago mediante IA.\n' +
+            '2. *Consulta de Credenciales*: Busco en la base de datos a través de la API externa para entregar accesos a los clientes.\n' +
+            '3. *Cobranza Automática*:\n   - Usa `@bot cobros automáticos` para escanear y generar avisos de vencimiento masivos.\n   - Usa `@bot porfa haz los cobros para hoy de:\n[lista]` para cobrar a personas específicas.\n' +
+            '4. *Modo Humano*: El comando `liberar <numero>` desactiva la atención automática.\n' +
+            '5. *Dormir/Despertar*: `@bot duermete` y `@bot despiertate` pausan/reanudan mis respuestas.\n' +
+            '6. *Lote de Respuestas*: `@bot contesta los que estan sin contestar` para atender a clientes que quedaron pendientes de un asesor humano.'
+          );
+          return;
+      } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
+          const knownPlatforms = ['disney', 'netflix', 'amazon', 'spotify', 'max', 'paramount', 'crunchyroll', 'vix', 'youtube', 'canva', 'apple', 'plex', 'iptv', 'magis'];
+          let requestedPlatform = null;
+          for (const plat of knownPlatforms) {
+              if (command.includes(plat)) { requestedPlatform = plat; break; }
+          }
+          await message.reply(requestedPlatform ? `⏳ Enviando credenciales de *${requestedPlatform.toUpperCase()}*...` : '⏳ Enviando TODAS las credenciales...');
+          
+          const listText = message.body.split('\n').length > 1 ? message.body.split('\n').slice(1).join('\n') : command;
+          const regex = /57\s*3\d{2}\s*\d{7}|57\s*3\d{9}/g;
+          const matches = listText.match(regex);
+          
+          if (!matches) {
+             await message.reply('❌ No encontré números válidos.');
+             return;
+          }
+          
+          let enviados = 0, fallidos = 0;
+          const { formatDirectCredentials } = require('./aiService');
+          for (const phoneStr of matches) {
+             const cleanPhone = phoneStr.replace(/\s+/g, '');
+             try {
+                 const accounts = await getAccountsByPhone(cleanPhone);
+                 const formattedMsg = formatDirectCredentials(accounts, requestedPlatform);
+                 if (formattedMsg) {
+                     await client.sendMessage(cleanPhone + '@c.us', formattedMsg);
+                     enviados++;
+                 } else { fallidos++; }
+             } catch(err) { fallidos++; }
+             await new Promise(r => setTimeout(r, 3000));
+          }
+          await message.reply(`✅ Finalizado: ${enviados} enviados, ${fallidos} fallidos.`);
+          return;
+      }
+  }
+
   let cleanBody = message.body ? message.body.trim() : "";
   if (cleanBody.startsWith('"') && cleanBody.endsWith('"')) {
     cleanBody = cleanBody.slice(1, -1).trim();
   }
 
   if (cleanBody.toLowerCase().startsWith("hola, estoy interesado en")) {
-    console.log(`[DEBUG] Triggered purchase flow with: "${cleanBody}"`);
     message.body = cleanBody;
     await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
     return;
   }
 
-  // --- FALLBACK GLOBAL PARA MULTIMEDIA (Stickers, Imágenes) ---
-  // Si envían algo que no sea texto y NO estamos esperando un comprobante de pago
-  // Y tampoco estamos en modo silencioso (waiting_human)
   if (message.hasMedia && currentState !== 'awaiting_payment_confirmation' && currentState !== 'waiting_human') {
     const history = await getChatHistoryText(message);
-    
     let mediaData = null;
     try {
       const media = await message.downloadMedia();
       if (media && media.data && media.mimetype) {
-         // Limpiar mimetype por si trae codecs (ej. image/webp; codecs=vp8)
          const cleanMime = media.mimetype.split(';')[0];
          mediaData = { data: media.data, mimeType: cleanMime };
       }
-    } catch(err) {
-      console.error("[DEBUG] Error descargando multimedia para fallback:", err.message);
-    }
-
+    } catch(err) {}
     await processFallbackWithEscalation(message, userId, true, mediaData, history);
     return;
   }
 
   switch (currentState) {
     case undefined:
-      // Si el usuario escribe directamente un número del menú principal, evitar la IA e ir directo:
       const cleanInput = (message.body || '').trim();
       if (['1', '2', '3', '4', '5'].includes(cleanInput)) {
-         console.log(`[DEBUG] Fast-track numérico detectado: ${cleanInput}`);
          userStates.set(userId, 'main_menu');
          await handleMainMenuSelection(message, userId);
          return;
       }
-
-      // Intentar detectar la intención desde el primer mensaje
       const hist = await getChatHistoryText(message);
       const detection = await detectInitialIntent(message.body, hist);
-      console.log(`[DEBUG] Initial Intent Detection: ${detection.intent}`);
-
       if (detection.intent === 'comprar') {
         await message.reply("🤖 ¡Hola! Claro que sí, con gusto te ayudo con tu compra.");
         await startPurchaseProcess(message, userId, userStates);
@@ -536,18 +407,9 @@ client.on('message', async (message) => {
         await processCheckPrices(message, userId, userStates);
         return;
       }
-
-      // Si no hay intención clara, mostrar el menú refinado
       userStates.set(userId, 'main_menu');
       await message.reply(
-        "🤖 *Hola! Soy el asistente de Sheerit.*\n\n" +
-        "¿En qué puedo ayudarte hoy?\n" +
-        "1 - Comprar cuenta nueva\n" +
-        "2 - Revisar mis credenciales (claves/perfiles)\n" +
-        "3 - Pagar o renovar mis cuentas\n" +
-        "4 - Guías y Soporte Técnico (Autoayuda)\n" +
-        "5 - Hablar con un asesor (Otro)\n\n" +
-        "Si prefieres, cuéntame directamente qué necesitas. 😊"
+        "🤖 *Hola! Soy el asistente de Sheerit.*\n\n¿En qué puedo ayudarte hoy?\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales (claves/perfiles)\n3 - Pagar o renovar mis cuentas\n4 - Guías y Soporte Técnico (Autoayuda)\n5 - Hablar con un asesor (Otro)\n\nSi prefieres, cuéntame directamente qué necesitas. 😊"
       );
       break;
     case 'main_menu':
@@ -563,9 +425,6 @@ client.on('message', async (message) => {
       await handleAwaitingPaymentConfirmation(message, userId);
       break;
     case 'waiting_human':
-      // El bot está en modo silencioso por intervención humana.
-      // Se puede reactivar si el operador manda 'liberar <numero>' o si el usuario
-      // explícitamente pide volver al menú? Por ahora, silencio total.
       console.log(`[DEBUG] Usuario ${userId} en modo waiting_human. Bot ignorando.`);
       break;
     case 'awaiting_purchase_platforms':
@@ -577,29 +436,123 @@ client.on('message', async (message) => {
     case 'adding_platform':
       await handleAddingPlatform(message, userId, userStates);
       break;
-    case 'seleccionar_servicio':
-      userStates.delete(userId);
-      await message.reply("🤖 ERROR");
-      break;
     case 'awaiting_name_for_contact':
       const name = (message.body || "").trim();
-      const phoneToSave = userId.replace('@c.us', '');
       try {
           const { addNewContact } = require('./googleContactsService');
-          await addNewContact(name, phoneToSave);
-      } catch(e) {
-          console.error("Error intentando agregar contacto:", e);
-      }
+          await addNewContact(name, userId.replace('@c.us', ''));
+      } catch(e) {}
       userStates.set(userId, 'main_menu');
       await message.reply("🤖 ¡Un placer conocerte, *" + name + "*! Ya quedaste agendado. Ahora sí, ¿en qué te puedo ayudar hoy?\n\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
       break;
     default:
-      // Si el texto no encaja en ningún flujo y no es un comando conocido
       const historyText = await getChatHistoryText(message);
       await processFallbackWithEscalation(message, userId, false, null, historyText);
       break;
   }
+}
+
+/**
+ * Busca todos los usuarios en estado waiting_human y procesa su último mensaje.
+ */
+async function handleBatchUnanswered(adminMessage) {
+  let count = 0;
+  const pendingUsers = [];
+
+  for (const [userId, state] of userStates.entries()) {
+    let stateStr = typeof state === 'object' ? state.state : state;
+    if (stateStr === 'waiting_human') {
+      pendingUsers.push(userId);
+    }
+  }
+
+  if (pendingUsers.length === 0) {
+    await adminMessage.reply('🤖 No hay clientes pendientes de atención en este momento.');
+    return;
+  }
+
+  await adminMessage.reply(`⏳ Iniciando respuesta automática para ${pendingUsers.length} clientes pendientes...`);
+
+  for (const userId of pendingUsers) {
+    try {
+      const chat = await client.getChatById(userId);
+      const messages = await chat.fetchMessages({ limit: 1 });
+      
+      if (messages.length > 0) {
+        const lastMsg = messages[0];
+        // Solo procesar si el último mensaje lo envió el cliente
+        if (!lastMsg.fromMe) {
+          console.log(`[BATCH] Procesando pendiente para ${userId}`);
+          userStates.delete(userId); // Reactivar bot
+          await processIncomingMessage(lastMsg);
+          count++;
+        }
+      }
+    } catch (err) {
+      console.error(`Error en batch para ${userId}:`, err.message);
+    }
+    // Pausa de seguridad para evitar bloqueos
+    await new Promise(r => setTimeout(r, 3500));
+  }
+
+  await adminMessage.reply(`✅ *Proceso Finalizado*\nSe atendieron ${count} clientes que estaban sin contestar.`);
+}
+
+client.on('message', async (message) => {
+  // Manejo de mensajes antiguos
+  if (message.timestamp < BOT_START_TIME) {
+    if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) return;
+    const shouldProcess = await new Promise(resolve => {
+         startupLock = startupLock.then(async () => {
+             try {
+                const chat = await message.getChat();
+                const msgs = await chat.fetchMessages({ limit: 5 });
+                let isHuman = false;
+                for (const m of msgs) {
+                    if (m.fromMe && !m.body.includes('🤖')) { isHuman = true; break; }
+                }
+                if (isHuman) {
+                   userStates.set(message.from, 'waiting_human');
+                   resolve(false);
+                } else {
+                   await new Promise(r => setTimeout(r, 2500));
+                   resolve(true);
+                }
+             } catch(e) { resolve(false); }
+         });
+    });
+    if (!shouldProcess) return;
+  }
+
+  // Ignorar propios
+  if (message.fromMe) return;
+
+  // Filtros de grupo
+  if (message.from.includes('@g.us')) {
+      if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
+          // Dejar pasar a processIncomingMessage
+      } else {
+          let groupState = userStates.get(message.from);
+          if (groupState && typeof groupState === 'object') groupState = groupState.state;
+          if (message.from === GROUP_ID && groupState === 'awaiting_cobros_confirmation') {
+              // dejar pasar
+          } else {
+              const b = message.body ? message.body.toLowerCase().trim() : '';
+              if (message.from === GROUP_ID && (b.includes('liberar masivo') || b.startsWith('!bot') || b.startsWith('!liberar') || b.startsWith('liberar ') || b.startsWith('confirmar_cobros '))) {
+                 // dejar pasar
+              } else {
+                 return;
+              }
+          }
+      }
+  }
+
+  if (message.from.includes('status@broadcast') || message.from.includes('@lid')) return;
+  if (globalBotSleep && message.from !== OPERATOR_NUMBER && message.from !== GROUP_ID) return;
+
+  await processIncomingMessage(message);
 });
+
 
 // Funciones de manejo de estados
 async function handleMainMenuSelection(message, userId) {
