@@ -137,16 +137,36 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     try {
         const paymentMethod = userState.paymentMethod || "Confirmado por Admin";
         
-        // Registrar en Excel
-        await recordNewSale(userId, userState, paymentMethod);
+        // Registrar en Excel inteligente (retorna array de resultados por item)
+        const results = await recordNewSale(userId, userState, paymentMethod);
         
+        let report = `✅ *Venta Registrada con éxito*\n\n`;
+        let userMsg = "🤖 ¡Tu pago ha sido validado! Gracias por tu compra.\n\n";
+        let hasFamily = false;
+
+        for (const res of results) {
+            if (res.status === 'success') {
+                report += `- ${res.name}: Fila ${res.index} ✅\n`;
+                userMsg += `- *${res.name}*: Ya tienes el cupo asignado.\n`;
+            } else if (res.status === 'manual_invitation_required') {
+                report += `- ${res.name}: ⚠️ *PLAN FAMILIAR*. Requiere invitación manual.\n`;
+                userMsg += `- *${res.name}*: Un asesor te enviará la invitación manual en un momento.\n`;
+                hasFamily = true;
+            } else {
+                report += `- ${res.name}: ❌ Sin cupos disponibles.\n`;
+                userMsg += `- *${res.name}*: Estamos agotados en este momento. Un asesor te contactará para darte una solución.\n`;
+            }
+        }
+
         // Notificar al cliente
-        await client.sendMessage(userId, "🤖 ¡Tu pago ha sido validado! Gracias por tu compra. Estamos preparando los detalles de tu acceso.");
+        await client.sendMessage(userId, userMsg);
         
         // Limpiar estado o mover a menú principal
         userStates.set(userId, { state: 'main_menu', nombre: userState.nombre });
         
-        await message.reply(`✅ *Venta Registrada con éxito*\nEl cliente @${phoneNumber} ha sido notificado.`);
+        if (hasFamily) report += `\n🚨 @${phoneNumber} requiere invitación manual para los planes familiares marcados arriba.`;
+        
+        await message.reply(report);
     } catch (err) {
         console.error('Error en confirmación manual:', err);
         await message.reply(`❌ Error al registrar la venta de @${phoneNumber}: ${err.message}`);

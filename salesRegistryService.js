@@ -1,5 +1,7 @@
 const { updateExcelData, fetchRawData } = require('./apiService');
 
+const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify', 'familiar', 'family', 'xbox'];
+
 /**
  * Calcula la fecha del próximo pago sumando los meses correspondientes.
  * @param {string} subscriptionType - 'mensual', 'semestral', 'anual'
@@ -80,8 +82,20 @@ async function recordNewSale(userId, userState, paymentMethod) {
         // Obtener todos los datos crudos para buscar cupos
         const allRows = await fetchRawData();
         
+        const results = [];
         for (const item of items) {
             const platformName = item.platform.name;
+            const lowerName = platformName.toLowerCase();
+            
+            // Verificamos si es un PLAN FAMILIAR
+            const isFamilyPlan = FAMILY_KEYWORDS.some(key => lowerName.includes(key));
+            
+            if (isFamilyPlan) {
+                console.log(`[Sales Registry] ${platformName} es un plan FAMILIAR. Saltando registro automático.`);
+                results.push({ name: platformName, status: 'manual_invitation_required' });
+                continue;
+            }
+
             const slot = findAvailableSlot(platformName, allRows);
             
             if (slot) {
@@ -95,13 +109,15 @@ async function recordNewSale(userId, userState, paymentMethod) {
                 };
                 
                 await updateExcelData(slot.index, updates);
-                // Marcar el row en nuestro array local como usado para que el siguiente item no tome el mismo
+                // Marcar el row en nuestro array local como usado
                 allRows[slot.index - 2].Deben = "RESERVADO"; 
+                results.push({ name: platformName, status: 'success', index: slot.index });
             } else {
                 console.log(`[Sales Registry] NO se encontró cupo disponible para ${platformName}.`);
-                // Aquí podrías agregar lógica para crear una fila nueva si no hay cupos
+                results.push({ name: platformName, status: 'no_slots_found' });
             }
         }
+        return results;
         
     } catch (error) {
         console.error("[Sales Registry] Error en proceso inteligente:", error.message);
