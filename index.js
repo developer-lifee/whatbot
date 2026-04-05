@@ -227,6 +227,18 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
     }
 }
 
+/**
+ * Determina si un nombre es incompleto (un solo nombre) o parece ser de negocio.
+ */
+function isNameIncomplete(name) {
+    if (!name) return true;
+    const parts = name.trim().split(/\s+/);
+    if (parts.length < 2) return true;
+    
+    const businessKeywords = ['store', 'shop', 'ventas', 'digital', 'oficial', 'asistente', 'bot', 'vende', 'pagos', 'comprobantes'];
+    const lowerName = name.toLowerCase();
+    return businessKeywords.some(kw => lowerName.includes(kw));
+}
 
 /**
  * Procesa un mensaje entrante siguiendo la lógica de estados del bot.
@@ -422,6 +434,8 @@ async function processIncomingMessage(message) {
           console.log(`[AI Discovery] Nombre hallado en historial para @${userId.replace('@c.us', '')}: ${foundName}`);
       }
 
+      const nameIncomplete = isNameIncomplete(foundName);
+
       // 4. RECUPERACIÓN DE ESTADO (Stateless Recovery)
       if (detection.recoveredState) {
           console.log(`[Flow Recovery] Recuperando estado: ${detection.recoveredState} para @${userId.replace('@c.us', '')}`);
@@ -436,18 +450,20 @@ async function processIncomingMessage(message) {
 
       // 5. MANEJO DE INTENCIONES
       if (detection.intent === 'comprar') {
-          if (!foundName) {
-              await message.reply("🤖 ¡Hola! Claro que sí, con gusto te ayudo con tu compra. Antes de iniciar, ¿me podrías decir tu nombre y apellido para saludarte correctamente? 😊");
+          if (nameIncomplete) {
+              const greeting = foundName ? `¡Hola ${foundName}! Veo que te tengo como ${foundName}.` : "¡Hola! Con gusto te ayudo con tu compra.";
+              await message.reply(`🤖 ${greeting} Para proceder con tu registro oficial y evitar duplicados, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
               return;
           }
           userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
-          await message.reply(`🤖 ¡Hola ${foundName}! Claro que sí, con gusto te ayudo con tu compra.`);
+          await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
           await startPurchaseProcess(message, userId, userStates);
           return;
       } else if (detection.intent === 'credenciales') {
-          if (!foundName) {
-              await message.reply("🤖 ¡Hola! Con gusto te ayudo. ¿Me podrías decir tu nombre para buscar tus cuentas? 😊");
+          if (nameIncomplete) {
+              const greeting = foundName ? `¡Hola ${foundName}!` : "¡Hola! Con gusto te ayudo.";
+              await message.reply(`🤖 ${greeting} Para buscar tus cuentas de forma segura, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
               return;
           }
@@ -460,12 +476,11 @@ async function processIncomingMessage(message) {
           return;
       }
 
-      // 6. FLUJO POR DEFECTO (Si no hay intención clara, no forzamos nombre aún)
+      // 6. FLUJO POR DEFECTO (Si no hay intención clara, no forzamos nombre completo aún)
       if (foundName) {
         userStates.set(userId, { state: 'main_menu', nombre: foundName });
-        await message.reply(`🤖 ¡Hola de nuevo, *${foundName}*! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
+        await message.reply(`🤖 ¡Hola de nuevo${nameIncomplete ? '' : ', *' + foundName + '*' }! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
       } else {
-        // En lugar de preguntar nombre de entrada, saludamos amable y mostramos menú
         await message.reply("🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nEscoge una opción para ayudarte:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
         userStates.set(userId, { state: 'main_menu' });
       }
@@ -724,8 +739,8 @@ process.on('unhandledRejection', (reason, promise) => {
 
 client.initialize().catch(err => console.error('Error al inicializar cliente:', err));
 
-// Escáner de mensajes no leídos (cada 5 minutos)
+// Escáner Atiende Pendientes (cada 5 minutos)
 setInterval(async () => {
-    console.log('[Scanner] Iniciando escaneo automático de chats no leídos...');
+    console.log('[Atiende Pendientes Scan] Iniciando escaneo automático de chats no leídos...');
     await processPendingChats(client, userStates, processIncomingMessage);
 }, 5 * 60 * 1000);
