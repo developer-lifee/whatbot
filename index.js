@@ -28,7 +28,7 @@ const {
   handleAutoCobros
 } = require('./billingService');
 const { recordNewSale } = require('./salesRegistryService');
-const { handleBatchUnanswered, showAdminFunctions } = require('./adminService');
+const { handleBatchUnanswered, showAdminFunctions, handleAdminPaymentConfirmation } = require('./adminService');
 const { searchContactByPhone, addNewContact } = require('./googleContactsService');
 
 
@@ -347,6 +347,9 @@ async function processIncomingMessage(message) {
       } else if (command.includes('contesta') || command.includes('atiende pendientes')) {
           await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
           return;
+      } else if (command.includes('confirmar') || command.includes('si me llego') || command.includes('si la recibi')) {
+          await handleAdminPaymentConfirmation(message, command, client, userStates);
+          return;
       } else if (command === '' || command === 'funciones' || command === 'ayuda') {
           await showAdminFunctions(message);
           return;
@@ -610,33 +613,28 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
   }
 
   if (message.hasMedia || body.includes("ya pagu") || body.includes("listo") || body.includes("claro que si") || body.includes("enviado") || body.includes("transferencia") || body.includes("comprobante")) {
-    // Si envían imagen o confirman por texto, informamos al grupo y silenciamos bot
+    // Si envían imagen o confirman por texto, informamos al grupo y esperamos validación humana
     try {
       const chat = await client.getChatById(GROUP_ID);
       if (chat) {
         const type = message.hasMedia ? "📸 Comprobante" : "✅ Confirmación de pago u observación";
-        await chat.sendMessage(`🚨 ${type} recibido de @${userId.replace('@c.us', '')}. Por favor revisar.`);
+        const phone = userId.replace('@c.us', '');
+        await chat.sendMessage(`🚨 ${type} recibido de @${phone}. Por favor revisar.\n\nPara validar, responde: *@bot confirmar ${phone}* o *si me llegó ${phone}*`);
       }
     } catch (error) {
       console.error('Error enviando notificación de pago al grupo:', error);
     }
 
     if (message.hasMedia) {
-      await message.reply("🤖 Hemos recibido tu comprobante. Una persona validará el pago en un momento para pasarte tus accesos.");
+      await message.reply("🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para entregarte tus accesos.");
     } else {
-      await message.reply("🤖 Estaré atento. Si ya lo enviaste, un humano te responderá pronto para entregarte tu cuenta.");
+      await message.reply("🤖 Hemos recibido tu confirmación. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido.");
     }
 
-    // Registrar venta en Excel (Automation)
-    const userState = userStates.get(userId);
-    if (userState && typeof userState === 'object') {
-       // Intentamos detectar el método de pago del mensaje actual o previo si no está en el objeto
-       const paymentMethod = await detectPaymentMethod(message.body) || userState.paymentMethod || "Confirmado por usuario";
-       // No bloqueamos el flujo principal si el registro falla (async sin await para velocidad o con catch)
-       recordNewSale(userId, userState, paymentMethod).catch(e => console.error("Error silencioso en registro de venta:", e.message));
-    }
-    
-    userStates.set(userId, 'waiting_human');
+    // No registramos todavía. Guardamos el estado para que el admin lo confirme manualmente.
+    const existing = userStates.get(userId);
+    const newState = typeof existing === 'object' ? { ...existing, state: 'waiting_admin_confirmation' } : { state: 'waiting_admin_confirmation' };
+    userStates.set(userId, newState);
   } else {
     // En vez de repetir robóticamente, usamos IA para responder dudas si el usuario pregunta algo
     const { getChatHistoryText } = require('./salesService');

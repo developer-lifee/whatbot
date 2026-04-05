@@ -1,4 +1,5 @@
 const { fetchRawData, updateExcelData } = require('./apiService');
+const { recordNewSale } = require('./salesRegistryService');
 
 /**
  * Busca todos los chats individuales con mensajes sin leer o en estado waiting_human y los procesa.
@@ -111,8 +112,50 @@ async function handleSendBulkCredentials(message, command, client, getAccountsBy
     await message.reply(`✅ *Proceso Finalizado*\nÉxito: ${enviados} | Fallidos: ${fallidos}`);
 }
 
+/**
+ * Procesa la confirmación manual de un administrador en el grupo.
+ */
+async function handleAdminPaymentConfirmation(message, command, client, userStates) {
+    // Patrones: "confirmar 57311...", "si me llego 57311...", "si la recibi 57311..."
+    const cleanCommand = command.toLowerCase();
+    const phoneRegex = /57\d{10}/;
+    const match = cleanCommand.match(phoneRegex);
+
+    if (!match) return; // No hay número de teléfono en el comando
+
+    const phoneNumber = match[0];
+    const userId = `${phoneNumber}@c.us`;
+    const userState = userStates.get(userId);
+
+    if (!userState || (userState.state !== 'waiting_admin_confirmation' && userState.state !== 'waiting_human')) {
+        await message.reply(`🤖 El usuario @${phoneNumber} no tiene un pago pendiente de validación en este momento.`);
+        return;
+    }
+
+    await message.reply(`✅ *Validando pago de @${phoneNumber}...*`);
+
+    try {
+        const paymentMethod = userState.paymentMethod || "Confirmado por Admin";
+        
+        // Registrar en Excel
+        await recordNewSale(userId, userState, paymentMethod);
+        
+        // Notificar al cliente
+        await client.sendMessage(userId, "🤖 ¡Tu pago ha sido validado! Gracias por tu compra. Estamos preparando los detalles de tu acceso.");
+        
+        // Limpiar estado o mover a menú principal
+        userStates.set(userId, { state: 'main_menu', nombre: userState.nombre });
+        
+        await message.reply(`✅ *Venta Registrada con éxito*\nEl cliente @${phoneNumber} ha sido notificado.`);
+    } catch (err) {
+        console.error('Error en confirmación manual:', err);
+        await message.reply(`❌ Error al registrar la venta de @${phoneNumber}: ${err.message}`);
+    }
+}
+
 module.exports = {
   handleBatchUnanswered,
   handleSendBulkCredentials,
+  handleAdminPaymentConfirmation,
   showAdminFunctions
 };
