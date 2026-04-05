@@ -114,16 +114,20 @@ async function handleSendBulkCredentials(message, command, client, getAccountsBy
 
 /**
  * Procesa la confirmación manual de un administrador en el grupo.
+ * Puede recibir el comando directamente o un teléfono extraído (si es una respuesta/reply).
  */
-async function handleAdminPaymentConfirmation(message, command, client, userStates) {
+async function handleAdminPaymentConfirmation(message, command, client, userStates, overridePhone = null) {
     // Patrones: "confirmar 57311...", "si me llego 57311...", "si la recibi 57311..."
-    const cleanCommand = command.toLowerCase();
-    const phoneRegex = /57\d{10}/;
-    const match = cleanCommand.match(phoneRegex);
+    let phoneNumber = overridePhone;
+    
+    if (!phoneNumber) {
+        const cleanCommand = command.toLowerCase();
+        const phoneRegex = /57\d{10}/;
+        const match = cleanCommand.match(phoneRegex);
+        if (!match) return; 
+        phoneNumber = match[0];
+    }
 
-    if (!match) return; // No hay número de teléfono en el comando
-
-    const phoneNumber = match[0];
     const userId = `${phoneNumber}@c.us`;
     const userState = userStates.get(userId);
 

@@ -332,9 +332,31 @@ async function processIncomingMessage(message) {
   }
 
   // Comandos de Grupo / Admin
-  if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
-      const bodyLower = message.body.toLowerCase();
-      const command = bodyLower.replace('@bot', '').trim();
+  const isBotCommand = message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot');
+  const isReplyConfirmation = message.from === GROUP_ID && message.hasQuotedMsg && (
+      ['si', 'ya', 'listo', 'confirmado', 'vale', 'ok', 'claro'].includes(message.body.toLowerCase().trim()) ||
+      message.body.toLowerCase().includes('confirmar') ||
+      message.body.toLowerCase().includes('si me llego')
+  );
+
+  if (isBotCommand || isReplyConfirmation) {
+      let command = "";
+      let overridePhone = null;
+
+      if (isBotCommand) {
+          command = message.body.toLowerCase().replace('@bot', '').trim();
+      }
+
+      if (isReplyConfirmation) {
+          const quotedMsg = await message.getQuotedMessage();
+          const phoneRegex = /57\d{10}/;
+          const match = quotedMsg.body.match(phoneRegex);
+          if (match) {
+              overridePhone = match[0];
+              command = "confirmar " + overridePhone;
+              console.log(`[Admin] Detectada confirmación por respuesta para @${overridePhone}`);
+          }
+      }
 
       if (command === 'duermete') {
           globalBotSleep = true;
@@ -348,7 +370,7 @@ async function processIncomingMessage(message) {
           await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
           return;
       } else if (command.includes('confirmar') || command.includes('si me llego') || command.includes('si la recibi')) {
-          await handleAdminPaymentConfirmation(message, command, client, userStates);
+          await handleAdminPaymentConfirmation(message, command, client, userStates, overridePhone);
           return;
       } else if (command === '' || command === 'funciones' || command === 'ayuda') {
           await showAdminFunctions(message);

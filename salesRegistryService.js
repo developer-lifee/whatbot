@@ -1,6 +1,6 @@
 const { updateExcelData, fetchRawData } = require('./apiService');
 
-const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify', 'familiar', 'family', 'xbox'];
+const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify', 'familiar', 'family', 'xbox', 'netflix extra', 'extra'];
 
 /**
  * Calcula la fecha del próximo pago sumando los meses correspondientes.
