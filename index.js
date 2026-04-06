@@ -30,6 +30,7 @@ const {
 const { recordNewSale } = require('./salesRegistryService');
 const { handleBatchUnanswered, showAdminFunctions, handleAdminPaymentConfirmation, processPendingChats, handleSendManualPaymentMethods, showDetailedHelp } = require('./adminService');
 const { searchContactByPhone, addNewContact } = require('./googleContactsService');
+const { getChatHistoryText } = require('./salesService');
 const { checkNewPayments } = require('./gmailService');
 
 
@@ -275,9 +276,6 @@ async function processIncomingMessage(message) {
       console.log(`[DEBUG] Usuario ${userId} en modo waiting_human. Bot ignorando.`);
       return;
   }
-
-  // Importar utilidades necesarias
-  const { getChatHistoryText } = require('./salesService');
 
   console.log('[DEBUG] Procesando mensaje de:', userId, 'Contenido:', message.body);
 
@@ -837,7 +835,8 @@ setInterval(async () => {
     }
 }, 5 * 1000 * 60);
 
-// Escáner de Pagos Gmail (cada 2 minutos)
+/* 
+// Escáner de Pagos Gmail (DESACTIVADO TEMPORALMENTE - ERROR DE SCOPES)
 setInterval(async () => {
     try {
         const newPayments = await checkNewPayments();
@@ -904,6 +903,9 @@ setInterval(async () => {
             }
         }
     } catch (err) {
-        console.error('❌ [GMAIL AUTOMATION] Error:', err.message);
+        if (!err.message.includes('insufficient authentication scopes')) {
+            console.error('❌ [GMAIL AUTOMATION] Error:', err.message);
+        }
     }
 }, 2 * 1000 * 60);
+*/

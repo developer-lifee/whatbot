@@ -29,10 +29,14 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                 if (messages.length > 0) {
                     const lastMsg = messages[messages.length - 1]; // El último de los recuperados
                     
-                    console.log(`[BATCH] Evaluando chat: ${chat.id._serialized}`);
-                    // Pasamos al procesador normal para que la IA decida si interviene o se calla
-                    await processIncomingMessage(lastMsg);
-                    count++;
+                    if (chat && chat.id && chat.id._serialized) {
+                        console.log(`[BATCH] Evaluando chat: ${chat.id._serialized}`);
+                        // Pasamos al procesador normal para que la IA decida si interviene o se calla
+                        await processIncomingMessage(lastMsg);
+                        count++;
+                    } else {
+                        console.warn(`[BATCH] Omitiendo chat mal formado o sin ID.`);
+                    }
                 }
             } catch (err) {
                 console.error(`Error procesando chat ${chat.id._serialized} en batch:`, err.message);
