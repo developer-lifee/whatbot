@@ -389,10 +389,10 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
   let supportContext = "";
   try {
     const { getPlatforms } = require('./salesService');
-    const platforms = getPlatforms();
+    const platforms = await getPlatforms();
     if (platforms && platforms.length > 0) {
       priceContext = "Lista de precios mensuales actuales (si preguntan valores, cíñete a esto): " + 
-                     platforms.map(p => `${p.name}: $${p.price}`).join(', ') + ".";
+                     platforms.map(p => `${p.name}: $${p.plans[0].price}`).join(', ') + ".";
     }
   } catch (e) { }
 
@@ -477,16 +477,21 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     - "desconocido": Sin intención clara.
 
     Lógica de recuperación ("recoveredState"):
-    - Si el mensaje es un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un precio total, pon "recoveredState": "awaiting_payment_method" y llena "metadata" con "total" y "items" (de la charla previa).
-    - Si el usuario está eligiendo plataformas, pon "recoveredState": "awaiting_purchase_platforms".
-    - Si no hay un flujo claro a medias, pon null.
+    - "waiting_human": SIEMPRE que en el historial aparezca un mensaje del "Asistente" que NO tenga el emoji 🤖, significa que un humano intervino manualmente. En ese caso, el bot debe permanecer silenciado.
+    - "awaiting_payment_method": Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
+    - "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
+    - "awaiting_payment_confirmation": Si el mensaje es una imagen o texto indicando "ya pagué", "aquí el recibo", etc.
+    - Si no hay un flujo claro a medias, pon null. 
+    
+    Regla Crítica para "intent": 
+    - No lo marques como "desconocido" si el usuario está haciendo una pregunta válida sobre precios o servicios. Si pregunta un precio, el intent es "comprar".
     
     Salida esperada JSON:
     {
         "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "desconocido",
         "recoveredState": string | null,
         "userName": string | null, // Si el usuario se presentó o dijo su nombre en el historial, extráelo aquí.
-        "metadata": object | null
+        "metadata": object | null // { total: number, items: string[] } si es recuperación de pago.
     }
 
     Si el mensaje actual es una imagen, revisa si es un comprobante de pago. Si lo es, pon intent: "pagar".

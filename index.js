@@ -484,6 +484,11 @@ async function processIncomingMessage(message) {
           const metadata = detection.metadata || {};
           userStates.set(userId, { state: detection.recoveredState, nombre: foundName, ...metadata });
           
+          if (detection.recoveredState === 'waiting_human') {
+              console.log(`[Flow Recovery] 🤫 Silenciando bot para @${userId.replace('@c.us', '')} por intervención humana detectada en historial.`);
+              return; // Silencio absoluto si un humano estaba hablando
+          }
+
           if (detection.recoveredState === 'awaiting_payment_method') {
               await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)`);
               return;
@@ -658,7 +663,23 @@ async function handleMainMenuSelection(message, userId) {
       userStates.set(userId, 'waiting_human');
       break;
     default:
-      await message.reply("🤖 Por favor, selecciona una opción válida del menú.");
+      // Si no es un número, usamos la IA para ver si tiene una duda o comentario
+      const history = await getChatHistoryText(message);
+      const fallback = await generateEmpatheticFallback(message.body, false, history);
+      
+      if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
+          await message.reply(fallback.replyMessage);
+          
+          if (fallback.needsEscalation) {
+              const chat = await client.getChatById(GROUP_ID);
+              if (chat) {
+                  await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${userId.replace('@c.us', '')})\nResumen: ${fallback.escalationSummary}`);
+              }
+              userStates.set(userId, 'waiting_human');
+          }
+      } else {
+          await message.reply("🤖 Por favor, selecciona una opción válida del menú (1-5), o escribe tu duda para ayudarte.");
+      }
       break;
   }
 }
