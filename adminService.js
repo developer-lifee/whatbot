@@ -242,6 +242,55 @@ async function handleSendManualPaymentMethods(message, command, client, userStat
     }
 }
 
+/**
+ * Obtiene un reporte de cuentas que están próximas a vencerse (próximos 3 días)
+ * para publicar en el grupo administrativo.
+ */
+async function getUpcomingExpirationsReport() {
+    try {
+        const { fetchCustomersData } = require('./apiService');
+        const clientes = await fetchCustomersData();
+        
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        
+        // Rango: próximos 3 días
+        const limit = new Date(today);
+        limit.setDate(limit.getDate() + 3);
+        
+        let report = `📅 *REPORTE DE VENCIMIENTOS PRÓXIMOS* (Siguientes 3 días)\n\n`;
+        let found = 0;
+        
+        for (const account of clientes) {
+            let vencimientoDate = null;
+            
+            // La columna 'deben' contiene la fecha de vencimiento en formato Excel serial
+            if (account.deben && !isNaN(parseFloat(account.deben))) {
+                const excelDate = parseFloat(account.deben);
+                const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+                vencimientoDate = new Date(jsDate.getFullYear(), jsDate.getMonth(), jsDate.getDate());
+            }
+            
+            if (vencimientoDate && vencimientoDate >= today && vencimientoDate <= limit) {
+                const diffDays = Math.ceil((vencimientoDate - today) / (1000 * 60 * 60 * 24));
+                const timeStr = diffDays === 0 ? "¡HOY!" : (diffDays === 1 ? "MAÑANA" : `en ${diffDays} días`);
+                
+                report += `• *${account.Nombre || 'Cliente'}*: ${account.Streaming || 'Servicio'} - Vence ${timeStr} (${vencimientoDate.toLocaleDateString('es-ES')})\n`;
+                found++;
+            }
+        }
+        
+        if (found === 0) {
+            return "🤖 No se encontraron cuentas que venzan en los próximos 3 días. ¡Todo al día! ✨";
+        }
+        
+        return report + `\nTotal: ${found} cuentas próximas a expirar.`;
+    } catch (err) {
+        console.error("Error generando reporte de vencimientos:", err);
+        return "❌ Error al generar el reporte de vencimientos.";
+    }
+}
+
 module.exports = {
   processPendingChats,
   handleBatchUnanswered,
@@ -249,5 +298,6 @@ module.exports = {
   handleAdminPaymentConfirmation,
   handleSendManualPaymentMethods,
   showAdminFunctions,
-  showDetailedHelp
+  showDetailedHelp,
+  getUpcomingExpirationsReport
 };

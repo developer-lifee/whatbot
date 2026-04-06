@@ -11,9 +11,20 @@ const path = require('path');
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { pool } = require('./database');
-const schedule = require('node-schedule');
+const { initDailyAutomation } = require('./scheduledTasks');
 const { detectPaymentMethod, generateCredentialsResponse, generateEmpatheticFallback, detectInitialIntent, isPaymentReceipt } = require('./aiService');
 const { getAccountsByPhone } = require('./apiService');
+const { searchContactByPhone, addNewContact } = require('./googleContactsService');
+const { getChatHistoryText } = require('./salesService');
+const { checkNewPayments } = require('./gmailService');
+
+// --- CONSTANTES Y ESTADOS GLOBALES ---
+const userStates = new Map();
+const pendingConfirmations = new Map();
+const GROUP_ID = '120363102144405222@g.us';
+const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573107946794') + '@c.us';
+let globalBotSleep = false;
+
 const {
   startPurchaseProcess,
   handleSubscriptionInterest,
@@ -21,17 +32,24 @@ const {
   handleSelectingPlans,
   handleAddingPlatform
 } = require('./salesService');
+
 const {
   handleCobrosParser,
   handleAwaitingCobrosConfirmation,
   processCheckPrices,
   handleAutoCobros
 } = require('./billingService');
+
 const { recordNewSale } = require('./salesRegistryService');
-const { handleBatchUnanswered, showAdminFunctions, handleAdminPaymentConfirmation, processPendingChats, handleSendManualPaymentMethods, showDetailedHelp } = require('./adminService');
-const { searchContactByPhone, addNewContact } = require('./googleContactsService');
-const { getChatHistoryText } = require('./salesService');
-const { checkNewPayments } = require('./gmailService');
+const { 
+  handleBatchUnanswered, 
+  showAdminFunctions, 
+  handleAdminPaymentConfirmation, 
+  processPendingChats, 
+  handleSendManualPaymentMethods, 
+  showDetailedHelp,
+  getUpcomingExpirationsReport
+} = require('./adminService');
 
 
 // Crear servidor HTTP
@@ -113,7 +131,10 @@ client.on('qr', (qr) => {
 });
 
 client.on('ready', () => {
-  console.log('Conexión establecida correctamente');
+  console.log('✅ Conexión establecida correctamente. ¡Bot listo!');
+  
+  // Iniciar Automatización Diaria (9am y 2pm)
+  initDailyAutomation(client, userStates, pendingConfirmations, GROUP_ID);
 });
 
 client.on('disconnected', (reason) => {
@@ -149,23 +170,7 @@ client.on('disconnected', (reason) => {
   console.log('Cliente desconectado', reason);
 });
 
-// Map para manejar el estado de los usuarios
-//Se usa la libreria llamada "node-schedule", cualquier duda o cambio, REVISAR LA DOCUMENTACION <3
-// https://www.npmjs.com/package/node-schedule 
-//se tiene que llamar la funcion de database y scheduledTask
-// Map para manejar el estado de los usuarios (Solo en RAM, se recupera vía IA en reinicios)
-const userStates = new Map();
-let globalBotSleep = false;
-
-// Manejar mensajes entrantes
-// Admin/operator number to notify when a human intervention is required
-const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573107946794') + '@c.us';
-
-// Group ID for reporting cases
-const GROUP_ID = '120363102144405222@g.us';
-
-// Storage for temporary confirmations (e.g., pending cobros)
-const pendingConfirmations = new Map();
+// DETECTAR INTERVENCIÓN HUMANA
 
 client.on('message_create', async (msg) => {
   // Ignorar si el mensaje es antiguo
