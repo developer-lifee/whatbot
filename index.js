@@ -149,6 +149,17 @@ client.on('auth_failure', (msg) => {
   process.exit(1);
 });
 
+// Manejo de llamadas automáticas
+client.on('call', async (call) => {
+  console.log(`[CALL] ✨ Llamada entrante de ${call.from}. Rechazando y enviando aviso.`);
+  try {
+    await call.reject();
+    await client.sendMessage(call.from, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
+  } catch(e) {
+    console.error('Error al rechazar llamada:', e);
+  }
+});
+
 client.on('change_state', (state) => {
   console.log('🔄 Cambio de estado detectado:', state);
 });
@@ -178,18 +189,23 @@ client.on('message_create', async (msg) => {
 
   // DETECTAR INTERVENCIÓN HUMANA: Si el mensaje lo envío yo manualmente
   // a un chat que NO es un grupo y NO tiene el emoji del bot.
-  if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast')) {
+  if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast') && !msg.to.includes('@lid')) {
     const targetId = msg.to;
     
-    // Comando directo en el chat para reactivar el bot
-    if (msg.body.trim().toLowerCase() === '@bot') {
+    // Comando o mención en el chat para reactivar el bot
+    if (msg.body.toLowerCase().includes('@bot')) {
        userStates.delete(targetId);
-       console.log(`[BOT UNMUTE] Reactivado manualmente en el chat ${targetId}.`);
-       await client.sendMessage(targetId, '🤖 *HOLA DE NUEVO*: Un asesor me ha pedido retomar la atención automática. ¿En qué te puedo ayudar?');
+       console.log(`[BOT UNMUTE] Reactivado por mención en el chat ${targetId}.`);
+       
+       // Suministramos el mensaje al procesador para que la IA lea el contexto y responda
+       // Usamos un pequeño delay para que WhatsApp registre el mensaje enviado antes de responder
+       setTimeout(() => {
+           processIncomingMessage(msg).catch(err => console.error('Error en reactivación por mención:', err));
+       }, 1000);
        return;
     }
 
-    // Si el mensaje NO contiene el emoji 🤖, asumimos que fue enviado manualmente.
+    // Si el mensaje NO contiene el emoji 🤖 ni @bot, asumimos que fue enviado manualmente.
     if (!msg.body.includes('🤖')) {
       if (userStates.get(targetId) !== 'waiting_human') {
         console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Pasando a estado 'waiting_human'.`);
