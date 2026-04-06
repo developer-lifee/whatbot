@@ -96,7 +96,8 @@ async function handleAwaitingCobrosConfirmation(message, userId, userStates, pen
 
 async function processCheckPrices(message, userId, userStates) {
   try {
-    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); 
+    const contact = await message.getContact();
+    const phoneNumber = contact.number; // number es el teléfono real sin @c.us o LID
     const userAccounts = await getAccountsByPhone(phoneNumber);
     const platforms = await getPlatforms();
 

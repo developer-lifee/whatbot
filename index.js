@@ -254,6 +254,40 @@ async function processIncomingMessage(message) {
   let currentStateData = userStates.get(userId);
   let currentState = currentStateData;
 
+  if (currentStateData && typeof currentStateData === 'object') {
+    currentState = currentStateData.state;
+  }
+
+  // 1. IDENTIDAD PRIMERO
+  const contact = await message.getContact();
+  let foundName = contact.name || contact.pushname;
+  if (!foundName) {
+      const { searchContactByPhone } = require('./googleContactsService');
+      foundName = await searchContactByPhone(userId);
+  }
+
+  // --- DETECCIÓN DE INTERVENCIÓN HUMANA EN VIVO ---
+  // Si el administrador habló recientemente sin usar el bot, nos silenciamos automáticamente.
+  if (currentState !== 'waiting_human') {
+      try {
+          const chat = await message.getChat();
+          const recentMsgs = await chat.fetchMessages({ limit: 4 });
+          const hasRecentHuman = recentMsgs.some(m => m.fromMe && !m.body.includes('🤖'));
+          if (hasRecentHuman) {
+              console.log(`[BOT MUTE] 🤫 Detectada intervención manual en vivo para ${userId}. Pasando a estado 'waiting_human'.`);
+              userStates.set(userId, 'waiting_human');
+              return;
+          }
+      } catch (err) {
+          console.error("Error en detección de intervención humana:", err.message);
+      }
+  }
+
+  if (currentState === 'waiting_human') {
+      console.log(`[DEBUG] Usuario ${userId} en modo waiting_human. Bot ignorando.`);
+      return;
+  }
+
   // Importar utilidades necesarias
   const { getChatHistoryText } = require('./salesService');
 
@@ -385,13 +419,6 @@ async function processIncomingMessage(message) {
           await handleSendBulkCredentials(message, command, client, getAccountsByPhone);
           return;
       }
-  }
-
-  // IDENTIDAD PRIMERO
-  const contact = await message.getContact();
-  let foundName = contact.name || contact.pushname;
-  if (!foundName) {
-      foundName = await searchContactByPhone(userId);
   }
 
   let cleanBody = message.body ? message.body.trim() : "";

@@ -25,12 +25,20 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
 
         for (const chat of pendingChats) {
             try {
-                const messages = await chat.fetchMessages({ limit: 1 });
+                const messages = await chat.fetchMessages({ limit: 4 });
                 if (messages.length > 0) {
-                    const lastMsg = messages[0];
+                    const lastMsg = messages[messages.length - 1]; // El último de los recuperados
+                    const hasRecentHuman = messages.some(m => m.fromMe && !m.body.includes('🤖'));
+                    
+                    if (hasRecentHuman) {
+                        console.log(`[BATCH MUTE] 🤫 Omitiendo @${chat.id.user} por intervención manual detectada en historial.`);
+                        userStates.set(chat.id._serialized, 'waiting_human');
+                        continue;
+                    }
+
                     if (!lastMsg.fromMe) {
                         console.log(`[BATCH] Procesando chat: ${chat.id._serialized}`);
-                        userStates.delete(chat.id._serialized);
+                        // No borramos el estado aquí para no perder el nombre si lo tenemos, processIncomingMessage se encarga
                         await processIncomingMessage(lastMsg);
                         count++;
                     }
