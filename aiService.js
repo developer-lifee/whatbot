@@ -477,8 +477,10 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     - "desconocido": Sin intención clara.
 
     Lógica de recuperación ("recoveredState"):
-    - "waiting_human": SIEMPRE que en el historial aparezca un mensaje del "Asistente" que NO tenga el emoji 🤖, significa que un humano intervino manualmente. En ese caso, el bot debe permanecer silenciado.
-    - "awaiting_payment_method": Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
+    - "awaiting_payment_method": 
+        * Caso A: Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
+        * Caso B (COLABORATIVO): Si el "Asistente" (humano, sin 🤖) negoció un precio (ej: "te queda en 21") y el usuario actual acepta (ej: "Listo", "Dale", "Vale"). EN ESTE CASO, el bot debe saltar aquí para dar los medios de pago. Si detectas el monto negociado, ponlo en metadata.total.
+    - "waiting_human": Si en el historial aparece un mensaje del "Asistente" (humano, sin 🤖) y es una charla social, técnica compleja o el usuario no ha aceptado aún una oferta comercial.
     - "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
     - "awaiting_payment_confirmation": Si el mensaje es una imagen o texto indicando "ya pagué", "aquí el recibo", etc.
     - Si no hay un flujo claro a medias, pon null. 

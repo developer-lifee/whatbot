@@ -266,21 +266,9 @@ async function processIncomingMessage(message) {
       foundName = await searchContactByPhone(userId);
   }
 
-  // --- DETECCIÓN DE INTERVENCIÓN HUMANA EN VIVO ---
-  // Si el administrador habló recientemente sin usar el bot, nos silenciamos automáticamente.
-  if (currentState !== 'waiting_human') {
-      try {
-          const chat = await message.getChat();
-          const recentMsgs = await chat.fetchMessages({ limit: 4 });
-          const hasRecentHuman = recentMsgs.some(m => m.fromMe && !m.body.includes('🤖'));
-          if (hasRecentHuman) {
-              console.log(`[BOT MUTE] 🤫 Detectada intervención manual en vivo para ${userId}. Pasando a estado 'waiting_human'.`);
-              userStates.set(userId, 'waiting_human');
-              return;
-          }
-      } catch (err) {
-          console.error("Error en detección de intervención humana:", err.message);
-      }
+  // --- IDENTIFICADOR DE ESTADO INICIAL ---
+  if (currentStateData && typeof currentStateData === 'object') {
+    currentState = currentStateData.state;
   }
 
   if (currentState === 'waiting_human') {
