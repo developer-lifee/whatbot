@@ -31,13 +31,29 @@ Comandos especiales para el administrador (definido en `OPERATOR_NUMBER`):
 - **Atención de Pendientes (NUEVO)**: `@bot contesta los que estan sin contestar` o `@bot atiende pendientes`. El bot escanea a los usuarios en espera de un humano y les responde automáticamente con ayuda de la IA para retomar el servicio.
 - **Confirmar Cobros**: `confirmar_cobros 3001234567` para registrar pagos manualmente.
 
+### 5. 🤖 Inteligencia Colaborativa Avanzada (NUEVO - Abril 2026)
+- **Interceptor Global de Pagos**: Uso de **Gemini Vision** para detectar comprobantes bancarios en cualquier momento de la charla, notificando al admin y confirmando al cliente automáticamente.
+- **Flujo Híbrido**: El bot detecta si un humano está negociando y "adopta" el estado actual (ej: si acuerdas un precio, el bot entra a ofrecer los medios de pago automáticamente).
+- **LID / Migration Fix**: Soporte para identificadores internos de WhatsApp (LIDs) resolviendo el número real del contacto para evitar errores de base de datos.
+- **Detección de Presencia Humana**: El bot se silencia inteligentemente si detecta que un admin está hablando manualmente, evitando interrupciones.
+
 ## 📂 Estructura del Proyecto
 
 - `index.js`: **Cerebro Principal**. Maneja la conexión de WhatsApp, escucha eventos y orquesta los estados del usuario.
-- `aiService.js`: **Módulo de IA**. Contiene la lógica para llamar a la API de Gemini, manejar reintentos y parsear respuestas JSON.
-- `database.js`: Configuración de la conexión a MySQL.
-- `scheduledTasks.js` / `getInfo.js`: Tareas programadas y utilidades de información.
-- `.wwebjs_auth/`: Almacena la sesión de WhatsApp (¡No borrar a menos que sea necesario re-escanear!).
+- `aiService.js`: **Módulo de IA**. Contiene la lógica para Gemini (Vision, Clasificación, Fallbacks).
+- `adminService.js`: **Gestión de Operador**. Comandos para el grupo de administración.
+- `billingService.js`: Gestión de cobros, deudas y avisos automáticos.
+- `apiService.js`: Integración con Azure Functions para lectura/escritura de Excel.
+- `.wwebjs_auth/`: Almacena la sesión de WhatsApp.
+
+## 🚀 Comandos Administrativos (Desde el Grupo)
+
+Para el administrador principal en el grupo definido:
+- `@bot ayuda`: Muestra el **Manual Maestro** detallado de todas las funciones inteligentes.
+- `@bot funciones`: Muestra la lista rápida de comandos ejecutables.
+- `@bot medios 573...`: Envía los datos bancarios a un cliente específico.
+- `@bot atiende pendientes`: Activa el escáner de chats no leídos.
+- `confirmar 573...`: Valida un pago y registra la venta en el Excel.
 
 ## 🚀 Cómo Iniciar
 

@@ -60,16 +60,48 @@ async function handleBatchUnanswered(adminMessage, client, userStates, processIn
 }
 
 /**
- * Muestra el menú de funciones administrativas.
+ * Muestra el menú corto de comandos administrativos.
  */
 async function showAdminFunctions(message) {
-    const funciones = `🤖 *Comandos Administrativos:*
+    const funciones = `🤖 *Comandos Administrativos Rápido:*
 
-1. *Atención Pendientes:* \`@bot atiende pendientes\` (Escanea y responde).
-2. *Dormir/Despertar:* \`@bot duermete\` o \`@bot despiertate\`.
-3. *Liberar Masivo:* \`liberar masivo\` (Reactiva a todos los bloqueados).
-4. *Cobros Automáticos:* \`@bot cobros automáticos\`.`;
+1. *Pendientes:* \`@bot atiende pendientes\`
+2. *Medios Pago:* \`@bot medios 573...\`
+3. *Credenciales:* \`@bot credenciales [plat] [tel]\`
+4. *Pausar Bot:* \`@bot duermete / despiertate\`
+5. *Liberar:* \`liberar masivo\` o \`liberar [tel]\`
+6. *Pagar:* \`confirmar [tel]\` o \`si me llego [tel]\`
+
+Para leer el manual completo de funciones inteligentes, escribe *@bot ayuda* o *@bot manual*.`;
     await message.reply(funciones);
+}
+
+/**
+ * Muestra el manual detallado de funciones inteligentes.
+ */
+async function showDetailedHelp(message) {
+    const manual = `📖 *Manual Maestro 🤖 Sheerit Bot (Abril 2026)*
+
+Tu bot ahora cuenta con herramientas de "Inteligencia Colaborativa":
+
+---
+🤝 *1. Flujo Híbrido Colaborativo*
+Si negocias un precio manualmente (ej: "Te queda en 21") y el cliente dice "Listo", el bot detecta el acuerdo y salta directamente a ofrecer los **Medios de Pago** (Nequi, etc.) para que tú no tengas que hacerlo.
+
+📸 *2. Interceptor Global de Pagos*
+El bot vigila todas las fotos. Si el cliente envía un comprobante bancario, Gemini Vision lo identifica, te avisa al grupo y le confirma al cliente de inmediato.
+
+📱 *3. Corrección de ID (LID Fix)*
+Resuelve el número real de los clientes con IDs migrados (números largos), asegurando que siempre se encuentren sus deudas en el Excel.
+
+🤫 *4. Silencio Inteligente*
+Si tú hablas manualmente, el bot se calla para no interrumpir. Solo intervendrá si tú cierras un trato comercial para ayudar con la logística del pago.
+---
+
+*Comandos Útiles:*
+- \`@bot medios 573...\`: Envía datos bancarios a un cliente.
+- \`@bot atiende pendientes\`: El bot toma el control de los chats sin leer.`;
+    await message.reply(manual);
 }
 
 /**
@@ -176,10 +208,42 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     }
 }
 
+/**
+ * Envía los medios de pago manualmente a un usuario desde el grupo de administración.
+ */
+async function handleSendManualPaymentMethods(message, command, client, userStates) {
+    const phoneRegex = /57\d{10}/;
+    const match = command.match(phoneRegex);
+    if (!match) {
+        await message.reply('❌ No encontré un número de teléfono válido (ej: 57311...) en el comando.');
+        return;
+    }
+    
+    const phoneNumber = match[0];
+    const userId = `${phoneNumber}@c.us`;
+    
+    const paymentMsg = `🤖 *MEDIOS DE PAGO SHEERIT*\n\nHola, un asesor me ha pedido enviarte nuestros canales de pago oficiales para completar tu compra:\n\n⭐ *Nequi*\n⭐ *Llaves Bre-B*\n⭐ *Daviplata*\n⭐ *Banco Caja Social*\n⭐ *Bancolombia*\n\n¿Por cuál de estos medios prefieres realizar la transferencia? Una vez la hagas, por favor envíame la captura de pantalla por este chat. 😊`;
+
+    try {
+        await client.sendMessage(userId, paymentMsg);
+        // Actualizar estado del usuario para que el bot espere el comprobante
+        const existing = userStates.get(userId);
+        const stateData = typeof existing === 'object' ? { ...existing } : {};
+        userStates.set(userId, { ...stateData, state: 'awaiting_payment_method' });
+        
+        await message.reply(`✅ Medios de pago enviados a @${phoneNumber}. El bot ahora está esperando su comprobante.`);
+    } catch (err) {
+        console.error('Error enviando medios de pago:', err);
+        await message.reply(`❌ No pude enviarle mensaje a @${phoneNumber}. Verifica el número.`);
+    }
+}
+
 module.exports = {
   processPendingChats,
   handleBatchUnanswered,
   handleSendBulkCredentials,
   handleAdminPaymentConfirmation,
-  showAdminFunctions
+  handleSendManualPaymentMethods,
+  showAdminFunctions,
+  showDetailedHelp
 };

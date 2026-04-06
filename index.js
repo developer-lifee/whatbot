@@ -28,7 +28,7 @@ const {
   handleAutoCobros
 } = require('./billingService');
 const { recordNewSale } = require('./salesRegistryService');
-const { handleBatchUnanswered, showAdminFunctions, handleAdminPaymentConfirmation, processPendingChats } = require('./adminService');
+const { handleBatchUnanswered, showAdminFunctions, handleAdminPaymentConfirmation, processPendingChats, handleSendManualPaymentMethods, showDetailedHelp } = require('./adminService');
 const { searchContactByPhone, addNewContact } = require('./googleContactsService');
 const { checkNewPayments } = require('./gmailService');
 
@@ -398,8 +398,14 @@ async function processIncomingMessage(message) {
       } else if (command.includes('confirmar') || command.includes('si me llego') || command.includes('si la recibi')) {
           await handleAdminPaymentConfirmation(message, command, client, userStates, overridePhone);
           return;
-      } else if (command === '' || command === 'funciones' || command === 'ayuda') {
+      } else if (command === '' || command === 'funciones' || command === 'comandos') {
           await showAdminFunctions(message);
+          return;
+      } else if (command === 'ayuda' || command === 'manual' || command === 'help') {
+          await showDetailedHelp(message);
+          return;
+      } else if (command.startsWith('enviale medios') || command.startsWith('medios')) {
+          await handleSendManualPaymentMethods(message, command, client, userStates);
           return;
       } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
           const { handleSendBulkCredentials } = require('./adminService');
