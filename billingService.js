@@ -96,7 +96,16 @@ async function handleAwaitingCobrosConfirmation(message, userId, userStates, pen
 
 async function processCheckPrices(message, userId, userStates) {
   try {
-    const contact = await message.getContact();
+    // RESOLUCIÓN DE CONTACTO: Queremos el número del CLIENTE, no del remitente
+    // (Útil si el último mensaje fue del bot en un batch scan)
+    const client = message._client || null; // Algunos objetos message tienen el client inyectado
+    let contact;
+    if (client) {
+        contact = await client.getContactById(userId);
+    } else {
+        contact = await message.getContact();
+    }
+    
     const phoneNumber = contact.number; // number es el teléfono real sin @c.us o LID
     const userAccounts = await getAccountsByPhone(phoneNumber);
     const platforms = await getPlatforms();

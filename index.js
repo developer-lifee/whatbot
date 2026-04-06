@@ -256,7 +256,9 @@ function isNameIncomplete(name) {
  * @param {Message} message 
  */
 async function processIncomingMessage(message) {
-  const userId = message.from;
+  // El userId siempre debe ser el del CLIENTE, no necesariamente el del remitente
+  // Si el mensaje es "mio" (del bot), el cliente es el destinatario (to)
+  const userId = message.fromMe ? message.to : message.from;
   let currentStateData = userStates.get(userId);
   let currentState = currentStateData;
 
