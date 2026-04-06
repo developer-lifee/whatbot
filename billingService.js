@@ -121,9 +121,23 @@ async function processCheckPrices(message, userId, userStates) {
         
         if (account.deben && !isNaN(parseFloat(account.deben))) {
             const excelDate = parseFloat(account.deben);
-            fechaVencimientoObj = new Date((excelDate - 25569) * 86400 * 1000);
-            fechaVencimientoObj = new Date(fechaVencimientoObj.getFullYear(), fechaVencimientoObj.getMonth(), fechaVencimientoObj.getDate());
-            fechaVencimientoStr = fechaVencimientoObj.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+            const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+            
+            // Comparación de fechas sin hora (Bogotá)
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            fechaVencimientoObj = new Date(jsDate.getFullYear(), jsDate.getMonth(), jsDate.getDate());
+            
+            const diffTime = fechaVencimientoObj - today;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays === 0) {
+                fechaVencimientoStr = "¡HOY!";
+            } else if (diffDays === 1) {
+                fechaVencimientoStr = "MAÑANA";
+            } else {
+                fechaVencimientoStr = fechaVencimientoObj.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+            }
         } else if (account.vencimiento) {
             fechaVencimientoStr = account.vencimiento;
         }
