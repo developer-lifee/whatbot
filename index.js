@@ -12,7 +12,7 @@ const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const { pool } = require('./database');
 const schedule = require('node-schedule');
-const { detectPaymentMethod, generateCredentialsResponse, generateEmpatheticFallback, detectInitialIntent } = require('./aiService');
+const { detectPaymentMethod, generateCredentialsResponse, generateEmpatheticFallback, detectInitialIntent, isPaymentReceipt } = require('./aiService');
 const { getAccountsByPhone } = require('./apiService');
 const {
   startPurchaseProcess,
@@ -387,6 +387,13 @@ async function processIncomingMessage(message) {
       }
   }
 
+  // IDENTIDAD PRIMERO
+  const contact = await message.getContact();
+  let foundName = contact.name || contact.pushname;
+  if (!foundName) {
+      foundName = await searchContactByPhone(userId);
+  }
+
   let cleanBody = message.body ? message.body.trim() : "";
   if (cleanBody.startsWith('"') && cleanBody.endsWith('"')) {
     cleanBody = cleanBody.slice(1, -1).trim();
@@ -408,6 +415,45 @@ async function processIncomingMessage(message) {
          mediaData = { data: media.data, mimeType: cleanMime };
       }
     } catch(err) {}
+
+    // --- INTERCEPTOR GLOBAL DE PAGOS ---
+    if (mediaData) {
+      const check = await isPaymentReceipt(mediaData, history);
+      if (check.isReceipt) {
+          console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);
+          
+          const existing = userStates.get(userId);
+          const stateData = typeof existing === 'object' ? { ...existing } : { nombre: foundName };
+          
+          userStates.set(userId, { 
+              ...stateData, 
+              state: 'awaiting_payment_confirmation',
+              paymentMethod: check.bank || 'Transferencia'
+          });
+
+          await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\nUn asesor lo validará manualmente en un momento para entregarte tu cuenta. ¡Gracias por tu paciencia! 😊");
+
+          // Notificar al grupo administrativo
+          try {
+              const groupChat = await client.getChatById(GROUP_ID);
+              if (groupChat) {
+                  const adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
+                                 `Banco: ${check.bank || 'No identificado'}\n` +
+                                 `Monto: ${check.amount || 'No legible'}\n\n` +
+                                 `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
+                  
+                  await groupChat.sendMessage(adminMsg);
+                  // Opcionalmente reenviar la imagen al grupo para facilitar la vida del admin
+                  const mediaToForward = await message.downloadMedia();
+                  await groupChat.sendMessage(mediaToForward);
+              }
+          } catch (adminErr) {
+              console.error("Error notificando al grupo sobre pago interceptado:", adminErr.message);
+          }
+          return; // Salir, ya procesamos el mensaje
+      }
+    }
+
     await processFallbackWithEscalation(message, userId, true, mediaData, history);
     return;
   }
@@ -421,15 +467,6 @@ async function processIncomingMessage(message) {
          return;
       }
 
-      // 1. IDENTIDAD PRIMERO: WhatsApp (Pushname o Nombre Agendado en Celular)
-      const contact = await message.getContact();
-      let foundName = contact.name || contact.pushname;
-
-      // 2. IDENTIDAD SEGUNDO: Google Contacts (por teléfono)
-      if (!foundName) {
-          foundName = await searchContactByPhone(userId);
-      }
-      
       const hist = await getChatHistoryText(message);
       const detection = await detectInitialIntent(message.body, hist);
 

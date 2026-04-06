@@ -331,6 +331,47 @@ async function parsePlanSelection(messageContent, availablePlans) {
 }
 
 /**
+ * Determina si una imagen es un comprobante de pago de un banco (Nequi, Daviplata, Bancolombia, etc.)
+ * @param {object} mediaData 
+ * @param {string} chatHistory 
+ * @returns {Promise<{isReceipt: boolean, amount: number|null, bank: string|null}>}
+ */
+async function isPaymentReceipt(mediaData, chatHistory = "") {
+  if (!mediaData) return { isReceipt: false, amount: null, bank: null };
+
+  const prompt = `
+    Analiza esta imagen adjunta y determina si es un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
+    Contexto de la charla (puede que el usuario ya sepa el precio): ${chatHistory}
+
+    Debes responder en formato JSON:
+    {
+      "isReceipt": boolean, // true si es claramente un recibo de banco (Nequi, Daviplata, Bancolombia, etc.)
+      "amount": number | null, // El valor de la transferencia (solo números) si es legible.
+      "bank": string | null, // Nombre del banco detectado (Nequi, Daviplata, etc.)
+      "confidence": number // 0 a 1
+    }
+
+    Reglas:
+    - Solo marca isReceipt: true si es una confirmación de envío/transferencia exitosa.
+    - No lo confundas con una foto de la plataforma de streaming.
+    - Si el banco es Nequi, Daviplata, Bancolombia, dale prioridad.
+  `;
+
+  try {
+    const jsonString = await callGemini(prompt, "Eres un validador de comprobantes de pago bancarios.", true, mediaData);
+    const result = JSON.parse(jsonString);
+    return {
+      isReceipt: result.isReceipt && result.confidence > 0.7,
+      amount: result.amount,
+      bank: result.bank
+    };
+  } catch (error) {
+    console.error("Error recognizing payment proof:", error);
+    return { isReceipt: false, amount: null, bank: null };
+  }
+}
+
+/**
  * Generates an empathetic response for unsupported media or off-script messages, and decides if it needs human escalation.
  * @param {string} userMessage 
  * @param {boolean} isMedia 
@@ -447,6 +488,8 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
         "userName": string | null, // Si el usuario se presentó o dijo su nombre en el historial, extráelo aquí.
         "metadata": object | null
     }
+
+    Si el mensaje actual es una imagen, revisa si es un comprobante de pago. Si lo es, pon intent: "pagar".
   `;
 
   try {
@@ -458,4 +501,4 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
   }
 }
 
-module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback, detectInitialIntent, formatDirectCredentials };
+module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback, detectInitialIntent, formatDirectCredentials, isPaymentReceipt };
