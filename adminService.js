@@ -10,6 +10,8 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
     try {
         const chats = await client.getChats();
         const pendingChats = chats.filter(chat => {
+            if (!chat || !chat.id || !chat.id._serialized) return false;
+            
             if (chat.isGroup || chat.id._serialized.includes('@broadcast')) return false;
             
             // Criterio 1: Mensajes sin leer
@@ -39,7 +41,8 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     }
                 }
             } catch (err) {
-                console.error(`Error procesando chat ${chat.id._serialized} en batch:`, err.message);
+                const chatId = (chat && chat.id) ? chat.id._serialized : 'ID DESCONOCIDO';
+                console.error(`Error procesando chat ${chatId} en batch:`, err.message);
             }
             await new Promise(r => setTimeout(r, 2000)); // Delay sutil
         }
