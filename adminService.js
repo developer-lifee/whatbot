@@ -178,6 +178,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
 }
 
 module.exports = {
+  processPendingChats,
   handleBatchUnanswered,
   handleSendBulkCredentials,
   handleAdminPaymentConfirmation,
