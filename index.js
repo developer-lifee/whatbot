@@ -10,6 +10,16 @@ const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
+
+// Funciones auxiliares de estabilidad
+function isCriticalBrowserError(err) {
+    if (!err || !err.message) return false;
+    const msg = err.message.toLowerCase();
+    return msg.includes('detached frame') || 
+           msg.includes('execution context was destroyed') || 
+           msg.includes('navigation failed') ||
+           msg.includes('connection closed');
+}
 const { pool } = require('./database');
 const { initDailyAutomation } = require('./scheduledTasks');
 const { detectPaymentMethod, generateCredentialsResponse, generateEmpatheticFallback, detectInitialIntent, isPaymentReceipt } = require('./aiService');
@@ -62,15 +72,19 @@ const port = process.env.PORT || 3000;
 server.listen(port, () => {
   console.log(`Servidor corriendo en el puerto ${port}`);
   
-  // Heartbeat cada 30 minutos
+  // Heartbeat cada 5 minutos (reducido para detectar cuelgues de Puppeteer)
   setInterval(async () => {
     try {
       const state = client ? await client.getState() : 'UNINITIALIZED';
       console.log(`💓 Heartbeat: Proceso vivo. Estado del cliente: ${state}`);
     } catch (err) {
-      console.error('⚠️ Heartbeat: Error al obtener el estado del cliente (posible desconexión):', err.message);
+      console.error('⚠️ Heartbeat: Error al obtener el estado del cliente:', err.message);
+      if (isCriticalBrowserError(err)) {
+          console.error('🔥 [ANTI-ZOMBIE] Detectado error crítico de Puppeteer. Forzando reinicio para PM2...');
+          process.exit(1);
+      }
     }
-  }, 30 * 60 * 1000);
+  }, 5 * 60 * 1000);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`🔥 ERROR: El puerto ${port} ya está en uso.`);
@@ -872,10 +886,14 @@ setInterval(async () => {
         if (typeof processPendingChats === 'function') {
             await processPendingChats(client, userStates, processIncomingMessage);
         } else {
-            console.warn('⚠️ [Atiende Pendientes Scan] La función processPendingChats no está disponible. Revisa los exports.');
+            console.warn('⚠️ [Atiende Pendientes Scan] La función processPendingChats no está disponible.');
         }
     } catch (err) {
         console.error('❌ [Atiende Pendientes Scan] Error durante el escaneo automático:', err.message);
+        if (isCriticalBrowserError(err)) {
+            console.error('🔥 [ANTI-ZOMBIE] Error crítico detectado en escaneo. Forzando reinicio para PM2...');
+            process.exit(1);
+        }
     }
 }, 5 * 1000 * 60);
 

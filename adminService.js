@@ -1,6 +1,15 @@
 const { fetchRawData, updateExcelData } = require('./apiService');
 const { recordNewSale } = require('./salesRegistryService');
 
+function isCriticalBrowserError(err) {
+    if (!err || !err.message) return false;
+    const msg = err.message.toLowerCase();
+    return msg.includes('detached frame') || 
+           msg.includes('execution context was destroyed') || 
+           msg.includes('navigation failed') ||
+           msg.includes('connection closed');
+}
+
 /**
  * Función central para procesar chats con mensajes sin leer.
  * Puede ser llamada por un comando o por un proceso automático.
@@ -42,12 +51,17 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     }
                 }
             } catch (err) {
+                if (isCriticalBrowserError(err)) throw err; // Re-lanzar para que index.js reinicie
                 const chatId = (chat && chat.id && chat.id._serialized) ? chat.id._serialized : 'ID DESCONOCIDO';
                 console.error(`Error procesando chat ${chatId} en batch:`, err.message);
             }
             await new Promise(r => setTimeout(r, 2000)); // Delay sutil
         }
     } catch (err) {
+        if (isCriticalBrowserError(err)) {
+            console.error('❌ CRITICAL BROWSER FAILURE IN BATCH SCAN:', err.message);
+            throw err; // El caller en index.js debe forzar process.exit()
+        }
         console.error('Error en processPendingChats:', err);
     }
     return count;
