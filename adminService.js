@@ -12,13 +12,14 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
         const pendingChats = chats.filter(chat => {
             if (!chat || !chat.id || !chat.id._serialized) return false;
             
-            if (chat.isGroup || chat.id._serialized.includes('@broadcast')) return false;
+            const chatId = chat.id._serialized;
+            if (chat.isGroup || chatId.includes('@broadcast')) return false;
             
             // Criterio 1: Mensajes sin leer
             if (chat.unreadCount > 0) return true;
             
             // Criterio 2: Marcado explícitamente en memoria como esperando humano
-            const state = userStates.get(chat.id._serialized);
+            const state = userStates.get(chatId);
             const stateStr = typeof state === 'object' ? state.state : state;
             if (stateStr === 'waiting_human') return true;
             
@@ -41,7 +42,7 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     }
                 }
             } catch (err) {
-                const chatId = (chat && chat.id) ? chat.id._serialized : 'ID DESCONOCIDO';
+                const chatId = (chat && chat.id && chat.id._serialized) ? chat.id._serialized : 'ID DESCONOCIDO';
                 console.error(`Error procesando chat ${chatId} en batch:`, err.message);
             }
             await new Promise(r => setTimeout(r, 2000)); // Delay sutil

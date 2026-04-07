@@ -247,7 +247,10 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
          try {
             const chat = await client.getChatById(GROUP_ID);
             if (chat) {
-               await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${phoneNumber}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
+               // Resolver número real para el reporte (LID fix)
+               const contact = await message.getContact();
+               const realPhone = contact.number || userId.replace(/\D/g, '');
+               await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
          } catch(e) { console.error('Error enviando escalamiento:', e); }
          userStates.set(userId, 'waiting_human');
@@ -282,12 +285,25 @@ async function processIncomingMessage(message) {
     currentState = currentStateData.state;
   }
 
-  // 1. IDENTIDAD PRIMERO
+  // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
   const contact = await message.getContact();
+  const realPhone = contact.number || userId.replace(/\D/g, '');
+  
   let foundName = contact.name || contact.pushname;
   if (!foundName) {
       const { searchContactByPhone } = require('./googleContactsService');
       foundName = await searchContactByPhone(userId);
+  }
+
+  // Sincronizar con Google Contacts si tenemos un nombre válido
+  if (foundName && !isNameIncomplete(foundName)) {
+      const { addNewContact, searchContactByPhone } = require('./googleContactsService');
+      // Solo intentar agregar si no lo encontramos por el número real
+      const existingInGoogle = await searchContactByPhone(realPhone);
+      if (!existingInGoogle) {
+          console.log(`[Google Contacts] Intentando guardar nuevo contacto: ${foundName} (${realPhone})`);
+          await addNewContact(foundName, realPhone);
+      }
   }
 
   // --- IDENTIFICADOR DE ESTADO INICIAL ---
@@ -296,7 +312,7 @@ async function processIncomingMessage(message) {
   }
 
   if (currentState === 'waiting_human') {
-      console.log(`[DEBUG] Usuario ${userId} en modo waiting_human. Bot ignorando.`);
+      console.log(`[DEBUG] Usuario ${realPhone} (@${userId}) en modo waiting_human. Bot ignorando.`);
       return;
   }
 
@@ -694,7 +710,9 @@ async function handleMainMenuSelection(message, userId) {
       try {
         const chat = await client.getChatById(GROUP_ID);
         if (chat) {
-          await chat.sendMessage(`🚨 Nuevo caso para atención: Usuario ${userId.replace('@c.us', '')} seleccionó "Otro" y necesita ayuda de un asesor.`);
+          const contact = await message.getContact();
+          const realPhone = contact.number || userId.replace(/\D/g, '');
+          await chat.sendMessage(`🚨 Nuevo caso para atención: Usuario @${realPhone} seleccionó "Otro" y necesita ayuda de un asesor.`);
         } else {
           console.error('Grupo no encontrado con ID:', GROUP_ID);
         }
@@ -715,7 +733,9 @@ async function handleMainMenuSelection(message, userId) {
           if (fallback.needsEscalation) {
               const chat = await client.getChatById(GROUP_ID);
               if (chat) {
-                  await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${userId.replace('@c.us', '')})\nResumen: ${fallback.escalationSummary}`);
+                  const contact = await message.getContact();
+                  const realPhone = contact.number || userId.replace(/\D/g, '');
+                  await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
               }
               userStates.set(userId, 'waiting_human');
           }
@@ -784,8 +804,9 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
       const chat = await client.getChatById(GROUP_ID);
       if (chat) {
         const type = message.hasMedia ? "📸 Comprobante" : "✅ Confirmación de pago u observación";
-        const phone = userId.replace('@c.us', '');
-        await chat.sendMessage(`🚨 ${type} recibido de @${phone}. Por favor revisar.\n\nPara validar, responde: *@bot confirmar ${phone}* o *si me llegó ${phone}*`);
+        const contact = await message.getContact();
+        const realPhone = contact.number || userId.replace(/\D/g, '');
+        await chat.sendMessage(`🚨 ${type} recibido de @${realPhone}. Por favor revisar.\n\nPara validar, responde: *@bot confirmar ${realPhone}* o *si me llegó ${realPhone}*`);
       }
     } catch (error) {
       console.error('Error enviando notificación de pago al grupo:', error);
