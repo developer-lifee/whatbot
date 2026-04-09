@@ -110,6 +110,18 @@ async function processCheckPrices(message, userId, userStates) {
     const userAccounts = await getAccountsByPhone(phoneNumber);
     const platforms = await getPlatforms();
 
+    // Mapa de alias para normalizar nombres del Excel al catálogo
+    const PLATFORM_ALIASES = {
+      'amazon': 'prime video',
+      'prime': 'prime video',
+      'hbo': 'max',
+      'hbomax': 'max',
+      'disney': 'disney+',
+      'star': 'disney+',
+      'm365': 'microsoft 365',
+      'office': 'microsoft 365'
+    };
+
     if (userAccounts.length > 0) {
       let replyMessage = "Tus cuentas actuales para renovar o pagar son:\n";
       let totalToPay = 0;
@@ -142,18 +154,26 @@ async function processCheckPrices(message, userId, userStates) {
             fechaVencimientoStr = account.vencimiento;
         }
 
-        const streamingName = (account.Streaming || "SERVICIO").toUpperCase();
+        const rawStreamingName = (account.Streaming || "SERVICIO").toUpperCase();
+        const streamingName = rawStreamingName;
         
-        // Intentar buscar el precio actualizado en el catálogo de ventas de forma robusta
+        // 1. Intentar precio del Excel como base
         let price = parseFloat(account["Ingreso Mensual"]) || 0;
-        const normalizedExcelName = streamingName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        
+        // 2. Normalizar nombre y buscar en catálogo
+        let searchName = rawStreamingName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        // Aplicar alias si existe
+        if (PLATFORM_ALIASES[searchName]) {
+          searchName = PLATFORM_ALIASES[searchName].toLowerCase().replace(/[^a-z0-9]/g, '');
+        }
+
         const catalogPlatform = platforms.find(p => {
           const normalizedCatalogName = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-          return normalizedCatalogName === normalizedExcelName || normalizedExcelName.includes(normalizedCatalogName) || normalizedCatalogName.includes(normalizedExcelName);
+          return normalizedCatalogName === searchName || searchName.includes(normalizedCatalogName) || normalizedCatalogName.includes(searchName);
         });
         
         if (catalogPlatform && catalogPlatform.plans && catalogPlatform.plans.length > 0) {
-          // Usamos el precio del primer plan como base de renovación
+          // El catálogo manda sobre el precio manual si el catálogo tiene precio válido
           const catalogPrice = catalogPlatform.plans[0].price;
           if (catalogPrice > 0) {
             price = catalogPrice;
@@ -163,7 +183,11 @@ async function processCheckPrices(message, userId, userStates) {
         totalToPay += price;
 
         replyMessage += `\n• ${streamingName} (Vence el ${fechaVencimientoStr})`;
-        if (price > 0) replyMessage += ` - $${price}`;
+        if (price > 0) {
+           replyMessage += ` - $${price}`;
+        } else {
+           replyMessage += ` - (Pendiente confirmar precio)`;
+        }
 
         if (fechaVencimientoObj) {
           const dateKey = fechaVencimientoObj.getTime();
