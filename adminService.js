@@ -93,6 +93,7 @@ async function showAdminFunctions(message) {
 4. *Pausar Bot:* \`@bot duermete / despiertate\`
 5. *Liberar:* \`liberar masivo\` o \`liberar [tel]\`
 6. *Pagar:* \`confirmar [tel]\` o \`si me llego [tel]\`
+7. *Cobros Automáticos:* \`@bot cobros automáticos\`
 
 Para leer el manual completo de funciones inteligentes, escribe *@bot ayuda* o *@bot manual*.`;
     await message.reply(funciones);
