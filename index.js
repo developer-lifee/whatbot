@@ -635,10 +635,17 @@ async function processIncomingMessage(message) {
       const st = userStates.get(userId) || {};
       
       userStates.set(userId, { ...st, state: 'awaiting_payment_confirmation', netflixIsp: ispInfo });
-      await message.reply("🤖 ¡Gracias por la información! Un asesor validará tu pago en un momento y te entregará tu cuenta. ¡Gracias por tu paciencia! 😊");
 
       try {
           const groupChat = await client.getChatById(GROUP_ID);
+          const matchData = await getNetflixMatchReport(ispInfo); // ahora retorna { rawReport, hasStock }
+          
+          if (!matchData.hasStock) {
+              await message.reply("🤖 En este momento no hay stock inmediato en tu misma red sugerido en el sistema, por lo que un asesor humano se encargará personalmente de crear la cuenta nueva para ti desde cero y validará tu comprobante. ¡Gracias por tu paciencia! 😊");
+          } else {
+              await message.reply("🤖 ¡Gracias por la información! Un asesor validará tu pago en un momento y te entregará tu cuenta. ¡Gracias por tu paciencia! 😊");
+          }
+
           if (groupChat) {
               const checkBank = st.paymentMethod || 'No identificado';
               const checkAmount = st.checkAmount || 'No legible';
@@ -647,12 +654,11 @@ async function processIncomingMessage(message) {
                              `Monto: ${checkAmount}\n\n` +
                              `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
               
-              const matchReport = await getNetflixMatchReport(ispInfo);
-              adminMsg += `\n${matchReport}`;
-
+              adminMsg += `\n${matchData.rawReport}`;
               await groupChat.sendMessage(adminMsg);
           }
       } catch (adminErr) {
+          await message.reply("🤖 ¡Gracias por la información! Un asesor validará tu pago en un momento y te entregará tu cuenta. ¡Gracias por tu paciencia! 😊");
           console.error("Error notificando al grupo sobre operador de Netflix:", adminErr.message);
       }
       break;

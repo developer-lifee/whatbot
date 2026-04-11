@@ -375,7 +375,7 @@ async function getNetflixMatchReport(targetIspInfo) {
         
         if (availableAccounts.length === 0) {
             report += "No hay cuentas de Netflix con cupos libres ni perfiles vencidos para cortar. Se requiere crear/adquirir una nueva cuenta.\n";
-            return report;
+            return { rawReport: report, hasStock: false };
         }
 
         // Ordenar por afinidad al targetIspInfo, o simplemente listarlas
@@ -408,10 +408,10 @@ async function getNetflixMatchReport(targetIspInfo) {
             report += `${i + 1}. *${acc.correo}*\n   - Estado: ${status} (${acc.perfiles_activos} activos)\n   - Ref: ${opsStr}\n`;
         });
         
-        return report;
+        return { rawReport: report, hasStock: true };
     } catch (err) {
         console.error("Error generando match de Netflix:", err);
-        return "\n\n⚠️ No se pudo generar reporte predictivo de Netflix.";
+        return { rawReport: "\n\n⚠️ No se pudo generar reporte predictivo de Netflix.", hasStock: false };
     }
 }
 
