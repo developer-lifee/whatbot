@@ -508,4 +508,83 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
   }
 }
 
-module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback, detectInitialIntent, formatDirectCredentials, isPaymentReceipt };
+/**
+ * Analiza una consulta en lenguaje natural del administrador y extrae parámetros de búsqueda.
+ * @param {string} query 
+ * @returns {Promise<Object>} { action: string, filters: { name, platform, status, generic_search } }
+ */
+async function parseAdminQueryIntent(query) {
+  const prompt = `
+    Eres un asistente analítico experto en extraer parámetros de búsqueda sobre una base de datos de streaming.
+    El administrador te ha pedido la siguiente consulta en lenguaje natural: "${query}"
+
+    Salida esperada usando estricto JSON:
+    {
+      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "general_query",
+      "filters": {
+        "name": string | null, // Nombre del cliente si menciona alguno (ej. pepito perez)
+        "platform": string | null, // Plataforma de streaming si menciona (ej. netflix, hbo, prime, max, disney, etc.)
+        "status": "libre" | "ocupado" | "vencido" | null, // Si busca cuentas "libres", "disponibles", "vencidas", etc.
+        "phone": string | null, // Numero de telefono si menciona alguno
+        "generic_search": string | null // Cualquier término general clave no categorizado
+      }
+    }
+
+    Reglas de 'action':
+    - Si pide "dame la cuenta de...", "que cuentas tiene...", es "search_customer".
+    - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
+    - Si pide "historico", "que cuentas ha tenido...", es "check_history".
+    - Si pide "cuantas hay en total", "resumen de...", "cuentas totales", es "summary_stats".
+    - Si no encaja, usa "general_query".
+  `;
+  try {
+    const jsonString = await callGemini(prompt, "Eres un extractor de parámetros para consultas de base de datos JSON.", true);
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error("Error parsing admin query intent:", error);
+    return { action: "general_query", filters: {} };
+  }
+}
+
+/**
+ * Genera el reporte final en texto plano amigable para el administrador usando los datos filtrados de la BD.
+ * @param {string} query
+ * @param {Array|Object} dataContext
+ * @returns {Promise<string>}
+ */
+async function generateAdminReport(query, dataContext) {
+  // Try to limit the size to avoid overloading the context, although Gemini flash can handle large contexts.
+  let jsonContext = JSON.stringify(dataContext);
+  if (jsonContext.length > 50000) {
+      jsonContext = jsonContext.substring(0, 50000) + '... (Datos truncados por límite de tamaño)';
+  }
+
+  const prompt = `
+    Eres el asistente personal de datos (Dashboard Conversacional) del administrador de Sheerit.
+    El administrador te hizo la siguiente consulta: "${query}"
+
+    Aquí están los resultados de la base de datos (filtrados) en formato JSON:
+    ${jsonContext}
+
+    Tu tarea es responder la pregunta del administrador basándote ESTRICTAMENTE en estos datos proporcionados.
+    
+    Reglas:
+    - Sé directo, profesional, pero amigable. Usa formato de WhatsApp (*negrita*, emojis).
+    - Si te pide los datos de una o más cuentas libres, dáselos de forma organizada (correo, clave, pin si aplica).
+    - Si te pide un resumen ("cuántas hay libres"), dáselo de forma contada e inteligible agrupado por plataforma.
+    - Si te pregunta por el histórico de alguien, resume las cuentas que ha tenido de forma clara.
+    - Si en el JSON dice que no se encontraron coincidencias o que el vector está vacío ([]), dile: "No encontré información en la base de datos para los parámetros solicitados sobre: ${query}".
+    - NUNCA inventes correos o contraseñas que no estén en el JSON provisto.
+  `;
+
+  try {
+    // Para esta tarea grande, si hay muchisimos datos forzamos modelo gemini-2.0-flash por si a caso.
+    const responseText = await callGemini(prompt, "Eres un asistente analítico para WhatsApp. Responde en texto legible y estético.", false);
+    return responseText.trim();
+  } catch (error) {
+    console.error("Error generating admin report:", error);
+    return "❌ Ocurrió un error al generar tu reporte de datos utilizando la inteligencia artificial.";
+  }
+}
+
+module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback, detectInitialIntent, formatDirectCredentials, isPaymentReceipt, parseAdminQueryIntent, generateAdminReport };

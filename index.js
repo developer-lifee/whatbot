@@ -350,6 +350,16 @@ async function processIncomingMessage(message) {
     return;
   }
 
+  // --- Admin Data Queries (Dashboard Conversacional) ---
+  if (userId.includes('3133890800') && message.body && message.body.toLowerCase().startsWith('@bot') && !message.from.includes('@g.us')) {
+      const query = message.body.substring(4).trim();
+      if (query.length > 0) {
+          const { processAdminQuery } = require('./adminQueries');
+          await processAdminQuery(message, query);
+          return;
+      }
+  }
+
   // Comandos de operador/administrador
   if (message.from === OPERATOR_NUMBER || message.from === GROUP_ID) {
     const body = (message.body || '').trim().toLowerCase();
