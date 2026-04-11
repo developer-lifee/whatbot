@@ -310,6 +310,111 @@ async function getUpcomingExpirationsReport() {
     }
 }
 
+/**
+ * Analiza la base de clientes y sugiere qué cuentas de Netflix tienen cupos disponibles 
+ * y coinciden (o son compatibles) con el operador del nuevo cliente.
+ */
+async function getNetflixMatchReport(targetIspInfo) {
+    try {
+        const { fetchCustomersData } = require('./apiService');
+        const clientes = await fetchCustomersData();
+        
+        let report = `\n\n🚨 *MATCH PREDICTIVO PARA NETFLIX* 🚨\nInfo/Operador Cliente: ${targetIspInfo || 'N/A'}\n\n`;
+        
+        // Agrupar por correo de Netflix
+        const netflixAccounts = new Map(); // correo -> { perfiles_activos: 0, perfiles_vencidos: 0, operadores: [] }
+        
+        for (const c of clientes) {
+            const servicio = (c.Streaming || "").toLowerCase();
+            if (servicio.includes("netflix") && !servicio.includes("extra")) {
+                const correo = (c.correo || "Sin correo asignado").trim().toLowerCase();
+                const operadorStr = (c.Operador || c.operador || c.observaciones || "").toString().toLowerCase();
+                
+                let isExpired = false;
+                if (c.deben && !isNaN(parseFloat(c.deben))) {
+                    const excelDate = parseFloat(c.deben);
+                    const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+                    const compareDate = new Date(jsDate);
+                    compareDate.setHours(0,0,0,0);
+                    if (compareDate.getTime() < today.getTime()) isExpired = true;
+                }
+                
+                if (!netflixAccounts.has(correo)) {
+                    netflixAccounts.set(correo, { perfiles_activos: 0, perfiles_vencidos: 0, operadores: [] });
+                }
+                
+                const accountData = netflixAccounts.get(correo);
+                if (isExpired) {
+                    accountData.perfiles_vencidos++;
+                } else {
+                    accountData.perfiles_activos++;
+                }
+
+                if (operadorStr) {
+                    accountData.operadores.push(operadorStr + (isExpired ? " (vencido)" : ""));
+                }
+            }
+        }
+        
+        const availableAccounts = [];
+        netflixAccounts.forEach((data, correo) => {
+            const total = data.perfiles_activos + data.perfiles_vencidos;
+            // Asumimos máximo 4 perfiles simultáneos (sin contar extra)
+            if ((total < 4 || data.perfiles_vencidos > 0) && correo !== "sin correo asignado") {
+                availableAccounts.push({ 
+                    correo, 
+                    perfiles_activos: data.perfiles_activos,
+                    perfiles_vencidos: data.perfiles_vencidos,
+                    cupos_libres: Math.max(0, 4 - total),
+                    operadores: data.operadores 
+                });
+            }
+        });
+        
+        if (availableAccounts.length === 0) {
+            report += "No hay cuentas de Netflix con cupos libres ni perfiles vencidos para cortar. Se requiere crear/adquirir una nueva cuenta.\n";
+            return report;
+        }
+
+        // Ordenar por afinidad al targetIspInfo, o simplemente listarlas
+        let targetLower = (targetIspInfo || "").toLowerCase();
+        
+        availableAccounts.sort((a, b) => {
+            const aHasMatch = targetLower && a.operadores.some(op => op.includes(targetLower) || targetLower.includes(op)) ? 1 : 0;
+            const bHasMatch = targetLower && b.operadores.some(op => op.includes(targetLower) || targetLower.includes(op)) ? 1 : 0;
+            if (aHasMatch > bHasMatch) return -1;
+            if (aHasMatch < bHasMatch) return 1;
+            
+            // Priorizar si tiene cupos libres directos
+            if (a.cupos_libres > 0 && b.cupos_libres === 0) return -1;
+            if (a.cupos_libres === 0 && b.cupos_libres > 0) return 1;
+
+            // Secundariamente, priorizar los que están más llenos para no desperdiciar cuentas a medias
+            return (b.perfiles_activos + b.perfiles_vencidos) - (a.perfiles_activos + a.perfiles_vencidos);
+        });
+
+        report += `Cuentas sugeridas para emparejar (Libres o Cortables):\n`;
+        availableAccounts.slice(0, 5).forEach((acc, i) => {
+            const cleanOps = acc.operadores.filter(op => op.trim() !== "");
+            let opsStr = cleanOps.length > 0 ? cleanOps.join(", ") : "Ninguno registrado";
+            if (opsStr.length > 45) opsStr = opsStr.substring(0, 42) + "...";
+            
+            let status = "";
+            if (acc.cupos_libres > 0) status += `${acc.cupos_libres} libres`;
+            if (acc.perfiles_vencidos > 0) status += (status ? ", " : "") + `${acc.perfiles_vencidos} vencido(s) (cortables)`;
+            
+            report += `${i + 1}. *${acc.correo}*\n   - Estado: ${status} (${acc.perfiles_activos} activos)\n   - Ref: ${opsStr}\n`;
+        });
+        
+        return report;
+    } catch (err) {
+        console.error("Error generando match de Netflix:", err);
+        return "\n\n⚠️ No se pudo generar reporte predictivo de Netflix.";
+    }
+}
+
 module.exports = {
   processPendingChats,
   handleBatchUnanswered,
@@ -318,5 +423,6 @@ module.exports = {
   handleSendManualPaymentMethods,
   showAdminFunctions,
   showDetailedHelp,
-  getUpcomingExpirationsReport
+  getUpcomingExpirationsReport,
+  getNetflixMatchReport
 };

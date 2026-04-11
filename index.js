@@ -58,7 +58,8 @@ const {
   processPendingChats, 
   handleSendManualPaymentMethods, 
   showDetailedHelp,
-  getUpcomingExpirationsReport
+  getUpcomingExpirationsReport,
+  getNetflixMatchReport
 } = require('./adminService');
 
 
@@ -497,6 +498,29 @@ async function processIncomingMessage(message) {
           const existing = userStates.get(userId);
           const stateData = typeof existing === 'object' ? { ...existing } : { nombre: foundName };
           
+          // Revisamos si en el carrito (items) hay un servicio de Netflix
+          let hasNetflix = false;
+          if (stateData.items && Array.isArray(stateData.items)) {
+              hasNetflix = stateData.items.some(item => {
+                  const name = item.Streaming || (item.platform ? item.platform.name : "") || item.name || "";
+                  return name.toLowerCase().includes('netflix');
+              });
+          }
+
+          if (hasNetflix) {
+              await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
+              
+              userStates.set(userId, { 
+                  ...stateData, 
+                  state: 'awaiting_netflix_operator_post_payment',
+                  paymentMethod: check.bank || 'Transferencia',
+                  checkAmount: check.amount
+              });
+              
+              // No notificamos al administrador todavía para no sobrecargar el chat; lo haremos cuando responda.
+              return;
+          }
+
           userStates.set(userId, { 
               ...stateData, 
               state: 'awaiting_payment_confirmation',
@@ -509,13 +533,12 @@ async function processIncomingMessage(message) {
           try {
               const groupChat = await client.getChatById(GROUP_ID);
               if (groupChat) {
-                  const adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
+                  let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
                                  `Banco: ${check.bank || 'No identificado'}\n` +
                                  `Monto: ${check.amount || 'No legible'}\n\n` +
                                  `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
                   
                   await groupChat.sendMessage(adminMsg);
-                  // Opcionalmente reenviar la imagen al grupo para facilitar la vida del admin
                   const mediaToForward = await message.downloadMedia();
                   await groupChat.sendMessage(mediaToForward);
               }
@@ -606,6 +629,32 @@ async function processIncomingMessage(message) {
       break;
     case 'main_menu':
       await handleMainMenuSelection(message, userId);
+      break;
+    case 'awaiting_netflix_operator_post_payment':
+      const ispInfo = (message.body || "").trim();
+      const st = userStates.get(userId) || {};
+      
+      userStates.set(userId, { ...st, state: 'awaiting_payment_confirmation', netflixIsp: ispInfo });
+      await message.reply("🤖 ¡Gracias por la información! Un asesor validará tu pago en un momento y te entregará tu cuenta. ¡Gracias por tu paciencia! 😊");
+
+      try {
+          const groupChat = await client.getChatById(GROUP_ID);
+          if (groupChat) {
+              const checkBank = st.paymentMethod || 'No identificado';
+              const checkAmount = st.checkAmount || 'No legible';
+              let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
+                             `Banco: ${checkBank}\n` +
+                             `Monto: ${checkAmount}\n\n` +
+                             `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
+              
+              const matchReport = await getNetflixMatchReport(ispInfo);
+              adminMsg += `\n${matchReport}`;
+
+              await groupChat.sendMessage(adminMsg);
+          }
+      } catch (adminErr) {
+          console.error("Error notificando al grupo sobre operador de Netflix:", adminErr.message);
+      }
       break;
     case 'awaiting_payment_method':
       await handleAwaitingPaymentMethod(message, userId);

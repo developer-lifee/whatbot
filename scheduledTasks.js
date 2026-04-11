@@ -2,6 +2,8 @@ const schedule = require('node-schedule');
 const { handleAutoCobros } = require('./billingService');
 const { getUpcomingExpirationsReport } = require('./adminService');
 
+let automationInitialized = false;
+
 /**
  * Inicializa las tareas automáticas del día.
  * @param {object} client - El cliente de WhatsApp.
@@ -10,6 +12,12 @@ const { getUpcomingExpirationsReport } = require('./adminService');
  * @param {string} groupId - El ID del grupo de administración para reportes.
  */
 function initDailyAutomation(client, userStates, pendingConfirmations, groupId) {
+    if (automationInitialized) {
+        console.log('⏰ [AUTOMATION] Tareas ya inicializadas previamente. Ignorando reprogramación.');
+        return;
+    }
+    automationInitialized = true;
+    
     console.log('⏰ [AUTOMATION] Inicializando tareas diarias (9:00 AM y 2:00 PM)...');
 
     // 1. COBROS AUTOMÁTICOS (9:00 AM)
