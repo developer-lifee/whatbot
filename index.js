@@ -69,7 +69,11 @@ const {
 // Crear servidor Express
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Configure Multer for images
@@ -140,6 +144,226 @@ app.get('/api/admin/clients', async (req, res) => {
         const { fetchCustomersData } = require('./apiService');
         const clients = await fetchCustomersData();
         res.json(clients);
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+const crypto = require('crypto');
+
+app.post('/api/bold/generate-token', async (req, res) => {
+    try {
+        const { platform, customer, numbers } = req.body;
+        if (!platform || !customer || !numbers) {
+            return res.status(400).json({ error: 'Faltan campos obligatorios' });
+        }
+
+        const apiKey = process.env.BOLD_IDENTITY_KEY;
+        const secretKey = process.env.BOLD_SECRET_KEY;
+        if (!apiKey || !secretKey) throw new Error("Llaves de Bold no configuradas en .env");
+
+        const timestamp = Date.now();
+        const random = Math.floor(1000 + Math.random() * 9000);
+        const orderId = `inv${random}`; 
+        const amount = platform.price;
+        const currency = 'COP';
+        
+        const concatenated = `${orderId}${amount}${currency}${secretKey}`;
+        const integritySignature = crypto.createHash('sha256').update(concatenated).digest('hex');
+
+        // Guardar estado en memoria o base de datos.
+        // Simulando customers_temp con un objeto en memoria (si el bot se reinicia, se pierde, pero para el prototipo es funcional)
+        // Lo correcto sería guardarlo en customers_temp de MySQL si la tabla existe. 
+        // Ya que whatbot usa MySQL para `getExpiredAccounts` y no sabemos si `customers_temp` existe, guarderemos en global scope o lo probamos en mysql.
+        // Por seguridad lo guardamos en un local map:
+        global.pendingSales = global.pendingSales || new Map();
+        global.pendingSales.set(orderId, {
+            ...customer,
+            numbersStr: numbers.join(','),
+            platformName: platform.name
+        });
+
+        res.json({
+            orderId,
+            apiKey,
+            amount: amount.toString(),
+            currency,
+            description: `Suscripción a ${platform.name}`,
+            tax: 'vat-19',
+            integritySignature,
+            redirectionUrl: 'https://sheerit.com.co/'
+        });
+    } catch(e) {
+        console.error("Bold Generate Token Error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/bold/webhook', async (req, res) => {
+    try {
+        const signatureHeader = req.headers['x-bold-signature'] || '';
+        const secretKey = process.env.BOLD_SECRET_KEY;
+        if (!secretKey) throw new Error("BOLD_SECRET_KEY missing");
+
+        const rawBodyBase64 = req.rawBody.toString('base64');
+        const computedSignature = crypto.createHmac('sha256', secretKey).update(rawBodyBase64).digest('hex');
+
+        if (computedSignature !== signatureHeader) {
+            console.log(`Firma no válida. Recibida: ${signatureHeader} Calculada: ${computedSignature}`);
+            return res.status(400).json({ error: 'Firma no válida' });
+        }
+
+        const data = req.body;
+        const eventType = data.type || '';
+        let orderId = null;
+        if (data.data?.metadata?.reference) orderId = data.data.metadata.reference;
+        else if (data.subject) orderId = data.subject;
+
+        if (eventType === 'SALE_APPROVED') {
+            global.pendingSales = global.pendingSales || new Map();
+            const customerData = global.pendingSales.get(orderId);
+            
+            if (customerData) {
+                console.log(`Venta aprobada vía Webhook para orden ${orderId}`);
+                
+                // Usando recordNewSale de whatbot
+                const { recordNewSale } = require('./salesRegistryService');
+                const userState = {
+                    items: [{ platform: { name: customerData.platformName } }],
+                    subscriptionType: 'mensual', // Podemos obtenerla de la vista si se pasó
+                    nombre: `${customerData.firstName} ${customerData.lastName}`
+                };
+
+                const phoneId = customerData.whatsapp.includes('@') ? customerData.whatsapp : `${customerData.whatsapp}@c.us`;
+                
+                const results = await recordNewSale(phoneId, userState, "Bold Pagos");
+                console.log("Resultados guardado en Excel via Bold:", results);
+                
+                // Enviar confirmación por WhatsApp
+                let successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema.\nEn breve te asignaremos tus servicios.`;
+                await client.sendMessage(phoneId, successMsg);
+
+                global.pendingSales.delete(orderId);
+                return res.json({ message: 'Compra aprobada y proceso iniciado' });
+            } else {
+                return res.status(404).json({ message: 'No hay datos en cache para esta orden' });
+            }
+        } else {
+            return res.json({ message: 'Evento recibido: ' + eventType });
+        }
+
+    } catch (e) {
+        console.error("Webhook Error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/stats', async (req, res) => {
+    try {
+        const { fetchCustomersData } = require('./apiService');
+        const clients = await fetchCustomersData();
+        const now = new Date();
+        
+        const stats = {
+            totalClients: clients.length,
+            byPlatform: {},
+            byStatus: { active: 0, expired: 0, warning: 0 },
+            expirations: { next7Days: 0, next15Days: 0, next30Days: 0 },
+            revenueEstimate: 0
+        };
+
+        clients.forEach(c => {
+            // Platform Stats
+            const plat = (c.Streaming || 'Otros').split(' ')[0] || 'Otros';
+            stats.byPlatform[plat] = (stats.byPlatform[plat] || 0) + 1;
+
+            // Date processing
+            if (c['Fecha Vencimiento']) {
+                const venc = new Date(c['Fecha Vencimiento']);
+                const diffTime = venc.getTime() - now.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                if (diffDays < 0) {
+                    stats.byStatus.expired++;
+                } else if (diffDays <= 5) {
+                    stats.byStatus.warning++;
+                    stats.byStatus.active++;
+                } else {
+                    stats.byStatus.active++;
+                }
+
+                if (diffDays >= 0 && diffDays <= 7) stats.expirations.next7Days++;
+                if (diffDays >= 0 && diffDays <= 15) stats.expirations.next15Days++;
+                if (diffDays >= 0 && diffDays <= 30) stats.expirations.next30Days++;
+            }
+        });
+
+        res.json(stats);
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/actions/send-info', async (req, res) => {
+    try {
+        const { phone, type, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const { getAccountsByPhone } = require('./apiService');
+        const accounts = await getAccountsByPhone(phone);
+        if (!accounts || accounts.length === 0) return res.status(404).json({ success: false, message: 'Client not found' });
+
+        const clientData = accounts[0];
+        let message = "";
+
+        if (type === 'credentials') {
+            message = `*Tus Credenciales de Sheer IT*\n\n` +
+                      `🍿 *Servicio:* ${clientData.Streaming}\n` +
+                      `📧 *Usuario:* ${clientData.correo}\n` +
+                      `🔑 *Contraseña:* ${clientData['pin perfil'] || 'N/A'}\n` +
+                      `👤 *Perfil:* ${clientData.Nombre}\n\n` +
+                      `📅 *Vence:* ${clientData['Fecha Vencimiento']}\n\n` +
+                      `¡Disfruta tu servicio!`;
+        } else if (type === 'payment') {
+            message = `¡Hola ${clientData.Nombre}! 👋\n\n` +
+                      `Te recordamos que tu suscripción de *${clientData.Streaming}* está próxima a vencer (${clientData['Fecha Vencimiento']}).\n\n` +
+                      `Puedes renovar realizando tu transferencia aquí:\n` +
+                      `*Nequi/Daviplata:* 3133866170\n\n` +
+                      `Una vez realizado, envíanos el comprobante por este medio. ¡Gracias!`;
+        }
+
+        const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
+        await client.sendMessage(chatId, message);
+        
+        res.json({ success: true, message: 'Message sent via WhatsApp' });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/sales/create', async (req, res) => {
+    try {
+        const { phone, name, items, duration, total, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const { recordNewSale } = require('./salesRegistryService');
+        
+        // Map duration to subscriptionType
+        let subscriptionType = 'mensual';
+        if (duration === '6') subscriptionType = 'semestral';
+        if (duration === '12') subscriptionType = 'anual';
+
+        // Prepare dummy state for recordNewSale
+        const userState = {
+            items: items.map(it => ({ platform: { name: it.platformName } })),
+            subscriptionType,
+            nombre: name
+        };
+
+        const phoneId = phone.includes('@') ? phone : `${phone}@c.us`;
+        const results = await recordNewSale(phoneId, userState, "Web Admin");
+
+        res.json({ success: true, results });
     } catch(e) {
         res.status(500).json({ error: e.message });
     }
