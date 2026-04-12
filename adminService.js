@@ -53,7 +53,9 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
             } catch (err) {
                 if (isCriticalBrowserError(err)) throw err; // Re-lanzar para que index.js reinicie
                 const chatId = (chat && chat.id && chat.id._serialized) ? chat.id._serialized : 'ID DESCONOCIDO';
-                console.error(`Error procesando chat ${chatId} en batch:`, err.message);
+                if (!err.message.includes('waitForChatLoading')) {
+                    console.error(`Error procesando chat ${chatId} en batch:`, err.message);
+                }
             }
             await new Promise(r => setTimeout(r, 2000)); // Delay sutil
         }

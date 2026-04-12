@@ -638,8 +638,13 @@ function isNameIncomplete(name) {
     if (!name) return true;
     const parts = name.trim().split(/\s+/);
     if (parts.length < 2) return true;
+    if (parts.length > 4 || name.length > 50) return true; // Rechazar frases largas o mensajes
     
-    const businessKeywords = ['store', 'shop', 'ventas', 'digital', 'oficial', 'asistente', 'bot', 'vende', 'pagos', 'comprobantes'];
+    // Rechazar si no contiene suficientes letras (ej. solo emojis o caracteres especiales)
+    const lettersMatch = name.match(/[a-zA-ZáéíóúÁÉÍÓÚñÑ]/g);
+    if (!lettersMatch || lettersMatch.length < 3) return true;
+    
+    const businessKeywords = ['store', 'shop', 'ventas', 'digital', 'oficial', 'asistente', 'bot', 'vende', 'pagos', 'comprobantes', 'cuenta', 'hbo', 'renovar'];
     const lowerName = name.toLowerCase();
     return businessKeywords.some(kw => lowerName.includes(kw));
 }
@@ -660,7 +665,14 @@ async function processIncomingMessage(message) {
   }
 
   // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
-  const contact = await message.getContact();
+  let contact;
+  try {
+      contact = await message.getContact();
+  } catch (err) {
+      console.warn("No se pudo obtener contacto del mensaje:", err.message);
+      contact = { number: userId.replace(/\D/g, '') }; // fallback básico
+  }
+
   const realPhone = contact.number || userId.replace(/\D/g, '');
   
   let foundName = contact.name || contact.pushname;
@@ -669,8 +681,8 @@ async function processIncomingMessage(message) {
       foundName = await searchContactByPhone(userId);
   }
 
-  // Sincronizar con Google Contacts si tenemos un nombre válido
-  if (foundName && !isNameIncomplete(foundName)) {
+  // Sincronizar con Google Contacts si tenemos un nombre válido y no es un mensaje del bot
+  if (!message.fromMe && foundName && !isNameIncomplete(foundName)) {
       const { addNewContact, searchContactByPhone } = require('./googleContactsService');
       // Solo intentar agregar si no lo encontramos por el número real
       const existingInGoogle = await searchContactByPhone(realPhone);
@@ -1168,8 +1180,13 @@ async function handleMainMenuSelection(message, userId) {
       try {
         const chat = await client.getChatById(GROUP_ID);
         if (chat) {
-          const contact = await message.getContact();
-          const realPhone = contact.number || userId.replace(/\D/g, '');
+          let realPhone = userId.replace(/\D/g, '');
+          try {
+              const contact = await message.getContact();
+              if (contact && contact.number) realPhone = contact.number;
+          } catch(e) {
+              console.warn("[Menu] No se pudo obtener el contacto para notificar grupo:", e.message);
+          }
           await chat.sendMessage(`🚨 Nuevo caso para atención: Usuario @${realPhone} seleccionó "Otro" y necesita ayuda de un asesor.`);
         } else {
           console.error('Grupo no encontrado con ID:', GROUP_ID);

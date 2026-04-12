@@ -487,6 +487,11 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     
     Regla Crítica para "intent": 
     - No lo marques como "desconocido" si el usuario está haciendo una pregunta válida sobre precios o servicios. Si pregunta un precio, el intent es "comprar".
+    - Si el mensaje es un número corto (1, 2, 3, 4, 5) y en el contexto reciente el bot le dio el menú principal, MÁPEALO ASÍ:
+      * "1" -> "comprar"
+      * "2" -> "credenciales"
+      * "3" -> "pagar"
+      * "4", "5" -> "soporte"
     
     Salida esperada JSON:
     {
