@@ -1,4 +1,7 @@
 const http = require('http');
+const express = require('express');
+const cors = require('cors');
+const multer = require('multer');
 // Sobrescribir consola para añadir timestamps
 const originalLog = console.log;
 console.log = function() {
@@ -63,15 +66,147 @@ const {
 } = require('./adminService');
 
 
-// Crear servidor HTTP
-const server = http.createServer((req, res) => {
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'text/plain');
-  res.end('Hola, mundo!\n');
+// Crear servidor Express
+const app = express();
+app.use(cors());
+app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Configure Multer for images
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'uploads/')
+    },
+    filename: function (req, file, cb) {
+        cb(null, Date.now() + '_' + file.originalname)
+    }
 });
+const upload = multer({ storage: storage });
+
+// Main App Routes
+app.get('/', (req, res) => {
+  res.send('Hola, mundo! This is Sheerit Whatbot Express Server.');
+});
+
+// Netflix Verification Endpoint
+app.post('/api/netflix/verify', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    
+    // Clean IP (remove ipv6 wrapper if present)
+    if (clientIp.includes('::ffff:')) {
+        clientIp = clientIp.replace('::ffff:', '');
+    }
+    
+    const { getAccountsByPhone, updateExcelData } = require('./apiService');
+    const userAccounts = await getAccountsByPhone(phone);
+    
+    // Check if they have a non-extra Netflix account
+    const netflixAcct = userAccounts.find(c => {
+        const streamingName = (c.Streaming || "").toLowerCase();
+        return streamingName.includes('netflix') && !streamingName.includes('extra');
+    });
+
+    if (!netflixAcct) {
+        return res.status(404).json({ success: false, message: "No se encontró cuenta de Netflix principal asociada a este número." });
+    }
+
+    // Capture the IP natively into Microsoft Graph Excels (Operador column)
+    if (netflixAcct._rowNumber) {
+        const oldOperador = (netflixAcct.Operador || "").toString();
+        let newOperadorRecord = oldOperador;
+        
+        // Only append IP if it's not already recorded
+        if (!oldOperador.includes(clientIp)) {
+            newOperadorRecord = oldOperador ? `${oldOperador} | IP: ${clientIp}` : `IP: ${clientIp}`;
+            await updateExcelData(netflixAcct._rowNumber, { "Operador": newOperadorRecord });
+            console.log(`[NETFLIX API] Saved IP ${clientIp} for @${phone} (Row ${netflixAcct._rowNumber})`);
+        } else {
+            console.log(`[NETFLIX API] IP ${clientIp} was already recorded for @${phone}`);
+        }
+    }
+    
+    res.json({ success: true, message: `Código de Hogar enviado para la cuenta: ${netflixAcct.correo}`, account: netflixAcct.correo, ip: clientIp });
+  } catch(e) {
+    console.error("[NETFLIX API Error]:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Admin Dashboard Endpoints
+app.get('/api/admin/clients', async (req, res) => {
+    try {
+        const { fetchCustomersData } = require('./apiService');
+        const clients = await fetchCustomersData();
+        res.json(clients);
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/match', async (req, res) => {
+    try {
+        const isp = req.query.isp || '';
+        const { getNetflixMatchReport } = require('./adminService');
+        const matchData = await getNetflixMatchReport(isp);
+        res.json(matchData);
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Legacy PHP logic migration: Support Management
+app.get('/api/support', (req, res) => {
+    try {
+        const supportData = fs.readFileSync(path.join(__dirname, 'support.json'), 'utf8');
+        res.setHeader('Content-Type', 'application/json');
+        res.send(supportData);
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/support/save', upload.none(), (req, res) => {
+    try {
+        const { password, action, data } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+        
+        if (action === 'save' && data) {
+            const jsonPath = path.join(__dirname, 'support.json');
+            if (fs.existsSync(jsonPath)) {
+                fs.copyFileSync(jsonPath, path.join(__dirname, 'support_backup.json'));
+            }
+            fs.writeFileSync(jsonPath, data, 'utf8');
+            res.json({ success: true, message: 'Datos guardados (respaldo creado)' });
+        } else {
+            res.json({ success: false, message: 'Datos inválidos' });
+        }
+    } catch(e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+app.post('/api/support/upload', upload.single('image'), (req, res) => {
+    try {
+        const password = req.body.password;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+        if (req.file) {
+             const publicUrl = `http://localhost:3000/uploads/${req.file.filename}`; // Replace localhost in Prod
+             res.json({ success: true, url: publicUrl }); 
+        } else {
+             res.json({ success: false, message: 'No se envió ninguna imagen' });
+        }
+    } catch(e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+const server = http.createServer(app);
 const port = process.env.PORT || 3000;
+
 server.listen(port, () => {
-  console.log(`Servidor corriendo en el puerto ${port}`);
+  console.log(`Servidor Express corriendo en el puerto ${port}`);
   
   // Heartbeat cada 5 minutos (reducido para detectar cuelgues de Puppeteer)
   setInterval(async () => {
@@ -92,7 +227,7 @@ server.listen(port, () => {
     console.error(`Intenta matar el proceso ejecutando: lsof -i :${port} y luego kill -9 <PID>`);
     process.exit(1);
   } else {
-    console.error('Error al iniciar el servidor:', err);
+    console.error('Error al iniciar el servidor Express:', err);
   }
 });
 
@@ -480,6 +615,26 @@ async function processIncomingMessage(message) {
   let cleanBody = message.body ? message.body.trim() : "";
   if (cleanBody.startsWith('"') && cleanBody.endsWith('"')) {
     cleanBody = cleanBody.slice(1, -1).trim();
+  }
+
+  const netflixKeywords = ['código de netflix', 'codigo de netflix', 'actualizar hogar', 'mi codigo', 'mi código'];
+  if (netflixKeywords.some(kw => cleanBody.toLowerCase().includes(kw))) {
+      try {
+          const { getAccountsByPhone } = require('./apiService');
+          const userAccounts = await getAccountsByPhone(realPhone);
+          const netflixAcct = userAccounts.find(c => {
+              const streamingName = (c.Streaming || "").toLowerCase();
+              return streamingName.includes('netflix') && !streamingName.includes('extra');
+          });
+          if (netflixAcct) {
+              await message.reply(`🤖 ¡Hola! Para generar tu código de hogar de forma segura, ingresa a este enlace:\n\n👉 https://sheerit.com.co/verificar?tel=${realPhone}`);
+          } else {
+              await message.reply(`🤖 No encontré una cuenta de Netflix principal activa a este número para asociar el hogar.`);
+          }
+      } catch(e) {
+          console.error("Error en validación netflix intercept:", e);
+      }
+      return;
   }
 
   if (cleanBody.toLowerCase().startsWith("hola, estoy interesado en")) {

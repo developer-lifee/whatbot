@@ -1,0 +1,493 @@
+[
+  {
+    "id": "netflix",
+    "name": "Netflix",
+    "logo": "https://th.bing.com/th/id/R.64d5f8b96325d2be917f9ab402e92b99?rik=1BawFvPFPBGxrg&pid=ImgRaw&r=0",
+    "issues": [
+      {
+        "id": "codigo_acceso",
+        "title": "Código de acceso",
+        "image": "/errores_img/codigo_netflix.png",
+        "whatsappMessage": "Hola, necesito ayuda con un código de acceso para Netflix.",
+        "steps": [
+          { "text": "Dale en la opción estoy de viaje (si estas en tv) o ver temporalmente (si estas en el cel) y luego enviar email." },
+          { "text": "Después entras desde tu cel al enlace Sheerit.com.co/actualizar." },
+          { "text": "Ya estando adentro, en el buscador escribes sheerit2." },
+          { "text": "Listo, ya tienes a la mano el correo para generar el código de Netflix, escoges la primera opción que te sale o la más reciente." }
+        ]
+      },
+      {
+        "id": "actualizacion_hogar",
+        "title": "Actualización de hogar",
+        "image": "/errores_img/actualizacion_netflix.png",
+        "whatsappMessage": "Hola, me aparece el mensaje de actualización de hogar en Netflix.",
+        "steps": [
+          { "text": "Dale en la opción de actualizar hogar con Netflix hasta que te salga la opción de enviar email." },
+          { "text": "Después entras desde tu cel al enlace Sheerit.com.co/actualizar." },
+          { "text": "Ya estando adentro, en el buscador escribes sheerit." },
+          { "text": "Listo, ya tienes a la mano el correo para actualizar hogar de Netflix, escoges la primera opción que te sale o la más reciente." }
+        ]
+      },
+      {
+        "id": "contrasena_incorrecta",
+        "title": "Contraseña incorrecta",
+        "image": "/errores_img/contraseña_netflix.png",
+        "whatsappMessage": "Hola, tengo un problema de contraseña incorrecta con mi cuenta de Netflix.",
+        "steps": [
+          { "text": "Verifica que estés escribiendo la contraseña correctamente (mayúsculas y minúsculas)." },
+          { "text": "Si persiste, es posible que la cuenta haya sido renovada y la clave haya cambiado." },
+          { "text": "Contacta a soporte para darte la nueva clave." }
+        ]
+      },
+      {
+        "id": "sin_premium",
+        "title": "Sin premium",
+        "image": "/errores_img/suscripcion_netflix.png",
+        "whatsappMessage": "Hola, mi cuenta de Netflix aparece sin la suscripción premium activa.",
+        "steps": [
+          { "text": "Verifica en la configuración de la cuenta el estado de la suscripción." },
+          { "text": "Si dice que la suscripción ha vencido, contacta a soporte para la renovación." }
+        ]
+      },
+      {
+        "id": "perfil_faltante",
+        "title": "No está tu perfil",
+        "image": "/errores_img/perfiles_netflix.png",
+        "whatsappMessage": "Hola, no encuentro mi perfil en la cuenta de Netflix.",
+        "steps": [
+          { "text": "Busca entre los perfiles creados." },
+          { "text": "Si el tuyo no aparece, infórmalo a soporte para restaurarlo o asignarte uno nuevo." }
+        ]
+      },
+      {
+        "id": "cuentas_extras",
+        "title": "Acceso a cuentas extra",
+        "image": "/errores_img/cuentas_extras_netflix.png",
+        "whatsappMessage": "Hola, ¿cómo accedo a mi cuenta extra de Netflix?",
+        "steps": [
+          { "text": "Si compraste una cuenta extra, te enviaremos una invitación o te daremos un correo (@yopmail.com)." },
+          { "text": "Revisa la información que te proporcionamos e inicia sesión usando esos datos." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "disney",
+    "name": "Disney+",
+    "logo": "https://mdcthereporter.com/wp-content/uploads/2019/09/Disney-Logo.jpeg",
+    "issues": [
+      {
+        "id": "codigo_acceso",
+        "title": "Código de acceso",
+        "image": "/errores_img/codigo_disney.png",
+        "whatsappMessage": "Hola, necesito ayuda con un código de acceso para Disney+.",
+        "steps": [
+          { "text": "Ingresa tu correo y contraseña en Disney+." },
+          { "text": "Si te pide un código de 6 dígitos, selecciona enviar al correo." },
+          { "text": "Pídenos el código por WhatsApp." }
+        ]
+      },
+      {
+        "id": "contrasena_incorrecta",
+        "title": "Contraseña incorrecta",
+        "image": "/errores_img/contraseña_disney.png",
+        "whatsappMessage": "Hola, tengo un problema de contraseña incorrecta con Disney+.",
+        "steps": [
+          { "text": "Asegúrate de no tener espacios extras al final de la contraseña." },
+          { "text": "Si el error persiste, contacta a soporte para validar la clave actual." }
+        ]
+      },
+      {
+        "id": "sin_premium",
+        "title": "Sin suscripción",
+        "image": "/errores_img/suscripcion_disney.png",
+        "whatsappMessage": "Hola, mi cuenta de Disney+ aparece sin la suscripción activa.",
+        "steps": [
+          { "text": "Envíanos una captura de pantalla del error." },
+          { "text": "Revisaremos el estado de tu pago y reactivaremos la cuenta." }
+        ]
+      },
+      {
+        "id": "perfil_faltante",
+        "title": "Problemas con perfiles",
+        "image": "/errores_img/perfiles_disney.png",
+        "whatsappMessage": "Hola, tengo problemas con los perfiles en Disney+.",
+        "steps": [
+          { "text": "Dinos el nombre de tu perfil." },
+          { "text": "Lo buscaremos en el sistema para ver si hubo un cambio de cuenta." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "hbo",
+    "name": "Max",
+    "logo": "https://filmhounds.co.uk/wp-content/uploads/2023/05/max-logo.jpg",
+    "issues": [
+      {
+        "id": "contrasena_incorrecta",
+        "title": "Contraseña incorrecta",
+        "image": "/errores_img/contraseña_hbo.png",
+        "whatsappMessage": "Hola, tengo un problema de contraseña incorrecta con Max (HBO).",
+        "steps": [
+          { "text": "Intenta cerrar sesión y volver a entrar." },
+          { "text": "Si no entra, solicita la nueva contraseña por WhatsApp." }
+        ]
+      },
+      {
+        "id": "sin_premium",
+        "title": "Sin suscripción",
+        "image": "/errores_img/suscripcion_hbo.png",
+        "whatsappMessage": "Hola, mi cuenta de Max aparece sin la suscripción activa.",
+        "steps": [
+          { "text": "Verifica si el plan contratado es estándar o platino." },
+          { "text": "Si no carga contenido, contacta a soporte." }
+        ]
+      },
+      {
+        "id": "perfil_faltante",
+        "title": "Problemas con perfiles",
+        "image": "/errores_img/perfiles_hbo.png",
+        "whatsappMessage": "Hola, tengo problemas con los perfiles en Max.",
+        "steps": [
+          { "text": "Si tus perfiles desaparecieron, es posible que la cuenta haya sido migrada o renovada." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "prime",
+    "name": "Prime Video",
+    "logo": "https://th.bing.com/th/id/OIP.hOyeETmfMNoeV9ThyQMNBQHaHa?cb=iwc2&rs=1&pid=ImgDetMain",
+    "issues": [
+      {
+        "id": "bloqueo",
+        "title": "Cuenta bloqueada",
+        "image": "/errores_img/bloqueo_prime.png",
+        "whatsappMessage": "Hola, mi cuenta de Prime Video aparece como bloqueada.",
+        "steps": [
+          { "text": "Este error suele ser temporal debido a la IP de conexión." },
+          { "text": "Intenta apagar y prender tu router de internet." },
+          { "text": "Si sigue bloqueada, avísanos." }
+        ]
+      },
+      {
+        "id": "codigo_acceso",
+        "title": "Código de acceso",
+        "image": "/errores_img/codigo_prime.png",
+        "whatsappMessage": "Hola, necesito ayuda con un código de acceso para Prime Video.",
+        "steps": [
+          { "text": "Ingresa a amazon.com/code desde un celular o PC." },
+          { "text": "Pon el código que aparece en tu TV." },
+          { "text": "Si te pide iniciar sesión, solicita los datos a soporte." }
+        ]
+      },
+      {
+        "id": "contrasena_incorrecta",
+        "title": "Contraseña incorrecta",
+        "image": "/errores_img/contraseña_prime.png",
+        "whatsappMessage": "Hola, tengo un problema de contraseña incorrecta con Prime Video.",
+        "steps": [
+          { "text": "Verifica los datos de acceso proporcionados en tu última compra." }
+        ]
+      },
+      {
+        "id": "sin_premium",
+        "title": "Sin suscripción",
+        "image": "/errores_img/suscripcion_prime.png",
+        "whatsappMessage": "Hola, mi cuenta de Prime Video aparece sin la suscripción activa.",
+        "steps": [
+          { "text": "Dinos el correo de la cuenta para verificar la fecha de vencimiento." }
+        ]
+      },
+      {
+        "id": "perfil_faltante",
+        "title": "Problemas con perfiles",
+        "image": "/errores_img/perfiles_prime.png",
+        "whatsappMessage": "Hola, tengo problemas con los perfiles en Prime Video.",
+        "steps": [
+          { "text": "Si no ves tu nombre de perfil, contáctanos." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "spotify",
+    "name": "Spotify",
+    "logo": "https://upload.wikimedia.org/wikipedia/commons/7/74/Spotify_App_Logo.svg",
+    "issues": [
+      {
+        "id": "contrasena_incorrecta",
+        "title": "Contraseña incorrecta",
+        "image": "/errores_img/contraseña_spotify.png",
+        "whatsappMessage": "Hola, tengo un problema de contraseña incorrecta con Spotify.",
+        "steps": [
+          { "text": "Asegúrate de estar usando el usuario correcto (a veces es un correo, a veces un nombre de usuario)." }
+        ]
+      },
+      {
+        "id": "sin_premium",
+        "title": "Sin premium",
+        "image": "/errores_img/suscripcion_spotify.png",
+        "whatsappMessage": "Hola, mi cuenta de Spotify aparece sin la suscripción premium activa.",
+        "steps": [
+          { "text": "Si tu cuenta volvió a ser gratuita, envíanos tu correo para reinvitarte al plan familiar o renovar." }
+        ]
+      },
+      {
+        "id": "unirse_plan",
+        "title": "Aceptar invitación al plan",
+        "image": "/errores_img/invitacion_spotify.png",
+        "whatsappMessage": "Hola, ¿cómo acepto la invitación de Spotify?",
+        "steps": [
+          { "text": "Haz clic en el enlace de invitación que te enviamos, inicia sesión con tu cuenta personal y únete." },
+          { "text": "Si te pide una dirección, usa exactamente la que te enviamos junto con el link." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "youtube",
+    "name": "YouTube",
+    "logo": "https://cdn.pixabay.com/photo/2021/09/11/18/21/youtube-6616310_1280.png",
+    "issues": [
+      {
+        "id": "sin_premium",
+        "title": "Sin premium",
+        "image": "/errores_img/suscripcion_youtube.png",
+        "whatsappMessage": "Hola, mi cuenta de YouTube aparece sin la suscripción premium activa.",
+        "steps": [
+          { "text": "Asegúrate de que estás usando el correo que nos diste para la activación." },
+          { "text": "Si el premium venció, solicita la renovación por WhatsApp." }
+        ]
+      },
+      {
+        "id": "unirse_plan",
+        "title": "Aceptar invitación al plan",
+        "image": "/errores_img/invitacion_youtube.png",
+        "whatsappMessage": "Hola, ¿cómo acepto la invitación de YouTube Premium?",
+        "steps": [
+          { "text": "Abre el correo donde te enviamos la invitación para unirte al grupo familiar." },
+          { "text": "Haz clic en el botón de aceptar invitación y sigue los pasos en pantalla." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "paramount",
+    "name": "Paramount+",
+    "logo": "https://th.bing.com/th/id/R.b80c8814890d78ad63b43c0bc2f4b401?rik=M95rQ%2fqeKRSHPQ&pid=ImgRaw&r=0",
+    "issues": [
+      {
+        "id": "contrasena_incorrecta",
+        "title": "Contraseña incorrecta",
+        "image": "/errores_img/contraseña_paramount.png",
+        "whatsappMessage": "Hola, tengo un problema de contraseña incorrecta con Paramount+.",
+        "steps": [
+          { "text": "Verifica que no haya espacios al principio o al final de la contraseña." }
+        ]
+      },
+      {
+        "id": "sin_premium",
+        "title": "Sin suscripción",
+        "image": "/errores_img/suscripcion_paramount.png",
+        "whatsappMessage": "Hola, mi cuenta de Paramount+ aparece sin la suscripción activa.",
+        "steps": [
+          { "text": "Contáctanos para revisar el estado de tu cuenta." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "crunchyroll",
+    "name": "Crunchyroll",
+    "logo": "https://i.pinimg.com/originals/d3/af/7d/d3af7d3ac568b0890b42370d2be192c8.png",
+    "issues": [
+      {
+        "id": "contrasena_incorrecta",
+        "title": "Contraseña incorrecta",
+        "image": "/errores_img/contraseña_cruncy.png",
+        "whatsappMessage": "Hola, tengo un problema de contraseña incorrecta con Crunchyroll.",
+        "steps": [
+          { "text": "Si la contraseña guardada en tu navegador no funciona, escríbenos para darte la vigente." }
+        ]
+      },
+      {
+        "id": "sin_premium",
+        "title": "Sin suscripción",
+        "image": "/errores_img/suscripcion_crunchy.png",
+        "whatsappMessage": "Hola, mi cuenta de Crunchyroll aparece sin la suscripción activa.",
+        "steps": [
+          { "text": "Envíanos tu correo de registro para verificar el plan Fan o Mega Fan." }
+        ]
+      },
+      {
+        "id": "perfil_faltante",
+        "title": "Problemas con perfiles",
+        "image": "/errores_img/perfiles_cunchy.png",
+        "whatsappMessage": "Hola, tengo problemas con los perfiles en Crunchyroll.",
+        "steps": [
+          { "text": "Crunchyroll recientemente añadió soporte para perfiles, si tienes problemas para crear uno avisamos." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gamepass",
+    "name": "Xbox Game Pass",
+    "logo": "https://th.bing.com/th/id/R.6b6125b82e9694dae2125c36b7d917c3?rik=aFR3QZK9HRmLIw&pid=ImgRaw&r=0",
+    "issues": [
+      {
+        "id": "sin_premium",
+        "title": "Sin suscripción",
+        "image": "/errores_img/suscripcion_game.png",
+        "whatsappMessage": "Hola, mi cuenta de Xbox Game Pass aparece sin la suscripción activa.",
+        "steps": [
+          { "text": "Recuerda que estas suscripciones se activan por código o cuenta compartida." },
+          { "text": "Dinos qué método usaste para revisar el inconveniente." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gemini",
+    "name": "Gemini",
+    "logo": "https://meta-q.cdn.bubble.io/f1724422026295x667563819270324800/GeminiStreamingPro2.svg",
+    "issues": [
+      {
+        "id": "sin_premium",
+        "title": "Sin suscripción",
+        "image": "/errores_img/suscricion_gemini.png",
+        "whatsappMessage": "Hola, mi cuenta de Gemini aparece sin la suscripción activa.",
+        "steps": [
+          { "text": "Verifica si estás en el plan Gemini Advanced o el gratuito." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "vix",
+    "name": "ViX",
+    "logo": "https://th.bing.com/th/id/OIP.fpsYx-rEZwqdPUUznf2I8QHaD4?cb=iwc2&rs=1&pid=ImgDetMain",
+    "issues": [
+      {
+        "id": "contrasena_incorrecta",
+        "title": "Contraseña incorrecta",
+        "image": "/errores_img/contraseña_vix.png",
+        "whatsappMessage": "Hola, tengo un problema de contraseña incorrecta con ViX.",
+        "steps": [
+          { "text": "Solicita la clave de acceso para ViX Premium por WhatsApp." }
+        ]
+      },
+      {
+        "id": "sin_premium",
+        "title": "Sin suscripción",
+        "image": "/errores_img/suscripcion_vix.png",
+        "whatsappMessage": "Hola, mi cuenta de ViX aparece sin la suscripción activa.",
+        "steps": [
+          { "text": "Si te sale publicidad o no puedes ver contenido premium, avísanos." }
+        ]
+      },
+      {
+        "id": "perfil_faltante",
+        "title": "Problemas con perfiles",
+        "image": "/errores_img/perfiles_vix.png",
+        "whatsappMessage": "Hola, tengo problemas con los perfiles en ViX.",
+        "steps": [
+          { "text": "Indícanos qué perfil usas normalmente." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gpt",
+    "name": "ChatGPT",
+    "logo": "https://th.bing.com/th/id/OIP.PcgoreK_H_utzQX-eTNbrQHaHa?rs=1&pid=ImgDetMain",
+    "issues": [
+      {
+        "id": "contrasena_incorrecta",
+        "title": "Contraseña incorrecta",
+        "image": "/errores_img/contraseña_gpt.png",
+        "whatsappMessage": "Hola, tengo un problema de contraseña incorrecta con ChatGPT.",
+        "steps": [
+          { "text": "Verifica que el correo sea el correcto (usualmente son cuentas entregadas por nosotros)." }
+        ]
+      },
+      {
+        "id": "sin_premium",
+        "title": "Sin suscripción",
+        "image": "/errores_img/suscripcion_gpt.png",
+        "whatsappMessage": "Hola, mi cuenta de ChatGPT aparece sin la suscripción activa.",
+        "steps": [
+          { "text": "Si el plan Plus no está activo, contacta a soporte para reactivarlo." }
+        ]
+      },
+      {
+        "id": "verificacion",
+        "title": "Código de verificación",
+        "image": "/errores_img/verificacion_gpt.png",
+        "whatsappMessage": "Hola, necesito ayuda con la verificación doble factor de ChatGPT.",
+        "steps": [
+          { "text": "Dinos si el código te lo pide por correo o por SMS." },
+          { "text": "Escríbenos para darte acceso." }
+        ]
+      },
+      {
+        "id": "desactivar_memoria",
+        "title": "Desactivar Memoria",
+        "image": "/errores_img/memoria_gpt.png",
+        "whatsappMessage": "Hola, necesito saber cómo desactivar la memoria en ChatGPT.",
+        "steps": [
+          { "text": "Entra a chat.openai.com e inicia sesión." },
+          { "text": "Haz clic en tu foto de perfil (esquina inferior izquierda) y ve a 'Configuración' (Settings)." },
+          { "text": "Entra a la sección 'Memoria' (Memory) y apaga el interruptor principal." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gamma",
+    "name": "Gamma App",
+    "logo": "https://cdn.mos.cms.futurecdn.net/cfo9wrPuw9H2NXugivFUJh-1200-80.jpg.webp",
+    "issues": [
+      {
+        "id": "acceso_cuenta",
+        "title": "Problemas de acceso",
+        "image": "https://images.unsplash.com/photo-1614064641938-3bbee52942c7?q=80&w=1470&auto=format&fit=crop",
+        "whatsappMessage": "Hola, tengo problemas para acceder a mi cuenta de Gamma App.",
+        "steps": [
+          { "text": "Verifica que el correo y contraseña sean los correctos." },
+          { "text": "Si el error persiste, contacta a soporte para validar tu suscripción." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "iptv",
+    "name": "IPTV",
+    "logo": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSR_3LgQH4bN0fLG2u4f8twZWR8ASq6-P_XIg&s",
+    "issues": [
+      {
+        "id": "lista_canales",
+        "title": "Problemas con la lista",
+        "image": "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?q=80&w=1470&auto=format&fit=crop",
+        "whatsappMessage": "Hola, tengo problemas con mi lista de canales de IPTV.",
+        "steps": [
+          { "text": "Reinicia tu aplicación de IPTV." },
+          { "text": "Verifica tu conexión a internet." },
+          { "text": "Si los canales no cargan, solicítanos la actualización de la lista." }
+        ]
+      },
+      {
+        "id": "configuracion_inicial",
+        "title": "Configuración inicial",
+        "image": "https://images.unsplash.com/photo-1522869635100-9f4c5e86aa37?q=80&w=1470&auto=format&fit=crop",
+        "whatsappMessage": "Hola, necesito ayuda para configurar mi servicio de IPTV.",
+        "steps": [
+          { "text": "Usa el usuario, contraseña y la lista que te enviamos e ingrésalos en la app de IPTV." },
+          { "text": "Si tienes problemas durante la instalación, escríbenos para ayudarte con el paso a paso." }
+        ]
+      }
+    ]
+  }
+]

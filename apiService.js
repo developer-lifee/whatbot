@@ -35,7 +35,10 @@ async function fetchCustomersData(retries = 3, delay = 2000) {
   try {
     const data = await fetchRawData(retries, delay);
     if (!Array.isArray(data)) return [];
-    return data.filter(cliente => cliente.Nombre && cliente.Nombre.trim() !== "");
+    return data.map((cliente, index) => {
+        cliente._rowNumber = index + 2;
+        return cliente;
+    }).filter(cliente => cliente.Nombre && cliente.Nombre.trim() !== "");
   } catch (err) {
     throw err;
   }

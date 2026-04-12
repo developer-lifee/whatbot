@@ -11,6 +11,21 @@ async function processAdminQuery(message, query) {
         await message.reply("🤖 *Analizando datos...* Dame un momento mientras busco la información.");
 
         // 1. Extraer intención
+        
+        // --- ADMIN TEST COMMAND ---
+        if (query.toLowerCase() === 'prueba de escritura') {
+            try {
+                const { updateExcelData } = require('./apiService');
+                const testDate = new Date().toISOString();
+                await updateExcelData(2, { "Operador": "TEST EXITOSO: " + testDate });
+                await message.reply(`✅ *Prueba de escritura completada.* He inyectado "TEST EXITOSO: ${testDate}" en la columna Operador de la fila 2 de tu Excel. Ve a revisarlo.`);
+                return;
+            } catch (err) {
+                await message.reply(`❌ *Error en prueba de escritura*: ${err.message}`);
+                return;
+            }
+        }
+
         const intent = await parseAdminQueryIntent(query);
         console.log(`[Admin Query] Intent:`, intent);
         
