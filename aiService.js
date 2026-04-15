@@ -490,7 +490,8 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     
     Regla de Frustración:
     - Analiza si el usuario suena desesperado, enojado o ha insistido mucho en corto tiempo sin ser atendido. Púntualo del 0 al 10 en "frustrationLevel". 
-    - IMPORTANTE: Si a pesar de la frustración o insistencia, el usuario está haciendo una petición concreta que el bot puede resolver (ver "Categorías para intent"), prioriza el INTENT sobre la frustración. Por ejemplo, si el usuario dice "POR FAVOR MI CONTRASEÑA YA", el intent es "credenciales", no "soporte". Sólo sugiere "waiting_human" en recoveredState si es puramente una queja, insulto o algo técnico no resuelto por el bot.
+    - IMPORTANTE: Si el mensaje actual es un saludo (Hola, buenos días) o un ping (?, sigo esperando) y en el historial reciente (mensajes no leídos) hay una solicitud clara de **"credenciales", "comprar" o "pagar"** que NO fue respondida adecuadamente, PRIORIZA esa petición sobre el saludo. El intent debe ser el de la petición pendiente (ej: "credenciales").
+    - Sólo sugiere "waiting_human" en recoveredState si es puramente una queja, insulto o algo técnico no resuelto por el bot.
     
     Salida esperada JSON:
     {

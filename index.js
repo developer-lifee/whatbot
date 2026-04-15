@@ -680,6 +680,15 @@ async function processIncomingMessage(message) {
   // El userId siempre debe ser el del CLIENTE, no necesariamente el del remitente
   // Si el mensaje es "mio" (del bot), el cliente es el destinatario (to)
   const userId = message.fromMe ? message.to : message.from;
+
+  // --- ANTI-AUTO-CONTESTAR (Loop Protection) ---
+  // Si el mensaje contiene el emoji del bot (🤖), es una respuesta automática.
+  // Ignoramos COMPLETAMENTE para no entrar en bucles de autocontestación.
+  if (message.body && message.body.includes('🤖')) {
+      console.log(`[Auto] Ignorando mensaje automático (🤖) para @${userId.replace('@c.us', '')}`);
+      return;
+  }
+
   let currentStateData = userStates.get(userId);
   let currentState = currentStateData;
 
@@ -1100,10 +1109,12 @@ async function processIncomingMessage(message) {
       const solvableIntents = ["comprar", "pagar", "credenciales"];
       if ((frustration >= 7 || unreads >= 3) && !solvableIntents.includes(detection.intent)) {
           console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
+          
+          // Inicializamos el contador en 1 para que no se autopise con el bucle de "seguimos ocupados"
           userStates.set(userId, { 
               state: 'waiting_human', 
               nombre: foundName, 
-              waitingCount: unreads > 0 ? unreads : 1 
+              waitingCount: 1 
           });
           await message.reply("🤖 Hola, he visto tus mensajes. Noté que has estado esperando un momento; nuestros asesores están con alta demanda pero ya tienen tu caso en cola para atenderte manualmente a la brevedad. ¡Gracias por tu paciencia! 😊");
           return;
