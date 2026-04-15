@@ -1097,7 +1097,8 @@ async function processIncomingMessage(message) {
       const frustration = detection.frustrationLevel || 0;
       const unreads = message._unreadCount || 0;
       
-      if (frustration >= 7 || (unreads >= 3 && (detection.intent === 'soporte' || detection.intent === 'desconocido'))) {
+      const solvableIntents = ["comprar", "pagar", "credenciales"];
+      if ((frustration >= 7 || unreads >= 3) && !solvableIntents.includes(detection.intent)) {
           console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
           userStates.set(userId, { 
               state: 'waiting_human', 
