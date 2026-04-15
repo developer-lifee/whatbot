@@ -95,10 +95,13 @@ async function showAdminFunctions(message) {
 2. *Medios Pago:* \`@bot medios 573...\`
 3. *Credenciales:* \`@bot credenciales [plat] [tel]\`
 4. *Pausar Bot:* \`@bot duermete / despiertate\`
-5. *Liberar:* \`liberar masivo\` o \`liberar [tel]\`
+5. *Liberar:* \`@bot libera a [Nombre]\` o \`liberar [tel]\`
 6. *Pagar:* \`confirmar [tel]\` o \`si me llego [tel]\`
 7. *Cobros Automáticos:* \`@bot cobros automáticos\`
 
+Para leer el manual completo o ver cómo hablarme en lenguaje natural, escribe *@bot ayuda*.`;
+    await message.reply(funciones);
+}
 Para leer el manual completo de funciones inteligentes, escribe *@bot ayuda* o *@bot manual*.`;
     await message.reply(funciones);
 }
@@ -118,8 +121,11 @@ Si negocias un precio manualmente (ej: "Te queda en 21") y el cliente dice "List
 📸 *2. Interceptor Global de Pagos*
 El bot vigila todas las fotos. Si el cliente envía un comprobante bancario, Gemini Vision lo identifica, te avisa al grupo y le confirma al cliente de inmediato.
 
-📱 *3. Corrección de ID (LID Fix)*
-Resuelve el número real de los clientes con IDs migrados (números largos), asegurando que siempre se encuentren sus deudas en el Excel.
+📱 *3. Soporte en Grupos (Conversacional)*
+Ahora puedes darme órdenes directas en el grupo usando *@bot*. No necesitas comandos rígidos, puedes decirme:
+- *"@bot libera a Carlos Laura"*
+- *"@bot cuánto saldo tiene pendiente el celular 573..."*
+- *"@bot ¿cuántas netflix libres tenemos?"*
 
 🤫 *4. Silencio Inteligente*
 Si tú hablas manualmente, el bot se calla para no interrumpir. Solo intervendrá si tú cierras un trato comercial para ayudar con la logística del pago.
@@ -127,7 +133,8 @@ Si tú hablas manualmente, el bot se calla para no interrumpir. Solo intervendr�
 
 *Comandos Útiles:*
 - \`@bot medios 573...\`: Envía datos bancarios a un cliente.
-- \`@bot atiende pendientes\`: El bot toma el control de los chats sin leer.`;
+- \`@bot atiende pendientes\`: El bot toma el control de los chats sin leer.
+- \`@bot libera a [Nombre]\`: Reactiva al bot para un cliente específico buscándolo por nombre.`;
     await message.reply(manual);
 }
 

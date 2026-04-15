@@ -102,8 +102,47 @@ async function searchContactByPhone(phone) {
     }
 }
 
+/**
+ * Busca un contacto por su nombre en Google Contacts.
+ * @param {string} name El nombre a buscar.
+ * @returns {Promise<string|null>} El número de teléfono si se encuentra, null de lo contrario.
+ */
+async function searchContactByName(name) {
+    if (!personasAPI) initPeopleAPI();
+    if (!personasAPI) return null;
+
+    try {
+        const response = await personasAPI.people.searchContacts({
+            query: name,
+            readMask: 'names,phoneNumbers',
+        });
+
+        const results = response.data.results || [];
+        if (results.length === 0) return null;
+
+        // Tomamos el primero que tenga número de teléfono
+        for (const res of results) {
+            const person = res.person;
+            const phoneNumbers = person.phoneNumbers || [];
+            if (phoneNumbers.length > 0) {
+                // Limpiar el número para devolver formato puro
+                let rawNum = phoneNumbers[0].value.replace(/\D/g, '');
+                if (rawNum.length === 10 && !rawNum.startsWith('57')) {
+                    rawNum = '57' + rawNum;
+                }
+                return rawNum;
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('❌ Error al buscar contacto por nombre en Google:', error.message);
+        return null;
+    }
+}
+
 module.exports = {
     addNewContact,
     searchContactByPhone,
+    searchContactByName,
     initGoogleClient: initPeopleAPI // Keep export for compatibility
 };

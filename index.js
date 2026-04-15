@@ -764,7 +764,8 @@ async function processIncomingMessage(message) {
           currentState = undefined;
       } else {
           // Evaluar intención mediante IA para ver si el bot puede solucionarlo
-          const hist = await getChatHistoryText(message);
+          // Aumentamos historial a 25 para no perder contexto de días anteriores
+          const hist = await getChatHistoryText(message, 25);
           const detection = await detectInitialIntent(message.body, hist);
           
           if (["comprar", "pagar", "credenciales"].includes(detection.intent)) {
@@ -782,7 +783,8 @@ async function processIncomingMessage(message) {
               userStates.set(userId, sData);
               
               if (wCount === 2) {
-                  await message.reply("🤖 Nuestros asesores siguen ocupados y atenderán tu caso en breve. ¡Agradecemos mucho tu paciencia!");
+                  // Sonda proactiva: En lugar de solo decir "espera", preguntamos qué necesita para ver si podemos ayudar ante la duda.
+                  await message.reply("🤖 Hola, sigo con mucha demanda de chats, pero no quiero que esperes de más. Mientras llega un asesor, ¿puedes resumirme si necesitas una *contraseña*, *ver precios* o *confirmar un pago*? Quizás yo mismo pueda ayudarte ahora.");
               } else if (wCount >= 4 && wCount % 3 === 0) {
                   await message.reply("🤖 Seguimos con alto volumen de chats, pero tu caso ya está en la cola para revisión manual.");
               }
@@ -812,11 +814,12 @@ async function processIncomingMessage(message) {
   }
 
   // --- Admin Data Queries (Dashboard Conversacional) ---
-  if (userId.includes('3133890800') && message.body && message.body.toLowerCase().startsWith('@bot') && !message.from.includes('@g.us')) {
-      const query = message.body.substring(4).trim();
+  // Permitimos consultas en grupos si empiezan con @bot y vienen del admin
+  if (userId.includes('3133890800') && message.body && message.body.toLowerCase().startsWith('@bot ')) {
+      const query = message.body.substring(5).trim();
       if (query.length > 0) {
           const { processAdminQuery } = require('./adminQueries');
-          await processAdminQuery(message, query);
+          await processAdminQuery(message, query, userStates, client);
           return;
       }
   }
@@ -1074,7 +1077,7 @@ async function processIncomingMessage(message) {
          return;
       }
 
-      const hist = await getChatHistoryText(message);
+      const hist = await getChatHistoryText(message, 25);
       const detection = await detectInitialIntent(message.body, hist);
 
       // 3. IDENTIDAD TERCERO: IA revisando historial

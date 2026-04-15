@@ -32,12 +32,20 @@ async function startPurchaseProcess(message, userId, userStates) {
   userStates.set(userId, stateData);
 }
 
-async function getChatHistoryText(message) {
+/**
+ * Obtiene el historial de mensajes formateado para la IA.
+ * @param {Message} message - El mensaje actual.
+ * @param {number} limit - Cantidad de mensajes a recuperar.
+ * @returns {Promise<string>}
+ */
+async function getChatHistoryText(message, limit = 6) {
   let chatHistoryText = "";
   try {
     const chat = await message.getChat();
-    const messages = await chat.fetchMessages({ limit: 6 });
-    const history = messages.filter(m => m.id._serialized !== message.id._serialized).slice(-5);
+    const messages = await chat.fetchMessages({ limit: limit });
+    
+    // Filtramos el mensaje actual para que no aparezca duplicado en el historial previo
+    const history = messages.filter(m => m.id._serialized !== message.id._serialized);
     
     const now = new Date();
     chatHistoryText += `[Hora actual del sistema: ${now.toLocaleString('es-CO')}]\n\nHistorial reciente:\n`;

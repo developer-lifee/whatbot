@@ -526,7 +526,7 @@ async function parseAdminQueryIntent(query) {
 
     Salida esperada usando estricto JSON:
     {
-      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "general_query",
+      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "general_query",
       "filters": {
         "name": string | null, // Nombre del cliente si menciona alguno (ej. pepito perez)
         "platform": string | null, // Plataforma de streaming si menciona (ej. netflix, hbo, prime, max, disney, etc.)
@@ -541,6 +541,7 @@ async function parseAdminQueryIntent(query) {
     - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
     - Si pide "historico", "que cuentas ha tenido...", es "check_history".
     - Si pide "cuantas hay en total", "resumen de...", "cuentas totales", es "summary_stats".
+    - Si pide "atiende a...", "libera a...", "atender el pendiente de...", "encárgate de...", es "liberate_user".
     - Si no encaja, usa "general_query".
   `;
   try {
