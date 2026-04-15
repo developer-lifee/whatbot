@@ -1,4 +1,6 @@
 const fetch = require('node-fetch'); // Assuming node-fetch is available or using built-in fetch if Node 18+
+const fs = require('fs');
+const path = require('path');
 
 const AZURE_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readexcelfunction";
 const AZURE_HISTORICO_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readhistoricofunction";
@@ -219,10 +221,23 @@ async function getSupportKnowledge() {
     if (!response.ok) {
        throw new Error(`HTTP Error fetching support data: ${response.status}`);
     }
-    const json = await response.json();
-    return json;
+    const text = await response.text();
+    try {
+        return JSON.parse(text);
+    } catch (parseError) {
+        throw new Error("Respuesta de API no es un JSON válido (probablemente HTML/Error).");
+    }
   } catch (error) {
-    console.error("[API Service] Error obteniendo base de soporte:", error);
+    console.error("[API Service] Error obteniendo base de soporte remota, intentando local:", error.message);
+    try {
+        const localPath = path.join(__dirname, 'support.json');
+        if (fs.existsSync(localPath)) {
+            const localData = fs.readFileSync(localPath, 'utf8');
+            return JSON.parse(localData);
+        }
+    } catch (localError) {
+        console.error("[API Service] Error crítico: No se pudo cargar ni la base remota ni la local.", localError.message);
+    }
     return [];
   }
 }
