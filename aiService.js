@@ -481,23 +481,21 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     - "awaiting_payment_method": 
         * Caso A: Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
         * Caso B (COLABORATIVO): Si el "Asistente" (humano, sin 🤖) negoció un precio (ej: "te queda en 21") y el usuario actual acepta (ej: "Listo", "Dale", "Vale"). EN ESTE CASO, el bot debe saltar aquí para dar los medios de pago. Si detectas el monto negociado, ponlo en metadata.total.
-    - "waiting_human": Si en el historial aparece un mensaje del "Asistente" (humano, sin 🤖) y es una charla social, técnica compleja o el usuario no ha aceptado aún una oferta comercial.
+    - "waiting_human": 
+        * Caso A: Si en el historial aparece un mensaje del "Asistente" (humano, sin 🤖) y es una charla social, técnica compleja o el usuario no ha aceptado aún una oferta comercial.
+        * Caso B (SILENCIO FORZADO): Si el usuario ha enviado múltiples mensajes de queja, insultos o insistencia extrema (ej: "hola???", "alguien??", "que pasa?") sin respuesta, y el bot no tiene una solución técnica inmediata. 
     - "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
     - "awaiting_payment_confirmation": Si el mensaje es una imagen o texto indicando "ya pagué", "aquí el recibo", etc.
     - Si no hay un flujo claro a medias, pon null. 
     
-    Regla Crítica para "intent": 
-    - No lo marques como "desconocido" si el usuario está haciendo una pregunta válida sobre precios o servicios. Si pregunta un precio, el intent es "comprar".
-    - Si el mensaje es un número corto (1, 2, 3, 4, 5) y en el contexto reciente el bot le dio el menú principal, MÁPEALO ASÍ:
-      * "1" -> "comprar"
-      * "2" -> "credenciales"
-      * "3" -> "pagar"
-      * "4", "5" -> "soporte"
+    Regla de Frustración:
+    - Analiza si el usuario suena desesperado, enojado o ha insistido mucho en corto tiempo sin ser atendido. Púntualo del 0 al 10 en "frustrationLevel". Si es >= 7, sugiere "waiting_human" en recoveredState.
     
     Salida esperada JSON:
     {
         "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "desconocido",
         "recoveredState": string | null,
+        "frustrationLevel": number, // 0 a 10
         "userName": string | null, // Si el usuario se presentó o dijo su nombre en el historial, extráelo aquí.
         "metadata": object | null // { total: number, items: string[] } si es recuperación de pago.
     }

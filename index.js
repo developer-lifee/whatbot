@@ -509,6 +509,18 @@ client.on('ready', () => {
   
   // Iniciar Automatización Diaria (9am y 2pm)
   initDailyAutomation(client, userStates, pendingConfirmations, GROUP_ID);
+
+  // Procesar chats que quedaron sin leer mientras el bot estuvo apagado
+  setTimeout(async () => {
+      console.log('⏳ Escaneando chats con mensajes no leídos desde el arranque inicial...');
+      try {
+          const { processPendingChats } = require('./adminService');
+          const count = await processPendingChats(client, userStates, processIncomingMessage);
+          console.log(`✅ Escaneo inicial completado. Se procesaron/ignoraron ${count} chats pendientes adecuadamente.`);
+      } catch (err) {
+          console.error('Error en escaneo inicial de chats pendientes:', err);
+      }
+  }, 5000); // Pequeño delay de gracia
 });
 
 client.on('disconnected', (reason) => {
@@ -705,6 +717,16 @@ async function processIncomingMessage(message) {
       const { searchContactByPhone } = require('./googleContactsService');
       foundName = await searchContactByPhone(userId);
   }
+
+  // Marcar chat como leído para limpiar notificaciones y bucles de atendido
+  try {
+      if (!message.fromMe) {
+          const chat = await message.getChat();
+          if (chat && chat.unreadCount > 0) {
+              await chat.sendSeen();
+          }
+      }
+  } catch (err) {}
 
   // Sincronizar con Google Contacts si tenemos un nombre válido y no es un mensaje del bot
   if (!message.fromMe && foundName && !isNameIncomplete(foundName)) {
@@ -1069,6 +1091,21 @@ async function processIncomingMessage(message) {
               await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)`);
               return;
           }
+      }
+
+      // 4.5 DETECCIÓN DE FRUSTRACIÓN / INSISTENCIA (Startup/Unread handle)
+      const frustration = detection.frustrationLevel || 0;
+      const unreads = message._unreadCount || 0;
+      
+      if (frustration >= 7 || (unreads >= 3 && (detection.intent === 'soporte' || detection.intent === 'desconocido'))) {
+          console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
+          userStates.set(userId, { 
+              state: 'waiting_human', 
+              nombre: foundName, 
+              waitingCount: unreads > 0 ? unreads : 1 
+          });
+          await message.reply("🤖 Hola, he visto tus mensajes. Noté que has estado esperando un momento; nuestros asesores están con alta demanda pero ya tienen tu caso en cola para atenderte manualmente a la brevedad. ¡Gracias por tu paciencia! 😊");
+          return;
       }
 
       // 5. MANEJO DE INTENCIONES

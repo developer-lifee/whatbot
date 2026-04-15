@@ -42,7 +42,9 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     const lastMsg = messages[messages.length - 1]; // El último de los recuperados
                     
                     if (chat && chat.id && chat.id._serialized) {
-                        console.log(`[BATCH] Evaluando chat: ${chat.id._serialized}`);
+                        console.log(`[BATCH] Evaluando chat: ${chat.id._serialized} (Unread: ${chat.unreadCount})`);
+                        // Adjuntamos el conteo de no leídos al objeto mensaje para que el procesador lo sepa
+                        lastMsg._unreadCount = chat.unreadCount;
                         // Pasamos al procesador normal para que la IA decida si interviene o se calla
                         await processIncomingMessage(lastMsg);
                         count++;
