@@ -474,6 +474,7 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     - "credenciales": El usuario pide sus claves o reporta fallas de acceso.
     - "pagar": El usuario quiere renovar, pagar, o identifica un medio de pago para una transacción pendiente (ej: "nequi", "daviplata").
     - "soporte": Problemas técnicos.
+    - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale").
     - "desconocido": Sin intención clara.
 
     Lógica de recuperación ("recoveredState"):
@@ -495,7 +496,7 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
     
     Salida esperada JSON:
     {
-        "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "desconocido",
+        "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "desconocido",
         "recoveredState": string | null,
         "userName": string | null, // Si el usuario se presentó o dijo su nombre en el historial, extráelo aquí.
         "metadata": object | null // { total: number, items: string[] } si es recuperación de pago.

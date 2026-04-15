@@ -534,6 +534,17 @@ client.on('call', async (call) => {
   }
 });
 
+// Implement incoming_call para compatibilidad con diferentes versiones
+client.on('incoming_call', async (call) => {
+  console.log(`[INCOMING_CALL] ✨ Llamada entrante de ${call.from}. Rechazando y enviando aviso.`);
+  try {
+    await call.reject();
+    await client.sendMessage(call.from, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
+  } catch(e) {
+    console.error('Error al rechazar llamada (incoming_call):', e);
+  }
+});
+
 client.on('change_state', (state) => {
   console.log('🔄 Cambio de estado detectado:', state);
 });
@@ -664,6 +675,20 @@ async function processIncomingMessage(message) {
     currentState = currentStateData.state;
   }
 
+  // Ignorar stickers, reacciones, y estados
+  if (message.type === 'sticker' || message.type === 'reaction' || message.isStatus) {
+      console.log(`[Ignorado] Mensaje tipo ${message.type} de ${userId}.`);
+      return;
+  }
+  
+  // Ignorar mensajes que son exclusivamente emojis
+  const cleanBodyText = message.body ? message.body.trim() : "";
+  const emojiRegex = /^[\p{Emoji}\s]+$/u;
+  if (cleanBodyText && emojiRegex.test(cleanBodyText)) {
+      console.log(`[Ignorado] Mensaje solo contiene emojis de ${userId}.`);
+      return; 
+  }
+
   // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
   let contact;
   try {
@@ -698,8 +723,42 @@ async function processIncomingMessage(message) {
   }
 
   if (currentState === 'waiting_human') {
-      console.log(`[DEBUG] Usuario ${realPhone} (@${userId}) en modo waiting_human. Bot ignorando.`);
-      return;
+      // Reactivación inteligente (waiting human temporal)
+      const cleanInput = (message.body || '').trim().toLowerCase();
+      
+      // Si el cliente envía una frase rápida o menú, lo reactivamos
+      if (['1', '2', '3', '4', '5'].includes(cleanInput) || cleanInput === 'menu' || cleanInput === 'menú' || cleanInput === 'hola') {
+          console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por intención explícita.`);
+          userStates.delete(userId);
+          currentState = undefined;
+      } else {
+          // Evaluar intención mediante IA para ver si el bot puede solucionarlo
+          const hist = await getChatHistoryText(message);
+          const detection = await detectInitialIntent(message.body, hist);
+          
+          if (["comprar", "pagar", "credenciales"].includes(detection.intent)) {
+              console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA: ${detection.intent}`);
+              userStates.delete(userId);
+              currentState = undefined;
+              // Continuamos el flujo...
+          } else if (detection.intent === 'cierre') {
+              console.log(`[DEBUG] Cierre detectado para @${userId} en waiting_human. Bot ignorando.`);
+              return;
+          } else {
+              let sData = typeof currentStateData === 'object' ? currentStateData : { state: 'waiting_human' };
+              let wCount = (sData.waitingCount || 0) + 1;
+              sData.waitingCount = wCount;
+              userStates.set(userId, sData);
+              
+              if (wCount === 2) {
+                  await message.reply("🤖 Nuestros asesores siguen ocupados y atenderán tu caso en breve. ¡Agradecemos mucho tu paciencia!");
+              } else if (wCount >= 4 && wCount % 3 === 0) {
+                  await message.reply("🤖 Seguimos con alto volumen de chats, pero tu caso ya está en la cola para revisión manual.");
+              }
+              console.log(`[DEBUG] Usuario ${realPhone} (@${userId}) insiste en waiting_human (Count: ${wCount}).`);
+              return;
+          }
+      }
   }
 
   console.log('[DEBUG] Procesando mensaje de:', userId, 'Contenido:', message.body);
@@ -843,8 +902,29 @@ async function processIncomingMessage(message) {
       } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
           const { handleSendBulkCredentials } = require('./adminService');
           const { getAccountsByPhone } = require('./apiService');
-          await handleSendBulkCredentials(message, command, client, getAccountsByPhone);
+          await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
           return;
+      }
+  }
+
+  // MANEJO CONVERSACIONAL DEL GRUPO ADMIN (Respuestas)
+  if (message.from === GROUP_ID) {
+      const groupStateData = userStates.get(GROUP_ID);
+      if (groupStateData && typeof groupStateData === 'object') {
+          const gState = groupStateData.state;
+          const targetResponse = message.body.trim();
+          
+          if (gState === 'awaiting_target_for_credentials') {
+              const { handleSendBulkCredentials } = require('./adminService');
+              const { getAccountsByPhone } = require('./apiService');
+              await handleSendBulkCredentials(message, `${groupStateData.platform} ${targetResponse}`, client, getAccountsByPhone, userStates, true);
+              userStates.delete(GROUP_ID);
+              return;
+          } else if (gState === 'awaiting_target_for_payment_methods') {
+              await handleSendManualPaymentMethods(message, `medios ${targetResponse}`, client, userStates, true);
+              userStates.delete(GROUP_ID);
+              return;
+          }
       }
   }
 
@@ -992,6 +1072,12 @@ async function processIncomingMessage(message) {
       }
 
       // 5. MANEJO DE INTENCIONES
+      if (detection.intent === 'cierre') {
+          console.log(`[Cierre] Intent 'cierre' detectado para ${userId}. Silenciando respuesta.`);
+          userStates.delete(userId);
+          return;
+      }
+      
       if (detection.intent === 'comprar') {
           if (nameIncomplete) {
               const greeting = foundName ? `¡Hola ${foundName}! Veo que te tengo como ${foundName}.` : "¡Hola! Con gusto te ayudo con tu compra.";

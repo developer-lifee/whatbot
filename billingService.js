@@ -291,29 +291,35 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
       return;
     }
 
-    const uniqueRecordsMap = new Map();
+    const toChargeUsers = new Map();
+    const toReviewUsers = new Map();
+    
     records.forEach(r => {
-      if (!uniqueRecordsMap.has(r.phone)) {
-        uniqueRecordsMap.set(r.phone, { name: r.name, phone: r.phone, services: [r.service], date: r.dateStr, notas: [] });
+      const lowerObs = r.observacion ? r.observacion.toLowerCase() : '';
+      const hasCorte = lowerObs.includes('cortar') || lowerObs.includes('corte');
+      
+      if (r.observacion && hasCorte) {
+         // Va a revisión manual, SÓLO este servicio específico
+         if (!toReviewUsers.has(r.phone)) {
+           toReviewUsers.set(r.phone, { name: r.name, phone: r.phone, services: [] });
+         }
+         toReviewUsers.get(r.phone).services.push(`${r.service} (Nota: ${r.observacion})`);
       } else {
-        uniqueRecordsMap.get(r.phone).services.push(r.service);
-      }
-      if (r.observacion) {
-        uniqueRecordsMap.get(r.phone).notas.push(r.observacion);
+         // Va a cobrar (incluso si hay notas, si no son de corte, se adjuntan)
+         if (!toChargeUsers.has(r.phone)) {
+           toChargeUsers.set(r.phone, { name: r.name, phone: r.phone, services: [], date: r.dateStr });
+         }
+         let serviceDisplay = r.service;
+         if (r.observacion) {
+           serviceDisplay += ` (Nota del asesor: ${r.observacion})`;
+         }
+         toChargeUsers.get(r.phone).services.push(serviceDisplay);
       }
     });
-    
-    const toCharge = [];
-    const toReview = [];
-    
-    Array.from(uniqueRecordsMap.values()).forEach(r => {
-      if (r.notas.length > 0) {
-        toReview.push(r);
-      } else {
-        toCharge.push(r);
-      }
-    });
-    
+
+    const toCharge = Array.from(toChargeUsers.values());
+    const toReview = Array.from(toReviewUsers.values());
+
     if (toCharge.length === 0 && toReview.length === 0) {
       return;
     }
@@ -321,28 +327,29 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     let replyMessage = "Recibí los siguientes cargos automáticos de Azure:\n\n";
 
     if (toReview.length > 0) {
-      replyMessage += `⚠️ *REVISIÓN MANUAL (tienen notas/saldos):*\n`;
+      replyMessage += `⚠️ *REVISIÓN MANUAL (Cortes o cancelaciones):*\n`;
       toReview.forEach(r => {
-        replyMessage += `• ${r.name} (${r.services.join(', ')}) - Tel: ${r.phone}\n  Notas: ${r.notas.join(' | ')}\n`;
+        replyMessage += `• ${r.name} - Tel: ${r.phone}\n  Servicios a omitir: ${r.services.join(' | ')}\n`;
       });
-      replyMessage += `(A estos clientes NO se les cobrará automáticamente)\n\n`;
+      replyMessage += `(ESTOS servicios no se cobrarán automáticamente)\n\n`;
     }
 
     if (toCharge.length > 0) {
       replyMessage += `✅ *LISTOS PARA COBRO AUTOMÁTICO:*\n`;
-      const lines = toCharge.map(r => `• ${r.name} (${r.services.join(', ')}) - Fecha: ${r.date}`);
-      replyMessage += lines.join('\n');
+      toCharge.forEach(r => {
+          replyMessage += `• ${r.name} (${r.services.join(', ')}) - Fecha: ${r.date}\n`;
+      });
       
       const summary = toCharge.length > 1
-        ? `Encontré ${toCharge.length} cuentas vencidas listas para cobrar. ¿Deseas cobrarles?`
-        : `Encontré 1 cuenta vencida lista para cobrar. ¿Deseas cobrar?`;
+        ? `Encontré ${toCharge.length} clientes con cuentas listas para cobrar. ¿Deseas enviar los avisos?`
+        : `Encontré 1 cliente con cuenta lista para cobrar. ¿Deseas enviar el aviso?`;
       
-      replyMessage += `\n\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`;
+      replyMessage += `\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`;
       
-      pendingConfirmations.set(userId, toCharge.map(r => ({ name: r.name, phone: r.phone, textToShow: `${r.name} (${r.services.join(', ')})`, date: r.date })));
+      pendingConfirmations.set(userId, toCharge.map(r => ({ name: r.name, phone: r.phone, textToShow: `${r.services.join('\n')}`, date: r.date })));
       userStates.set(userId, 'awaiting_cobros_confirmation');
     } else {
-      replyMessage += `🤖 Todos los cobros vencidos requieren revisión manual por sus notas. No hay ninguno para envío automático.`;
+      replyMessage += `🤖 Todos los cobros vencidos encontrados dicen "cortar", así que no hay mensajes automáticos por enviar en este lote.`;
     }
     
     await message.reply(replyMessage);

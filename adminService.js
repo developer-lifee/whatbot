@@ -132,23 +132,33 @@ Si tú hablas manualmente, el bot se calla para no interrumpir. Solo intervendr�
 /**
  * Maneja el envío de credenciales masivo desde el grupo de administración.
  */
-async function handleSendBulkCredentials(message, command, client, getAccountsByPhone) {
+async function handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates, isReply = false) {
     const knownPlatforms = ['disney', 'netflix', 'amazon', 'spotify', 'max', 'paramount', 'crunchyroll', 'vix', 'youtube', 'canva', 'apple', 'plex', 'iptv', 'magis'];
     let requestedPlatform = null;
     for (const plat of knownPlatforms) {
         if (command.includes(plat)) { requestedPlatform = plat; break; }
     }
     
-    await message.reply(requestedPlatform ? `⏳ Enviando credenciales de *${requestedPlatform.toUpperCase()}*...` : '⏳ Enviando TODAS las credenciales...');
-    
-    const listText = message.body.split('\n').length > 1 ? message.body.split('\n').slice(1).join('\n') : command;
+    let listText = command;
+    if (!isReply && message.body.split('\n').length > 1) {
+        listText = message.body.split('\n').slice(1).join('\n');
+    }
     const regex = /57\s*3\d{2}\s*\d{7}|57\s*3\d{9}/g;
     const matches = listText.match(regex);
     
     if (!matches) {
-       await message.reply('❌ No encontré números válidos en el mensaje o lista.');
+       // Modo conversacional: pedir el número
+       await message.reply(`🤖 ¿A qué número (incluyendo 57) deseas enviarle las credenciales${requestedPlatform ? ` de ${requestedPlatform.toUpperCase()}` : ''}?`);
+       if (userStates) {
+           userStates.set(message.from, { 
+               state: 'awaiting_target_for_credentials', 
+               platform: requestedPlatform || '' 
+           });
+       }
        return;
     }
+
+    await message.reply(requestedPlatform ? `⏳ Enviando credenciales de *${requestedPlatform.toUpperCase()}*...` : '⏳ Enviando TODAS las credenciales...');
     
     let enviados = 0, fallidos = 0;
     const { formatDirectCredentials } = require('./aiService');
@@ -236,11 +246,17 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
 /**
  * Envía los medios de pago manualmente a un usuario desde el grupo de administración.
  */
-async function handleSendManualPaymentMethods(message, command, client, userStates) {
+async function handleSendManualPaymentMethods(message, command, client, userStates, isReply = false) {
     const phoneRegex = /57\d{10}/;
     const match = command.match(phoneRegex);
     if (!match) {
-        await message.reply('❌ No encontré un número de teléfono válido (ej: 57311...) en el comando.');
+        // Conversational Mode
+        await message.reply('🤖 ¿A qué número (incluyendo 57) debo enviarle los canales de pago oficiales?');
+        if (userStates) {
+           userStates.set(message.from, { 
+               state: 'awaiting_target_for_payment_methods'
+           });
+        }
         return;
     }
     
