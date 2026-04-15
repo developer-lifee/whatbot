@@ -102,9 +102,7 @@ async function showAdminFunctions(message) {
 Para leer el manual completo o ver cómo hablarme en lenguaje natural, escribe *@bot ayuda*.`;
     await message.reply(funciones);
 }
-Para leer el manual completo de funciones inteligentes, escribe *@bot ayuda* o *@bot manual*.`;
-    await message.reply(funciones);
-}
+
 
 /**
  * Muestra el manual detallado de funciones inteligentes.
