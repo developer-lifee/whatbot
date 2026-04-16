@@ -42,7 +42,12 @@ async function getChatHistoryText(message, limit = 6) {
   let chatHistoryText = "";
   try {
     const chat = await message.getChat();
-    const messages = await chat.fetchMessages({ limit: limit });
+    let messages = [];
+    
+    // Evitar fetchMessages en cuentas @lid porque la librería whatsapp-web.js lanza error de DOM en Puppeteer
+    if (!message.from.includes('@lid') && !message.from.includes('status@broadcast')) {
+        messages = await chat.fetchMessages({ limit: limit });
+    }
     
     // Filtramos el mensaje actual para que no aparezca duplicado en el historial previo
     const history = messages.filter(m => m.id._serialized !== message.id._serialized);

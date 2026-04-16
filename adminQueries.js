@@ -123,6 +123,56 @@ async function processAdminQuery(message, query, userStates, client) {
                     for (const key in summary) if (key.toLowerCase().includes(filterPlat)) filteredSummary[key] = summary[key];
                     filteredData = { resumen_estadisticas: filteredSummary };
                 } else filteredData = { resumen_estadisticas: summary };
+            } else if (action === 'broadcast_credentials') {
+                let emailsToNotify = [];
+                const accountQuery = filters.generic_search ? filters.generic_search.toLowerCase() : "";
+                
+                filteredData = rawData.filter(row => {
+                    const correoStr = (row['correo'] || row['Correo'] || '').toString().toLowerCase();
+                    const platStr = (row['Streaming'] || '').toString().toLowerCase();
+                    const numeroStr = (row['numero'] || '').toString().trim();
+                    const numMatch = numeroStr.length >= 8;
+
+                    let match = false;
+                    if (accountQuery && correoStr.includes(accountQuery)) match = true;
+                    if (filters.platform && !platStr.includes(filters.platform.toLowerCase())) match = false;
+                    
+                    if (match && numMatch) {
+                       emailsToNotify.push(row);
+                    }
+                    return match;
+                });
+                
+                if (emailsToNotify.length > 0) {
+                    let enviosExitosos = 0;
+                    for (const row of emailsToNotify) {
+                        const tel = row['numero'].toString().replace(/\D/g, '');
+                        const targetUser = `57${tel.startsWith('57') ? tel.substring(2) : tel}@c.us`;
+                        const plataforma = row['Streaming'] || 'streaming';
+                        const correo = row['correo'] || row['Correo'] || accountQuery;
+                        const clave = filters.new_password || row['clave'] || row['Clave'] || 'La actual en sistema';
+                        const perfil = row['pin perfil'] || row['Perfil'] || row['Nombre'] || 'Asignado previamente';
+                        
+                        const msg = `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${plataforma}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${correo}\n🔑 *Clave:* ${clave}\n👤 *Perfil:* ${perfil}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                        
+                        try {
+                            await client.sendMessage(targetUser, msg);
+                            enviosExitosos++;
+                        } catch(e) {
+                            console.error("Error enviando broadcast a", targetUser, e);
+                        }
+                    }
+                    filteredData = {
+                        status: "success",
+                        message: `🚀 Operación exitosa: Se enviaron las nuevas credenciales a ${enviosExitosos} usuarios vinculados a la cuenta ${accountQuery} (${filters.platform || 'General'}).`,
+                        detalles: emailsToNotify.map(r => ({ numero: r['numero'], perfil: r['Nombre'] }))
+                    };
+                } else {
+                    filteredData = {
+                        status: "error",
+                        message: `No se encontraron clientes asociados a la cuenta "${accountQuery}" que tuvieran un número de teléfono válido registrado en Excel.`
+                    };
+                }
             } else {
                 if (filters.generic_search) {
                      filteredData = rawData.filter(row => JSON.stringify(row).toLowerCase().includes(filters.generic_search.toLowerCase()));

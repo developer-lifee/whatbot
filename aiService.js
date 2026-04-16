@@ -539,17 +539,19 @@ async function parseAdminQueryIntent(query) {
 
     Salida esperada usando estricto JSON:
     {
-      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "general_query",
+      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "general_query",
       "filters": {
         "name": string | null, // Nombre del cliente si menciona alguno (ej. pepito perez)
         "platform": string | null, // Plataforma de streaming si menciona (ej. netflix, hbo, prime, max, disney, etc.)
         "status": "libre" | "ocupado" | "vencido" | null, // Si busca cuentas "libres", "disponibles", "vencidas", etc.
         "phone": string | null, // Numero de telefono si menciona alguno
-        "generic_search": string | null // Cualquier término general clave no categorizado
+        "generic_search": string | null, // Para correos o dominios (ej. mirringadiagama@gmail.com)
+        "new_password": string | null // Si el administrador incluye una nueva contraseña para enviar en el broadcast
       }
     }
 
     Reglas de 'action':
+    - Si pide enviar, notificar o dar credenciales a "todos los usuarios de esta cuenta" o "enviar esta clave a los de este correo", es "broadcast_credentials". Si lo pide, extrae el correo/cuenta a "generic_search".
     - Si pide "dame la cuenta de...", "que cuentas tiene...", es "search_customer".
     - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
     - Si pide "historico", "que cuentas ha tenido...", es "check_history".
