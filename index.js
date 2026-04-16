@@ -757,12 +757,26 @@ async function processIncomingMessage(message) {
           userStates.delete(userId);
           currentState = undefined;
       } else {
-          // Evaluar intención mediante IA para ver si el bot puede solucionarlo
-          // Aumentamos historial a 25 para no perder contexto de días anteriores
-          const hist = await getChatHistoryText(message, 25);
-          const detection = await detectInitialIntent(message.body, hist);
-          
-          if (["comprar", "pagar", "credenciales"].includes(detection.intent)) {
+           // Evaluar intención mediante IA para ver si el bot puede solucionarlo
+           // Aumentamos historial a 25 para no perder contexto de días anteriores
+           const hist = await getChatHistoryText(message, 25);
+           
+           let mediaData = null;
+           if (message.hasMedia) {
+               try {
+                   const media = await message.downloadMedia();
+                   if (media && media.data && media.mimetype) {
+                       const cleanMime = media.mimetype.split(';')[0];
+                       mediaData = { data: media.data, mimeType: cleanMime };
+                   }
+               } catch (e) {
+                   console.error("[DEBUG] Error descargando media en silence mode:", e.message);
+               }
+           }
+
+           const detection = await detectInitialIntent(message.body, hist, mediaData);
+           
+           if (["comprar", "pagar", "credenciales"].includes(detection.intent)) {
               console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA: ${detection.intent}`);
               userStates.delete(userId);
               currentState = undefined;
@@ -987,7 +1001,8 @@ async function processIncomingMessage(message) {
     return;
   }
 
-  if (message.hasMedia && currentState !== 'awaiting_payment_confirmation' && currentState !== 'waiting_human') {
+  // Permitimos procesar media en waiting_human para que el interceptor de pagos pueda sacarlo de ese estado.
+  if (message.hasMedia && currentState !== 'awaiting_payment_confirmation') {
     const history = await getChatHistoryText(message);
     let mediaData = null;
     try {

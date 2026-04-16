@@ -431,10 +431,12 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     
     Instrucciones:
     Eres un asistente de servicio al cliente. Debes dar una respuesta estructurada en formato JSON estricto.
-    1. Si es una duda comercial o sobre cómo pagar, responde la duda en "replyMessage" y manda "needsEscalation": false. PROHIBIDO INVENTAR NÚMEROS DE CUENTAS BANCARIAS, NEQUI O NOMBRES DE TITULARES. Dile ÚNICAMENTE que aceptamos Nequi, Llave Bre-B, Daviplata, Banco Caja Social y Bancolombia, y que los números se proporcionan durante el flujo de compra.
-    2. Si es una solicitud de soporte técnico (o el usuario subió una captura de pantalla intentando actualizar hogar o pidiendo código) y el problema ESTÁ en la base de datos de soporte: PUEDES y DEBES darle el paso a paso ("steps") directamente en el "replyMessage" usando una lista amigable y pon "needsEscalation": false. NO escales el caso si el solucionario te da instrucciones claras que el usuario puede seguir autónomamente (como entrar a sheerit.com.co/actualizar). SOLO escálalo (poniendo "needsEscalation": true) si la guía explícitamente dice cosas como "contacta a soporte", "envíanos", o requiere labor manual humana; en ese caso da un resumen en "escalationSummary".
-    3. Si el problema es técnico, muy complejo o no está en la base, pon "needsEscalation": true y escribe un reporte en "escalationSummary".
-    4. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
+    1. REGLA DE ORO DE CLIENTE ACTIVO: Revisa `userAccounts`. Si el tema del mensaje o la imagen coincide con una plataforma que el usuario YA tiene contratada, tratar el caso ESTRICTAMENTE como SOPORTE TÉCNICO.
+       * PROHIBIDO ofrecer ventas, suscripciones nuevas o sugerir comprar en otros sitios (como Apple o Netflix directamente) si el usuario ya es cliente de ese servicio con nosotros. No intentes "ayudar" recomendando servicios externos si ya nos paga a nosotros.
+    2. Si es una duda comercial o sobre cómo pagar un NUEVO servicio, responde en "replyMessage" y manda "needsEscalation": false. 
+    3. Si es soporte técnico o un reporte de falla y el problema ESTÁ en la base de datos de soporte: Dale el paso a paso ("steps") directamente en el "replyMessage" y pon "needsEscalation": false.
+    4. Si el problema es técnico, muy complejo, no está en la base, o es de un cliente activo (Regla 1) que no tiene solución automática, pon "needsEscalation": true y un breve reporte en "escalationSummary".
+    5. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
 
     Salida esperada JSON:
     {
@@ -461,9 +463,10 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
  * Analyzes the first message to identify the user's intent.
  * @param {string} messageContent 
  * @param {string} chatHistory 
- * @returns {Promise<{intent: string, confidence: number}>}
+ * @param {object|null} mediaData { data, mimeType }
+ * @returns {Promise<Object>}
  */
-async function detectInitialIntent(messageContent, chatHistory = "") {
+async function detectInitialIntent(messageContent, chatHistory = "", mediaData = null) {
   const prompt = `
     Analiza el primer mensaje del usuario para identificar qué desea hacer.
     Contexto previo: ${chatHistory}
@@ -507,7 +510,7 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true);
+    const jsonString = await callGemini(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true, mediaData);
     return JSON.parse(jsonString);
   } catch (error) {
     console.error("Error detecting initial intent:", error);

@@ -37,19 +37,22 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
 
         for (const chat of pendingChats) {
             try {
-                const messages = await chat.fetchMessages({ limit: 4 });
+                // Obtenemos más mensajes para tener mejor contexto (especialmente útil en waiting_human)
+                const messages = await chat.fetchMessages({ limit: 10 });
                 if (messages.length > 0) {
-                    const lastMsg = messages[messages.length - 1]; // El último de los recuperados
+                    const lastMsg = messages[messages.length - 1]; 
                     
                     if (chat && chat.id && chat.id._serialized) {
-                        console.log(`[BATCH] Evaluando chat: ${chat.id._serialized} (Unread: ${chat.unreadCount})`);
-                        // Adjuntamos el conteo de no leídos al objeto mensaje para que el procesador lo sepa
+                        const isSilenced = userStates.get(chat.id._serialized) === 'waiting_human';
+                        console.log(`[BATCH] Escaneando chat: ${chat.id._serialized} (Unread: ${chat.unreadCount}${isSilenced ? ', Silenced' : ''})`);
+                        
+                        // Adjuntamos el conteo de no leídos para que el procesador lo sepa
                         lastMsg._unreadCount = chat.unreadCount;
-                        // Pasamos al procesador normal para que la IA decida si interviene o se calla
+                        
+                        // Pasamos al procesador normal. Si el bot está en waiting_human, 
+                        // la IA en processIncomingMessage decidirá si debe reactivarse.
                         await processIncomingMessage(lastMsg);
                         count++;
-                    } else {
-                        console.warn(`[BATCH] Omitiendo chat mal formado o sin ID.`);
                     }
                 }
             } catch (err) {
