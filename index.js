@@ -666,7 +666,7 @@ async function processIncomingMessage(message) {
   const userId = message.fromMe ? message.to : message.from;
   
   // --- MUTE ABSOLUTO PROVEEDOR ---
-  if (userId === '573027892534@c.us') {
+  if (userId.includes('3027892534')) {
       return; // El bot no se mete en la conversación con el proveedor
   }
   let contact;
@@ -1129,7 +1129,7 @@ async function processIncomingMessage(message) {
       const unreads = message._unreadCount || 0;
       
       const solvableIntents = ["comprar", "pagar", "credenciales"];
-      if ((frustration >= 7 || unreads >= 3) && !solvableIntents.includes(detection.intent)) {
+      if ((frustration >= 7 || unreads >= 10) && !solvableIntents.includes(detection.intent)) {
           console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
           
           // Inicializamos el contador en 1 para que no se autopise con el bucle de "seguimos ocupados"
