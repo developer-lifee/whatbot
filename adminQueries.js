@@ -130,8 +130,6 @@ async function processAdminQuery(message, query, userStates, client) {
             }
         }
 
-        }
-
         // Limitar los resultados retornados para evitar exceder el límite de texto
         if (Array.isArray(filteredData)) {
             // Limpiamos los campos poco relevantes o vacíos para ahorrar espacio (AI prompt token optimization)
