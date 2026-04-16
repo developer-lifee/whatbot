@@ -827,7 +827,8 @@ async function processIncomingMessage(message) {
 
   // --- Admin Data Queries (Dashboard Conversacional) ---
   // Permitimos consultas en grupos si empiezan con @bot y vienen del admin
-  if (userId.includes('3133890800') && message.body && message.body.toLowerCase().startsWith('@bot ')) {
+  const senderId = message.author || userId;
+  if (senderId.includes('3133890800') && message.body && message.body.toLowerCase().startsWith('@bot ')) {
       const query = message.body.substring(5).trim();
       if (query.length > 0) {
           const { processAdminQuery } = require('./adminQueries');

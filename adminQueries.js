@@ -129,37 +129,7 @@ async function processAdminQuery(message, query, userStates, client) {
                 } else filteredData = { message: "Consulta muy genérica." };
             }
         }
-            const { searchContactByName } = require('./googleContactsService');
-            let targetPhone = filters.phone;
-            
-            if (!targetPhone && filters.name) {
-                targetPhone = await searchContactByName(filters.name);
-            }
 
-            if (targetPhone) {
-                const targetId = targetPhone.includes('@') ? targetPhone : targetPhone + '@c.us';
-                const actualPhone = targetPhone.replace('@c.us', '');
-                
-                if (userStates.has(targetId)) {
-                    userStates.delete(targetId);
-                    await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
-                    filteredData = { 
-                        status: "success", 
-                        message: `He reactivado el bot para ${filters.name || actualPhone} (${actualPhone}). El cliente ha sido notificado.` 
-                    };
-                } else {
-                    filteredData = { 
-                        status: "warning", 
-                        message: `No encontré un estado activo para ${filters.name || actualPhone}. He limpiado cualquier posible sesión de todas formas.` 
-                    };
-                    userStates.delete(targetId);
-                }
-            } else {
-                filteredData = { 
-                    status: "error", 
-                    message: `No pude encontrar a nadie llamado "${filters.name}" en tus contactos para poder liberarlo.` 
-                };
-            }
         }
 
         // Limitar los resultados retornados para evitar exceder el límite de texto
