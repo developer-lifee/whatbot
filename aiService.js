@@ -511,7 +511,16 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
 
   try {
     const jsonString = await callGemini(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true, mediaData);
-    return JSON.parse(jsonString);
+    const parsed = JSON.parse(jsonString);
+    
+    // Log debug explícito para afinar el prompt:
+    console.log('\n--- [AI INTENT DEBUG] ---');
+    console.log('Mensaje actual:', messageContent);
+    console.log('Historial leído:', chatHistory ? chatHistory.substring(0, 500) + '...' : 'Ninguno');
+    console.log('Resultado IA:', JSON.stringify(parsed, null, 2));
+    console.log('-------------------------\n');
+
+    return parsed;
   } catch (error) {
     console.error("Error detecting initial intent:", error);
     return { intent: "desconocido" };

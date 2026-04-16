@@ -606,7 +606,7 @@ client.on('message_create', async (msg) => {
     if (!msg.body.includes('🤖')) {
       if (userStates.get(targetId) !== 'waiting_human') {
         console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Pasando a estado 'waiting_human'.`);
-        userStates.set(targetId, 'waiting_human');
+        userStates.set(targetId, { state: 'waiting_human', waitingCount: 0 });
       }
     }
   }
@@ -650,7 +650,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
          } catch(e) { console.error('Error enviando escalamiento:', e); }
-         userStates.set(userId, 'waiting_human');
+         userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
     }
 }
 
@@ -813,9 +813,6 @@ async function processIncomingMessage(message) {
 
   console.log('[DEBUG] Procesando mensaje de:', userId, 'Contenido:', message.body);
 
-  if (currentStateData && typeof currentStateData === 'object') {
-    currentState = currentStateData.state;
-  }
 
   // --- Cobros parser: mensaje especial ---
   if (message.body && message.body.toLowerCase().startsWith('@bot porfa haz los cobros para hoy de:')) {
@@ -1274,7 +1271,7 @@ client.on('message', async (message) => {
                     if (m.fromMe && !m.body.includes('🤖')) { isHuman = true; break; }
                 }
                 if (isHuman) {
-                   userStates.set(message.from, 'waiting_human');
+                   userStates.set(message.from, { state: 'waiting_human', waitingCount: 0 });
                    resolve(false);
                 } else {
                    await new Promise(r => setTimeout(r, 2500));
@@ -1352,7 +1349,7 @@ async function handleMainMenuSelection(message, userId) {
         console.error('Error enviando mensaje al grupo:', error);
       }
       await message.reply("🤖 Un asesor te atenderá lo más pronto posible. He silenciado mis respuestas automáticas para que puedas hablar con un humano.");
-      userStates.set(userId, 'waiting_human');
+      userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
       break;
     default:
       // Si no es un número, usamos la IA para ver si tiene una duda o comentario
@@ -1369,7 +1366,7 @@ async function handleMainMenuSelection(message, userId) {
                   const realPhone = contact.number || userId.replace(/\D/g, '');
                   await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
               }
-              userStates.set(userId, 'waiting_human');
+              userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
           }
       } else {
           await message.reply("🤖 Por favor, selecciona una opción válida del menú (1-5), o escribe tu duda para ayudarte.");
@@ -1400,14 +1397,14 @@ async function processPaymentSelection(message, userId, text) {
   if (method && paymentDetails[method]) {
     await message.reply(paymentDetails[method]);
     const state = userStates.get(userId);
-    userStates.set(userId, typeof state === 'string' ? 'awaiting_payment_confirmation' : { ...state, state: 'awaiting_payment_confirmation' });
+    userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
   } else {
     // Fallback manual check
     let foundKey = Object.keys(paymentDetails).find(key => text.toLowerCase().includes(key));
     if (foundKey) {
       await message.reply(paymentDetails[foundKey]);
       const state = userStates.get(userId);
-      userStates.set(userId, typeof state === 'string' ? 'awaiting_payment_confirmation' : { ...state, state: 'awaiting_payment_confirmation' });
+      userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
     } else {
       // Usar la IA en vez del mensaje genérico terco (esto responde precios exactos gracias a aiService)
       const { getChatHistoryText } = require('./salesService');
