@@ -688,12 +688,20 @@ async function processIncomingMessage(message) {
   }
 
   // --- FILTRO DE MENSAJES PROPIOS (ADMIN) ---
+  const cleanBodyText = message.body ? message.body.trim() : "";
+  const isAdminCommand = cleanBodyText.toLowerCase().startsWith("@bot ");
+
   if (message.fromMe) {
-      if (currentState !== 'waiting_human') {
-          console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
-          userStates.set(userId, { state: 'waiting_human', nombre: foundName, waitingCount: 0 });
+      // Excepción: Permitir comandos de @bot para el admin dashboard
+      if (isAdminCommand) {
+          console.log(`[Admin] Comando detectado de la propia cuenta: ${cleanBodyText}`);
+      } else {
+          if (currentState !== 'waiting_human') {
+              console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
+              userStates.set(userId, { state: 'waiting_human', nombre: foundName, waitingCount: 0 });
+          }
+          return;
       }
-      return;
   }
 
   // --- ANTI-AUTO-CONTESTAR (Loop Protection) ---
@@ -1167,7 +1175,7 @@ async function processIncomingMessage(message) {
       // 6. FLUJO POR DEFECTO (Si no hay intención clara, no forzamos nombre completo aún)
       if (foundName) {
         userStates.set(userId, { state: 'main_menu', nombre: foundName });
-        await message.reply(`🤖 ¡Hola de nuevo${nameIncomplete ? '' : ', *' + foundName + '*' }! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
+        await message.reply(`🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*' }! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
       } else {
         await message.reply("🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nEscoge una opción para ayudarte:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
         userStates.set(userId, { state: 'main_menu' });

@@ -39,49 +39,49 @@ async function processAdminQuery(message, query, userStates, client) {
         // 2. Ejecutar búsqueda basada en la acción
         if (action === 'check_history') {
             const historico = await fetchHistoricoData();
-            
-            // Buscar por nombre o teléfono en histórico (el historico es un objeto cuyas llaves son los números)
+            // ... (búsqueda en historico)
             let resultadosHistorico = [];
-            
             for (const [numero, datos] of Object.entries(historico)) {
                 let match = true;
-                
                 if (filters.name) {
                    const nombreCompleto = `${datos.nombre || ''} ${datos.apellido || ''}`.toLowerCase();
-                   if (!nombreCompleto.includes(filters.name.toLowerCase())) {
-                       match = false;
-                   }
+                   if (!nombreCompleto.includes(filters.name.toLowerCase())) match = false;
                 }
-                
                 if (filters.phone) {
-                   if (!numero.includes(filters.phone)) {
-                       match = false;
-                   }
+                   if (!numero.includes(filters.phone)) match = false;
                 }
-                
                 if (match && (filters.name || filters.phone || filters.generic_search)) {
                    if (filters.generic_search && match === true && !filters.name && !filters.phone) {
                       const nombreCompleto = `${datos.nombre || ''} ${datos.apellido || ''}`.toLowerCase();
-                      if(!nombreCompleto.includes(filters.generic_search.toLowerCase()) && !numero.includes(filters.generic_search)) {
-                          match = false;
-                      }
+                      if(!nombreCompleto.includes(filters.generic_search.toLowerCase()) && !numero.includes(filters.generic_search)) match = false;
                    }
-                   if (match) {
-                       resultadosHistorico.push({
-                           numero: numero,
-                           nombre: datos.nombre,
-                           apellido: datos.apellido,
-                           historial: datos.historial
-                       });
-                   }
+                   if (match) resultadosHistorico.push({ numero, nombre: datos.nombre, apellido: datos.apellido, historial: datos.historial });
                 }
             }
-            
             filteredData = resultadosHistorico.length > 0 ? resultadosHistorico : { message: "No se encontraron coincidencias en el histórico." };
+
+        } else if (action === 'liberate_user') {
+            const { searchContactByName } = require('./googleContactsService');
+            let targetPhone = filters.phone;
+            if (!targetPhone && filters.name) targetPhone = await searchContactByName(filters.name);
+
+            if (targetPhone) {
+                const targetId = targetPhone.includes('@') ? targetPhone : targetPhone + '@c.us';
+                const actualPhone = targetPhone.replace('@c.us', '');
+                if (userStates.has(targetId)) {
+                    userStates.delete(targetId);
+                    await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
+                    filteredData = { status: "success", message: `He reactivado el bot para ${filters.name || actualPhone}.` };
+                } else {
+                    filteredData = { status: "warning", message: `No encontré un estado activo para ${filters.name || actualPhone}.` };
+                    userStates.delete(targetId);
+                }
+            } else {
+                filteredData = { status: "error", message: `No pude encontrar a nadie llamado "${filters.name}" en tus contactos.` };
+            }
 
         } else {
             // Para otras acciones (buscar cliente actual, buscar libres, resumen), usamos fetchRawData
-            // Se usa fetchRawData en vez de fetchCustomersData porque podríamos buscar cuentas "libres" que no tienen cliente
             const rawData = await fetchRawData();
             
             if (action === 'get_available' || (filters.status && filters.status.toLowerCase().includes('libre'))) {
@@ -89,13 +89,8 @@ async function processAdminQuery(message, query, userStates, client) {
                     const statusStr = (row['Estado'] || row['estado'] || '').toString().toLowerCase();
                     const nombreStr = (row['Nombre'] || '').toString().toLowerCase();
                     const isLibre = statusStr.includes('libre') || nombreStr === 'libre' || nombreStr === '';
-                    
                     let platformMatch = true;
-                    if (filters.platform) {
-                        const platStr = (row['Streaming'] || '').toString().toLowerCase();
-                        platformMatch = platStr.includes(filters.platform.toLowerCase());
-                    }
-                    
+                    if (filters.platform) platformMatch = (row['Streaming'] || '').toString().toLowerCase().includes(filters.platform.toLowerCase());
                     return isLibre && platformMatch;
                 });
             } else if (action === 'search_customer') {
@@ -103,66 +98,37 @@ async function processAdminQuery(message, query, userStates, client) {
                     let match = false;
                     const nombreStr = (row['Nombre'] || '').toString().toLowerCase();
                     const telStr = (row['numero'] || '').toString();
-                    
-                    if (filters.name && nombreStr.includes(filters.name.toLowerCase())) {
-                        match = true;
-                    }
-                    if (filters.phone && telStr.includes(filters.phone)) {
-                        match = true;
-                    }
-                    if (filters.generic_search && nombreStr.includes(filters.generic_search.toLowerCase())) {
-                        match = true;
-                    }
+                    if (filters.name && nombreStr.includes(filters.name.toLowerCase())) match = true;
+                    if (filters.phone && telStr.includes(filters.phone)) match = true;
+                    if (filters.generic_search && nombreStr.includes(filters.generic_search.toLowerCase())) match = true;
                     return match;
                 });
             } else if (action === 'summary_stats') {
-                // Hacer un mapeo resumido
                 const summary = {};
                 rawData.forEach(row => {
                     const plat = (row['Streaming'] || 'Desconocido').toString().toUpperCase();
                     const statusStr = (row['Estado'] || row['estado'] || '').toString().toLowerCase();
                     const nombreStr = (row['Nombre'] || '').toString().toLowerCase();
                     const isLibre = statusStr.includes('libre') || nombreStr === 'libre' || nombreStr === '';
-                    
-                    if (!summary[plat]) {
-                        summary[plat] = { total: 0, libres: 0, ocupadas: 0, cuentas_libres_detalle: [] };
-                    }
+                    if (!summary[plat]) summary[plat] = { total: 0, libres: 0, ocupadas: 0, cuentas_libres_detalle: [] };
                     summary[plat].total++;
                     if (isLibre) {
                         summary[plat].libres++;
-                        // Guardar un poco de detalle por si a caso
                         summary[plat].cuentas_libres_detalle.push({correo: row['correo'], perfil: row['pin perfil'] || row['Nombre']});
-                    } else {
-                        summary[plat].ocupadas++;
-                    }
+                    } else summary[plat].ocupadas++;
                 });
-                
                 if (filters.platform) {
                     const filterPlat = filters.platform.toLowerCase();
-                    // Filtrar summary para devolver solo las que coinciden con filters.platform
                     const filteredSummary = {};
-                    for (const key in summary) {
-                        if (key.toLowerCase().includes(filterPlat)) {
-                            filteredSummary[key] = summary[key];
-                        }
-                    }
+                    for (const key in summary) if (key.toLowerCase().includes(filterPlat)) filteredSummary[key] = summary[key];
                     filteredData = { resumen_estadisticas: filteredSummary };
-                } else {
-                    filteredData = { resumen_estadisticas: summary };
-                }
+                } else filteredData = { resumen_estadisticas: summary };
             } else {
-                // general query - no filters, or generic filter
-                // No enviamos los 5000 registros de la base. Enviamos un error o le pedimos q sea especifico.
                 if (filters.generic_search) {
-                     filteredData = rawData.filter(row => {
-                         const strData = JSON.stringify(row).toLowerCase();
-                         return strData.includes(filters.generic_search.toLowerCase());
-                     });
-                } else {
-                     filteredData = { message: "Consulta muy genérica. No se aplicaron filtros sustanciales, por favor sé más específico." };
-                }
+                     filteredData = rawData.filter(row => JSON.stringify(row).toLowerCase().includes(filters.generic_search.toLowerCase()));
+                } else filteredData = { message: "Consulta muy genérica." };
             }
-        } else if (action === 'liberate_user') {
+        }
             const { searchContactByName } = require('./googleContactsService');
             let targetPhone = filters.phone;
             
