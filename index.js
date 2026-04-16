@@ -604,9 +604,14 @@ client.on('message_create', async (msg) => {
 
     // Si el mensaje NO contiene el emoji 🤖 ni @bot, asumimos que fue enviado manualmente.
     if (!msg.body.includes('🤖')) {
-      if (userStates.get(targetId) !== 'waiting_human') {
-        console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Pasando a estado 'waiting_human'.`);
-        userStates.set(targetId, { state: 'waiting_human', waitingCount: 0 });
+      let st = userStates.get(targetId);
+      if (typeof st === 'object' && st.state === 'waiting_human') {
+          // Ya estaba silenciado, renovamos el temporizador de mute absoluto (30 min extra)
+          st.lastHumanInteraction = Date.now();
+          userStates.set(targetId, st);
+      } else {
+          console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot por 30 mins.`);
+          userStates.set(targetId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
       }
     }
   }
@@ -650,7 +655,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
          } catch(e) { console.error('Error enviando escalamiento:', e); }
-         userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+         userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
     }
 }
 
@@ -757,55 +762,48 @@ async function processIncomingMessage(message) {
   }
 
   if (currentState === 'waiting_human') {
-      // Reactivación inteligente (waiting human temporal)
+      // Reactivación rápida
       const cleanInput = (message.body || '').trim().toLowerCase();
-      
-      // Si el cliente envía una frase rápida o menú, lo reactivamos
-      if (['1', '2', '3', '4', '5'].includes(cleanInput) || cleanInput === 'menu' || cleanInput === 'menú' || cleanInput === 'hola') {
+      if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput === '@bot') {
           console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por intención explícita.`);
           userStates.delete(userId);
           currentState = undefined;
       } else {
-           // Evaluar intención mediante IA para ver si el bot puede solucionarlo
-           // Aumentamos historial a 25 para no perder contexto de días anteriores
-           const hist = await getChatHistoryText(message, 25);
-           
-           let mediaData = null;
-           if (message.hasMedia) {
-               try {
-                   const media = await message.downloadMedia();
-                   if (media && media.data && media.mimetype) {
-                       const cleanMime = media.mimetype.split(';')[0];
-                       mediaData = { data: media.data, mimeType: cleanMime };
-                   }
-               } catch (e) {
-                   console.error("[DEBUG] Error descargando media en silence mode:", e.message);
-               }
-           }
+          let sData = typeof currentStateData === 'object' ? currentStateData : { state: 'waiting_human', lastHumanInteraction: 0 };
+          const lastHumanMsg = sData.lastHumanInteraction || 0;
+          const timeSinceLastHuman = Date.now() - lastHumanMsg;
+          
+          // Si el asesor (humano) envió un mensaje en los últimos 30 minutos, asumimos que
+          // están en una conversación activa. El bot guarda SILENCIO ABSOLUTO.
+          if (timeSinceLastHuman < 1000 * 60 * 30) {
+              console.log(`[DEBUG] Mute activo para @${userId.replace('@c.us', '')} - Conversación humana reciente.`);
+              return;
+          }
 
-           const detection = await detectInitialIntent(message.body, hist, mediaData);
-           
-           if (["comprar", "pagar", "credenciales"].includes(detection.intent)) {
+          // Si pasó más de media hora sin que el admin responda, el bot usará la IA 
+          // SOLAMENTE para capturar si el cliente está enviando un comprobante de pago o quiere comprar algo nuevo.
+          // Si es soporte o charla, seguirá en silencio sin molestar.
+          let mediaData = null;
+          if (message.hasMedia) {
+              try {
+                  const media = await message.downloadMedia();
+                  if (media && media.data && media.mimetype) {
+                      mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
+                  }
+              } catch (e) {}
+          }
+
+          const { detectInitialIntent } = require('./aiService');
+          const hist = await getChatHistoryText(message, 3); // Historial corto
+          const detection = await detectInitialIntent(message.body, hist, mediaData);
+          
+          if (["comprar", "pagar"].includes(detection.intent)) {
               console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA: ${detection.intent}`);
               userStates.delete(userId);
               currentState = undefined;
-              // Continuamos el flujo...
-          } else if (detection.intent === 'cierre') {
-              console.log(`[DEBUG] Cierre detectado para @${userId} en waiting_human. Bot ignorando.`);
-              return;
+              // Continúa el flujo para vender/procesar pago
           } else {
-              let sData = typeof currentStateData === 'object' ? currentStateData : { state: 'waiting_human' };
-              let wCount = (sData.waitingCount || 0) + 1;
-              sData.waitingCount = wCount;
-              userStates.set(userId, sData);
-              
-              if (wCount === 2) {
-                  // Sonda proactiva: En lugar de solo decir "espera", preguntamos qué necesita para ver si podemos ayudar ante la duda.
-                  await message.reply("🤖 Hola, sigo con mucha demanda de chats, pero no quiero que esperes de más. Mientras llega un asesor, ¿puedes resumirme si necesitas una *contraseña*, *ver precios* o *confirmar un pago*? Quizás yo mismo pueda ayudarte ahora.");
-              } else if (wCount >= 4 && wCount % 3 === 0) {
-                  await message.reply("🤖 Seguimos con alto volumen de chats, pero tu caso ya está en la cola para revisión manual.");
-              }
-              console.log(`[DEBUG] Usuario ${realPhone} (@${userId}) insiste en waiting_human (Count: ${wCount}).`);
+              // Silencio absoluto, ya no enviamos sondeos como "seguimos con alta demanda".
               return;
           }
       }
@@ -1271,7 +1269,7 @@ client.on('message', async (message) => {
                     if (m.fromMe && !m.body.includes('🤖')) { isHuman = true; break; }
                 }
                 if (isHuman) {
-                   userStates.set(message.from, { state: 'waiting_human', waitingCount: 0 });
+                   userStates.set(message.from, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
                    resolve(false);
                 } else {
                    await new Promise(r => setTimeout(r, 2500));
@@ -1349,7 +1347,7 @@ async function handleMainMenuSelection(message, userId) {
         console.error('Error enviando mensaje al grupo:', error);
       }
       await message.reply("🤖 Un asesor te atenderá lo más pronto posible. He silenciado mis respuestas automáticas para que puedas hablar con un humano.");
-      userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+      userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
       break;
     default:
       // Si no es un número, usamos la IA para ver si tiene una duda o comentario
@@ -1366,7 +1364,7 @@ async function handleMainMenuSelection(message, userId) {
                   const realPhone = contact.number || userId.replace(/\D/g, '');
                   await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
               }
-              userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+              userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
           }
       } else {
           await message.reply("🤖 Por favor, selecciona una opción válida del menú (1-5), o escribe tu duda para ayudarte.");
