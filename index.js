@@ -662,49 +662,8 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
  * @param {Message} message 
  */
 async function processIncomingMessage(message) {
-  // El userId siempre debe ser el del CLIENTE, no necesariamente el del remitente
-  // Si el mensaje es "mio" (del bot), el cliente es el destinatario (to)
-  const userId = message.fromMe ? message.to : message.from;
-
-  // --- ANTI-AUTO-CONTESTAR (Loop Protection) ---
-  // --- FILTRO DE MENSAJES PROPIOS (ADMIN) ---
-  if (message.fromMe) {
-      if (currentState !== 'waiting_human') {
-          console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
-          userStates.set(userId, { state: 'waiting_human', nombre: foundName, waitingCount: 0 });
-      }
-      return;
-  }
-
-  // Si el mensaje contiene el emoji del bot (🤖), es una respuesta automática.
-  // Ignoramos COMPLETAMENTE para no entrar en bucles de autocontestación.
-  if (message.body && message.body.includes('🤖')) {
-      console.log(`[Auto] Ignorando mensaje automático (🤖) para @${userId.replace('@c.us', '')}`);
-      return;
-  }
-
-  let currentStateData = userStates.get(userId);
-  let currentState = currentStateData;
-
-  if (currentStateData && typeof currentStateData === 'object') {
-    currentState = currentStateData.state;
-  }
-
-  // Ignorar stickers, reacciones, y estados
-  if (message.type === 'sticker' || message.type === 'reaction' || message.isStatus) {
-      console.log(`[Ignorado] Mensaje tipo ${message.type} de ${userId}.`);
-      return;
-  }
-  
-  // Ignorar mensajes que son exclusivamente emojis
-  const cleanBodyText = message.body ? message.body.trim() : "";
-  const emojiRegex = /^[\p{Emoji}\s]+$/u;
-  if (cleanBodyText && emojiRegex.test(cleanBodyText)) {
-      console.log(`[Ignorado] Mensaje solo contiene emojis de ${userId}.`);
-      return; 
-  }
-
   // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
+  const userId = message.fromMe ? message.to : message.from;
   let contact;
   try {
       contact = await message.getContact();
@@ -721,6 +680,44 @@ async function processIncomingMessage(message) {
       foundName = await searchContactByPhone(userId);
   }
 
+  // 2. ESTADO ACTUAL
+  let currentStateData = userStates.get(userId);
+  let currentState = undefined;
+  if (currentStateData && typeof currentStateData === 'object') {
+    currentState = currentStateData.state;
+  }
+
+  // --- FILTRO DE MENSAJES PROPIOS (ADMIN) ---
+  if (message.fromMe) {
+      if (currentState !== 'waiting_human') {
+          console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
+          userStates.set(userId, { state: 'waiting_human', nombre: foundName, waitingCount: 0 });
+      }
+      return;
+  }
+
+  // --- ANTI-AUTO-CONTESTAR (Loop Protection) ---
+  // Si el mensaje contiene el emoji del bot (🤖), es una respuesta automática.
+  // Ignoramos COMPLETAMENTE para no entrar en bucles de autocontestación.
+  if (message.body && message.body.includes('🤖')) {
+      console.log(`[Auto] Ignorando mensaje automático (🤖) para @${userId.replace('@c.us', '')}`);
+      return;
+  }
+
+  // Ignorar stickers, reacciones, y estados
+  if (message.type === 'sticker' || message.type === 'reaction' || message.isStatus) {
+      console.log(`[Ignorado] Mensaje tipo ${message.type} de ${userId}.`);
+      return;
+  }
+  
+  // Ignorar mensajes que son exclusivamente emojis
+  const cleanBodyText = message.body ? message.body.trim() : "";
+  const emojiRegex = /^[\p{Emoji}\s]+$/u;
+  if (cleanBodyText && emojiRegex.test(cleanBodyText)) {
+      console.log(`[Ignorado] Mensaje solo contiene emojis de ${userId}.`);
+      return; 
+  }
+
   // Marcar chat como leído para limpiar notificaciones y bucles de atendido
   try {
       if (!message.fromMe) {
@@ -732,7 +729,7 @@ async function processIncomingMessage(message) {
   } catch (err) {}
 
   // Sincronizar con Google Contacts si tenemos un nombre válido y no es un mensaje del bot
-  if (!message.fromMe && foundName && !isNameIncomplete(foundName)) {
+  if (!message.fromMe && foundName) {
       const { addNewContact, searchContactByPhone } = require('./googleContactsService');
       // Solo intentar agregar si no lo encontramos por el número real
       const existingInGoogle = await searchContactByPhone(realPhone);
