@@ -719,7 +719,6 @@ async function processIncomingMessage(message) {
   }
   
   // Ignorar mensajes que son exclusivamente emojis
-  const cleanBodyText = message.body ? message.body.trim() : "";
   const emojiRegex = /^[\p{Emoji}\s]+$/u;
   if (cleanBodyText && emojiRegex.test(cleanBodyText)) {
       console.log(`[Ignorado] Mensaje solo contiene emojis de ${userId}.`);
