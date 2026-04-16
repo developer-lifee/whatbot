@@ -667,6 +667,15 @@ async function processIncomingMessage(message) {
   const userId = message.fromMe ? message.to : message.from;
 
   // --- ANTI-AUTO-CONTESTAR (Loop Protection) ---
+  // --- FILTRO DE MENSAJES PROPIOS (ADMIN) ---
+  if (message.fromMe) {
+      if (currentState !== 'waiting_human') {
+          console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
+          userStates.set(userId, { state: 'waiting_human', nombre: foundName, waitingCount: 0 });
+      }
+      return;
+  }
+
   // Si el mensaje contiene el emoji del bot (🤖), es una respuesta automática.
   // Ignoramos COMPLETAMENTE para no entrar en bucles de autocontestación.
   if (message.body && message.body.includes('🤖')) {
