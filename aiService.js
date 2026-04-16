@@ -498,7 +498,8 @@ async function detectInitialIntent(messageContent, chatHistory = "") {
         "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "desconocido",
         "recoveredState": string | null,
         "frustrationLevel": number, // 0 a 10
-        "userName": string | null, // Si el usuario se presentó o dijo su nombre en el historial, extráelo aquí.
+        "userName": string | null, // Si el usuario se presentó o dijo su nombre en el historial, extráelo aquí. Límpialo de muletillas como "Soy", "Me llamo".
+        "isNameComplete": boolean, // true si userName parece un nombre real de persona (nombre y apellido razonable, ej: "Miguel Botero"). false si es genérico ("Cliente"), negocio ("Ventas"), incompleto ("Juan") o basura ("Hola").
         "metadata": object | null // { total: number, items: string[] } si es recuperación de pago.
     }
 

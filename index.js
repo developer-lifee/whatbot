@@ -654,23 +654,8 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
     }
 }
 
-/**
- * Determina si un nombre es incompleto (un solo nombre) o parece ser de negocio.
- */
-function isNameIncomplete(name) {
-    if (!name) return true;
-    const parts = name.trim().split(/\s+/);
-    if (parts.length < 2) return true;
-    if (parts.length > 4 || name.length > 50) return true; // Rechazar frases largas o mensajes
-    
-    // Rechazar si no contiene suficientes letras (ej. solo emojis o caracteres especiales)
-    const lettersMatch = name.match(/[a-zA-ZáéíóúÁÉÍÓÚñÑ]/g);
-    if (!lettersMatch || lettersMatch.length < 3) return true;
-    
-    const businessKeywords = ['store', 'shop', 'ventas', 'digital', 'oficial', 'asistente', 'bot', 'vende', 'pagos', 'comprobantes', 'cuenta', 'hbo', 'renovar'];
-    const lowerName = name.toLowerCase();
-    return businessKeywords.some(kw => lowerName.includes(kw));
-}
+// Eliminamos isNameIncomplete anterior para delegar a la IA
+
 
 /**
  * Procesa un mensaje entrante siguiendo la lógica de estados del bot.
@@ -1086,7 +1071,8 @@ async function processIncomingMessage(message) {
           console.log(`[AI Discovery] Nombre hallado en historial para @${userId.replace('@c.us', '')}: ${foundName}`);
       }
 
-      const nameIncomplete = isNameIncomplete(foundName);
+      // Determinar si el nombre es completo según la IA o si ya lo teníamos validado
+      const nameIsComplete = detection.isNameComplete || false;
 
       // 4. RECUPERACIÓN DE ESTADO (Stateless Recovery)
       if (detection.recoveredState) {
@@ -1131,24 +1117,24 @@ async function processIncomingMessage(message) {
       }
       
       if (detection.intent === 'comprar') {
-          if (nameIncomplete) {
+          if (!nameIsComplete) {
               const greeting = foundName ? `¡Hola ${foundName}! Veo que te tengo como ${foundName}.` : "¡Hola! Con gusto te ayudo con tu compra.";
               await message.reply(`🤖 ${greeting} Para proceder con tu registro oficial y evitar duplicados, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
               return;
           }
           userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
-          await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
+          await message.reply(`🤖 ¡Perfecto${foundName ? ' ' + foundName : ''}! Con gusto te ayudo con tu compra.`);
           await startPurchaseProcess(message, userId, userStates);
           return;
       } else if (detection.intent === 'credenciales') {
-          if (nameIncomplete) {
+          if (!nameIsComplete) {
               const greeting = foundName ? `¡Hola ${foundName}!` : "¡Hola! Con gusto te ayudo.";
               await message.reply(`🤖 ${greeting} Para buscar tus cuentas de forma segura, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
               return;
           }
-          await message.reply(`🤖 Entendido ${foundName}, te ayudaré a revisar tus credenciales de inmediato.`);
+          await message.reply(`🤖 Entendido${foundName ? ' ' + foundName : ''}, te ayudaré a revisar tus credenciales de inmediato.`);
           await processCheckCredentials(message, userId);
           return;
       } else if (detection.intent === 'pagar') {
