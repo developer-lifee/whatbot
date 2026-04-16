@@ -443,6 +443,67 @@ async function getNetflixMatchReport(targetIspInfo) {
     }
 }
 
+async function notifyProviderExpiringAccounts(client) {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const fetchRawData = require('./apiService').fetchRawData;
+
+        // Load managed emails to exclude
+        let managedEmails = [];
+        try {
+            const managedPath = path.join(__dirname, 'managed_emails.json');
+            if (fs.existsSync(managedPath)) {
+                managedEmails = JSON.parse(fs.readFileSync(managedPath, 'utf8')).map(e => e.toLowerCase().trim());
+            }
+        } catch(err) {
+            console.error("Error cargando managed_emails.json:", err);
+        }
+
+        const rawData = await fetchRawData();
+        const currentDate = new Date();
+        const IN_DAYS = 5;
+        
+        let targetDate = new Date();
+        targetDate.setDate(currentDate.getDate() + IN_DAYS);
+        
+        let expiringAccounts = [];
+        let seenEmails = new Set();
+        
+        rawData.forEach(row => {
+            if (!row['Vencimiento']) return;
+            
+            // Excel serial date to JS Date
+            let expDate = new Date((row['Vencimiento'] - (25567 + 1)) * 86400 * 1000);
+            const diffTime = expDate - currentDate;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            if (diffDays === IN_DAYS || diffDays === (IN_DAYS - 1)) { // Aproximadamente 4 a 5 días
+                const email = (row['correo'] || '').toString().toLowerCase().trim();
+                const platform = (row['Streaming'] || '').toString();
+                
+                if (email && !managedEmails.includes(email) && !seenEmails.has(email)) {
+                    seenEmails.add(email);
+                    expiringAccounts.push({ email, platform, days: diffDays });
+                }
+            }
+        });
+
+        if (expiringAccounts.length > 0) {
+            let msg = `🤖 *¡Hola Proveedor!* 👋\n\nEste es un reporte automático de las pantallas/cuentas que están a punto de vencerse (aprox. 5 días) para que vayas previendo la recarga:\n\n`;
+            expiringAccounts.forEach(acc => {
+                msg += `- *${acc.platform}*: ${acc.email} (En ${acc.days} días)\n`;
+            });
+            msg += `\n*Nota*: Este es un mensaje automatizado del sistema de Sheerit.`;
+            
+            await client.sendMessage('573027892534@c.us', msg);
+            console.log(`[Proveedor] Notificación enviada con ${expiringAccounts.length} cuentas próximas a vencer.`);
+        }
+    } catch (err) {
+        console.error("Error en notifyProviderExpiringAccounts:", err);
+    }
+}
+
 module.exports = {
   processPendingChats,
   handleBatchUnanswered,
@@ -452,5 +513,6 @@ module.exports = {
   showAdminFunctions,
   showDetailedHelp,
   getUpcomingExpirationsReport,
-  getNetflixMatchReport
+  getNetflixMatchReport,
+  notifyProviderExpiringAccounts
 };

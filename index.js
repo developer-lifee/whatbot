@@ -664,6 +664,11 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
 async function processIncomingMessage(message) {
   // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
   const userId = message.fromMe ? message.to : message.from;
+  
+  // --- MUTE ABSOLUTO PROVEEDOR ---
+  if (userId === '573027892534@c.us') {
+      return; // El bot no se mete en la conversación con el proveedor
+  }
   let contact;
   try {
       contact = await message.getContact();

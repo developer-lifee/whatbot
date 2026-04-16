@@ -1,6 +1,6 @@
 const schedule = require('node-schedule');
 const { handleAutoCobros } = require('./billingService');
-const { getUpcomingExpirationsReport } = require('./adminService');
+const { getUpcomingExpirationsReport, notifyProviderExpiringAccounts } = require('./adminService');
 
 let automationInitialized = false;
 
@@ -53,6 +53,10 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
             if (chat) {
                 await chat.sendMessage(`🤖 *REPORTE AUTOMÁTICO DE LAS 2:00 PM*\n\n${report}`);
             }
+            
+            // Notificamos al proveedor de forma automática
+            await notifyProviderExpiringAccounts(client);
+            
         } catch (err) {
             console.error('❌ Error en tarea automática de las 2:00 PM:', err);
         }
