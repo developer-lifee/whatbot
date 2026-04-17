@@ -98,9 +98,15 @@ async function processAdminQuery(message, query, userStates, client) {
                     let match = false;
                     const nombreStr = (row['Nombre'] || '').toString().toLowerCase();
                     const telStr = (row['numero'] || '').toString();
-                    if (filters.name && nombreStr.includes(filters.name.toLowerCase())) match = true;
+                    const correoStr = (row['correo'] || row['Correo'] || '').toString().toLowerCase();
+                    const platStr = (row['Streaming'] || '').toString().toLowerCase();
+
+                    if (filters.name && (nombreStr.includes(filters.name.toLowerCase()) || correoStr.includes(filters.name.toLowerCase()))) match = true;
                     if (filters.phone && telStr.includes(filters.phone)) match = true;
-                    if (filters.generic_search && nombreStr.includes(filters.generic_search.toLowerCase())) match = true;
+                    if (filters.generic_search) {
+                        const gs = filters.generic_search.toLowerCase();
+                        if (nombreStr.includes(gs) || telStr.includes(gs) || correoStr.includes(gs) || platStr.includes(gs)) match = true;
+                    }
                     return match;
                 });
             } else if (action === 'summary_stats') {
@@ -130,15 +136,16 @@ async function processAdminQuery(message, query, userStates, client) {
                 // 1. BÚSQUEDA SMART (Fuzzy)
                 let matches = rawData.filter(row => {
                     const correoStr = (row['correo'] || row['Correo'] || '').toString().toLowerCase();
-                    const platStr = (row['Streaming'] || '').toString().toLowerCase();
+                    const nombreStr = (row['Nombre'] || '').toString().toLowerCase();
+                    const platStr = (row['Streaming'] || row['streaming'] || '').toString().toLowerCase();
                     const numeroStr = (row['numero'] || '').toString().trim();
                     const hasNum = numeroStr.length >= 8;
 
                     // Si no pasamos nada, no machea nada
                     if (!accountQuery) return false;
 
-                    // Macheo de correo (Fuzzy)
-                    const correoMatch = correoStr.includes(accountQuery);
+                    // Macheo de correo o nombre (Fuzzy)
+                    const accountMatch = correoStr.includes(accountQuery) || nombreStr.includes(accountQuery);
                     
                     // Si especificó plataforma, debe coincidir
                     let platMatch = true;
@@ -146,7 +153,7 @@ async function processAdminQuery(message, query, userStates, client) {
                         platMatch = platStr.includes(platformFilter);
                     }
                     
-                    return correoMatch && platMatch && hasNum;
+                    return accountMatch && platMatch && hasNum;
                 });
 
                 // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para ver si el admin se equivocó de sitio
@@ -165,7 +172,7 @@ async function processAdminQuery(message, query, userStates, client) {
                     // MODO PREVIEW: No enviamos nada aún.
                     const uniqueAccount = [...new Set(matches.map(m => m['correo'] || m['Correo']))][0];
                     const platFound = matches[0]['Streaming'] || 'Streaming';
-                    const passToSend = filters.new_password || matches[0]['clave'] || matches[0]['Clave'] || 'La actual';
+                    const passToSend = filters.new_password || matches[0]['contraseña'] || matches[0]['clave'] || matches[0]['Clave'] || 'La actual';
                     
                     filteredData = {
                         status: "pending_confirmation",

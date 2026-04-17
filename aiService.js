@@ -552,8 +552,8 @@ async function parseAdminQueryIntent(query) {
 
     Reglas de 'action':
     - Si el mensaje es una confirmación afirmativa como "sí", "si", "dale", "proceder", "adelante", "confirmar", es "confirm_action".
-    - Si pide enviar, notificar o dar credenciales a "todos los usuarios de esta cuenta" o "enviar esta clave a los de este correo", es "broadcast_credentials". Si lo pide, extrae el correo/cuenta a "generic_search".
-    - Si pide "dame la cuenta de...", "que cuentas tiene...", es "search_customer".
+    - Si pide "envía", "notifica", "pasa", "reparte" o dar credenciales a "todos", es "broadcast_credentials". Prioriza esta acción si hay un verbo de envío o acción hacia el cliente.
+    - Si pide "dame la cuenta de...", "que cuentas tiene...", "tienes la cuenta de...", "busca el correo...", es "search_customer".
     - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
     - Si pide "historico", "que cuentas ha tenido...", es "check_history".
     - Si pide "cuantas hay en total", "resumen de...", "cuentas totales", es "summary_stats".

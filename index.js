@@ -852,8 +852,8 @@ async function processIncomingMessage(message) {
                       
                       let exitosos = 0;
                       for (const r of payload.recipients) {
-                          const tel = r.tel.toString().replace(/\D/g, '');
-                          const targetUser = `57${tel.startsWith('57') ? tel.substring(2) : tel}@c.us`;
+                          const telRaw = (r.tel || '').toString().replace(/\D/g, '');
+                          const targetUser = `57${telRaw.startsWith('57') ? telRaw.substring(2) : telRaw}@c.us`;
                           const msg = `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${payload.platform}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado previamente'}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
                           
                           try {
