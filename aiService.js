@@ -539,7 +539,7 @@ async function parseAdminQueryIntent(query) {
 
     Salida esperada usando estricto JSON:
     {
-      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "general_query",
+      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "general_query",
       "filters": {
         "name": string | null, // Nombre del cliente si menciona alguno (ej. pepito perez)
         "platform": string | null, // Plataforma de streaming si menciona (ej. netflix, hbo, prime, max, disney, etc.)
@@ -551,6 +551,7 @@ async function parseAdminQueryIntent(query) {
     }
 
     Reglas de 'action':
+    - Si el mensaje es una confirmación afirmativa como "sí", "si", "dale", "proceder", "adelante", "confirmar", es "confirm_action".
     - Si pide enviar, notificar o dar credenciales a "todos los usuarios de esta cuenta" o "enviar esta clave a los de este correo", es "broadcast_credentials". Si lo pide, extrae el correo/cuenta a "generic_search".
     - Si pide "dame la cuenta de...", "que cuentas tiene...", es "search_customer".
     - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
@@ -592,6 +593,8 @@ async function generateAdminReport(query, dataContext) {
     
     Reglas:
     - Sé directo, profesional, pero amigable. Usa formato de WhatsApp (*negrita*, emojis).
+    - **IMPORTANTE (Confirmación)**: Si el JSON tiene status "pending_confirmation", informa al administrador que se han encontrado coincidencias (especifica cuántas y para qué cuenta) y pregúntale explícitamente si desea proceder con el envío de las credenciales (debe decir "Sí" o similar). Lista los perfiles involucrados.
+    - **IMPORTANTE (Sugerencia)**: Si el JSON tiene status "suggestion", explica amistosamente que no encontraste el correo en la plataforma pedida, pero sí en otras, y pregúntale si se refiere a alguna de esas.
     - Si te pide los datos de una o más cuentas libres, dáselos de forma organizada (correo, clave, pin si aplica).
     - Si te pide un resumen ("cuántas hay libres"), dáselo de forma contada e inteligible agrupado por plataforma.
     - Si te pregunta por el histórico de alguien, resume las cuentas que ha tenido de forma clara.

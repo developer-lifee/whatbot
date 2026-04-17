@@ -124,55 +124,66 @@ async function processAdminQuery(message, query, userStates, client) {
                     filteredData = { resumen_estadisticas: filteredSummary };
                 } else filteredData = { resumen_estadisticas: summary };
             } else if (action === 'broadcast_credentials') {
-                let emailsToNotify = [];
-                const accountQuery = filters.generic_search ? filters.generic_search.toLowerCase() : "";
-                
-                filteredData = rawData.filter(row => {
+                const accountQuery = filters.generic_search ? filters.generic_search.toLowerCase().trim() : "";
+                const platformFilter = filters.platform ? filters.platform.toLowerCase().trim() : null;
+
+                // 1. BÚSQUEDA SMART (Fuzzy)
+                let matches = rawData.filter(row => {
                     const correoStr = (row['correo'] || row['Correo'] || '').toString().toLowerCase();
                     const platStr = (row['Streaming'] || '').toString().toLowerCase();
                     const numeroStr = (row['numero'] || '').toString().trim();
-                    const numMatch = numeroStr.length >= 8;
+                    const hasNum = numeroStr.length >= 8;
 
-                    let match = false;
-                    if (accountQuery && correoStr.includes(accountQuery)) match = true;
-                    if (filters.platform && !platStr.includes(filters.platform.toLowerCase())) match = false;
+                    // Si no pasamos nada, no machea nada
+                    if (!accountQuery) return false;
+
+                    // Macheo de correo (Fuzzy)
+                    const correoMatch = correoStr.includes(accountQuery);
                     
-                    if (match && numMatch) {
-                       emailsToNotify.push(row);
+                    // Si especificó plataforma, debe coincidir
+                    let platMatch = true;
+                    if (platformFilter) {
+                        platMatch = platStr.includes(platformFilter);
                     }
-                    return match;
+                    
+                    return correoMatch && platMatch && hasNum;
                 });
-                
-                if (emailsToNotify.length > 0) {
-                    let enviosExitosos = 0;
-                    for (const row of emailsToNotify) {
-                        const tel = row['numero'].toString().replace(/\D/g, '');
-                        const targetUser = `57${tel.startsWith('57') ? tel.substring(2) : tel}@c.us`;
-                        const plataforma = row['Streaming'] || 'streaming';
-                        const correo = row['correo'] || row['Correo'] || accountQuery;
-                        const clave = filters.new_password || row['clave'] || row['Clave'] || 'La actual en sistema';
-                        const perfil = row['pin perfil'] || row['Perfil'] || row['Nombre'] || 'Asignado previamente';
-                        
-                        const msg = `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${plataforma}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${correo}\n🔑 *Clave:* ${clave}\n👤 *Perfil:* ${perfil}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
-                        
-                        try {
-                            await client.sendMessage(targetUser, msg);
-                            enviosExitosos++;
-                        } catch(e) {
-                            console.error("Error enviando broadcast a", targetUser, e);
-                        }
+
+                // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para ver si el admin se equivocó de sitio
+                if (matches.length === 0 && accountQuery && platformFilter) {
+                    const altMatches = rawData.filter(row => (row['correo'] || row['Correo'] || '').toString().toLowerCase().includes(accountQuery));
+                    if (altMatches.length > 0) {
+                        const platsEncontradas = [...new Set(altMatches.map(r => r['Streaming']))].join(', ');
+                        filteredData = { 
+                            status: "suggestion", 
+                            message: `No encontré el correo "${accountQuery}" en ${platformFilter}, pero sí lo encontré en: ${platsEncontradas}. ¿Querías enviárselo a alguno de esos?` 
+                        };
+                    } else {
+                        filteredData = { status: "error", message: `No pude encontrar nada parecido a "${accountQuery}" en ninguna plataforma.` };
                     }
+                } else if (matches.length > 0) {
+                    // MODO PREVIEW: No enviamos nada aún.
+                    const uniqueAccount = [...new Set(matches.map(m => m['correo'] || m['Correo']))][0];
+                    const platFound = matches[0]['Streaming'] || 'Streaming';
+                    const passToSend = filters.new_password || matches[0]['clave'] || matches[0]['Clave'] || 'La actual';
+                    
                     filteredData = {
-                        status: "success",
-                        message: `🚀 Operación exitosa: Se enviaron las nuevas credenciales a ${enviosExitosos} usuarios vinculados a la cuenta ${accountQuery} (${filters.platform || 'General'}).`,
-                        detalles: emailsToNotify.map(r => ({ numero: r['numero'], perfil: r['Nombre'] }))
+                        status: "pending_confirmation",
+                        action_type: "broadcast",
+                        target_account: uniqueAccount,
+                        platform: platFound,
+                        new_password: passToSend,
+                        count: matches.length,
+                        recipients: matches.map(m => ({ tel: m['numero'], perfil: m['Nombre'] || m['pin perfil'] }))
                     };
                 } else {
-                    filteredData = {
-                        status: "error",
-                        message: `No se encontraron clientes asociados a la cuenta "${accountQuery}" que tuvieran un número de teléfono válido registrado en Excel.`
-                    };
+                    filteredData = { status: "error", message: `No encontré ningún usuario válido (con teléfono) asociado a "${accountQuery}".` };
                 }
+
+            } else if (action === 'confirm_action') {
+                // Esta acción se activa cuando el admin dice "sí", "dale" etc.
+                // El index.js se encarga de recuperar el payload del estado
+                filteredData = { status: "ready_to_confirm" };
             } else {
                 if (filters.generic_search) {
                      filteredData = rawData.filter(row => JSON.stringify(row).toLowerCase().includes(filters.generic_search.toLowerCase()));

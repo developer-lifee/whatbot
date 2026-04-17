@@ -831,7 +831,48 @@ async function processIncomingMessage(message) {
       const query = message.body.substring(5).trim();
       if (query.length > 0) {
           const { processAdminQuery } = require('./adminQueries');
-          await processAdminQuery(message, query, userStates, client);
+          const result = await processAdminQuery(message, query, userStates, client);
+          
+          if (result && result.filteredData) {
+              const data = result.filteredData;
+              // Si es un preview de broadcast, guardamos el payload en el estado del admin
+              if (data.status === 'pending_confirmation') {
+                  userStates.set(userId, { 
+                      state: 'awaiting_admin_broadcast_confirmation', 
+                      payload: data,
+                      timestamp: Date.now() 
+                  });
+              } 
+              // Si es una confirmación exitosa, ejecutamos el envío real
+              else if (data.status === 'ready_to_confirm') {
+                  const adminState = userStates.get(userId);
+                  if (adminState && adminState.state === 'awaiting_admin_broadcast_confirmation') {
+                      const payload = adminState.payload;
+                      await message.reply(`🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
+                      
+                      let exitosos = 0;
+                      for (const r of payload.recipients) {
+                          const tel = r.tel.toString().replace(/\D/g, '');
+                          const targetUser = `57${tel.startsWith('57') ? tel.substring(2) : tel}@c.us`;
+                          const msg = `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${payload.platform}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado previamente'}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                          
+                          try {
+                              await client.sendMessage(targetUser, msg);
+                              exitosos++;
+                              // Pequeño delay para no saturar
+                              await new Promise(res => setTimeout(res, 500));
+                          } catch(e) {
+                              console.error(`[Admin Broadcast] Error enviando a ${targetUser}:`, e.message);
+                          }
+                      }
+                      
+                      await message.reply(`✅ *Envío completado exitosamente.*\n- Total: ${payload.count}\n- Enviados: ${exitosos}`);
+                      userStates.delete(userId); // Limpiamos estado
+                  } else {
+                      await message.reply("❌ No tengo ninguna acción pendiente para confirmar. Por favor, solicita el reporte o el broadcast primero.");
+                  }
+              }
+          }
           return;
       }
   }
