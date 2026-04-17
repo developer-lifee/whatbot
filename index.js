@@ -833,24 +833,42 @@ async function processIncomingMessage(message) {
   // Permitimos consultas en grupos si empiezan con @bot y vienen del admin, 
   // O si el admin está en medio de una confirmación o selección (sin necesidad de @bot)
   if (realPhone.includes('3133890800') && message.body && (message.body.toLowerCase().startsWith('@bot ') || isAwaitingAdminConfirm || isAwaitingAdminSuggestion)) {
+      // Resolución de texto de consulta
       let queryText = message.body.toLowerCase().startsWith('@bot ') ? message.body.substring(5).trim() : message.body.trim();
-      
+      const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(queryText.toLowerCase());
+
       if (queryText.length > 0) {
           const { processAdminQuery } = require('./adminQueries');
           
-          // Lógica especial para re-procesar sugerencias
-          if (isAwaitingAdminSuggestion && !message.body.toLowerCase().startsWith('@bot ')) {
-              const originalFilters = adminState.originalFilters;
-              originalFilters.platform = queryText; 
-              const { fetchRawData } = require('./apiService');
-              const rawData = await fetchRawData();
-              const resultDirect = await processAdminQuery(message, queryText, userStates, client, originalFilters, rawData);
-              if (resultDirect && resultDirect.filteredData) {
-                  await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+          // --- CASO 1: Respuesta afirmativa ("si", "dale") ---
+          if (isAffirmative && (isAwaitingAdminConfirm || isAwaitingAdminSuggestion)) {
+              if (isAwaitingAdminSuggestion) {
+                  // Si hay una sola opción, la tomamos. Si hay varias, "si" es ambiguo (dejamos que falle o pida clarificación)
+                  if (adminState.payload && adminState.payload.options && adminState.payload.options.length === 1) {
+                      const selectedPlatform = adminState.payload.options[0];
+                      const { fetchRawData } = require('./apiService');
+                      const rawData = await fetchRawData();
+                      const resultDirect = await processAdminQuery(message, selectedPlatform, userStates, client, adminState.originalFilters, rawData);
+                      if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+                      return;
+                  }
               }
+              // Si es para confirmar broadcast (o si el flujo de arriba cayó aquí), procesamos como confirmación
+              const result = await processAdminQuery(message, queryText, userStates, client);
+              if (result && result.filteredData) await handleAdminResultLogic(result.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
               return;
           }
 
+          // --- CASO 2: Selección directa de plataforma en estado de sugerencia ---
+          if (isAwaitingAdminSuggestion && !isAffirmative && !message.body.toLowerCase().startsWith('@bot ')) {
+              const { fetchRawData } = require('./apiService');
+              const rawData = await fetchRawData();
+              const resultDirect = await processAdminQuery(message, queryText, userStates, client, adminState.originalFilters, rawData);
+              if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+              return;
+          }
+
+          // --- CASO 3: Consulta general ---
           const result = await processAdminQuery(message, queryText, userStates, client);
           if (result && result.filteredData) {
               await handleAdminResultLogic(result.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
@@ -863,10 +881,17 @@ async function processIncomingMessage(message) {
    * Procesa el resultado de un comando administrativo (Dashboard)
    */
   async function handleAdminResultLogic(data, userId, userStates, message, isAwaitingAdminConfirm, adminState) {
+      console.log(`[Admin Dashboard DEBUG] handleAdminResultLogic: status=${data.status}, isAwaitingConfirm=${!!isAwaitingAdminConfirm}, hasState=${!!adminState}, state=${adminState ? adminState.state : 'none'}`);
+      
       if (data.status === 'pending_confirmation') {
           userStates.set(userId, { state: 'awaiting_admin_broadcast_confirmation', payload: data, timestamp: Date.now() });
       } else if (data.status === 'suggestion') {
-          userStates.set(userId, { state: 'awaiting_admin_suggestion_selection', originalFilters: data.originalFilters, timestamp: Date.now() });
+          userStates.set(userId, { 
+              state: 'awaiting_admin_suggestion_selection', 
+              originalFilters: data.originalFilters, 
+              payload: { options: data.options }, // Guardamos las opciones para el "si"
+              timestamp: Date.now() 
+          });
       } else if (data.status === 'ready_to_confirm') {
           if (isAwaitingAdminConfirm && adminState.payload) {
               const payload = adminState.payload;

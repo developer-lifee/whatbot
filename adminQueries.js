@@ -133,44 +133,36 @@ async function processAdminQuery(message, query, userStates, client) {
                 const accountQuery = filters.generic_search ? filters.generic_search.toLowerCase().trim() : "";
                 const platformFilter = filters.platform ? filters.platform.toLowerCase().trim() : null;
 
+                // Función de normalización para matches "gordos" (ignora espacios, puntos, etc.)
+                const cln = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+
                 // 1. BÚSQUEDA SMART (Fuzzy)
                 let matches = rawData.filter(row => {
-                    const correoStr = (row['correo'] || row['Correo'] || '').toString().toLowerCase();
-                    const nombreStr = (row['Nombre'] || '').toString().toLowerCase();
-                    const platStr = (row['Streaming'] || row['streaming'] || '').toString().toLowerCase();
+                    const correoStr = row['correo'] || row['Correo'] || '';
+                    const nombreStr = row['Nombre'] || row['nombre'] || '';
+                    const platStr = row['Streaming'] || row['streaming'] || '';
                     const numeroStr = (row['numero'] || '').toString().trim();
                     const hasNum = numeroStr.length >= 8;
 
-                    // Si no pasamos nada, no machea nada
                     if (!accountQuery) return false;
 
-                    // Macheo de correo o nombre (Fuzzy)
-                    const accountMatch = correoStr.includes(accountQuery) || nombreStr.includes(accountQuery);
-                    
-                    // Si especificó plataforma, debe coincidir
-                    let platMatch = true;
-                    if (platformFilter) {
-                        platMatch = platStr.includes(platformFilter);
-                    }
+                    const accountMatch = cln(correoStr).includes(cln(accountQuery)) || cln(nombreStr).includes(cln(accountQuery));
+                    const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
                     
                     return accountMatch && platMatch && hasNum;
                 });
 
-                // Función de normalización interna para maches más gorda
-                const normalizePlat = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
-
-                // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para ver si el admin se equivocó de sitio
-                const normalizedFilter = platformFilter ? normalizePlat(platformFilter) : null;
-
+                // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para sugerir alternativas
                 if (matches.length === 0 && accountQuery && platformFilter) {
-                    const altMatches = rawData.filter(row => normalizePlat(row['correo'] || row['Correo']).includes(normalizePlat(accountQuery)));
+                    const altMatches = rawData.filter(row => cln(row['correo'] || row['Correo'] || '').includes(cln(accountQuery)));
                     if (altMatches.length > 0) {
-                        const platsEncontradas = [...new Set(altMatches.map(r => r['Streaming']))];
+                        const platsEncontradas = [...new Set(altMatches.map(r => r['Streaming'] || 'Otro'))];
                         filteredData = { 
                             status: "suggestion", 
-                            message: `No encontré el correo "${accountQuery}" en ${platformFilter}, pero sí lo encontré en: ${platsEncontradas.join(', ')}. ¿Querías enviárselo a alguno de esos? 🤔`,
+                            message: `No encontré el correo "${accountQuery}" en ${platformFilter}, pero sí lo encontré en: ${platsEncontradas.join(', ')}. ¿Te referías a alguna de estas plataformas? 🤔`,
                             originalFilters: filters,
-                            options: platsEncontradas
+                            options: platsEncontradas,
+                            options_count: platsEncontradas.length
                         };
                     } else {
                         filteredData = { status: "error", message: `No pude encontrar nada parecido a "${accountQuery}" en ninguna plataforma.` };
