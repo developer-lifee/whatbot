@@ -200,8 +200,12 @@ async function processAdminQuery(message, query, userStates, client) {
 
                     // FILTRO: Solo si está ACTIVO (no ha vencido)
                     let isActive = false;
-                    if (row.deben && !isNaN(parseFloat(row.deben))) {
-                        const excelDate = parseFloat(row.deben);
+                    
+                    // Priorizamos 'deben' (vencimiento cliente), luego 'Vencimiento' (vencimiento cuenta/proveedor)
+                    const dateValue = row.deben || row['Vencimiento'] || row['vencimiento'];
+                    
+                    if (dateValue && !isNaN(parseFloat(dateValue))) {
+                        const excelDate = parseFloat(dateValue);
                         const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
                         const today = new Date();
                         today.setHours(0,0,0,0);
@@ -212,9 +216,15 @@ async function processAdminQuery(message, query, userStates, client) {
                         if (compareDate.getTime() >= today.getTime()) isActive = true;
                     }
                     
+                    // Si es una cuenta 'libre' o sin nombre real, no enviamos broadcast
+                    const statusStr = (row['Estado'] || row['estado'] || '').toString().toLowerCase();
+                    const isLibre = statusStr.includes('libre') || nombreStr.toLowerCase() === 'libre' || nombreStr.trim() === '';
+                    if (isLibre) isActive = false;
+                    
                     // Solo pasan los que estén activos (incluyendo owners si están al día)
                     return isActive;
                 });
+
 
                 // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para sugerir alternativas
                 if (matches.length === 0 && accountQuery && platformFilter) {
