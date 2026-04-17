@@ -226,15 +226,25 @@ async function updateExcelData(rowNumber, updates) {
  * @returns {Promise<Array>} - El array de plataformas y problemas técnicos.
  */
 async function getSupportKnowledge() {
-            const localData = fs.readFileSync(localPath, 'utf8');
-            return JSON.parse(localData);
-        }
+  const localPath = path.join(__dirname, 'support.json');
+  try {
+    const response = await fetch(SUPPORT_API_URL);
+    if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
+    return await response.json();
+  } catch (error) {
+    console.warn("[API Service] No se pudo obtener soporte remoto, intentando local...");
+    try {
+      if (fs.existsSync(localPath)) {
+        const localData = fs.readFileSync(localPath, 'utf8');
+        return JSON.parse(localData);
+      }
     } catch (localError) {
-        console.error("[API Service] Error crítico: No se pudo cargar ni la base remota ni la local.", localError.message);
+      console.error("[API Service] Error crítico: No se pudo cargar ni la base remota ni la local.", localError.message);
     }
     return [];
   }
 }
+
 
 module.exports = {
   fetchRawData,
