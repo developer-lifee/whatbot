@@ -1196,19 +1196,30 @@ async function processIncomingMessage(message) {
           return;
       }
       
-      if (detection.intent === 'comprar') {
-          // Priorizamos la venta: Si ya tenemos algún nombre (venga de contactos o de la IA), seguimos adelante.
-          // Solo bloqueamos si no sabemos absolutamente nada de quién es.
-          if (!foundName) {
-              await message.reply(`🤖 ¡Hola! Con gusto te ayudo con tu compra. ¿Me podrías regalar tu nombre y apellido completo para registrarte oficialmente? 😊`);
-              userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
-              return;
-          }
-          userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
-          await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
-          await startPurchaseProcess(message, userId, userStates);
-          return;
-      } else if (detection.intent === 'credenciales') {
+       if (detection.intent === 'comprar') {
+           // Priorizamos la venta: Si ya tenemos algún nombre (venga de contactos o de la IA), seguimos adelante.
+           if (!foundName) {
+               await message.reply(`🤖 ¡Hola! Con gusto te ayudo con tu compra. ¿Me podrías regalar tu nombre y apellido completo para registrarte oficialmente? 😊`);
+               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
+               return;
+           }
+
+           // OPTIMIZACIÓN: Si el usuario ya especificó qué quiere desde el saludo (ej. "Hola, Netflix")
+           // Saltamos el menú de selección de plataformas y vamos directo a la cotización detallada.
+           if (detection.detectedPlatform) {
+               console.log(`[Flow Optimization] Saltando menú de plataformas para @${userId}. Plataforma detectada: ${detection.detectedPlatform}`);
+               userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
+               await message.reply(`🤖 ¡Perfecto ${foundName}! Detectamos tu interés en *${detection.detectedPlatform}*. Permíteme calcular los planes disponibles...`);
+               await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+               return;
+           }
+
+           // Flujo estándar con menú
+           userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
+           await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
+           await startPurchaseProcess(message, userId, userStates);
+           return;
+       } else if (detection.intent === 'credenciales') {
           if (!foundName) {
               await message.reply(`🤖 ¡Hola! Con gusto te ayudo. Para buscar tus cuentas de forma segura, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
