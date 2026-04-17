@@ -1244,7 +1244,8 @@ async function processIncomingMessage(message) {
 
       // 5. MANEJO DE INTENCIONES
       if (detection.intent === 'cierre') {
-          console.log(`[Cierre] Intent 'cierre' detectado para ${userId}. Silenciando respuesta.`);
+          console.log(`[Cierre] Intent 'cierre' detectado para ${userId}. Enviando despedida.`);
+          await message.reply("🤖 Oh, entiendo perfectamente. Lamento mucho que hoy no podamos continuar con tu servicio. 😔\n\nEn Sheerit siempre buscamos mejorar: ¿podrías contarnos brevemente la razón de tu decisión? Tu opinión nos ayuda mucho a ser mejores. ¡Igual aquí tienes tu casa para cuando decidas volver! 👋");
           userStates.delete(userId);
           return;
       }

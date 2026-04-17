@@ -498,6 +498,14 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale").
     - "desconocido": Sin intención clara.
 
+    Regla de Intents:
+    - "comprar": El usuario quiere adquirir un servicio nuevo o renovar.
+    - "credenciales": El usuario pide sus datos de acceso ("mi cuenta", "pásame el pin").
+    - "pagar": El usuario pregunta cómo pagar or envía un comprobante.
+    - "soporte": Problemas técnicos, fallas, login, etc.
+    - "cierre": El usuario indica que NO va a renovar, que quiere cancelar el servicio, que "deja así" o "ya no lo va a usar".
+    - "desconocido": Otros temas.
+
     Lógica de recuperación ("recoveredState"):
     - "awaiting_payment_method": 
         * Caso A: Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
