@@ -166,20 +166,16 @@ async function processAdminQuery(message, query, userStates, client) {
 
                     if (!accountQuery) return false;
 
-                    // CONDICIÓN: Excluir Owners (ej: spotify owner)
+                    // DETECTAR: Owners (ej: spotify owner)
                     const isOwner = platStr.toLowerCase().includes('owner') || nombreStr.toLowerCase().includes('owner');
-                    if (isOwner) return false;
-
+                    
                     // CONDICIÓN: Match de Correo o Nombre
                     const accountMatch = cln(correoStr).includes(cln(accountQuery)) || cln(nombreStr).includes(cln(accountQuery));
                     const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
                     
                     if (!(accountMatch && platMatch && hasNum)) return false;
 
-                    // FILTRO ADICIONAL: Solo si está vencido o por vencer (opcional, pero sugerido por el usuario)
-                    // Por ahora dejamos pasar todos los que coincidan para que el admin decida en el preview, 
-                    // pero marcamos o filtramos los que realmente necesitan aviso.
-                    // "el broadcast envia a los que la tienen vencida"
+                    // FILTRO ADICIONAL: Solo si está vencido o por vencer
                     let isExpired = false;
                     if (row.deben && !isNaN(parseFloat(row.deben))) {
                         const excelDate = parseFloat(row.deben);
@@ -191,9 +187,9 @@ async function processAdminQuery(message, query, userStates, client) {
                         if (compareDate.getTime() <= today.getTime()) isExpired = true;
                     }
                     
-                    // Si el usuario dijo "el broadcast envia a los que la tienen vencida", 
-                    // aplicamos el filtro restrictivo de vencimiento.
-                    return isExpired;
+                    // IMPORTANTE: Los owners SIEMPRE pasan si el match es correcto, 
+                    // los demás pasan si están vencidos.
+                    return isOwner || isExpired;
                 });
 
                 // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para sugerir alternativas
@@ -227,12 +223,17 @@ async function processAdminQuery(message, query, userStates, client) {
                         only_fields: filters.only_fields || null,
                         count: matches.length,
                         // Guardamos más datos para que el mensaje sea más rico (Pin, Factura, etc.)
-                        recipients: matches.map(m => ({ 
-                            tel: m['numero'], 
-                            nombre: m['Nombre'] || m['nombre'] || 'Cliente',
-                            pin_perfil: m['pin perfil'] || m['pin_perfil'] || m['perfil'] || m['pin'] || null,
-                            vencimiento: m['vencimiento'] || m['Vencimiento'] || null
-                        }))
+                        recipients: matches.map(m => {
+                            const platMatched = (m['Streaming'] || m['streaming'] || '').toString().toLowerCase();
+                            const nameMatched = (m['Nombre'] || m['nombre'] || '').toString().toLowerCase();
+                            return { 
+                                tel: m['numero'], 
+                                nombre: m['Nombre'] || m['nombre'] || 'Cliente',
+                                pin_perfil: m['pin perfil'] || m['pin_perfil'] || m['perfil'] || m['pin'] || null,
+                                vencimiento: m['vencimiento'] || m['Vencimiento'] || null,
+                                is_owner: platMatched.includes('owner') || nameMatched.includes('owner')
+                            };
+                        })
                     };
                 } else {
                     filteredData = { status: "error", message: `No encontré ningún usuario válido (con teléfono) asociado a "${accountQuery}".` };
