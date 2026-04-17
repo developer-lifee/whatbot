@@ -156,20 +156,44 @@ async function processAdminQuery(message, query, userStates, client) {
                 // Función de normalización para matches "gordos" (ignora espacios, puntos, etc.)
                 const cln = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
 
-                // 1. BÚSQUEDA SMART (Fuzzy)
+                // 1. BÚSQUEDA SMART (Fuzzy) con filtro de OWNERS y VENCIMIENTO
                 let matches = rawData.filter(row => {
-                    const correoStr = row['correo'] || row['Correo'] || '';
-                    const nombreStr = row['Nombre'] || row['nombre'] || '';
-                    const platStr = row['Streaming'] || row['streaming'] || '';
+                    const correoStr = (row['correo'] || row['Correo'] || '').toString();
+                    const nombreStr = (row['Nombre'] || row['nombre'] || '').toString();
+                    const platStr = (row['Streaming'] || row['streaming'] || '').toString();
                     const numeroStr = (row['numero'] || '').toString().trim();
                     const hasNum = numeroStr.length >= 8;
 
                     if (!accountQuery) return false;
 
+                    // CONDICIÓN: Excluir Owners (ej: spotify owner)
+                    const isOwner = platStr.toLowerCase().includes('owner') || nombreStr.toLowerCase().includes('owner');
+                    if (isOwner) return false;
+
+                    // CONDICIÓN: Match de Correo o Nombre
                     const accountMatch = cln(correoStr).includes(cln(accountQuery)) || cln(nombreStr).includes(cln(accountQuery));
                     const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
                     
-                    return accountMatch && platMatch && hasNum;
+                    if (!(accountMatch && platMatch && hasNum)) return false;
+
+                    // FILTRO ADICIONAL: Solo si está vencido o por vencer (opcional, pero sugerido por el usuario)
+                    // Por ahora dejamos pasar todos los que coincidan para que el admin decida en el preview, 
+                    // pero marcamos o filtramos los que realmente necesitan aviso.
+                    // "el broadcast envia a los que la tienen vencida"
+                    let isExpired = false;
+                    if (row.deben && !isNaN(parseFloat(row.deben))) {
+                        const excelDate = parseFloat(row.deben);
+                        const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+                        const today = new Date();
+                        today.setHours(0,0,0,0);
+                        const compareDate = new Date(jsDate);
+                        compareDate.setHours(0,0,0,0);
+                        if (compareDate.getTime() <= today.getTime()) isExpired = true;
+                    }
+                    
+                    // Si el usuario dijo "el broadcast envia a los que la tienen vencida", 
+                    // aplicamos el filtro restrictivo de vencimiento.
+                    return isExpired;
                 });
 
                 // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para sugerir alternativas
@@ -205,8 +229,8 @@ async function processAdminQuery(message, query, userStates, client) {
                         // Guardamos más datos para que el mensaje sea más rico (Pin, Factura, etc.)
                         recipients: matches.map(m => ({ 
                             tel: m['numero'], 
-                            perfil: m['Nombre'] || m['pin perfil'] || 'Asignado',
-                            pin: m['pin perfil'] || m['pin'] || m['Pin'] || null,
+                            nombre: m['Nombre'] || m['nombre'] || 'Cliente',
+                            pin_perfil: m['pin perfil'] || m['pin_perfil'] || m['perfil'] || m['pin'] || null,
                             vencimiento: m['vencimiento'] || m['Vencimiento'] || null
                         }))
                     };

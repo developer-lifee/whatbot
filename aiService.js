@@ -567,7 +567,7 @@ async function parseAdminQueryIntent(query) {
         "generic_search": string | null, // Para correos o dominios (ej. mirringadiagama@gmail.com)
         "new_password": string | null, // Si el administrador incluye una nueva contraseña para enviar en el broadcast
         "custom_message": string | null, // Si el administrador pide enviar un texto específico (ej. "con el mensaje: 'Hola amigo'")
-        "only_fields": string[] | null // Si el administrador pide enviar SOLO ciertos datos específicos (ej: ["pin"], ["clave"], ["perfil"]). Si pide todo o no especifica, pon null.
+        "only_fields": string[] | null // Si el administrador pide enviar SOLO ciertos datos específicos (ej: ["pin perfil"], ["clave"], ["perfil"]). Nota: "pin perfil" suele ser un solo campo en esta base de datos. Si pide todo o no especifica, pon null.
       }
     }
 
@@ -614,9 +614,9 @@ async function generateAdminReport(query, dataContext) {
     
     Reglas:
     - Sé directo, profesional, pero amigable. Usa formato de WhatsApp (*negrita*, emojis).
-    - **IMPORTANTE (Confirmación)**: Si el JSON tiene status "pending_confirmation", informa al administrador que se han encontrado coincidencias (especifica cuántas y para qué cuenta) y pregúntale explícitamente si desea proceder con el envío de las credenciales (debe decir "Sí" o similar). Lista los perfiles involucrados.
+    - **IMPORTANTE (Confirmación)**: Si el JSON tiene status "pending_confirmation", informa al administrador que se han encontrado coincidencias (especifica cuántas y para qué cuenta) y pregúntale explícitamente si desea proceder con el envío de las credenciales (debe decir "Sí" o similar). Lista los perfiles involucrados. Usa la terminología exacta del JSON para referirte a los campos (ej: si el campo es "pin perfil", llámalo así, no "pin y el perfil").
     - **IMPORTANTE (Sugerencia)**: Si el JSON tiene status "suggestion", explica amistosamente que no encontraste el correo en la plataforma pedida, pero sí en otras, y pregúntale si se refiere a alguna de esas.
-    - Si te pide los datos de una o más cuentas libres, dáselos de forma organizada (correo, clave, pin si aplica).
+    - Si te pide los datos de una o más cuentas libres, dáselos de forma organizada (correo, clave, pin perfil si aplica).
     - Si te pide un resumen ("cuántas hay libres"), dáselo de forma contada e inteligible agrupado por plataforma.
     - Si te pregunta por el histórico de alguien, resume las cuentas que ha tenido de forma clara.
     - Si en el JSON dice que no se encontraron coincidencias o que el vector está vacío ([]), dile: "No encontré información en la base de datos para los parámetros solicitados sobre: ${query}".
