@@ -39,6 +39,29 @@ async function processAdminQuery(message, query, userStates, client) {
             }
         }
 
+        // --- SHORTCUTS DIRECTOS ---
+        const cleanQuery = query.toLowerCase().replace('@bot', '').trim();
+        if (cleanQuery === 'haz los cobros' || cleanQuery === 'inicia cobranza' || cleanQuery === 'cobros automáticos') {
+            const { handleAutoCobros } = require('./billingService');
+            const GROUP_ID = '120363102144405222@g.us'; // ID del grupo admin
+            await handleAutoCobros(message, GROUP_ID, userStates, {}, client);
+            return;
+        }
+
+        if (cleanQuery === 'funciones' || cleanQuery === 'ayuda' || cleanQuery === 'comandos') {
+            const helpMsg = `🤖 *CENTRO DE AYUDA ADMINISTRATIVA*\n\nAquí tienes lo que puedo hacer por ti:\n\n` +
+                `💰 *Cobranza:* "@bot haz los cobros" (Inicia el proceso automático).\n` +
+                `🔍 *Búsqueda:* "@bot busca a [nombre]" o "@bot cuenta de [email]".\n` +
+                `📊 *Matcher:* "@bot match netflix [operador]" (Sugerencias de cupos).\n` +
+                `📡 *Broadcasting:* "@bot notifica c de [email] de [plataforma]" (Envío masivo).\n` +
+                `🕒 *Sistema:* "@bot tiempo" (Verifica el reloj del servidor).\n` +
+                `🏗️ *Diagnóstico:* "prueba de escritura" (Test de conexión con Excel).\n` +
+                `🔓 *Soporte:* "atiende a [tel]" (Libera al bot para que asuma el chat).\n\n` +
+                `_Puedes hablarme con lenguaje natural o usar estos comandos cortos._`;
+            await message.reply(helpMsg);
+            return;
+        }
+
         const intent = await parseAdminQueryIntent(query);
         console.log(`[Admin Query] Intent:`, intent);
         
@@ -239,6 +262,23 @@ async function processAdminQuery(message, query, userStates, client) {
                     filteredData = { status: "error", message: `No encontré ningún usuario válido (con teléfono) asociado a "${accountQuery}".` };
                 }
 
+            } else if (action === 'auto_cobros') {
+                const { handleAutoCobros } = require('./billingService');
+                const GROUP_ID = '120363102144405222@g.us';
+                await handleAutoCobros(message, GROUP_ID, userStates, {}, client);
+                return;
+            } else if (action === 'list_functions') {
+                const helpMsg = `🤖 *CENTRO DE AYUDA ADMINISTRATIVA*\n\nAquí tienes lo que puedo hacer por ti:\n\n` +
+                    `💰 *Cobranza:* "@bot haz los cobros" (Inicia el proceso automático).\n` +
+                    `🔍 *Búsqueda:* "@bot busca a [nombre]" o "@bot cuenta de [email]".\n` +
+                    `📊 *Matcher:* "@bot match netflix [operador]" (Sugerencias de cupos).\n` +
+                    `📡 *Broadcasting:* "@bot notifica c de [email] de [plataforma]" (Envío masivo).\n` +
+                    `🕒 *Sistema:* "@bot tiempo" (Verifica el reloj del servidor).\n` +
+                    `🏗️ *Diagnóstico:* "prueba de escritura" (Test de conexión con Excel).\n` +
+                    `🔓 *Soporte:* "atiende a [tel]" (Libera al bot para que asuma el chat).\n\n` +
+                    `_Puedes hablarme con lenguaje natural o usar estos comandos cortos._`;
+                await message.reply(helpMsg);
+                return;
             } else if (action === 'confirm_action') {
                 // Esta acción se activa cuando el admin dice "sí", "dale" etc.
                 // El index.js se encarga de recuperar el payload del estado

@@ -558,21 +558,23 @@ async function parseAdminQueryIntent(query) {
 
     Salida esperada usando estricto JSON:
     {
-      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "general_query",
+      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "auto_cobros" | "list_functions" | "general_query",
       "filters": {
-        "name": string | null, // Nombre del cliente si menciona alguno (ej. pepito perez)
-        "platform": string | null, // Plataforma de streaming si menciona (ej. netflix, hbo, prime, max, disney, etc.)
-        "status": "libre" | "ocupado" | "vencido" | null, // Si busca cuentas "libres", "disponibles", "vencidas", etc.
-        "phone": string | null, // Numero de telefono si menciona alguno
-        "generic_search": string | null, // Para correos o dominios (ej. mirringadiagama@gmail.com)
-        "new_password": string | null, // Si el administrador incluye una nueva contraseña para enviar en el broadcast
-        "custom_message": string | null, // Si el administrador pide enviar un texto específico (ej. "con el mensaje: 'Hola amigo'")
-        "only_fields": string[] | null // Si el administrador pide enviar SOLO ciertos datos específicos (ej: ["pin perfil"], ["clave"], ["perfil"]). Nota: "pin perfil" suele ser un solo campo en esta base de datos. Si pide todo o no especifica, pon null.
+        "name": string | null,
+        "platform": string | null,
+        "status": "libre" | "ocupado" | "vencido" | null,
+        "phone": string | null,
+        "generic_search": string | null,
+        "new_password": string | null,
+        "custom_message": string | null,
+        "only_fields": string[] | null
       }
     }
 
     Reglas de 'action':
     - Si el mensaje es una confirmación afirmativa o respuesta positiva como "sí", "si", "dale", "proceder", "adelante", "confirmar", "hazlo", "envíaselo", "enviaselo", es "confirm_action".
+    - Si pide "haz los cobros", "inicia cobranza", "pasa los recibos", "manda avisos", "cobros automáticos", es "auto_cobros".
+    - Si pide "funciones", "qué puedes hacer", "ayuda", "comandos", "que haces", es "list_functions".
     - Si pide "envía", "notifica", "pasa", "reparte", "manda" o dar credenciales a "todos", es "broadcast_credentials". Prioriza esta acción si hay un verbo de envío o acción hacia el cliente.
     - Si pide "dame la cuenta de...", "que cuentas tiene...", "tienes la cuenta de...", "busca el correo...", es "search_customer".
     - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
