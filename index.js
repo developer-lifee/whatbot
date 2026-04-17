@@ -875,9 +875,12 @@ async function processIncomingMessage(message) {
               for (const r of payload.recipients) {
                   const telRaw = (r.tel || '').toString().replace(/\D/g, '');
                   const targetUser = `57${telRaw.startsWith('57') ? telRaw.substring(2) : telRaw}@c.us`;
+                  const pinLine = r.pin ? `\n📌 *Pin:* ${r.pin}` : "";
+                  const perfilLine = r.perfil ? `\n👤 *Perfil:* ${r.perfil}` : "";
+
                   let msg = payload.custom_message 
-                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado'}`
-                    : `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${payload.platform}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado previamente'}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}${perfilLine}${pinLine}`
+                    : `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${payload.platform}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}${perfilLine}${pinLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
                   try {
                       await client.sendMessage(targetUser, msg);
                       exitosos++;

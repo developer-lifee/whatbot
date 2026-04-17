@@ -189,7 +189,13 @@ async function processAdminQuery(message, query, userStates, client) {
                         new_password: passToSend,
                         custom_message: filters.custom_message || null,
                         count: matches.length,
-                        recipients: matches.map(m => ({ tel: m['numero'], perfil: m['Nombre'] || m['pin perfil'] }))
+                        // Guardamos más datos para que el mensaje sea más rico (Pin, Factura, etc.)
+                        recipients: matches.map(m => ({ 
+                            tel: m['numero'], 
+                            perfil: m['Nombre'] || m['pin perfil'] || 'Asignado',
+                            pin: m['pin perfil'] || m['pin'] || m['Pin'] || null,
+                            vencimiento: m['vencimiento'] || m['Vencimiento'] || null
+                        }))
                     };
                 } else {
                     filteredData = { status: "error", message: `No encontré ningún usuario válido (con teléfono) asociado a "${accountQuery}".` };
@@ -237,9 +243,16 @@ async function processAdminQuery(message, query, userStates, client) {
         }
 
         // 3. Generar reporte con IA
+        // OPTIMIZACIÓN: Si es una confirmación de acción, no generamos reporte de IA, 
+        // dejamos que el flujo de confirmación en index.js tome el control.
+        if (filteredData.status === "ready_to_confirm") {
+            return { filteredData }; 
+        }
+
         const report = await generateAdminReport(query, filteredData);
         await message.reply(report);
 
+        return { filteredData }; 
     } catch (error) {
         console.error("Error en processAdminQuery:", error);
         await message.reply("❌ Ups, hubo un error técnico procesando tu consulta de datos.");
