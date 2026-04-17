@@ -910,10 +910,11 @@ async function processIncomingMessage(message) {
                   const only = payload.only_fields || []; 
                   const showAll = only.length === 0;
                   
-                  const isClave = showAll || r.is_owner || only.includes('clave') || only.includes('password') || only.includes('contraseña');
-                  const isPinPerfil = showAll || (!r.is_owner && (only.includes('pin perfil') || (only.includes('pin') && only.includes('perfil'))));
+                  const isClave = r.is_owner || showAll || only.includes('clave') || only.includes('password') || only.includes('contraseña');
+                  const isPinPerfil = !r.is_owner && (showAll || only.includes('pin perfil') || (only.includes('pin') && only.includes('perfil')));
                   const isPinOnly = !isPinPerfil && !r.is_owner && only.includes('pin');
                   const isPerfilOnly = !isPinPerfil && !r.is_owner && only.includes('perfil');
+
 
                   const pinPerfilLine = (r.pin_perfil && isPinPerfil) ? `\n📍 *Pin Perfil:* ${r.pin_perfil}` : "";
                   const pinLine = (r.pin_perfil && isPinOnly) ? `\n📌 *Pin:* ${r.pin_perfil}` : "";

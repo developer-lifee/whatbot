@@ -200,9 +200,10 @@ async function processAdminQuery(message, query, userStates, client) {
 
                     // FILTRO: Solo si está ACTIVO (no ha vencido)
                     let isActive = false;
+                    const isOwner = platStr.toLowerCase().includes('owner') || nombreStr.toLowerCase().includes('owner');
                     
-                    // Priorizamos 'deben' (vencimiento cliente), luego 'Vencimiento' (vencimiento cuenta/proveedor)
-                    const dateValue = row.deben || row['Vencimiento'] || row['vencimiento'];
+                    // 'deben' es para el cliente, 'Vencimiento' es para el administrador (owner)
+                    const dateValue = isOwner ? (row['Vencimiento'] || row['vencimiento']) : row.deben;
                     
                     if (dateValue && !isNaN(parseFloat(dateValue))) {
                         const excelDate = parseFloat(dateValue);
@@ -215,15 +216,17 @@ async function processAdminQuery(message, query, userStates, client) {
                         // Si la fecha de vencimiento es HOY o en el FUTURO, está activo
                         if (compareDate.getTime() >= today.getTime()) isActive = true;
                     }
+
                     
                     // Si es una cuenta 'libre' o sin nombre real, no enviamos broadcast
                     const statusStr = (row['Estado'] || row['estado'] || '').toString().toLowerCase();
                     const isLibre = statusStr.includes('libre') || nombreStr.toLowerCase() === 'libre' || nombreStr.trim() === '';
                     if (isLibre) isActive = false;
                     
-                    // Solo pasan los que estén activos (incluyendo owners si están al día)
-                    return isActive;
+                    return isActive && hasNum;
                 });
+
+
 
 
                 // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para sugerir alternativas
