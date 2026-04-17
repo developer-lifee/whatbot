@@ -200,10 +200,10 @@ async function processAdminQuery(message, query, userStates, client) {
 
                     // FILTRO: Solo si está ACTIVO (no ha vencido)
                     let isActive = false;
-                    const isOwner = platStr.toLowerCase().includes('owner') || nombreStr.toLowerCase().includes('owner');
-                    
                     // 'deben' es para el cliente, 'Vencimiento' es para el administrador (owner)
                     const dateValue = isOwner ? (row['Vencimiento'] || row['vencimiento']) : row.deben;
+
+
                     
                     if (dateValue && !isNaN(parseFloat(dateValue))) {
                         const excelDate = parseFloat(dateValue);

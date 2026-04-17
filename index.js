@@ -750,8 +750,9 @@ async function processIncomingMessage(message) {
       }
   } catch (err) {}
 
-  // Sincronizar con Google Contacts si tenemos un nombre válido y no es un mensaje del bot
-  if (!message.fromMe && foundName) {
+  // Sincronizar con Google Contacts si tenemos un nombre válido, no es un mensaje del bot y no es el administrador
+  if (!message.fromMe && foundName && !realPhone.includes('3133890800')) {
+
       const { addNewContact, searchContactByPhone } = require('./googleContactsService');
       // Solo intentar agregar si no lo encontramos por el número real
       const existingInGoogle = await searchContactByPhone(realPhone);
