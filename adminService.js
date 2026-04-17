@@ -322,7 +322,9 @@ async function getUpcomingExpirationsReport() {
                 const diffDays = Math.ceil((vencimientoDate - today) / (1000 * 60 * 60 * 24));
                 const timeStr = diffDays === 0 ? "¡HOY!" : (diffDays === 1 ? "MAÑANA" : `en ${diffDays} días`);
                 
-                report += `• *${account.Nombre || 'Cliente'}*: ${account.Streaming || 'Servicio'} - Vence ${timeStr} (${vencimientoDate.toLocaleDateString('es-ES')})\n`;
+                const correo = (account.correo || account.Correo || 'S/C').toString().trim();
+                report += `• *${correo}*: ${account.Streaming || 'Servicio'} (${account.Nombre || 'Cliente'}) - Vence ${timeStr} (${vencimientoDate.toLocaleDateString('es-ES')})\n`;
+
                 found++;
             }
         }
