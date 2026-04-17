@@ -34,6 +34,15 @@ async function processAdminQuery(message, query, userStates, client) {
         const action = intent.action;
         const filters = intent.filters || {};
         
+        // --- COMANDO DE DEPURACIÓN DE TIEMPO ---
+        if (query.toLowerCase().includes('tiempo') || query.toLowerCase().includes('hora')) {
+            const now = new Date();
+            const serverTime = now.toLocaleString('es-CO');
+            const utcTime = now.toUTCString();
+            await message.reply(`🕒 *Estado del Reloj del Servidor:*\n\n✅ *Hora Local (Bogotá):* ${serverTime}\n🌍 *Hora UTC:* ${utcTime}\n📍 *Zona Configurada:* America/Bogota\n\n_Esta es la hora que usa el bot para programar cobros (9 AM) y reportes (2 PM)._`);
+            return;
+        }
+
         let filteredData = [];
 
         // 2. Ejecutar búsqueda basada en la acción

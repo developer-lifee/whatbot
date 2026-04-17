@@ -1,12 +1,15 @@
+process.env.TZ = 'America/Bogota'; // Forzamos la zona horaria de Colombia a nivel global
+
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-// Sobrescribir consola para añadir timestamps
+
+// Sobrescribir consola para añadir timestamps con la hora local correcta
 const originalLog = console.log;
 console.log = function() {
     const now = new Date();
-    const timestamp = `[${now.toLocaleString('es-CO', { timeZone: 'America/Bogota' })}]`;
+    const timestamp = `[${now.toLocaleString('es-CO')}]`;
     originalLog.apply(console, [timestamp, ...arguments]);
 };
 const fs = require('fs');
@@ -1458,8 +1461,8 @@ async function handleMainMenuSelection(message, userId) {
       } catch (error) {
         console.error('Error enviando mensaje al grupo:', error);
       }
-      await message.reply("🤖 Un asesor te atenderá lo más pronto posible. He silenciado mis respuestas automáticas para que puedas hablar con un humano.");
-      userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
+      await message.reply("🤖 Un asesor te atenderá lo más pronto posible. He silenciado mis respuestas automáticas de charla general para que puedas hablar con un humano, pero si necesitas revisar tus cuentas o comprar algo, ¡puedes seguir usando el menú!");
+      userStates.set(userId, { state: 'waiting_human', waitingCount: 0 }); // No seteamos lastHumanInteraction para que no sea un mute absoluto
       break;
     default:
       // Si no es un número, usamos la IA para ver si tiene una duda o comentario
@@ -1573,12 +1576,37 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
 
 async function processCheckCredentials(message, userId) {
   try {
-    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); // Elimina todos los caracteres que no son dígitos
+    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); 
+    let userAccounts = await getAccountsByPhone(phoneNumber);
 
-    // Conectar a la API de Azure a través de nuestro apiService (con retries)
-    const userAccounts = await getAccountsByPhone(phoneNumber);
+    // BÚSQUEDA CRUZADA: Si no hay por teléfono, buscamos por nombre
+    if (userAccounts.length === 0) {
+        const state = userStates.get(userId);
+        const nameToSearch = state ? state.nombre : null;
+        
+        if (nameToSearch) {
+            console.log(`[Cross-Lookup] Buscando cuentas por nombre para "${nameToSearch}"...`);
+            const { fetchCustomersData } = require('./apiService');
+            const allClients = await fetchCustomersData();
+            userAccounts = allClients.filter(c => {
+               const normalizedExcelName = (c.Nombre || "").toLowerCase().trim();
+               const normalizedSearchName = nameToSearch.toLowerCase().trim();
+               return normalizedExcelName.includes(normalizedSearchName) || normalizedSearchName.includes(normalizedExcelName);
+            });
 
-    // Generar la respuesta usando IA para un tono humano
+            if (userAccounts.length > 0) {
+               const targetNum = userAccounts[0].numero || "otro número";
+               await message.reply(`🤖 No encontré servicios vinculados a este número, pero veo que tienes cuentas registradas bajo el nombre de *${userAccounts[0].Nombre}* (asociadas al número ${targetNum}). Aquí tienes el detalle:`);
+            }
+        }
+    }
+
+    if (userAccounts.length === 0) {
+        await message.reply("🤖 No encontré servicios activos vinculados a este número ni al nombre que tengo registrado. Si compraste desde otro número, por favor dímelo para ayudarte a buscar.");
+        userStates.delete(userId);
+        return;
+    }
+
     const aiResponse = await generateCredentialsResponse(userAccounts);
     await message.reply(aiResponse);
 

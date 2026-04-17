@@ -258,18 +258,18 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
   accountsToFormat.forEach(acc => {
     const streamingName = (acc.Streaming || "SERVICIO").toUpperCase();
 
-    // Excluir cuentas familiares y extras
     const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'netflix extra'];
     const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
-    if (isFamily) return;
-
+    
     const correo = acc.correo || "N/A";
-    let clave = acc["contraseña"] || "N/A";
+    let clave = acc["contraseña"] || acc["clave"] || acc["Clave"] || "N/A";
     const perfil = acc["pin perfil"] ? `${acc.Nombre || "N/A"} - ${acc["pin perfil"]}` : (acc.Nombre || "N/A");
     
     let fechaVencimiento = "Fecha desconocida";
     let isExpired = false;
 
+    // Procesar fecha de vencimiento (asumimos que existe lógica previa de deben/vencimiento)
+    // ... (reutilizamos la lógica de abajo) ...
     if (acc.deben && !isNaN(parseFloat(acc.deben))) {
         const excelDate = parseFloat(acc.deben);
         const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
@@ -289,7 +289,25 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
     } else if (acc.vencimiento) {
         fechaVencimiento = acc.vencimiento;
     }
-    
+
+    if (isFamily) {
+        const msgFamily = isExpired 
+            ? `⚠️ *SERVICIO VENCIDO*: Este servicio (${streamingName}) requiere renovación para seguir funcionando.`
+            : `ℹ️ *NOTA*: Para este servicio, recibirás una invitación por correo. La contraseña la configuras tú mismo con tu correo al aceptar la invitación. Un asesor te contactará en breve si necesitas ayuda.`;
+        
+        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nPERFIL: ${perfil}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+        return;
+    }
+
+    // LÓGICA YOPMAIL: Si el correo de cliente es yopmail, damos pasos de recuperación
+    const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").toLowerCase();
+    if (customerMail.includes("@yopmail.com")) {
+        clave = "(La configuras tú mismo siguiendo los pasos abajo)";
+        const yopInstructions = `\n\n🔑 *PASOS PARA CONFIGURAR TU CLAVE:*\n1. Ve a www.yopmail.com\n2. Ingresa el correo: *${customerMail}*\n3. En la app de ${streamingName}, pide 'Olvidé mi contraseña' a ese correo.\n4. Revisa el código en Yopmail y activa tu cuenta. 📝`;
+        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfil}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+        return;
+    }
+
     if (isExpired) {
         clave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
     }

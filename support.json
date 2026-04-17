@@ -489,5 +489,24 @@
         ]
       }
     ]
+  },
+  {
+    "id": "yopmail",
+    "name": "Recuperación Yopmail",
+    "logo": "https://yopmail.com/favicon.png",
+    "issues": [
+      {
+        "id": "recuperar_clave",
+        "title": "Recuperar clave con Yopmail",
+        "whatsappMessage": "Hola, necesito ayuda para recuperar mi clave usando el correo de Yopmail que me dieron.",
+        "steps": [
+          { "text": "Entra a www.yopmail.com desde cualquier navegador." },
+          { "text": "En el cuadro de búsqueda, escribe exactamente el correo de recuperación que te entregamos (ej. usuario@yopmail.com)." },
+          { "text": "Abre la aplicación del servicio (Netflix, Disney, etc.) y selecciona 'Olvidé mi contraseña'." },
+          { "text": "Ingresa ese mismo correo de Yopmail para que te envíen el código o enlace." },
+          { "text": "Regresa a la pestaña de Yopmail, actualiza la bandeja de entrada y sigue las instrucciones del correo para poner tu propia clave." }
+        ]
+      }
+    ]
   }
 ]
