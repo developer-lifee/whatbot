@@ -198,8 +198,8 @@ async function processAdminQuery(message, query, userStates, client) {
                     
                     if (!(accountMatch && platMatch && hasNum)) return false;
 
-                    // FILTRO ADICIONAL: Solo si está vencido o por vencer
-                    let isExpired = false;
+                    // FILTRO: Solo si está ACTIVO (no ha vencido)
+                    let isActive = false;
                     if (row.deben && !isNaN(parseFloat(row.deben))) {
                         const excelDate = parseFloat(row.deben);
                         const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
@@ -207,12 +207,13 @@ async function processAdminQuery(message, query, userStates, client) {
                         today.setHours(0,0,0,0);
                         const compareDate = new Date(jsDate);
                         compareDate.setHours(0,0,0,0);
-                        if (compareDate.getTime() <= today.getTime()) isExpired = true;
+                        
+                        // Si la fecha de vencimiento es HOY o en el FUTURO, está activo
+                        if (compareDate.getTime() >= today.getTime()) isActive = true;
                     }
                     
-                    // IMPORTANTE: Los owners SIEMPRE pasan si el match es correcto, 
-                    // los demás pasan si están vencidos.
-                    return isOwner || isExpired;
+                    // Solo pasan los que estén activos (incluyendo owners si están al día)
+                    return isActive;
                 });
 
                 // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para sugerir alternativas

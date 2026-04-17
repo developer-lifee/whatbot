@@ -226,22 +226,6 @@ async function updateExcelData(rowNumber, updates) {
  * @returns {Promise<Array>} - El array de plataformas y problemas técnicos.
  */
 async function getSupportKnowledge() {
-  try {
-    const response = await fetch(SUPPORT_API_URL);
-    if (!response.ok) {
-       throw new Error(`HTTP Error fetching support data: ${response.status}`);
-    }
-    const text = await response.text();
-    try {
-        return JSON.parse(text);
-    } catch (parseError) {
-        throw new Error("Respuesta de API no es un JSON válido (probablemente HTML/Error).");
-    }
-  } catch (error) {
-    console.error("[API Service] Error obteniendo base de soporte remota, intentando local:", error.message);
-    try {
-        const localPath = path.join(__dirname, 'support.json');
-        if (fs.existsSync(localPath)) {
             const localData = fs.readFileSync(localPath, 'utf8');
             return JSON.parse(localData);
         }
