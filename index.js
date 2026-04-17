@@ -828,63 +828,67 @@ async function processIncomingMessage(message) {
   // --- Admin Data Queries (Dashboard Conversacional) ---
   const adminState = realPhone.includes('3133890800') ? userStates.get(userId) : null;
   const isAwaitingAdminConfirm = adminState && adminState.state === 'awaiting_admin_broadcast_confirmation';
+  const isAwaitingAdminSuggestion = adminState && adminState.state === 'awaiting_admin_suggestion_selection';
   
   // Permitimos consultas en grupos si empiezan con @bot y vienen del admin, 
-  // O si el admin está en medio de una confirmación (sin necesidad de @bot)
-  if (realPhone.includes('3133890800') && message.body && (message.body.toLowerCase().startsWith('@bot ') || isAwaitingAdminConfirm)) {
-      let query = message.body.toLowerCase().startsWith('@bot ') ? message.body.substring(5).trim() : message.body.trim();
+  // O si el admin está en medio de una confirmación o selección (sin necesidad de @bot)
+  if (realPhone.includes('3133890800') && message.body && (message.body.toLowerCase().startsWith('@bot ') || isAwaitingAdminConfirm || isAwaitingAdminSuggestion)) {
+      let queryText = message.body.toLowerCase().startsWith('@bot ') ? message.body.substring(5).trim() : message.body.trim();
       
-      if (query.length > 0) {
+      if (queryText.length > 0) {
           const { processAdminQuery } = require('./adminQueries');
-          const result = await processAdminQuery(message, query, userStates, client);
           
-          if (result && result.filteredData) {
-              const data = result.filteredData;
-              // Si es un preview de broadcast, guardamos el payload en el estado del admin
-              if (data.status === 'pending_confirmation') {
-                  userStates.set(userId, { 
-                      state: 'awaiting_admin_broadcast_confirmation', 
-                      payload: data,
-                      timestamp: Date.now() 
-                  });
-              } 
-              // Si es una confirmación exitosa, ejecutamos el envío real
-              else if (data.status === 'ready_to_confirm') {
-                  if (isAwaitingAdminConfirm) {
-                      const payload = adminState.payload;
-                      await message.reply(`🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
-                      
-                      let exitosos = 0;
-                      for (const r of payload.recipients) {
-                          const telRaw = (r.tel || '').toString().replace(/\D/g, '');
-                          const targetUser = `57${telRaw.startsWith('57') ? telRaw.substring(2) : telRaw}@c.us`;
-                          
-                          // Generar mensaje (Standard o Custom)
-                          let msg = "";
-                          if (payload.custom_message) {
-                              msg = `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado'}`;
-                          } else {
-                              msg = `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${payload.platform}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado previamente'}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
-                          }
-                          
-                          try {
-                              await client.sendMessage(targetUser, msg);
-                              exitosos++;
-                              // Pequeño delay para no saturar
-                              await new Promise(res => setTimeout(res, 500));
-                          } catch(e) {
-                              console.error(`[Admin Broadcast] Error enviando a ${targetUser}:`, e.message);
-                          }
-                      }
-                      
-                      await message.reply(`✅ *Envío completado exitosamente.*\n- Total: ${payload.count}\n- Enviados: ${exitosos}`);
-                      userStates.delete(userId); // Limpiamos estado
-                  } else {
-                      await message.reply("❌ No tengo ninguna acción pendiente para confirmar. Por favor, solicita el reporte o el broadcast primero.");
-                  }
+          // Lógica especial para re-procesar sugerencias
+          if (isAwaitingAdminSuggestion && !message.body.toLowerCase().startsWith('@bot ')) {
+              const originalFilters = adminState.originalFilters;
+              originalFilters.platform = queryText; 
+              const { fetchRawData } = require('./apiService');
+              const rawData = await fetchRawData();
+              const resultDirect = await processAdminQuery(message, queryText, userStates, client, originalFilters, rawData);
+              if (resultDirect && resultDirect.filteredData) {
+                  await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
               }
+              return;
+          }
+
+          const result = await processAdminQuery(message, queryText, userStates, client);
+          if (result && result.filteredData) {
+              await handleAdminResultLogic(result.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
           }
           return;
+      }
+  }
+
+  /**
+   * Procesa el resultado de un comando administrativo (Dashboard)
+   */
+  async function handleAdminResultLogic(data, userId, userStates, message, isAwaitingAdminConfirm, adminState) {
+      if (data.status === 'pending_confirmation') {
+          userStates.set(userId, { state: 'awaiting_admin_broadcast_confirmation', payload: data, timestamp: Date.now() });
+      } else if (data.status === 'suggestion') {
+          userStates.set(userId, { state: 'awaiting_admin_suggestion_selection', originalFilters: data.originalFilters, timestamp: Date.now() });
+      } else if (data.status === 'ready_to_confirm') {
+          if (isAwaitingAdminConfirm && adminState.payload) {
+              const payload = adminState.payload;
+              await message.reply(`🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
+              let exitosos = 0;
+              for (const r of payload.recipients) {
+                  const telRaw = (r.tel || '').toString().replace(/\D/g, '');
+                  const targetUser = `57${telRaw.startsWith('57') ? telRaw.substring(2) : telRaw}@c.us`;
+                  let msg = payload.custom_message 
+                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado'}`
+                    : `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${payload.platform}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado previamente'}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                  try {
+                      await client.sendMessage(targetUser, msg);
+                      exitosos++;
+                      await new Promise(res => setTimeout(res, 500));
+                  } catch(e) { console.error(`[Admin Broadcast] Error enviando a ${targetUser}:`, e.message); }
+              }
+              await message.reply(`✅ *Envío completado exitosamente.*\n- Total: ${payload.count}\n- Enviados: ${exitosos}`);
+              userStates.delete(userId);
+          } else {
+              await message.reply("❌ No tengo ninguna acción pendiente para confirmar.");
+          }
       }
   }
 

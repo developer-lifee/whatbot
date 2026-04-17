@@ -156,14 +156,21 @@ async function processAdminQuery(message, query, userStates, client) {
                     return accountMatch && platMatch && hasNum;
                 });
 
+                // Función de normalización interna para maches más gorda
+                const normalizePlat = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+
                 // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para ver si el admin se equivocó de sitio
+                const normalizedFilter = platformFilter ? normalizePlat(platformFilter) : null;
+
                 if (matches.length === 0 && accountQuery && platformFilter) {
-                    const altMatches = rawData.filter(row => (row['correo'] || row['Correo'] || '').toString().toLowerCase().includes(accountQuery));
+                    const altMatches = rawData.filter(row => normalizePlat(row['correo'] || row['Correo']).includes(normalizePlat(accountQuery)));
                     if (altMatches.length > 0) {
-                        const platsEncontradas = [...new Set(altMatches.map(r => r['Streaming']))].join(', ');
+                        const platsEncontradas = [...new Set(altMatches.map(r => r['Streaming']))];
                         filteredData = { 
                             status: "suggestion", 
-                            message: `No encontré el correo "${accountQuery}" en ${platformFilter}, pero sí lo encontré en: ${platsEncontradas}. ¿Querías enviárselo a alguno de esos?` 
+                            message: `No encontré el correo "${accountQuery}" en ${platformFilter}, pero sí lo encontré en: ${platsEncontradas.join(', ')}. ¿Querías enviárselo a alguno de esos? 🤔`,
+                            originalFilters: filters,
+                            options: platsEncontradas
                         };
                     } else {
                         filteredData = { status: "error", message: `No pude encontrar nada parecido a "${accountQuery}" en ninguna plataforma.` };
