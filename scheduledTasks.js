@@ -36,7 +36,7 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
                 }
             };
             
-            await handleAutoCobros(fakeMessage, groupId, userStates, pendingConfirmations);
+            await handleAutoCobros(fakeMessage, groupId, userStates, pendingConfirmations, client);
             
         } catch (err) {
             console.error('❌ Error en tarea automática de las 9:00 AM:', err);

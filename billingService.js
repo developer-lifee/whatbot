@@ -35,8 +35,50 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
     : `Al día de hoy tienes vencida la cuenta de ${names[0]}. ¿Deseas renovar?`;
 
   pendingConfirmations.set(userId, records);
-  userStates.set(userId, 'awaiting_cobros_confirmation');
   await message.reply(`Recibí los siguientes cargos (tal cual los enviaste):\n\n${lines.join('\n')}\n\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`);
+}
+
+/**
+ * Función auxiliar para enviar mensajes de cobro de forma masiva con delay anti-spam.
+ */
+async function sendBulkCharges(client, records, requesterId = null) {
+  const fs = require('fs');
+  const path = require('path');
+  const file = path.join(__dirname, 'pending_charges.json');
+  
+  let existing = [];
+  try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
+  const entry = { requester: requesterId || 'SYSTEM_AUTO', records, timestamp: new Date().toISOString() };
+  existing.push(entry);
+  fs.writeFileSync(file, JSON.stringify(existing, null, 2));
+
+  let exitosos = 0;
+  for (const r of records) {
+    const dest = r.phone + '@c.us';
+    
+    let vencimientoTxt = "tu suscripción está próxima a renovarse o ya venció";
+    if (r.date || r.dateStr) {
+        const d = r.date || r.dateStr;
+        if (d === "MAÑANA") {
+           vencimientoTxt = "el día de mañana se vence tu cuenta";
+        } else {
+           vencimientoTxt = `el día ${d} se venció tu cuenta`;
+        }
+    }
+    
+    const serviceName = r.textToShow || r.services?.join(', ') || r.service || 'tus servicios';
+    
+    try {
+        await client.sendMessage(dest, `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${serviceName}\n\nEscribe *3* en este chat para conocer el valor a pagar y ver los medios de transferencia. ¡Gracias por preferirnos!`);
+        exitosos++;
+    } catch(e) {
+        console.error(`[Billing] Error enviando cobro a ${dest}:`, e.message);
+    }
+    
+    // Pausa de seguridad (3s anti-spam)
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+  return exitosos;
 }
 
 async function handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client) {
@@ -50,34 +92,10 @@ async function handleAwaitingCobrosConfirmation(message, userId, userStates, pen
         return;
       }
 
-      const file = path.join(__dirname, 'pending_charges.json');
-      let existing = [];
-      try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
-      const entry = { requester: userId, records, timestamp: new Date().toISOString() };
-      existing.push(entry);
-      fs.writeFileSync(file, JSON.stringify(existing, null, 2));
+      await message.reply(`🚀 *Iniciando envío de ${records.length} cobros confirmados...*`);
+      const exitosos = await sendBulkCharges(client, records, userId);
 
-      for (const r of records) {
-        const dest = r.phone + '@c.us';
-        
-        let vencimientoTxt = "tu suscripción está próxima a renovarse o ya venció";
-        if (r.date) {
-            if (r.date === "MAÑANA") {
-               vencimientoTxt = "el día de mañana se vence tu cuenta";
-            } else {
-               vencimientoTxt = `el día ${r.date} se venció tu cuenta`;
-            }
-        }
-        
-        const serviceName = r.textToShow || r.services?.join(', ') || 'tus servicios';
-        
-        await client.sendMessage(dest, `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${serviceName}\n\nEscribe *3* en este chat para conocer el valor a pagar y ver los medios de transferencia. ¡Gracias por preferirnos!`);
-        
-        // Pausa de seguridad (3s anti-spam)
-        await new Promise(resolve => setTimeout(resolve, 3000));
-      }
-
-      await message.reply('🤖 He guardado los cobros y he notificado a cada número individualmente.');
+      await message.reply(`🤖 He finalizado el proceso.\n- Total: ${records.length}\n- Enviados con éxito: ${exitosos}\n- Fallidos: ${records.length - exitosos}`);
       pendingConfirmations.delete(userId);
       userStates.delete(userId);
     } else if (body === 'no') {
@@ -236,7 +254,7 @@ async function processCheckPrices(message, userId, userStates) {
   }
 }
 
-async function handleAutoCobros(message, userId, userStates, pendingConfirmations) {
+async function handleAutoCobros(message, userId, userStates, pendingConfirmations, client) {
   try {
     const { fetchCustomersData } = require('./apiService');
     const clientes = await fetchCustomersData();
@@ -321,38 +339,31 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     const toReview = Array.from(toReviewUsers.values());
 
     if (toCharge.length === 0 && toReview.length === 0) {
+      await message.reply('🤖 No se encontraron cobros ni revisiones para procesar.');
       return;
     }
 
-    let replyMessage = "Recibí los siguientes cargos automáticos de Azure:\n\n";
+    // AVISAR QUE INICIAMOS
+    await message.reply(`🤖 *PROCESO AUTOMÁTICO DE COBROS INICIADO*\n\nHe encontrado ${toCharge.length} clientes listos para cobrar y ${toReview.length} que requieren revisión manual. Procedo con el envío directo...`);
 
-    if (toReview.length > 0) {
-      replyMessage += `⚠️ *REVISIÓN MANUAL (Cortes o cancelaciones):*\n`;
-      toReview.forEach(r => {
-        replyMessage += `• ${r.name} - Tel: ${r.phone}\n  Servicios a omitir: ${r.services.join(' | ')}\n`;
-      });
-      replyMessage += `(ESTOS servicios no se cobrarán automáticamente)\n\n`;
-    }
-
+    // EJECUCIÓN DIRECTA
+    let exitosos = 0;
     if (toCharge.length > 0) {
-      replyMessage += `✅ *LISTOS PARA COBRO AUTOMÁTICO:*\n`;
-      toCharge.forEach(r => {
-          replyMessage += `• ${r.name} (${r.services.join(', ')}) - Fecha: ${r.date}\n`;
-      });
-      
-      const summary = toCharge.length > 1
-        ? `Encontré ${toCharge.length} clientes con cuentas listas para cobrar. ¿Deseas enviar los avisos?`
-        : `Encontré 1 cliente con cuenta lista para cobrar. ¿Deseas enviar el aviso?`;
-      
-      replyMessage += `\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`;
-      
-      pendingConfirmations.set(userId, toCharge.map(r => ({ name: r.name, phone: r.phone, textToShow: `${r.services.join('\n')}`, date: r.date })));
-      userStates.set(userId, 'awaiting_cobros_confirmation');
-    } else {
-      replyMessage += `🤖 Todos los cobros vencidos encontrados dicen "cortar", así que no hay mensajes automáticos por enviar en este lote.`;
+        exitosos = await sendBulkCharges(client || message._client, toCharge, userId);
     }
+
+    let finalReport = `✅ *REPORTE DE EJECUCIÓN FINALIZADO*\n\n`;
+    finalReport += `- Cobros enviados: ${exitosos}/${toCharge.length}\n`;
     
-    await message.reply(replyMessage);
+    if (toReview.length > 0) {
+      finalReport += `\n⚠️ *PENDIENTES PARA REVISIÓN MANUAL (Cortes):*\n`;
+      toReview.forEach(r => {
+        finalReport += `• ${r.name} - Tel: ${r.phone}\n  Notas: ${r.services.join(' | ')}\n`;
+      });
+    }
+
+    finalReport += `\n_El bot ha terminado su tarea programada de la mañana._`;
+    await message.reply(finalReport);
 
   } catch (err) {
     console.error('Error calculando cobros automáticos:', err);
