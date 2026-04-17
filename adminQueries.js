@@ -17,13 +17,24 @@ async function processAdminQuery(message, query, userStates, client) {
         // --- ADMIN TEST COMMAND ---
         if (query.toLowerCase() === 'prueba de escritura') {
             try {
-                const { updateExcelData } = require('./apiService');
-                const testDate = new Date().toISOString();
-                await updateExcelData(2, { "Operador": "TEST EXITOSO: " + testDate });
-                await message.reply(`✅ *Prueba de escritura completada.* He inyectado "TEST EXITOSO: ${testDate}" en la columna Operador de la fila 2 de tu Excel. Ve a revisarlo.`);
+                const { updateExcelData, fetchRawData } = require('./apiService');
+                const testDate = new Date().toLocaleString('es-CO');
+                
+                // Intentamos primero con Operador (Mayúscula)
+                try {
+                    await updateExcelData(2, { "Operador": "TEST EXITOSO: " + testDate });
+                } catch (e) {
+                    console.log("[Test] Falló con 'Operador', intentando con 'operador'...");
+                    await updateExcelData(2, { "operador": "TEST EXITOSO: " + testDate });
+                }
+
+                await message.reply(`✅ *Prueba de escritura completada.* He inyectado "TEST EXITOSO: ${testDate}" en la fila 2. Por favor revisa tu Excel.`);
                 return;
             } catch (err) {
-                await message.reply(`❌ *Error en prueba de escritura*: ${err.message}`);
+                const { fetchRawData } = require('./apiService');
+                const sample = await fetchRawData();
+                const cols = sample.length > 0 ? Object.keys(sample[0]).sort().join(', ') : "Ninguna";
+                await message.reply(`❌ *Error en prueba*: ${err.message}\n\n🔍 *Columnas detectadas en tu Excel:* ${cols}\n\n_Revisa si el nombre coincide exactamente._`);
                 return;
             }
         }

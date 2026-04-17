@@ -23,7 +23,11 @@ async function fetchRawData(retries = 3, delay = 2000) {
       if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
       
       const json = await response.json();
-      return json.data || [];
+      const data = json.data || [];
+      if (data.length > 0) {
+          console.log(`[API Service] Columnas detectadas en el Excel:`, Object.keys(data[0]).join(', '));
+      }
+      return data;
       
     } catch (error) {
       console.error(`[API Service] Error al obtener datos (Intento ${i + 1}/${retries}):`, error.message);
@@ -191,6 +195,7 @@ function procesarHistoricoArray(matriz2D) {
  */
 async function updateExcelData(rowNumber, updates) {
   try {
+    console.log(`[API Service] Intentando escribir en fila ${rowNumber}:`, JSON.stringify(updates));
     const response = await fetch(AZURE_WRITE_API_URL, {
       method: 'POST',
       headers: {
@@ -200,13 +205,18 @@ async function updateExcelData(rowNumber, updates) {
     });
     
     if (!response.ok) {
-       throw new Error(`HTTP Error al escribir! Status: ${response.status}`);
+       let errorDetails = "";
+       try {
+           errorDetails = await response.text();
+       } catch(e) {}
+       console.error(`[API Service] Error HTTP ${response.status}: ${errorDetails}`);
+       throw new Error(`HTTP Error al escribir! Status: ${response.status} - ${errorDetails}`);
     }
     
     const result = await response.json();
     return result;
   } catch (error) {
-    console.error("[API Service] Error al escribir en Excel:", error);
+    console.error("[API Service] Error crítico al escribir en Excel:", error.message);
     throw error;
   }
 }

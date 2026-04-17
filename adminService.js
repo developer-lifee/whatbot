@@ -424,7 +424,9 @@ async function getNetflixMatchReport(targetIspInfo) {
         });
 
         report += `Cuentas sugeridas para emparejar (Libres o Cortables):\n`;
-        availableAccounts.slice(0, 5).forEach((acc, i) => {
+        const topSuggestions = availableAccounts.slice(0, 5);
+        
+        topSuggestions.forEach((acc, i) => {
             const cleanOps = acc.operadores.filter(op => op.trim() !== "");
             let opsStr = cleanOps.length > 0 ? cleanOps.join(", ") : "Ninguno registrado";
             if (opsStr.length > 45) opsStr = opsStr.substring(0, 42) + "...";
@@ -436,10 +438,25 @@ async function getNetflixMatchReport(targetIspInfo) {
             report += `${i + 1}. *${acc.correo}*\n   - Estado: ${status} (${acc.perfiles_activos} activos)\n   - Ref: ${opsStr}\n`;
         });
         
-        return { rawReport: report, hasStock: true };
+        return { 
+            rawReport: report, 
+            hasStock: true,
+            structuredData: topSuggestions.map(acc => ({
+                email: acc.correo,
+                active_profiles: acc.perfiles_activos,
+                expired_profiles: acc.perfiles_vencidos,
+                free_slots: acc.cupos_libres,
+                operators: acc.operadores,
+                recommended_action: acc.cupos_libres > 0 ? "ASSIGN_FREE" : "CUT_EXPIRED"
+            }))
+        };
     } catch (err) {
         console.error("Error generando match de Netflix:", err);
-        return { rawReport: "\n\n⚠️ No se pudo generar reporte predictivo de Netflix.", hasStock: false };
+        return { 
+            rawReport: "\n\n⚠️ No se pudo generar reporte predictivo de Netflix.", 
+            hasStock: false,
+            structuredData: []
+        };
     }
 }
 
