@@ -14,8 +14,28 @@ const SUPPORT_API_URL = "https://sheerit.com.co/api/support.json";
  * @returns {Promise<Array>} - Arreglo con los datos limpios de clientes.
  */
 /**
+ * Retorna la fecha actual normalizada a las 00:00:00 en la zona horaria de Bogotá (UTC-5).
+ */
+function getTodayInBogota() {
+  const dateStr = new Date().toLocaleString("en-US", {timeZone: "America/Bogota"});
+  const bogotaDate = new Date(dateStr);
+  return new Date(bogotaDate.getFullYear(), bogotaDate.getMonth(), bogotaDate.getDate());
+}
+
+/**
+ * Convierte un número serial de Excel a un objeto Date de JS normalizado a medianoche local.
+ */
+function getJsDateFromExcel(excelDate) {
+  if (!excelDate || isNaN(parseFloat(excelDate))) return null;
+  const jsDate = new Date((parseFloat(excelDate) - 25569) * 86400 * 1000);
+  // Usamos componentes UTC para evitar desplazamientos por la zona horaria del servidor
+  return new Date(jsDate.getUTCFullYear(), jsDate.getUTCMonth(), jsDate.getUTCDate());
+}
+
+/**
  * Obtiene la data cruda completa del Excel (sin filtrar).
  */
+
 async function fetchRawData(retries = 3, delay = 2000) {
   for (let i = 0; i < retries; i++) {
     try {
@@ -253,5 +273,8 @@ module.exports = {
   fetchHistoricoData,
   procesarHistoricoArray,
   updateExcelData,
-  getSupportKnowledge
+  getSupportKnowledge,
+  getTodayInBogota,
+  getJsDateFromExcel
 };
+

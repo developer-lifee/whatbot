@@ -1,5 +1,6 @@
 const { parseAdminQueryIntent, generateAdminReport } = require('./aiService');
-const { fetchRawData, fetchHistoricoData } = require('./apiService');
+const { fetchRawData, fetchHistoricoData, getTodayInBogota, getJsDateFromExcel } = require('./apiService');
+
 
 /**
  * Procesa la consulta analítica del administrador.
@@ -200,22 +201,17 @@ async function processAdminQuery(message, query, userStates, client) {
 
                     // FILTRO: Solo si está ACTIVO (no ha vencido)
                     let isActive = false;
+                    
                     // 'deben' es para el cliente, 'Vencimiento' es para el administrador (owner)
                     const dateValue = isOwner ? (row['Vencimiento'] || row['vencimiento']) : row.deben;
-
-
                     
-                    if (dateValue && !isNaN(parseFloat(dateValue))) {
-                        const excelDate = parseFloat(dateValue);
-                        const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
-                        const today = new Date();
-                        today.setHours(0,0,0,0);
-                        const compareDate = new Date(jsDate);
-                        compareDate.setHours(0,0,0,0);
-                        
+                    const accountDate = getJsDateFromExcel(dateValue);
+                    if (accountDate) {
+                        const today = getTodayInBogota();
                         // Si la fecha de vencimiento es HOY o en el FUTURO, está activo
-                        if (compareDate.getTime() >= today.getTime()) isActive = true;
+                        if (accountDate.getTime() >= today.getTime()) isActive = true;
                     }
+
 
                     
                     // Si es una cuenta 'libre' o sin nombre real, no enviamos broadcast

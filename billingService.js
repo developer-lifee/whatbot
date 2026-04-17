@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const { getAccountsByPhone } = require('./apiService');
+const { getAccountsByPhone, getTodayInBogota, getJsDateFromExcel } = require('./apiService');
+
 const { getPlatforms } = require('./salesService');
 
 async function handleCobrosParser(message, userId, userStates, pendingConfirmations) {
@@ -149,17 +150,15 @@ async function processCheckPrices(message, userId, userStates) {
         let fechaVencimientoObj = null;
         let fechaVencimientoStr = "Fecha desconocida";
         
-        if (account.deben && !isNaN(parseFloat(account.deben))) {
-            const excelDate = parseFloat(account.deben);
-            const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
-            
-            // Comparación de fechas sin hora (Bogotá)
-            const now = new Date();
-            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-            fechaVencimientoObj = new Date(jsDate.getFullYear(), jsDate.getMonth(), jsDate.getDate());
-            
-            const diffTime = fechaVencimientoObj - today;
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        if (account.deben) {
+            fechaVencimientoObj = getJsDateFromExcel(account.deben);
+            if (!fechaVencimientoObj) {
+                fechaVencimientoStr = "Fecha desconocida";
+            } else {
+                const today = getTodayInBogota();
+                const diffTime = fechaVencimientoObj - today;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
             
             if (diffDays === 0) {
                 fechaVencimientoStr = "¡HOY!";
@@ -259,11 +258,10 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     const { fetchCustomersData } = require('./apiService');
     const clientes = await fetchCustomersData();
     
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    
+    const today = getTodayInBogota();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+
     
     let records = [];
     
@@ -271,10 +269,9 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
       let isTargetDate = false;
       let accountDate = null;
       
-      if (account.deben && !isNaN(parseFloat(account.deben))) {
-        const excelDate = parseFloat(account.deben);
-        const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
-        accountDate = new Date(jsDate.getFullYear(), jsDate.getMonth(), jsDate.getDate());
+      accountDate = getJsDateFromExcel(account.deben);
+      if (accountDate) {
+
         
         // Incluir cualquier fecha que sea mañana o en el pasado
         if (accountDate.getTime() <= tomorrow.getTime()) {

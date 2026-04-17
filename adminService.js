@@ -295,11 +295,11 @@ async function handleSendManualPaymentMethods(message, command, client, userStat
  */
 async function getUpcomingExpirationsReport() {
     try {
-        const { fetchCustomersData } = require('./apiService');
+        const { fetchCustomersData, getTodayInBogota, getJsDateFromExcel } = require('./apiService');
         const clientes = await fetchCustomersData();
         
-        const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const today = getTodayInBogota();
+
         
         // Rango: próximos 3 días
         const limit = new Date(today);
@@ -312,11 +312,8 @@ async function getUpcomingExpirationsReport() {
             let vencimientoDate = null;
             
             // La columna 'deben' contiene la fecha de vencimiento en formato Excel serial
-            if (account.deben && !isNaN(parseFloat(account.deben))) {
-                const excelDate = parseFloat(account.deben);
-                const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
-                vencimientoDate = new Date(jsDate.getFullYear(), jsDate.getMonth(), jsDate.getDate());
-            }
+            vencimientoDate = getJsDateFromExcel(account.deben);
+
             
             if (vencimientoDate && vencimientoDate >= today && vencimientoDate <= limit) {
                 const diffDays = Math.ceil((vencimientoDate - today) / (1000 * 60 * 60 * 24));
@@ -346,8 +343,10 @@ async function getUpcomingExpirationsReport() {
  */
 async function getNetflixMatchReport(targetIspInfo) {
     try {
-        const { fetchCustomersData } = require('./apiService');
+        const { fetchCustomersData, getTodayInBogota, getJsDateFromExcel } = require('./apiService');
         const clientes = await fetchCustomersData();
+        const today = getTodayInBogota();
+
         
         let report = `\n\n🚨 *MATCH PREDICTIVO PARA NETFLIX* 🚨\nInfo/Operador Cliente: ${targetIspInfo || 'N/A'}\n\n`;
         
@@ -361,15 +360,11 @@ async function getNetflixMatchReport(targetIspInfo) {
                 const operadorStr = (c.Operador || c.operador || c.observaciones || "").toString().toLowerCase();
                 
                 let isExpired = false;
-                if (c.deben && !isNaN(parseFloat(c.deben))) {
-                    const excelDate = parseFloat(c.deben);
-                    const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
-                    const today = new Date();
-                    today.setHours(0,0,0,0);
-                    const compareDate = new Date(jsDate);
-                    compareDate.setHours(0,0,0,0);
-                    if (compareDate.getTime() < today.getTime()) isExpired = true;
+                const expiration = getJsDateFromExcel(c.deben);
+                if (expiration && expiration.getTime() < today.getTime()) {
+                    isExpired = true;
                 }
+
                 
                 if (!netflixAccounts.has(correo)) {
                     netflixAccounts.set(correo, { perfiles_activos: 0, perfiles_vencidos: 0, operadores: [] });
