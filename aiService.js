@@ -546,13 +546,14 @@ async function parseAdminQueryIntent(query) {
         "status": "libre" | "ocupado" | "vencido" | null, // Si busca cuentas "libres", "disponibles", "vencidas", etc.
         "phone": string | null, // Numero de telefono si menciona alguno
         "generic_search": string | null, // Para correos o dominios (ej. mirringadiagama@gmail.com)
-        "new_password": string | null // Si el administrador incluye una nueva contraseña para enviar en el broadcast
+        "new_password": string | null, // Si el administrador incluye una nueva contraseña para enviar en el broadcast
+        "custom_message": string | null // Si el administrador pide enviar un texto específico (ej. "con el mensaje: 'Hola amigo'")
       }
     }
 
     Reglas de 'action':
-    - Si el mensaje es una confirmación afirmativa como "sí", "si", "dale", "proceder", "adelante", "confirmar", es "confirm_action".
-    - Si pide "envía", "notifica", "pasa", "reparte" o dar credenciales a "todos", es "broadcast_credentials". Prioriza esta acción si hay un verbo de envío o acción hacia el cliente.
+    - Si el mensaje es una confirmación afirmativa o respuesta positiva como "sí", "si", "dale", "proceder", "adelante", "confirmar", "hazlo", "envíaselo", "enviaselo", es "confirm_action".
+    - Si pide "envía", "notifica", "pasa", "reparte", "manda" o dar credenciales a "todos", es "broadcast_credentials". Prioriza esta acción si hay un verbo de envío o acción hacia el cliente.
     - Si pide "dame la cuenta de...", "que cuentas tiene...", "tienes la cuenta de...", "busca el correo...", es "search_customer".
     - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
     - Si pide "historico", "que cuentas ha tenido...", es "check_history".

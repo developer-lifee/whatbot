@@ -180,6 +180,7 @@ async function processAdminQuery(message, query, userStates, client) {
                         target_account: uniqueAccount,
                         platform: platFound,
                         new_password: passToSend,
+                        custom_message: filters.custom_message || null,
                         count: matches.length,
                         recipients: matches.map(m => ({ tel: m['numero'], perfil: m['Nombre'] || m['pin perfil'] }))
                     };

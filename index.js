@@ -826,9 +826,14 @@ async function processIncomingMessage(message) {
   }
 
   // --- Admin Data Queries (Dashboard Conversacional) ---
-  // Permitimos consultas en grupos si empiezan con @bot y vienen del admin
-  if (realPhone.includes('3133890800') && message.body && message.body.toLowerCase().startsWith('@bot ')) {
-      const query = message.body.substring(5).trim();
+  const adminState = realPhone.includes('3133890800') ? userStates.get(userId) : null;
+  const isAwaitingAdminConfirm = adminState && adminState.state === 'awaiting_admin_broadcast_confirmation';
+  
+  // Permitimos consultas en grupos si empiezan con @bot y vienen del admin, 
+  // O si el admin está en medio de una confirmación (sin necesidad de @bot)
+  if (realPhone.includes('3133890800') && message.body && (message.body.toLowerCase().startsWith('@bot ') || isAwaitingAdminConfirm)) {
+      let query = message.body.toLowerCase().startsWith('@bot ') ? message.body.substring(5).trim() : message.body.trim();
+      
       if (query.length > 0) {
           const { processAdminQuery } = require('./adminQueries');
           const result = await processAdminQuery(message, query, userStates, client);
@@ -845,8 +850,7 @@ async function processIncomingMessage(message) {
               } 
               // Si es una confirmación exitosa, ejecutamos el envío real
               else if (data.status === 'ready_to_confirm') {
-                  const adminState = userStates.get(userId);
-                  if (adminState && adminState.state === 'awaiting_admin_broadcast_confirmation') {
+                  if (isAwaitingAdminConfirm) {
                       const payload = adminState.payload;
                       await message.reply(`🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
                       
@@ -854,7 +858,14 @@ async function processIncomingMessage(message) {
                       for (const r of payload.recipients) {
                           const telRaw = (r.tel || '').toString().replace(/\D/g, '');
                           const targetUser = `57${telRaw.startsWith('57') ? telRaw.substring(2) : telRaw}@c.us`;
-                          const msg = `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${payload.platform}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado previamente'}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                          
+                          // Generar mensaje (Standard o Custom)
+                          let msg = "";
+                          if (payload.custom_message) {
+                              msg = `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado'}`;
+                          } else {
+                              msg = `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${payload.platform}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}\n👤 *Perfil:* ${r.perfil || 'Asignado previamente'}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                          }
                           
                           try {
                               await client.sendMessage(targetUser, msg);
@@ -1186,24 +1197,24 @@ async function processIncomingMessage(message) {
       }
       
       if (detection.intent === 'comprar') {
-          if (!nameIsComplete) {
-              const greeting = foundName ? `¡Hola ${foundName}! Veo que te tengo como ${foundName}.` : "¡Hola! Con gusto te ayudo con tu compra.";
-              await message.reply(`🤖 ${greeting} Para proceder con tu registro oficial y evitar duplicados, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
+          // Priorizamos la venta: Si ya tenemos algún nombre (venga de contactos o de la IA), seguimos adelante.
+          // Solo bloqueamos si no sabemos absolutamente nada de quién es.
+          if (!foundName) {
+              await message.reply(`🤖 ¡Hola! Con gusto te ayudo con tu compra. ¿Me podrías regalar tu nombre y apellido completo para registrarte oficialmente? 😊`);
               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
               return;
           }
           userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
-          await message.reply(`🤖 ¡Perfecto${foundName ? ' ' + foundName : ''}! Con gusto te ayudo con tu compra.`);
+          await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
           await startPurchaseProcess(message, userId, userStates);
           return;
       } else if (detection.intent === 'credenciales') {
-          if (!nameIsComplete) {
-              const greeting = foundName ? `¡Hola ${foundName}!` : "¡Hola! Con gusto te ayudo.";
-              await message.reply(`🤖 ${greeting} Para buscar tus cuentas de forma segura, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
+          if (!foundName) {
+              await message.reply(`🤖 ¡Hola! Con gusto te ayudo. Para buscar tus cuentas de forma segura, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
               return;
           }
-          await message.reply(`🤖 Entendido${foundName ? ' ' + foundName : ''}, te ayudaré a revisar tus credenciales de inmediato.`);
+          await message.reply(`🤖 Entendido ${foundName}, te ayudaré a revisar tus credenciales de inmediato.`);
           await processCheckCredentials(message, userId);
           return;
       } else if (detection.intent === 'pagar') {
