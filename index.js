@@ -875,12 +875,29 @@ async function processIncomingMessage(message) {
               for (const r of payload.recipients) {
                   const telRaw = (r.tel || '').toString().replace(/\D/g, '');
                   const targetUser = `57${telRaw.startsWith('57') ? telRaw.substring(2) : telRaw}@c.us`;
-                  const pinLine = r.pin ? `\n📌 *Pin:* ${r.pin}` : "";
-                  const perfilLine = r.perfil ? `\n👤 *Perfil:* ${r.perfil}` : "";
+
+                  // Lógica selectiva de campos
+                  const only = payload.only_fields || []; 
+                  const showAll = only.length === 0;
+                  
+                  const isClave = showAll || only.includes('clave') || only.includes('password') || only.includes('contraseña');
+                  const isPin = showAll || only.includes('pin');
+                  const isPerfil = showAll || only.includes('perfil');
+
+                  const pinLine = (r.pin && isPin) ? `\n📌 *Pin:* ${r.pin}` : "";
+                  const perfilLine = (r.perfil && isPerfil) ? `\n👤 *Perfil:* ${r.perfil}` : "";
+                  const claveLine = isClave ? `\n🔑 *Clave:* ${payload.new_password}` : "";
+
+                  let title = "ACTUALIZACIÓN DE CREDENCIALES";
+                  if (!showAll && only.length === 1) {
+                      if (isPin) title = "ACTUALIZACIÓN DE PIN";
+                      if (isClave) title = "ACTUALIZACIÓN DE CLAVE";
+                      if (isPerfil) title = "ACTUALIZACIÓN DE PERFIL";
+                  }
 
                   let msg = payload.custom_message 
-                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}${perfilLine}${pinLine}`
-                    : `🚨 *ACTUALIZACIÓN DE CREDENCIALES*\n\nHola 👋, te contactamos de Sheerit para informarte que las credenciales de tu cuenta de *${payload.platform}* han sido actualizadas o solicitadas por garantía.\n\n📧 *Cuenta:* ${payload.target_account}\n🔑 *Clave:* ${payload.new_password}${perfilLine}${pinLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${payload.target_account}${claveLine}${perfilLine}${pinLine}`
+                    : `🚨 *${title}*\n\nHola 👋, te contactamos de Sheerit para informarte que los datos de acceso de tu cuenta de *${payload.platform}* han sido actualizados.\n\n📧 *Cuenta:* ${payload.target_account}${claveLine}${perfilLine}${pinLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
                   try {
                       await client.sendMessage(targetUser, msg);
                       exitosos++;

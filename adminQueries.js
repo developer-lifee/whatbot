@@ -188,6 +188,7 @@ async function processAdminQuery(message, query, userStates, client) {
                         platform: platFound,
                         new_password: passToSend,
                         custom_message: filters.custom_message || null,
+                        only_fields: filters.only_fields || null,
                         count: matches.length,
                         // Guardamos más datos para que el mensaje sea más rico (Pin, Factura, etc.)
                         recipients: matches.map(m => ({ 

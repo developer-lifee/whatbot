@@ -548,7 +548,8 @@ async function parseAdminQueryIntent(query) {
         "phone": string | null, // Numero de telefono si menciona alguno
         "generic_search": string | null, // Para correos o dominios (ej. mirringadiagama@gmail.com)
         "new_password": string | null, // Si el administrador incluye una nueva contraseña para enviar en el broadcast
-        "custom_message": string | null // Si el administrador pide enviar un texto específico (ej. "con el mensaje: 'Hola amigo'")
+        "custom_message": string | null, // Si el administrador pide enviar un texto específico (ej. "con el mensaje: 'Hola amigo'")
+        "only_fields": string[] | null // Si el administrador pide enviar SOLO ciertos datos específicos (ej: ["pin"], ["clave"], ["perfil"]). Si pide todo o no especifica, pon null.
       }
     }
 
