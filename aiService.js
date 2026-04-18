@@ -500,8 +500,9 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     Mensaje actual: "${messageContent}"
     
     Categorías para "intent":
-    - "comprar": El usuario quiere iniciar una compra o saber precios.
+    - "comprar": El usuario quiere iniciar una compra, saber precios, agregar una pantalla, contratar un nuevo servicio o menciona valores de dinero asociados a un interés (ej: "la de 17 mil").
     - "credenciales": El usuario pide sus claves o reporta fallas de acceso.
+
     - "pagar": El usuario quiere renovar, pagar, o identifica un medio de pago para una transacción pendiente (ej: "nequi", "daviplata").
     - "soporte": Problemas técnicos.
     - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale").

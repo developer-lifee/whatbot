@@ -37,25 +37,29 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
 
         for (const chat of pendingChats) {
             try {
-                // Obtenemos más mensajes para tener mejor contexto (especialmente útil en waiting_human)
-                const messages = await chat.fetchMessages({ limit: 10 });
+                const unreadCount = chat.unreadCount || 0;
+                const fetchLimit = Math.max(unreadCount, 5);
+                const messages = await chat.fetchMessages({ limit: fetchLimit });
+                
                 if (messages.length > 0) {
-                    const lastMsg = messages[messages.length - 1]; 
+                    const chatId = chat.id._serialized;
+                    const currentState = userStates.get(chatId);
+                    const isSilenced = currentState && typeof currentState === 'object' && currentState.state === 'waiting_human';
                     
-                    if (chat && chat.id && chat.id._serialized) {
-                        const isSilenced = userStates.get(chat.id._serialized) === 'waiting_human';
-                        console.log(`[BATCH] Escaneando chat: ${chat.id._serialized} (Unread: ${chat.unreadCount}${isSilenced ? ', Silenced' : ''})`);
-                        
-                        // Adjuntamos el conteo de no leídos para que el procesador lo sepa
-                        lastMsg._unreadCount = chat.unreadCount;
-                        
-                        // Pasamos al procesador normal. Si el bot está en waiting_human, 
-                        // la IA en processIncomingMessage decidirá si debe reactivarse.
-                        await processIncomingMessage(lastMsg);
-                        count++;
+                    console.log(`[BATCH] Escaneando chat: ${chatId} (Unread: ${unreadCount}${isSilenced ? ', Silenced' : ''})`);
+
+                    // Procesar todos los mensajes no leídos
+                    const unreadMessages = messages.slice(-unreadCount);
+                    // Si no hay no leídos (pero estaba en waiting_human), procesar al menos el último
+                    const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
+
+                    for (const m of toProcess) {
+                        m._unreadCount = unreadCount; // Referencia para el procesador
+                        await processIncomingMessage(m);
                     }
                 }
             } catch (err) {
+
                 if (isCriticalBrowserError(err)) throw err; // Re-lanzar para que index.js reinicie
                 const chatId = (chat && chat.id && chat.id._serialized) ? chat.id._serialized : 'ID DESCONOCIDO';
                 if (!err.message.includes('waitForChatLoading')) {

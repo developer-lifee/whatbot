@@ -716,9 +716,16 @@ async function processIncomingMessage(message) {
 
   if (message.fromMe) {
       // Excepción: Permitir comandos de @bot para el admin dashboard
-      if (isAdminCommand) {
+      if (isAdminCommand || cleanBodyText.toLowerCase() === "@bot") {
           console.log(`[Admin] Comando detectado de la propia cuenta: ${cleanBodyText}`);
+          // Reactivar si estaba en waiting_human
+          if (currentState === 'waiting_human') {
+              console.log(`[BOT UNMUTE] Reactivado por comando administrativo @bot.`);
+              userStates.delete(userId);
+              currentState = undefined;
+          }
       } else {
+
           if (currentState !== 'waiting_human') {
               console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
               userStates.set(userId, { state: 'waiting_human', nombre: foundName, waitingCount: 0 });
@@ -780,10 +787,11 @@ async function processIncomingMessage(message) {
   if (currentState === 'waiting_human') {
       // Reactivación rápida
       const cleanInput = (message.body || '').trim().toLowerCase();
-      if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput === '@bot') {
-          console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por intención explícita.`);
+      if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot')) {
+          console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por intención explícita: ${cleanInput}`);
           userStates.delete(userId);
           currentState = undefined;
+
       } else {
           let sData = typeof currentStateData === 'object' ? currentStateData : { state: 'waiting_human', lastHumanInteraction: 0 };
           const lastHumanMsg = sData.lastHumanInteraction || 0;
