@@ -27,10 +27,12 @@ function getTodayInBogota() {
  */
 function getJsDateFromExcel(excelDate) {
   if (!excelDate || isNaN(parseFloat(excelDate))) return null;
-  const jsDate = new Date((parseFloat(excelDate) - 25569) * 86400 * 1000);
+  // Ajuste de offset de 25569 a 25568 para corregir desfase de 1 día reportado por el usuario
+  const jsDate = new Date((parseFloat(excelDate) - 25568) * 86400 * 1000);
   // Usamos componentes UTC para evitar desplazamientos por la zona horaria del servidor
   return new Date(jsDate.getUTCFullYear(), jsDate.getUTCMonth(), jsDate.getUTCDate());
 }
+
 
 /**
  * Obtiene la data cruda completa del Excel (sin filtrar).

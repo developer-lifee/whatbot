@@ -488,7 +488,9 @@ async function notifyProviderExpiringAccounts(client) {
             if (!row['Vencimiento']) return;
             
             // Excel serial date to JS Date
-            let expDate = new Date((row['Vencimiento'] - (25567 + 1)) * 86400 * 1000);
+            let expDate = getJsDateFromExcel(row['Vencimiento']);
+            if (!expDate) return;
+
             const diffTime = expDate - currentDate;
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             
