@@ -449,12 +449,14 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     
     Instrucciones:
     Eres un asistente de servicio al cliente. Debes dar una respuesta estructurada en formato JSON estricto.
-    1. PRIORIDAD DE SOPORTE PARA CLIENTES: Revisa la lista de cuentas del usuario. Si el tema del mensaje o la imagen coincide con una plataforma que el usuario ya tiene contratada, asume inicialmente que es SOPORTE TÉCNICO, **A MENOS QUE** el usuario pida explícitamente comprar uno nuevo, pida el precio para una cuenta adicional o indique que quiere otra suscripción.
-    2. Si el cliente tiene el servicio pero está reportando una falla, enviando un error o su intención es ambigua, PRIORIZA el soporte y escala si es necesario.
+    1. PRIORIDAD DE SOPORTE PARA CLIENTES: Revisa la lista de cuentas del usuario. Si el tema del mensaje o la imagen coincide con una plataforma que el usuario ya tiene contratada, asume inicialmente que es SOPORTE TÉCNICO.
+    2. RECLAMOS DE PAGO/VENCIMIENTO: Si el usuario dice que ya pagó, que adquirió el servicio hace poco o que "aparece vencido" pero tiene una cuenta activa en la lista, ESCALA INMEDIATAMENTE (needsEscalation: true).
     3. Si es una duda comercial o sobre cómo pagar un NUEVO servicio (incluso si ya tiene uno), responde en "replyMessage" y manda "needsEscalation": false. 
     4. Si es soporte técnico o un reporte de falla y el problema ESTÁ en la base de datos de soporte: Dale el paso a paso ("steps") directamente en el "replyMessage" y pon "needsEscalation": false.
-    5. Si el problema es técnico, complejo, no está en la base, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
-    6. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
+    5. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
+    6. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
+    7. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
+
 
     Salida esperada JSON:
     {

@@ -691,7 +691,17 @@ async function processIncomingMessage(message) {
   if (!foundName) {
       const { searchContactByPhone } = require('./googleContactsService');
       foundName = await searchContactByPhone(userId);
+      
+      // Si aún no hay nombre, buscar en la base de datos de Excel por el número
+      if (!foundName) {
+          const { getAccountsByPhone } = require('./apiService');
+          const userAccounts = await getAccountsByPhone(realPhone);
+          if (userAccounts && userAccounts.length > 0) {
+              foundName = userAccounts[0].Nombre || userAccounts[0].nombre;
+          }
+      }
   }
+
 
   // 2. ESTADO ACTUAL
   let currentStateData = userStates.get(userId);
@@ -1446,7 +1456,8 @@ async function handleMainMenuSelection(message, userId) {
       await processCheckPrices(message, userId, userStates);
       break;
     case '4':
-      await message.reply("🤖 *Soporte Técnico Sheerit*\n\nPor favor describe tu problema detalladamente o envíame una captura de pantalla del error que estás experimentando. Te guiaré paso a paso para solucionarlo. Si el problema es complejo, escribe *5* en cualquier momento para hablar con un asesor humano.");
+          await message.reply("🤖 *Soporte Técnico Sheerit*\n\nPor favor describe tu problema detalladamente o envíame una captura de pantalla del error que estás experimentando. Te guiaré paso a paso para solucionarlo.\n\n⚠️ *Nota:* Nuestra atención es **exclusivamente por chat**, no atendemos llamadas.\n\nSi el problema es complejo, escribe *5* en cualquier momento para hablar con un asesor humano.");
+
       break;
     case '5':
       // Reportar al grupo para atención humana
