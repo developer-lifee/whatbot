@@ -49,7 +49,7 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     console.log(`[BATCH] Escaneando chat: ${chatId} (Unread: ${unreadCount}${isSilenced ? ', Silenced' : ''})`);
 
                     // Procesar todos los mensajes no leídos
-                    const unreadMessages = messages.slice(-unreadCount);
+                    const unreadMessages = unreadCount > 0 ? messages.slice(-unreadCount) : [];
                     // Si no hay no leídos (pero estaba en waiting_human), procesar al menos el último
                     const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
 

@@ -713,19 +713,20 @@ async function processIncomingMessage(message) {
   // --- FILTRO DE MENSAJES PROPIOS (ADMIN) ---
   const cleanBodyText = message.body ? message.body.trim() : "";
   const isAdminCommand = cleanBodyText.toLowerCase().startsWith("@bot ");
+  const hasBotMention = cleanBodyText.toLowerCase().includes("@bot");
 
   if (message.fromMe) {
       // Excepción: Permitir comandos de @bot para el admin dashboard
-      if (isAdminCommand || cleanBodyText.toLowerCase() === "@bot") {
-          console.log(`[Admin] Comando detectado de la propia cuenta: ${cleanBodyText}`);
+      if (isAdminCommand || cleanBodyText.toLowerCase() === "@bot" || hasBotMention) {
+          console.log(`[Admin] Comando o mención detectada de la propia cuenta: ${cleanBodyText}`);
           // Reactivar si estaba en waiting_human
           if (currentState === 'waiting_human') {
               console.log(`[BOT UNMUTE] Reactivado por comando administrativo @bot.`);
               userStates.delete(userId);
               currentState = undefined;
           }
+          if (!isAdminCommand) return; // Si fue una mención para reactivar el chat con cliente, ignorar para la IA.
       } else {
-
           if (currentState !== 'waiting_human') {
               console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
               userStates.set(userId, { state: 'waiting_human', nombre: foundName, waitingCount: 0 });
