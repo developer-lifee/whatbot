@@ -409,8 +409,13 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     const { getPlatforms } = require('./salesService');
     const platforms = await getPlatforms();
     if (platforms && platforms.length > 0) {
-      priceContext = "Lista de precios mensuales actuales (si preguntan valores, cíñete a esto): " + 
-                     platforms.map(p => `${p.name}: $${p.plans[0].price}`).join(', ') + ".";
+      priceContext = "Catálogo de suscripciones y planes (MUESTRA SIEMPRE TODAS LAS OPCIONES DISPONIBLES AL USUARIO):\n" + 
+                     platforms.map(p => {
+                       const plansStr = p.plans && p.plans.length > 0 
+                         ? p.plans.map(plan => `  - ${plan.name}: $${plan.price}`).join('\n')
+                         : `  - Suscripción: $${p.price}`;
+                       return `*${p.name}*:\n${plansStr}`;
+                     }).join('\n\n');
     }
   } catch (e) { }
 
@@ -451,11 +456,13 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     Eres un asistente de servicio al cliente. Debes dar una respuesta estructurada en formato JSON estricto.
     1. PRIORIDAD DE SOPORTE PARA CLIENTES: Revisa la lista de cuentas del usuario. Si el tema del mensaje o la imagen coincide con una plataforma que el usuario ya tiene contratada, asume inicialmente que es SOPORTE TÉCNICO.
     2. RECLAMOS DE PAGO/VENCIMIENTO: Si el usuario dice que ya pagó, que adquirió el servicio hace poco o que "aparece vencido" pero tiene una cuenta activa en la lista, ESCALA INMEDIATAMENTE (needsEscalation: true).
-    3. Si es una duda comercial o sobre cómo pagar un NUEVO servicio (incluso si ya tiene uno), responde en "replyMessage" y manda "needsEscalation": false. 
-    4. Si es soporte técnico o un reporte de falla y el problema ESTÁ en la base de datos de soporte: Dale el paso a paso ("steps") directamente en el "replyMessage" y pon "needsEscalation": false.
-    5. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
-    6. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
-    7. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
+    3. VENTAS Y PRECIOS: Si el usuario pregunta por un servicio o precio, MUESTRA SIEMPRE TODAS LAS OPCIONES de planes disponibles (ej: Estándar vs Platino, 4K vs Extra) con sus respectivos precios. No ofrezcas solo la más barata.
+    4. Si es una duda comercial o sobre cómo pagar un NUEVO servicio (incluso si ya tiene uno), responde en "replyMessage" y manda "needsEscalation": false. 
+    5. Si es soporte técnico o un reporte de falla y el problema ESTÁ en la base de datos de soporte: Dale el paso a paso ("steps") directamente en el "replyMessage" y pon "needsEscalation": false.
+    6. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
+    7. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
+    8. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
+
 
 
     Salida esperada JSON:

@@ -167,9 +167,11 @@ async function processCheckPrices(message, userId, userStates) {
             } else {
                 fechaVencimientoStr = fechaVencimientoObj.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
             }
+          }
         } else if (account.vencimiento) {
             fechaVencimientoStr = account.vencimiento;
         }
+
 
         const rawStreamingName = (account.Streaming || "SERVICIO").toUpperCase();
         const streamingName = rawStreamingName;
@@ -199,11 +201,18 @@ async function processCheckPrices(message, userId, userStates) {
 
         if (catalogPlatform && catalogPlatform.plans && catalogPlatform.plans.length > 0) {
           // El catálogo manda sobre el precio manual si el catálogo tiene precio válido
-          const catalogPrice = catalogPlatform.plans[0].price;
+          // Intentar encontrar el plan específico que coincida con lo que dice el Excel
+          const specificPlan = catalogPlatform.plans.find(pl => {
+              const normPlanName = pl.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+              return searchName.includes(normPlanName) || normPlanName.includes(searchName);
+          });
+          
+          const catalogPrice = specificPlan ? specificPlan.price : catalogPlatform.plans[0].price;
           if (catalogPrice > 0) {
             price = catalogPrice;
           }
         }
+
         
         totalToPay += price;
 
