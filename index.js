@@ -919,7 +919,10 @@ async function processIncomingMessage(message) {
       } else if (data.status === 'ready_to_confirm') {
           if (isAwaitingAdminConfirm && adminState.payload) {
               const payload = adminState.payload;
-              await message.reply(`🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
+              try {
+                  await client.sendMessage(userId, `🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
+              } catch(e) { console.error('Error enviando mensaje inicio masivo:', e.message); }
+              
               let exitosos = 0;
               for (const r of payload.recipients) {
                   const telRaw = (r.tel || '').toString().replace(/\D/g, '');
@@ -955,11 +958,19 @@ async function processIncomingMessage(message) {
                       await new Promise(res => setTimeout(res, 500));
                   } catch(e) { console.error(`[Admin Broadcast] Error enviando a ${targetUser}:`, e.message); }
               }
-              await message.reply(`✅ *Envío completado exitosamente.*\n- Total: ${payload.count}\n- Enviados: ${exitosos}`);
+              try {
+                  await client.sendMessage(userId, `✅ *Envío completado exitosamente.*\n- Total: ${payload.count}\n- Enviados: ${exitosos}`);
+              } catch(e) { console.error('Error enviando mensaje completado:', e.message); }
               userStates.delete(userId);
           } else {
-              await message.reply("❌ No tengo ninguna acción pendiente para confirmar.");
+              try {
+                  await client.sendMessage(userId, "❌ No tengo ninguna acción pendiente para confirmar.");
+              } catch(e) { console.error('Error respondiendo acción pendiente:', e.message); }
           }
+      } else if (data.status === 'error') {
+          try {
+              await client.sendMessage(userId, `❌ ${data.message || 'Error procesando la consulta'}`);
+          } catch(e) { console.error('Error respondiendo error:', e.message); }
       }
   }
 

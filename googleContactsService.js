@@ -55,7 +55,11 @@ async function addNewContact(name, phone) {
         console.log(`✅ Contacto [${name} - ${formattedPhone}] creado exitosamente en Google Contacts.`);
         return true;
     } catch (error) {
-        console.error('❌ Error al crear el contacto en Google:', error.message);
+        if (error.message && error.message.includes('MY_CONTACTS_OVERFLOW_COUNT')) {
+            console.warn(`⚠️ [Google Contacts] Límite de contactos alcanzado. No se pudo guardar a ${name}.`);
+        } else {
+            console.error('❌ Error al crear el contacto en Google:', error.message);
+        }
         return false;
     }
 }
