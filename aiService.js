@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { getJsDateFromExcel } = require('./apiService');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -187,8 +188,7 @@ async function generateCredentialsResponse(userAccounts) {
        let isExpired = false;
 
        if (acc.deben && !isNaN(parseFloat(acc.deben))) {
-           const excelDate = parseFloat(acc.deben);
-           const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+           const jsDate = getJsDateFromExcel(acc.deben);
            fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
 
            const today = new Date();
@@ -271,8 +271,7 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
     // Procesar fecha de vencimiento (asumimos que existe lógica previa de deben/vencimiento)
     // ... (reutilizamos la lógica de abajo) ...
     if (acc.deben && !isNaN(parseFloat(acc.deben))) {
-        const excelDate = parseFloat(acc.deben);
-        const jsDate = new Date((excelDate - 25569) * 86400 * 1000);
+        const jsDate = getJsDateFromExcel(acc.deben);
         const day = jsDate.getDate();
         const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
         const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);

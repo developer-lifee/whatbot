@@ -465,7 +465,7 @@ async function notifyProviderExpiringAccounts(client) {
     try {
         const fs = require('fs');
         const path = require('path');
-        const fetchRawData = require('./apiService').fetchRawData;
+        const { fetchRawData, getJsDateFromExcel } = require('./apiService');
 
         // Load managed emails to exclude
         let managedEmails = [];
