@@ -602,7 +602,7 @@ client.on('message_create', async (msg) => {
        // Suministramos el mensaje al procesador para que la IA lea el contexto y responda
        // Usamos un pequeño delay para que WhatsApp registre el mensaje enviado antes de responder
        setTimeout(() => {
-           processIncomingMessage(msg).catch(err => console.error('Error en reactivación por mención:', err));
+           processIncomingMessage([msg]).catch(err => console.error('Error en reactivación por mención:', err));
        }, 1000);
        return;
     }

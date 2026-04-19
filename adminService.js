@@ -55,8 +55,8 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
 
                     for (const m of toProcess) {
                         m._unreadCount = unreadCount; // Referencia para el procesador
-                        await processIncomingMessage(m);
                     }
+                    await processIncomingMessage(toProcess);
                 }
             } catch (err) {
 
