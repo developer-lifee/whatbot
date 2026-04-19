@@ -768,16 +768,11 @@ async function processIncomingMessage(message) {
       }
   } catch (err) {}
 
-  // Sincronizar con Google Contacts si tenemos un nombre válido, no es un mensaje del bot y no es el administrador
+  // Sincronizar con Google Contacts si tenemos un nombre válido
   if (!message.fromMe && foundName && !realPhone.includes('3133890800')) {
-
-      const { addNewContact, searchContactByPhone } = require('./googleContactsService');
-      // Solo intentar agregar si no lo encontramos por el número real
-      const existingInGoogle = await searchContactByPhone(realPhone);
-      if (!existingInGoogle) {
-          console.log(`[Google Contacts] Intentando guardar nuevo contacto: ${foundName} (${realPhone})`);
-          await addNewContact(foundName, realPhone);
-      }
+      const { addNewContact } = require('./googleContactsService');
+      // addNewContact ya tiene validación interna y caché local para evitar duplicados
+      await addNewContact(foundName, realPhone);
   }
 
   // --- IDENTIFICADOR DE ESTADO INICIAL ---
@@ -1397,6 +1392,7 @@ async function processIncomingMessage(message) {
       const name = (message.body || "").trim();
       try {
           const { addNewContact } = require('./googleContactsService');
+          // addNewContact ya tiene validación interna y caché local
           await addNewContact(name, userId.replace('@c.us', ''));
       } catch(e) {}
       userStates.set(userId, { state: 'main_menu', nombre: name });

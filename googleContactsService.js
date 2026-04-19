@@ -2,6 +2,8 @@ const { google } = require('googleapis');
 const { getOAuth2Client } = require('./googleAuthService');
 
 let personasAPI = null;
+const recentlyAdded = new Set(); // Caché local para evitar duplicados en ráfagas rápidas
+const PROCESSING_WINDOW = 1000 * 60 * 5; // 5 minutos de ventana de procesamiento
 
 /**
  * Inicializa el cliente de Google People API
@@ -31,9 +33,35 @@ async function addNewContact(name, phone) {
     }
 
     try {
-        let formattedPhone = phone.toString().replace(/\D/g, '');
+        const digitsOnly = phone.toString().replace(/\D/g, '');
+        if (digitsOnly.length < 10) return false;
+        
+        const coreNumber = digitsOnly.slice(-10);
+
+        // 1. Verificar caché local (para ráfagas de mensajes)
+        if (recentlyAdded.has(coreNumber)) {
+            console.log(`[Google Contacts] ℹ️ Número ${coreNumber} ya está en proceso de creación o fue creado recientemente (Caché).`);
+            return true;
+        }
+
+        // 2. Verificar existencia real en Google Contacts
+        const existingName = await searchContactByPhone(phone);
+        if (existingName) {
+            console.log(`[Google Contacts] ℹ️ Contacto ya existe en Google: ${existingName} (${coreNumber}).`);
+            recentlyAdded.add(coreNumber); // Agregamos a caché por si acaso
+            return true;
+        }
+
+        // Marcar como en proceso
+        recentlyAdded.add(coreNumber);
+        // Limpiar del caché después de un tiempo para permitir actualizaciones si fuera necesario
+        setTimeout(() => recentlyAdded.delete(coreNumber), PROCESSING_WINDOW);
+
+        let formattedPhone = digitsOnly;
         if (formattedPhone.startsWith('57') && formattedPhone.length === 12) {
             formattedPhone = '+' + formattedPhone;
+        } else if (formattedPhone.length === 10) {
+            formattedPhone = '+57' + formattedPhone;
         }
 
         const response = await personasAPI.people.createContact({
