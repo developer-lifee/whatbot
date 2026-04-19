@@ -1277,10 +1277,16 @@ async function processIncomingMessage(message) {
       }
 
       // 5. MANEJO DE INTENCIONES
-      if (detection.intent === 'cierre') {
-          console.log(`[Cierre] Intent 'cierre' detectado para ${userId}. Enviando despedida.`);
+      if (detection.intent === 'cancelar') {
+          console.log(`[Cierre] Intent 'cancelar' detectado para ${userId}. Enviando despedida de churn.`);
           await message.reply("🤖 Oh, entiendo perfectamente. Lamento mucho que hoy no podamos continuar con tu servicio. 😔\n\nEn Sheerit siempre buscamos mejorar: ¿podrías contarnos brevemente la razón de tu decisión? Tu opinión nos ayuda mucho a ser mejores. ¡Igual aquí tienes tu casa para cuando decidas volver! 👋");
           userStates.delete(userId);
+          return;
+      }
+      
+      if (detection.intent === 'cierre') {
+          console.log(`[Cierre] Intent 'cierre' detectado para ${userId}. Fin de charla natural.`);
+          // Si el usuario simplemente dice gracias, listo, ok, no necesitamos contestar ni asustarlo con la cancelación.
           return;
       }
       
