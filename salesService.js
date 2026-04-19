@@ -50,7 +50,10 @@ async function getChatHistoryText(message, limit = 6) {
     }
     
     // Filtramos el mensaje actual para que no aparezca duplicado en el historial previo
-    const history = messages.filter(m => m.id._serialized !== message.id._serialized);
+    const history = messages.filter(m => {
+        if (!m || !m.id || !message || !message.id) return false;
+        return m.id._serialized !== message.id._serialized;
+    });
     
     const now = new Date();
     chatHistoryText += `[Hora actual del sistema: ${now.toLocaleString('es-CO')}]\n\nHistorial reciente:\n`;
@@ -86,6 +89,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   let invalidElements = [];
 
   items.forEach(item => {
+    if (!item || !item.platform) return;
     const targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
     const platform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
       platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
@@ -183,6 +187,7 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
   let invalidElements = [];
 
   items.forEach(item => {
+    if (!item || !item.platform) return;
     const targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
     const platform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
       platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));

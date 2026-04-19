@@ -1145,6 +1145,7 @@ async function processIncomingMessage(messages) {
     return;
   }
 
+  if (isMedia) {
     // --- MANEJO DE MULTIMEDIA (LOTE) ---
     const history = await getChatHistoryText(message);
     let mediaData = []; // Ahora es un arreglo para soportar múltiples imágenes

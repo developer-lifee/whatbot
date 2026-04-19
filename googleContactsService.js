@@ -85,6 +85,11 @@ async function addNewContact(name, phone) {
     } catch (error) {
         if (error.message && error.message.includes('MY_CONTACTS_OVERFLOW_COUNT')) {
             console.warn(`⚠️ [Google Contacts] Límite de contactos alcanzado. No se pudo guardar a ${name}.`);
+            // Silenciar futuras alertas para este número en la ventana de ráfaga
+            const digitsOnly = phone.toString().replace(/\D/g, '');
+            const coreNumber = digitsOnly.slice(-10);
+            recentlyAdded.add(coreNumber);
+            setTimeout(() => recentlyAdded.delete(coreNumber), PROCESSING_WINDOW);
         } else {
             console.error('❌ Error al crear el contacto en Google:', error.message);
         }
