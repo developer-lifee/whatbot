@@ -27,11 +27,17 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   }
 
   const parts = [{ text: prompt }];
-  if (mediaData && mediaData.data && mediaData.mimeType) {
-    parts.push({
-      inlineData: {
-        data: mediaData.data,
-        mimeType: mediaData.mimeType
+  
+  if (mediaData) {
+    const mediaArray = Array.isArray(mediaData) ? mediaData : [mediaData];
+    mediaArray.forEach(m => {
+      if (m.data && m.mimeType) {
+        parts.push({
+          inlineData: {
+            data: m.data,
+            mimeType: m.mimeType
+          }
+        });
       }
     });
   }
@@ -408,7 +414,7 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
  */
 async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = "", mediaData = null, userAccounts = []) {
   const mediaInstruction = isMedia && mediaData 
-    ? "El usuario ha enviado una imagen o sticker que está adjunta a este prompt. Obsérvala detenidamente y analiza su contenido/emoción."
+    ? "El usuario ha enviado una o varias imágenes/stickers adjuntos. Obsérvalas detenidamente y analiza su contenido/emoción."
     : "";
 
   let priceContext = "";
@@ -469,8 +475,13 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     2. RECLAMOS DE PAGO/VENCIMIENTO: Si el usuario dice que ya pagó, que adquirió el servicio hace poco o que "aparece vencido" pero tiene una cuenta activa en la lista, ESCALA INMEDIATAMENTE (needsEscalation: true).
     3. VENTAS Y PRECIOS: Si el usuario pregunta por un servicio o precio, MUESTRA SIEMPRE TODAS LAS OPCIONES de planes disponibles (ej: Estándar vs Platino, 4K vs Extra) con sus respectivos precios. No ofrezcas solo la más barata.
     4. Si es una duda comercial o sobre cómo pagar un NUEVO servicio (incluso si ya tiene uno), responde en "replyMessage" y manda "needsEscalation": false. 
-    5. Si es soporte técnico o un reporte de falla y el problema ESTÁ en la base de datos de soporte: Dale el paso a paso ("steps") directamente en el "replyMessage" y pon "needsEscalation": false.
-    6. SI EL USUARIO PIDE DATOS ESPECÍFICOS (ej: "¿Cuál es mi clave?", "pásame el pin", "no recuerdo mi correo"): Y los tienes en la lista de "Cuentas del usuario", ¡ENTRÉGALOS DIRECTAMENTE! No lo mandes a soporte si tú tienes la respuesta.
+    5. ANÁLISIS VISUAL DE LOGIN/ERRORES: Si hay imágenes de pantallas de inicio de sesión o errores:
+       - Realiza un OCR mental: Extrae correos, usuarios y mensajes de error visibles.
+       - COMPARACIÓN CRÍTICA: Compara el correo/usuario que ves en la pantalla con los datos reales en "Cuentas del usuario".
+       - DETECCIÓN DE TYPOS: Si ves que el usuario escribió mal el correo (ej: puso un guion de más, cambió una letra, omitió un punto), indícalo de forma MUY EXPLÍCITA y dile cómo debe escribirlo correctamente basándote en el sistema. Ejemplo: "Veo que en la tele pusiste 'ejemplo@-gmail.com', pero el correo correcto es 'ejemplo@gmail.com'. Borra ese guion extra y funcionará."
+       - Si el error es "Cuenta no encontrada" y el correo parece bien escrito, pídele que verifique mayúsculas/minúsculas o confirma si la cuenta cambió.
+    6. Si es soporte técnico o un reporte de falla y el problema ESTÁ en la base de datos de soporte: Dale el paso a paso ("steps") directamente en el "replyMessage" y pon "needsEscalation": false.
+    7. SI EL USUARIO PIDE DATOS ESPECÍFICOS (ej: "¿Cuál es mi clave?", "pásame el pin", "no recuerdo mi correo"): Y los tienes en la lista de "Cuentas del usuario", ¡ENTRÉGALOS DIRECTAMENTE! No lo mandes a soporte si tú tienes la respuesta.
     7. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
     8. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
     9. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.

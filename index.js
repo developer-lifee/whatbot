@@ -40,6 +40,8 @@ const pendingConfirmations = new Map();
 const GROUP_ID = '120363102144405222@g.us';
 const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573107946794') + '@c.us';
 let globalBotSleep = false;
+const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
+const BATCH_INTERVAL = 3000; // 3 segundos para agrupar mensajes
 
 const {
   startPurchaseProcess,
@@ -666,10 +668,14 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
 
 
 /**
- * Procesa un mensaje entrante siguiendo la lógica de estados del bot.
- * @param {Message} message 
+ * Procesa un lote de mensajes de un mismo usuario.
+ * @param {Message[]} messages 
  */
-async function processIncomingMessage(message) {
+async function processIncomingMessage(messages) {
+  if (!messages || messages.length === 0) return;
+  const message = messages[messages.length - 1]; // Usamos el último como referencia para responder
+  const isMedia = messages.some(m => m.hasMedia);
+  const combinedBody = messages.map(m => m.body || "").filter(b => b !== "").join("\n");
   // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
   const userId = message.fromMe ? message.to : message.from;
   
@@ -721,7 +727,7 @@ async function processIncomingMessage(message) {
           console.log(`[Admin] Comando o mención detectada de la propia cuenta: ${cleanBodyText}`);
           // Reactivar si estaba en waiting_human
           if (currentState === 'waiting_human') {
-              console.log(`[BOT UNMUTE] Reactivado por comando administrativo @bot.`);
+              console.log(`[BOT MUTE] Reactivado por comando administrativo @bot.`);
               userStates.delete(userId);
               currentState = undefined;
           }
@@ -1108,7 +1114,7 @@ async function processIncomingMessage(message) {
       }
   }
 
-  let cleanBody = message.body ? message.body.trim() : "";
+  let cleanBody = combinedBody;
   if (cleanBody.startsWith('"') && cleanBody.endsWith('"')) {
     cleanBody = cleanBody.slice(1, -1).trim();
   }
@@ -1139,21 +1145,28 @@ async function processIncomingMessage(message) {
     return;
   }
 
-  // Permitimos procesar media en waiting_human para que el interceptor de pagos pueda sacarlo de ese estado.
-  if (message.hasMedia && currentState !== 'awaiting_payment_confirmation') {
+    // --- MANEJO DE MULTIMEDIA (LOTE) ---
     const history = await getChatHistoryText(message);
-    let mediaData = null;
+    let mediaData = []; // Ahora es un arreglo para soportar múltiples imágenes
+    
     try {
-      const media = await message.downloadMedia();
-      if (media && media.data && media.mimetype) {
-         const cleanMime = media.mimetype.split(';')[0];
-         mediaData = { data: media.data, mimeType: cleanMime };
+      for (const m of messages) {
+        if (m.hasMedia) {
+          const media = await m.downloadMedia();
+          if (media && media.data && media.mimetype) {
+            const cleanMime = media.mimetype.split(';')[0];
+            mediaData.push({ data: media.data, mimeType: cleanMime });
+          }
+        }
       }
-    } catch(err) {}
+    } catch(err) {
+      console.error("Error descargando multimedia del lote:", err.message);
+    }
 
     // --- INTERCEPTOR GLOBAL DE PAGOS ---
-    if (mediaData) {
-      const check = await isPaymentReceipt(mediaData, history);
+    if (mediaData.length > 0) {
+      // Tomamos la primera imagen para el interceptor de pagos (normalmente el usuario manda el recibo solo)
+      const check = await isPaymentReceipt(mediaData[0], history);
       if (check.isReceipt) {
           console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);
           
@@ -1211,13 +1224,16 @@ async function processIncomingMessage(message) {
       }
     }
 
-    await processFallbackWithEscalation(message, userId, true, mediaData, history);
+    await processFallbackWithEscalation(message, userId, isMedia, mediaData.length > 0 ? mediaData : null, history);
     return;
   }
 
+  // Si no hay media, o no fue interceptado como pago, evaluamos el texto combinado
+  const inputToUse = combinedBody || message.body || "";
+
   switch (currentState) {
     case undefined:
-      const cleanInput = (message.body || '').trim();
+      const cleanInput = inputToUse.trim();
       if (['1', '2', '3', '4', '5'].includes(cleanInput)) {
          userStates.set(userId, { state: 'main_menu' });
          await handleMainMenuSelection(message, userId);
@@ -1225,7 +1241,7 @@ async function processIncomingMessage(message) {
       }
 
       const hist = await getChatHistoryText(message, 25);
-      const detection = await detectInitialIntent(message.body, hist);
+      const detection = await detectInitialIntent(inputToUse, hist);
 
       // 3. IDENTIDAD TERCERO: IA revisando historial
       if (!foundName && detection.userName) {
@@ -1400,7 +1416,7 @@ async function processIncomingMessage(message) {
       break;
     default:
       const historyText = await getChatHistoryText(message);
-      await processFallbackWithEscalation(message, userId, false, null, historyText);
+      await processFallbackWithEscalation(message, userId, isMedia, mediaData.length > 0 ? mediaData : null, historyText);
       break;
   }
 }
@@ -1439,13 +1455,14 @@ client.on('message', async (message) => {
 
   // Filtros de grupo
   if (message.from.includes('@g.us')) {
+      // Los mensajes de grupo se procesan instantáneamente (normalmente no hay ráfagas de imágenes para el bot aquí)
       if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
-          // Dejar pasar a processIncomingMessage
+          await processIncomingMessage([message]);
       } else {
           let groupState = userStates.get(message.from);
           if (groupState && typeof groupState === 'object') groupState = groupState.state;
           if (message.from === GROUP_ID && groupState === 'awaiting_cobros_confirmation') {
-              // dejar pasar
+              await processIncomingMessage([message]);
           } else {
               const b = message.body ? message.body.toLowerCase().trim() : '';
               if (message.from === GROUP_ID && (b.includes('liberar masivo') || b.startsWith('!bot') || b.startsWith('!liberar') || b.startsWith('liberar ') || b.startsWith('confirmar_cobros '))) {
@@ -1455,12 +1472,29 @@ client.on('message', async (message) => {
               }
           }
       }
+      return;
   }
 
   if (message.from.includes('status@broadcast') || message.from.includes('@lid')) return;
   if (globalBotSleep && message.from !== OPERATOR_NUMBER && message.from !== GROUP_ID) return;
 
-  await processIncomingMessage(message);
+  // --- MECANISMO DE BATCHING PARA MENSAJES INDIVIDUALES ---
+  const userId = message.from;
+  if (!messageQueues.has(userId)) {
+      messageQueues.set(userId, { messages: [], timer: null });
+  }
+
+  const queue = messageQueues.get(userId);
+  if (queue.timer) clearTimeout(queue.timer);
+
+  queue.messages.push(message);
+
+  queue.timer = setTimeout(async () => {
+      const batch = [...queue.messages];
+      messageQueues.delete(userId);
+      console.log(`[Batch Processor] Procesando lote de ${batch.length} mensajes para @${userId.replace('@c.us', '')}`);
+      await processIncomingMessage(batch);
+  }, BATCH_INTERVAL);
 });
 
 
