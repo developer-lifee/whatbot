@@ -180,9 +180,11 @@ async function generateCredentialsResponse(userAccounts) {
        const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
        if (isFamily) return;
 
-       const correo = acc.correo || "N/A";
-       let clave = acc["contraseña"] || "N/A";
-       const perfil = `${acc.Nombre || ""}-${acc["pin perfil"] || ""}`;
+       const correo = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
+       let clave = acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"] || "N/A";
+       const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
+       const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
+       const perfilCompleto = pin ? `${perfil} (PIN: ${pin})` : perfil;
        
        let fechaVencimiento = "Fecha desconocida";
        let isExpired = false;
@@ -206,7 +208,7 @@ async function generateCredentialsResponse(userAccounts) {
            clave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
        }
 
-       cuentasTexto += `- Plataforma: ${streamingName}\n  Correo: ${correo}\n  Clave: ${clave}\n  Perfil: ${perfil}\n  Vencimiento: ${fechaVencimiento}\n\n`;
+       cuentasTexto += `- Plataforma: ${streamingName}\n  Correo: ${correo}\n  Clave: ${clave}\n  Perfil/PIN: ${perfilCompleto}\n  Vencimiento: ${fechaVencimiento}\n\n`;
      });
 
      if (cuentasTexto === "") {
@@ -222,9 +224,14 @@ async function generateCredentialsResponse(userAccounts) {
   ${cuentasTexto}
 
   Por favor, redacta un mensaje de WhatsApp para el cliente entregándole esta información de manera amable, clara y amigable.
-  Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
   
-  ⚠️ IMPORTANTE: Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.
+  ⚠️ REGLAS CRÍTICAS:
+  1. Muestra SIEMPRE el Correo, la Clave y el Perfil/PIN para CADA cuenta de la lista. NUNCA resumas u omitas esta información.
+  2. Si la Clave o el PIN están presentes en los datos, DEBEN aparecer en tu respuesta.
+  3. Si la cuenta está vencida, mantén el aviso de que la clave está oculta por seguridad.
+  4. Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
+  5. Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.
+  
   No incluyas saludos genéricos como "[Tu Nombre]". Puedes despedirte en nombre del equipo de Sheerit.
   `;
 
@@ -261,9 +268,11 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
     const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'netflix extra'];
     const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
     
-    const correo = acc.correo || "N/A";
-    let clave = acc["contraseña"] || acc["clave"] || acc["Clave"] || "N/A";
-    const perfil = acc["pin perfil"] ? `${acc.Nombre || "N/A"} - ${acc["pin perfil"]}` : (acc.Nombre || "N/A");
+    const correo = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
+    let clave = acc["contraseña"] || acc["clave"] || acc["Clave"] || acc["password"] || acc["Password"] || "N/A";
+    const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
+    const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
+    const perfilDisplay = pin ? `${perfil} - PIN: ${pin}` : perfil;
     
     let fechaVencimiento = "Fecha desconocida";
     let isExpired = false;
@@ -294,7 +303,7 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
             ? `⚠️ *SERVICIO VENCIDO*: Este servicio (${streamingName}) requiere renovación para seguir funcionando.`
             : `ℹ️ *NOTA*: Para este servicio, recibirás una invitación por correo. La contraseña la configuras tú mismo con tu correo al aceptar la invitación. Un asesor te contactará en breve si necesitas ayuda.`;
         
-        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nPERFIL: ${perfil}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nPERFIL: ${perfilDisplay}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
         return;
     }
 
@@ -303,7 +312,7 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
     if (customerMail.includes("@yopmail.com")) {
         clave = "(La configuras tú mismo siguiendo los pasos abajo)";
         const yopInstructions = `\n\n🔑 *PASOS PARA CONFIGURAR TU CLAVE:*\n1. Ve a www.yopmail.com\n2. Ingresa el correo: *${customerMail}*\n3. En la app de ${streamingName}, pide 'Olvidé mi contraseña' a ese correo.\n4. Revisa el código en Yopmail y activa tu cuenta. 📝`;
-        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfil}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfilDisplay}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
         return;
     }
 
@@ -311,7 +320,7 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
         clave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
     }
     
-    formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfil}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+    formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfilDisplay}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
   });
   
   return formattedAccounts.join('\n\n-------------------\n\n');
@@ -430,10 +439,13 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
   if (userAccounts && userAccounts.length > 0) {
      const simplifiedAccounts = userAccounts.map(acc => ({
         Plataforma: acc.Streaming,
-        Correo: acc.correo,
+        Correo: acc.correo || acc.Correo || acc["E-mail"],
+        Clave: acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"],
+        Pin_Perfil: acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"],
+        Perfil: acc.Nombre || acc.nombre || acc.Perfil || acc.perfil,
         Vencimiento: acc.vencimiento || acc.deben
      }));
-     accountsContext = "Cuentas del usuario en nuestro sistema:\n" + JSON.stringify(simplifiedAccounts);
+     accountsContext = "Cuentas del usuario en nuestro sistema (ÚSALAS PARA DAR SOPORTE O DAR LAS CREDENCIALES SI EL USUARIO LAS PIDE):\n" + JSON.stringify(simplifiedAccounts);
   }
 
   const prompt = `
@@ -458,9 +470,10 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     3. VENTAS Y PRECIOS: Si el usuario pregunta por un servicio o precio, MUESTRA SIEMPRE TODAS LAS OPCIONES de planes disponibles (ej: Estándar vs Platino, 4K vs Extra) con sus respectivos precios. No ofrezcas solo la más barata.
     4. Si es una duda comercial o sobre cómo pagar un NUEVO servicio (incluso si ya tiene uno), responde en "replyMessage" y manda "needsEscalation": false. 
     5. Si es soporte técnico o un reporte de falla y el problema ESTÁ en la base de datos de soporte: Dale el paso a paso ("steps") directamente en el "replyMessage" y pon "needsEscalation": false.
-    6. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
-    7. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
-    8. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
+    6. SI EL USUARIO PIDE DATOS ESPECÍFICOS (ej: "¿Cuál es mi clave?", "pásame el pin", "no recuerdo mi correo"): Y los tienes en la lista de "Cuentas del usuario", ¡ENTRÉGALOS DIRECTAMENTE! No lo mandes a soporte si tú tienes la respuesta.
+    7. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
+    8. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
+    9. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
 
 
 
@@ -500,18 +513,18 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     
     Categorías para "intent":
     - "comprar": El usuario quiere iniciar una compra, saber precios, agregar una pantalla, contratar un nuevo servicio o menciona valores de dinero asociados a un interés (ej: "la de 17 mil").
-    - "credenciales": El usuario pide sus claves o reporta fallas de acceso.
+    - "credenciales": El usuario pide sus claves, contraseñas, pines, perfiles, correos de acceso o reporta fallas de acceso. Si el usuario escribe solo el nombre de una plataforma (ej: "Netflix") y antes pidió credenciales o se nota que busca entrar, usa este intent.
     - "pagar": El usuario quiere renovar, pagar, o identifica un medio de pago para una transacción pendiente (ej: "nequi", "daviplata").
-    - "soporte": Problemas técnicos.
+    - "soporte": Problemas técnicos, fallas de pantalla, "no me deja entrar", "se cerró la cuenta".
     - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale").
     - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio, que no va a continuar o pide la baja.
     - "desconocido": Cualquier otro mensaje.
 
     Regla de Intents:
     - "comprar": El usuario quiere adquirir un servicio nuevo o renovar.
-    - "credenciales": El usuario pide sus datos de acceso ("mi cuenta", "pásame el pin").
-    - "pagar": El usuario pregunta cómo pagar or envía un comprobante.
-    - "soporte": Problemas técnicos, fallas, login, etc.
+    - "credenciales": El usuario pide sus datos de acceso ("mi cuenta", "pásame el pin", "contraseña", "clave", "password"). PRIORIZA este intent si el usuario menciona palabras relacionadas con "llaves", "claves", "password" o "entrar".
+    - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
+    - "soporte": Problemas técnicos, fallas, errores en pantalla, etc.
     - "cierre": El usuario indica que NO va a renovar, que quiere cancelar el servicio, que "deja así" o "ya no lo va a usar".
     - "desconocido": Otros temas.
 
