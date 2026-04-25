@@ -37,9 +37,10 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
 
         for (const chat of pendingChats) {
             try {
+                const { safeFetchMessages } = require('./salesService');
                 const unreadCount = chat.unreadCount || 0;
                 const fetchLimit = Math.max(unreadCount, 5);
-                const messages = await chat.fetchMessages({ limit: fetchLimit });
+                const messages = await safeFetchMessages(chat, fetchLimit);
                 
                 if (messages.length > 0) {
                     const chatId = chat.id._serialized;

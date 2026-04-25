@@ -1615,15 +1615,26 @@ async function processPaymentSelection(message, userId, text) {
   // Usar AI para detectar método de pago
   const method = await detectPaymentMethod(text);
 
-  const paymentDetails = {
-    'nequi': "3118587974",
-    'daviplata': "3107946794",
-    'bancolombia': "46772753713\nBancolombia - ahorros\nNumero de cuenta: 46772753713\nCC1032936324",
-    'banco caja social': "24111572331\nESTEBAN AVILA\ncc: 1032936324",
-    'transfiya': "*LLAVE*\n3118587974", // Legacy support
-    'llaves bre-v': "*LLAVE*\n3118587974",
-    'llave bre-b': "*LLAVE*\n3118587974"
   };
+  
+  const lowerText = text.toLowerCase();
+  const isQrRequest = lowerText.includes('qr') || lowerText.includes('código') || lowerText.includes('codigo');
+
+  if (isQrRequest) {
+    const { MessageMedia } = require('whatsapp-web.js');
+    const qrPath = path.join(__dirname, 'uploads', 'qr_pago.jpg');
+    if (fs.existsSync(qrPath)) {
+        try {
+            const media = MessageMedia.fromFilePath(qrPath);
+            await message.reply(media, undefined, { caption: "🤖 Aquí tienes nuestro *QR de Negocios* oficial para realizar tu pago fácilmente. 😊" });
+        } catch(e) {
+            console.error("Error enviando QR:", e.message);
+            await message.reply("🤖 No pude enviar la imagen del QR en este momento, pero puedes usar los datos de texto abajo.");
+        }
+    } else {
+        await message.reply("🤖 Aún no tengo configurada la imagen del QR oficial, pero puedes usar estos datos para transferir:");
+    }
+  }
 
   if (method && paymentDetails[method]) {
     await message.reply(paymentDetails[method]);

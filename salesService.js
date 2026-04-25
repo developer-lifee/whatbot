@@ -44,9 +44,9 @@ async function getChatHistoryText(message, limit = 6) {
     const chat = await message.getChat();
     let messages = [];
     
-    // Evitar fetchMessages en cuentas @lid porque la librería whatsapp-web.js lanza error de DOM en Puppeteer
+    // Evitar fetchMessages en ciertos casos problemáticos
     if (!message.from.includes('@lid') && !message.from.includes('status@broadcast')) {
-        messages = await chat.fetchMessages({ limit: limit });
+        messages = await safeFetchMessages(chat, limit);
     }
     
     // Filtramos el mensaje actual para que no aparezca duplicado en el historial previo
@@ -66,9 +66,26 @@ async function getChatHistoryText(message, limit = 6) {
     const currentMsgTime = new Date(message.timestamp * 1000).toLocaleString('es-CO');
     chatHistoryText += `\n[${currentMsgTime}] Usuario (Mensaje Actual): ${message.body}`;
   } catch (err) {
-    console.error("Error fetching chat history", err);
+    console.error("Error fetching chat history", err.message);
   }
   return chatHistoryText;
+}
+
+/**
+ * Encapsula fetchMessages con manejo de errores para evitar crasheos por waitForChatLoading.
+ */
+async function safeFetchMessages(chat, limit) {
+    try {
+        if (!chat) return [];
+        return await chat.fetchMessages({ limit });
+    } catch (err) {
+        if (err.message.includes('waitForChatLoading') || err.message.includes('undefined')) {
+            // Error silencioso esperado en ráfagas o chats pesados
+            return [];
+        }
+        console.error(`[SAFE FETCH] Error en ${chat.id._serialized}:`, err.message);
+        return [];
+    }
 }
 
 async function handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID) {
@@ -433,5 +450,6 @@ module.exports = {
   showAvailablePlatforms,
   handleAddingPlatform,
   calculateAndShowPrice,
-  getChatHistoryText
+  getChatHistoryText,
+  safeFetchMessages
 };
