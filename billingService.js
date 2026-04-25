@@ -113,7 +113,7 @@ async function handleAwaitingCobrosConfirmation(message, userId, userStates, pen
   }
 }
 
-async function processCheckPrices(message, userId, userStates) {
+async function processCheckPrices(message, userId, userStates, preferredMethod = null) {
   try {
     // RESOLUCIÓN DE CONTACTO: Queremos el número del CLIENTE, no del remitente
     // (Útil si el último mensaje fue del bot en un batch scan)
@@ -247,10 +247,42 @@ async function processCheckPrices(message, userId, userStates) {
 
       replyMessage += "\n\n🤖 *Importante:* Hemos sumado los precios estándar de tus servicios con los descuentos por combo correspondientes. Si tienes alguna duda sobre tu factura o crees que aplicas a algún descuento adicional, por favor espera un momento a que un asesor humano revise tu caso personalmente. 😊";
 
-      replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia";
-      
-      await message.reply(replyMessage);
-      userStates.set(userId, { state: 'awaiting_payment_method', total: totalToPay > 0 ? totalToPay : null, isRenewal: true, items: userAccounts });
+      const existing = userStates.get(userId);
+      const stateData = { 
+        ...((typeof existing === 'object') ? existing : {}), 
+        state: 'awaiting_payment_method', 
+        total: totalToPay > 0 ? totalToPay : null, 
+        isRenewal: true, 
+        items: userAccounts 
+      };
+      userStates.set(userId, stateData);
+
+      // Si el usuario ya mencionó un método (ej: "Renovar por Nequi")
+      if (preferredMethod) {
+          await message.reply(replyMessage);
+          // Importante: Requerimos index.js o inyectamos la función para procesar la selección
+          // Pero para evitar circulares, simplemente llamamos a una versión local de los detalles
+          const details = {
+            'nequi': "3118587974",
+            'daviplata': "3107946794",
+            'bancolombia': "46772753713\nBancolombia - ahorros\nNumero de cuenta: 46772753713\nCC1032936324",
+            'banco caja social': "24111572331\nESTEBAN AVILA\ncc: 1032936324",
+            'transfiya': "*LLAVE*\n3118587974",
+            'llaves bre-v': "*LLAVE*\n3118587974",
+            'llave bre-b': "*LLAVE*\n3118587974"
+          };
+          
+          const methodKey = preferredMethod.toLowerCase();
+          if (details[methodKey]) {
+              await message.reply(`🤖 Entendido, aquí tienes los datos para *${preferredMethod.toUpperCase()}*:\n\n${details[methodKey]}\n\nUna vez realices la transferencia, por favor envíame el comprobante por aquí.`);
+              userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation', paymentMethod: preferredMethod });
+          } else {
+              await message.reply("\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi | ⭐Daviplata | ⭐Bancolombia | ⭐QR Negocios");
+          }
+      } else {
+          replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi | ⭐Daviplata | ⭐Bancolombia | ⭐QR Negocios";
+          await message.reply(replyMessage);
+      }
     } else {
       await message.reply(`🤖 No encontramos cuentas pendientes o asociadas al número ${phoneNumber}. Si crees que hay un error, contacta a un asesor. 😊`);
       userStates.delete(userId);

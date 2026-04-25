@@ -546,7 +546,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
         * Caso A: Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
         * Caso B (COLABORATIVO): Si el "Asistente" (humano, sin 🤖) negoció un precio (ej: "te queda en 21") y el usuario actual acepta (ej: "Listo", "Dale", "Vale"). EN ESTE CASO, el bot debe saltar aquí para dar los medios de pago. Si detectas el monto negociado, ponlo en metadata.total.
     - "waiting_human": 
-        * Caso A: Si en el historial aparece un mensaje del "Asistente" (humano, sin 🤖) y es una charla social, técnica compleja o el usuario no ha aceptado aún una oferta comercial.
+        * Caso A: Si en el historial reciente (últimos 3-4 mensajes) aparece un mensaje del "Asistente" (humano, sin 🤖) que indica una resolución manual o charla social pendiente.
         * Caso B (SILENCIO FORZADO): Si el usuario ha enviado múltiples mensajes de queja, insultos o insistencia extrema (ej: "hola???", "alguien??", "que pasa?") sin respuesta, y el bot no tiene una solución técnica inmediata. 
     - "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
     - "awaiting_payment_confirmation": Si el mensaje es una imagen o texto indicando "ya pagué", "aquí el recibo", etc.
@@ -555,17 +555,17 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     Regla de Frustración:
     - Analiza si el usuario suena desesperado, enojado o ha insistido mucho en corto tiempo sin ser atendido. Púntualo del 0 al 10 en "frustrationLevel". 
     - IMPORTANTE: Si el mensaje actual es un saludo (Hola, buenos días) o un ping (?, sigo esperando) y en el historial reciente (mensajes no leídos) hay una solicitud clara de **"credenciales", "comprar" o "pagar"** que NO fue respondida adecuadamente, PRIORIZA esa petición sobre el saludo. El intent debe ser el de la petición pendiente (ej: "credenciales").
-    - Sólo sugiere "waiting_human" en recoveredState si es puramente una queja, insulto o algo técnico no resuelto por el bot.
+    - **REGLA DE CONTEXTO HUMANO (CRÍTICA)**: Revisa minuciosamente los mensajes del "Asistente" (humano, sin 🤖). Si el humano ha dado una instrucción específica, ha mencionado un problema técnico ("el sistema falló", "te cobraron mal"), ha negociado un precio especial o ha pedido al cliente que espere, el bot **NO DEBE REACTIVARSE** ni intentar resolver la duda de forma estándar. En estos casos, aunque el cliente pregunte "¿Cuánto es?", si el humano ya dijo "te lo dejo en X", el bot debe quedarse en "waiting_human" y "intent": "desconocido". Solo reactívate si el cliente pide algo totalmente nuevo y no relacionado con lo que el humano estaba tratando, o si usa "@bot".
     
     Salida esperada JSON:
     {
         "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "desconocido",
         "recoveredState": string | null,
         "frustrationLevel": number, // 0 a 10
-        "userName": string | null, // Si el usuario se presentó o dijo su nombre en el historial, extráelo aquí. Límpialo de muletillas como "Soy", "Me llamo".
-        "isNameComplete": boolean, // true si userName parece un nombre real de persona (nombre y apellido razonable, ej: "Miguel Botero"). false si es genérico ("Cliente"), negocio ("Ventas"), incompleto ("Juan") o basura ("Hola").
-        "detectedPlatform": string | null, // Si el usuario menciona una plataforma en su primer mensaje (ej: "Netflix", "Plex", "Disney")
-        "metadata": object | null // { total: number, items: string[] } si es recuperación de pago.
+        "userName": string | null,
+        "isNameComplete": boolean,
+        "detectedPlatform": string | null, 
+        "metadata": object | null 
     }
 
     Si el mensaje actual es una imagen, revisa si es un comprobante de pago. Si lo es, pon intent: "pagar".

@@ -41,7 +41,7 @@ const GROUP_ID = '120363102144405222@g.us';
 const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573107946794') + '@c.us';
 let globalBotSleep = false;
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
-const BATCH_INTERVAL = 3000; // 3 segundos para agrupar mensajes
+const BATCH_INTERVAL = 5000; // 5 segundos para agrupar mensajes
 
 const {
   startPurchaseProcess,
@@ -817,9 +817,9 @@ async function processIncomingMessage(messages) {
           const lastHumanMsg = sData.lastHumanInteraction || 0;
           const timeSinceLastHuman = Date.now() - lastHumanMsg;
           
-          // Si el asesor (humano) envió un mensaje en los últimos 30 minutos, asumimos que
+          // Si el asesor (humano) envió un mensaje en la última hora, asumimos que
           // están en una conversación activa. El bot guarda SILENCIO ABSOLUTO.
-          if (timeSinceLastHuman < 1000 * 60 * 30) {
+          if (timeSinceLastHuman < 1000 * 60 * 60 * 1) {
               console.log(`[DEBUG] Mute activo para @${userId.replace('@c.us', '')} - Conversación humana reciente.`);
               return;
           }
@@ -838,7 +838,7 @@ async function processIncomingMessage(messages) {
           }
 
           const { detectInitialIntent } = require('./aiService');
-          const hist = await getChatHistoryText(message, 3); // Historial corto
+          const hist = await getChatHistoryText(message, 6); // Historial más largo para capturar contexto humano
           const detection = await detectInitialIntent(message.body, hist, mediaData);
           
           if (["comprar", "pagar"].includes(detection.intent)) {
@@ -1359,7 +1359,6 @@ async function processIncomingMessage(messages) {
            if (detection.detectedPlatform) {
                console.log(`[Flow Optimization] Saltando menú de plataformas para @${userId}. Plataforma detectada: ${detection.detectedPlatform}`);
                userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
-               await message.reply(`🤖 ¡Perfecto ${foundName}! Detectamos tu interés en *${detection.detectedPlatform}*. Permíteme calcular los planes disponibles...`);
                await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
                return;
            }
@@ -1379,8 +1378,7 @@ async function processIncomingMessage(messages) {
           await processCheckCredentials(message, userId);
           return;
       } else if (detection.intent === 'pagar') {
-          await message.reply(`🤖 ¡Claro${foundName ? ' ' + foundName : ''}! Vamos a revisar tus cuentas para el pago.`);
-          await processCheckPrices(message, userId, userStates);
+          await processCheckPrices(message, userId, userStates, detection.detectedPlatform);
           return;
       }
 

@@ -105,9 +105,26 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   let selectedItems = [];
   let invalidElements = [];
 
+  const PLATFORM_ALIASES = {
+    'amazon': 'prime video',
+    'prime': 'prime video',
+    'hbo': 'max',
+    'hbomax': 'max',
+    'disney': 'disney+',
+    'star': 'disney+',
+    'm365': 'microsoft 365',
+    'office': 'microsoft 365'
+  };
+
   items.forEach(item => {
     if (!item || !item.platform) return;
-    const targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
+    let targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    // Aplicar alias
+    if (PLATFORM_ALIASES[targetPlatform]) {
+      targetPlatform = PLATFORM_ALIASES[targetPlatform].toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
     const platform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
       platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
 
@@ -123,28 +140,32 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     }
   });
 
+  let consolidatedResponse = "";
+
   if (invalidElements.length > 0) {
-    await message.reply(`🤖 Lo siento, no manejamos las siguientes plataformas: ${invalidElements.join(', ')}.`);
+    consolidatedResponse += `🤖 Lo siento, de momento no manejamos: ${invalidElements.join(', ')}.\n`;
     if (selectedItems.length === 0) {
-      userStates.set(userId, 'waiting_human');
-      await message.reply("🤖 Un asesor te contactará pronto para ver si podemos ayudarte con algo más.");
+      consolidatedResponse += `\nPero no te preocupes, un asesor humano te contactará pronto para ver si podemos ayudarte con algo más o conseguirte esa cuenta. 😊`;
+      await message.reply(consolidatedResponse);
+      userStates.set(userId, { state: 'waiting_human', waitingCount: 1 });
       return;
     }
-    await message.reply(`🤖 Pero ¡buena noticia! Sí podemos ayudarte con el resto de tu pedido.`);
+    consolidatedResponse += `\nPero ¡buena noticia! Sí podemos ayudarte con el resto de tu pedido:\n\n`;
+  } else {
+    consolidatedResponse = empathyGreeting ? `🤖 ${empathyGreeting}\n\nEntendido, buscas:\n` : "🤖 Entendido, buscas:\n";
   }
 
   let calculatedTotal = 0;
-  let responseText = empathyGreeting ? `🤖 ${empathyGreeting}\n\nEntendido, buscas:\n` : "Entendido, buscas:\n";
 
   for (const s of selectedItems) {
     if (s.plan) {
       calculatedTotal += s.plan.price;
-      responseText += `- ${s.platform.name} (${s.plan.name}): $${s.plan.price}\n`;
+      consolidatedResponse += `- ${s.platform.name} (${s.plan.name}): $${s.plan.price}\n`;
     } else {
       const defaultPlan = s.platform.plans[0];
       calculatedTotal += defaultPlan.price;
       s.plan = defaultPlan; 
-      responseText += `- ${s.platform.name} (${defaultPlan.name}): $${defaultPlan.price} (Plan Básico asumido)\n`;
+      consolidatedResponse += `- ${s.platform.name} (${defaultPlan.name}): $${defaultPlan.price} (Plan Básico asumido)\n`;
     }
   }
 
@@ -152,7 +173,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   if (numPlatforms > 1) {
     const discount = (numPlatforms - 1) * 1000;
     calculatedTotal -= discount;
-    responseText += `\nDescuento por combo: -$${discount}\n`;
+    consolidatedResponse += `\nDescuento por combo: -$${discount}\n`;
   }
 
   let periodText = "/mes";
@@ -165,22 +186,21 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   }
 
   calculatedTotal = Math.round(calculatedTotal);
-  responseText += `\nTotal calculado: $${calculatedTotal}${periodText}`;
+  consolidatedResponse += `\nTotal calculado: $${calculatedTotal}${periodText}`;
 
   if (statedPrice !== null && Math.abs(statedPrice - calculatedTotal) > 2000) {
-    responseText += `\n\nNoté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
+    consolidatedResponse += `\n\nNoté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
   }
 
-  await message.reply('🤖 ' + responseText);
+  consolidatedResponse += "\n\n¿Por cuál medio deseas hacer la transferencia?\n⭐Nequi | ⭐Daviplata | ⭐Bancolombia | ⭐QR Negocios";
+
+  await message.reply(consolidatedResponse);
 
   const existing = userStates.get(userId);
   const stateData = typeof existing === 'object' 
     ? { ...existing, state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems, subscriptionType: subscriptionType || 'mensual' }
     : { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems, subscriptionType: subscriptionType || 'mensual' };
   userStates.set(userId, stateData);
-
-  let paymentOptions = "🤖 ⭐Nequi\n⭐Llaves Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?\n\n💡 *Tip:* Si deseas pagar por *QR*, dímelo y te enviaré la imagen o los datos para que sea más fácil.";
-  await message.reply(paymentOptions);
 }
 
 async function handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID) {
