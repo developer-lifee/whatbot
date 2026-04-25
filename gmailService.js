@@ -98,6 +98,76 @@ async function checkNewPayments() {
     }
 }
 
+/**
+ * Busca un pago específico por monto en los correos recientes de Gmail.
+ * @param {number} targetAmount 
+ * @param {number} toleranceMinutes 
+ * @returns {Promise<Object|null>}
+ */
+async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
+    console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min...`);
+    const auth = getOAuth2Client();
+    if (!auth) return null;
+
+    const gmail = google.gmail({ version: 'v1', auth });
+    
+    try {
+        const res = await gmail.users.messages.list({
+            userId: 'me',
+            q: 'subject:"Detalle de tu venta por Bre-B"',
+            maxResults: 15
+        });
+
+        const messages = res.data.messages || [];
+        const now = Date.now();
+
+        for (const msg of messages) {
+            const fullMsg = await gmail.users.messages.get({
+                userId: 'me',
+                id: msg.id
+            });
+
+            const internalDate = parseInt(fullMsg.data.internalDate);
+            const diffMinutes = (now - internalDate) / (1000 * 60);
+
+            if (diffMinutes > toleranceMinutes) {
+                // Como los correos vienen ordenados por fecha, si este ya pasó la tolerancia, los siguientes también
+                // break; // Descomentar si se quiere optimizar, pero cuidado con el orden de list()
+            }
+
+            const snippet = fullMsg.data.snippet || '';
+            const bodyData = fullMsg.data.payload.body.data ? Buffer.from(fullMsg.data.payload.body.data, 'base64').toString() : '';
+            const body = snippet + ' ' + bodyData;
+
+            const isApproved = /Estado:\s*(?:Aprobada|Exitosa)/i.test(body) || /Venta exitosa/i.test(body);
+            if (!isApproved) continue;
+
+            const amountRegex = /Monto:\s*(?:\$)?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i;
+            const amountMatches = body.match(amountRegex);
+
+            if (amountMatches) {
+                const rawValue = amountMatches[1];
+                const cleanValue = parseInt(rawValue.replace(/\./g, '').split(',')[0]);
+
+                if (cleanValue === targetAmount) {
+                    console.log(`[GMAIL MATCH] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
+                    return {
+                        id: msg.id,
+                        amount: cleanValue,
+                        date: internalDate,
+                        diffMinutes: Math.round(diffMinutes)
+                    };
+                }
+            }
+        }
+        return null;
+    } catch (error) {
+        console.error('❌ Error en findMatchingPayment:', error.message);
+        return null;
+    }
+}
+
 module.exports = {
-    checkNewPayments
+    checkNewPayments,
+    findMatchingPayment
 };

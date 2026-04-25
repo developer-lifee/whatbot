@@ -32,7 +32,7 @@ const { detectPaymentMethod, generateCredentialsResponse, generateEmpatheticFall
 const { getAccountsByPhone } = require('./apiService');
 const { searchContactByPhone, addNewContact } = require('./googleContactsService');
 const { getChatHistoryText } = require('./salesService');
-const { checkNewPayments } = require('./gmailService');
+const { checkNewPayments, findMatchingPayment } = require('./gmailService');
 
 // --- CONSTANTES Y ESTADOS GLOBALES ---
 const userStates = new Map();
@@ -67,7 +67,9 @@ const {
   handleSendManualPaymentMethods, 
   showDetailedHelp,
   getUpcomingExpirationsReport,
-  getNetflixMatchReport
+  getNetflixMatchReport,
+  handleAdminSuggestions,
+  executeTestMode
 } = require('./adminService');
 
 
@@ -683,6 +685,22 @@ async function processIncomingMessage(messages) {
   if (userId.includes('3027892534')) {
       return; // El bot no se mete en la conversación con el proveedor
   }
+
+  // --- INTERCEPTOR ESPECIAL ADMINISTRADOR (3133890800) ---
+  if (userId.includes('3133890800')) {
+      const cleanBody = (message.body || "").trim().toLowerCase();
+      
+      // Si no es un comando directo de @bot, ofrecer sugerencias inteligentes
+      if (!cleanBody.startsWith("@bot") && !message.fromMe && !message.hasMedia) {
+          console.log(`[Admin Proactivo] Detectado mensaje de admin: ${cleanBody}`);
+          await handleAdminSuggestions(message);
+          // Podemos elegir si retornar aquí o dejar que procese otros comandos
+          if (cleanBody === 'pruebas') {
+              await executeTestMode(message, client);
+              return;
+          }
+      }
+  }
   let contact;
   try {
       contact = await message.getContact();
@@ -1174,6 +1192,33 @@ async function processIncomingMessage(messages) {
           const existing = userStates.get(userId);
           const stateData = typeof existing === 'object' ? { ...existing } : { nombre: foundName };
           
+          // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---
+          if (check.amount && check.amount > 0) {
+              const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min
+              if (match) {
+                  console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
+                  
+                  // Ejecutar validación automática
+                  const validationResult = await executePaymentValidation(userId, { ...stateData, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null);
+                  
+                  if (validationResult.success) {
+                      // Notificar al grupo administrativo del éxito automático
+                      try {
+                          const groupChat = await client.getChatById(GROUP_ID);
+                          if (groupChat) {
+                              await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
+                                             `Monto: $${check.amount}\n` +
+                                             `Banco: ${check.bank || 'Bre-B'}\n` +
+                                             `ID Gmail: ${match.id}\n\n` +
+                                             `El bot ya entregó el servicio automáticamente.`);
+                          }
+                      } catch(e) {}
+                      return;
+                  }
+              }
+          }
+
+          // Si no hubo match automático, seguimos con el flujo manual
           // Revisamos si en el carrito (items) hay un servicio de Netflix
           let hasNetflix = false;
           if (stateData.items && Array.isArray(stateData.items)) {
@@ -1193,7 +1238,6 @@ async function processIncomingMessage(messages) {
                   checkAmount: check.amount
               });
               
-              // No notificamos al administrador todavía para no sobrecargar el chat; lo haremos cuando responda.
               return;
           }
 

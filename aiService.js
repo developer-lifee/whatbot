@@ -378,13 +378,15 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
     Debes responder en formato JSON:
     {
       "isReceipt": boolean, // true si es claramente un recibo de banco (Nequi, Daviplata, Bancolombia, etc.)
-      "amount": number | null, // El valor de la transferencia (solo números) si es legible.
+      "amount": number | null, // El valor EXACTO de la transferencia (solo números) si es legible. Es vital para la validación automática.
       "bank": string | null, // Nombre del banco detectado (Nequi, Daviplata, etc.)
-      "confidence": number // 0 a 1
+      "confidence": number, // 0 a 1
+      "extractedDetails": string | null // Cualquier texto extra como ID de transacción o fecha/hora visible.
     }
 
     Reglas:
     - Solo marca isReceipt: true si es una confirmación de envío/transferencia exitosa.
+    - Sé muy riguroso con el 'amount'. Si hay varios números, busca el que diga 'Monto', 'Valor', 'Total' o esté resaltado.
     - No lo confundas con una foto de la plataforma de streaming.
     - Si el banco es Nequi, Daviplata, Bancolombia, dale prioridad.
   `;
@@ -676,4 +678,51 @@ async function generateAdminReport(query, dataContext) {
   }
 }
 
-module.exports = { parsePurchaseIntent, detectPaymentMethod, generateCredentialsResponse, parsePlanSelection, generateEmpatheticFallback, detectInitialIntent, formatDirectCredentials, isPaymentReceipt, parseAdminQueryIntent, generateAdminReport };
+/**
+ * Identifica si un mensaje del administrador indica interés en un modo específico o sugiere acciones.
+ * @param {string} query 
+ * @returns {Promise<Object>}
+ */
+async function suggestAdminActions(query) {
+  const prompt = `
+    Eres el copiloto inteligente del administrador de Sheerit. El administrador te ha escrito: "${query}"
+    
+    Tu tarea es determinar qué "modo" o acción desea realizar y generar una respuesta sugerida que facilite su trabajo.
+    
+    Acciones/Modos posibles:
+    - "test_mode": El admin quiere probar el sistema, insertar datos de prueba, simular pagos.
+    - "data_insertion": El admin quiere agregar nuevos clientes, cuentas o proveedores.
+    - "payment_validation": El admin quiere revisar si llegaron pagos a Gmail o validar comprobantes pendientes.
+    - "billing_start": El admin quiere iniciar el proceso de cobros automáticos del día.
+    - "general_query": Consultas sobre stock, clientes, vencimientos, etc.
+    
+    Salida esperada JSON:
+    {
+      "suggestedAction": "test_mode" | "data_insertion" | "payment_validation" | "billing_start" | "general_query",
+      "replyMessage": "Una respuesta breve y proactiva sugiriendo el siguiente paso.",
+      "parameters": object | null // Datos extraídos como nombre, plataforma, etc.
+    }
+  `;
+
+  try {
+    const jsonString = await callGemini(prompt, "Eres un asistente administrativo proactivo. Responde solo con JSON.", true);
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error("Error in suggestAdminActions:", error);
+    return { suggestedAction: "general_query", replyMessage: "No estoy seguro de qué deseas hacer, ¿puedes ser más específico? 🤖" };
+  }
+}
+
+module.exports = { 
+  parsePurchaseIntent, 
+  detectPaymentMethod, 
+  generateCredentialsResponse, 
+  parsePlanSelection, 
+  generateEmpatheticFallback, 
+  detectInitialIntent, 
+  formatDirectCredentials, 
+  isPaymentReceipt, 
+  parseAdminQueryIntent, 
+  generateAdminReport,
+  suggestAdminActions
+};

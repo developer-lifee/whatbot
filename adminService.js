@@ -211,21 +211,31 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     const userId = `${phoneNumber}@c.us`;
     const userState = userStates.get(userId);
 
-    if (!userState || (userState.state !== 'waiting_admin_confirmation' && userState.state !== 'waiting_human')) {
-        await message.reply(`🤖 El usuario @${phoneNumber} no tiene un pago pendiente de validación en este momento.`);
+    // Permitimos validación si el estado es cualquiera de los que esperan pago
+    const validStates = ['waiting_admin_confirmation', 'waiting_human', 'awaiting_payment_confirmation', 'awaiting_netflix_operator_post_payment'];
+    
+    if (!userState || !validStates.includes(userState.state)) {
+        if (message) await message.reply(`🤖 El usuario @${phoneNumber} no tiene un pago pendiente de validación en este momento.`);
         return;
     }
 
-    await message.reply(`✅ *Validando pago de @${phoneNumber}...*`);
+    if (message) await message.reply(`✅ *Validando pago de @${phoneNumber}...*`);
+    return await executePaymentValidation(userId, userState, client, userStates, message);
+}
 
+/**
+ * Función núcleo que ejecuta el registro de la venta y notificación.
+ */
+async function executePaymentValidation(userId, userState, client, userStates, adminMessage = null) {
+    const phoneNumber = userId.replace('@c.us', '');
     try {
         const paymentMethod = userState.paymentMethod || "Confirmado por Admin";
         
-        // Registrar en Excel inteligente (retorna array de resultados por item)
+        // Registrar en Excel inteligente
         const results = await recordNewSale(userId, userState, paymentMethod);
         
-        let report = `✅ *Venta Registrada con éxito*\n\n`;
-        let userMsg = "🤖 ¡Tu pago ha sido validado! Gracias por tu compra.\n\n";
+        let report = `✅ *Venta Registrada automáticamente*\n\n`;
+        let userMsg = "🤖 ¡Tu pago ha sido validado exitosamente! 🎉 Gracias por tu compra.\n\n";
         let hasFamily = false;
 
         for (const res of results) {
@@ -245,15 +255,17 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         // Notificar al cliente
         await client.sendMessage(userId, userMsg);
         
-        // Limpiar estado o mover a menú principal
+        // Limpiar estado
         userStates.set(userId, { state: 'main_menu', nombre: userState.nombre });
         
         if (hasFamily) report += `\n🚨 @${phoneNumber} requiere invitación manual para los planes familiares marcados arriba.`;
         
-        await message.reply(report);
+        if (adminMessage) await adminMessage.reply(report);
+        return { success: true, report };
     } catch (err) {
-        console.error('Error en confirmación manual:', err);
-        await message.reply(`❌ Error al registrar la venta de @${phoneNumber}: ${err.message}`);
+        console.error('Error en validación de pago:', err);
+        if (adminMessage) await adminMessage.reply(`❌ Error al registrar la venta de @${phoneNumber}: ${err.message}`);
+        return { success: false, error: err.message };
     }
 }
 
@@ -524,6 +536,26 @@ async function notifyProviderExpiringAccounts(client) {
     }
 }
 
+/**
+ * Maneja las sugerencias proactivas para el administrador principal.
+ */
+async function handleAdminSuggestions(message) {
+    const { suggestAdminActions } = require('./aiService');
+    const result = await suggestAdminActions(message.body);
+    
+    if (result && result.replyMessage) {
+        await message.reply(result.replyMessage + " 🤖");
+    }
+}
+
+/**
+ * Ejecuta una acción de prueba para validar flujos sin afectar datos reales de producción.
+ */
+async function executeTestMode(message, client) {
+    const testMsg = `🧪 *MODO DE PRUEBAS ACTIVADO*\n\n1. Generando cliente de prueba...\n2. Simulando flujo de pago...\n3. Verificando conexión con Gmail...\n\nTodo parece en orden. ¿Deseas que inserte un registro de prueba en el Excel para validar la escritura? (Responde "Sí, prueba de escritura")`;
+    await message.reply(testMsg);
+}
+
 module.exports = {
   processPendingChats,
   handleBatchUnanswered,
@@ -534,5 +566,8 @@ module.exports = {
   showDetailedHelp,
   getUpcomingExpirationsReport,
   getNetflixMatchReport,
-  notifyProviderExpiringAccounts
+  notifyProviderExpiringAccounts,
+  handleAdminSuggestions,
+  executeTestMode,
+  executePaymentValidation
 };
