@@ -1108,6 +1108,26 @@ async function processIncomingMessage(messages) {
           const { getAccountsByPhone } = require('./apiService');
           await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
           return;
+      } else {
+          // --- FALLBACK CONVERSACIONAL IA PARA ADMINISTRADOR ---
+          const { parseAdminQueryIntent, generateAdminReport } = require('./aiService');
+          const { fetchRawData } = require('./apiService');
+          
+          console.log(`[Admin AI] Procesando comando conversacional: ${command}`);
+          const intent = await parseAdminQueryIntent(command);
+          
+          if (intent.action === 'broadcast_credentials') {
+              const { handleSendBulkCredentials } = require('./adminService');
+              const { getAccountsByPhone } = require('./apiService');
+              // Si el admin pide "solo pin perfil", lo añadimos al comando para que formatDirectCredentials lo sepa (ajuste necesario abajo)
+              await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
+              return;
+          }
+
+          const rawData = await fetchRawData();
+          const report = await generateAdminReport(command, rawData);
+          await message.reply(report);
+          return;
       }
   }
 

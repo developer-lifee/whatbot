@@ -256,7 +256,7 @@ async function generateCredentialsResponse(userAccounts) {
  * @param {string} requestedPlatform - Optional. If provided, filters by this platform name.
  * @returns {string|null}
  */
-function formatDirectCredentials(userAccounts, requestedPlatform = null) {
+function formatDirectCredentials(userAccounts, requestedPlatform = null, options = {}) {
   if (!userAccounts || userAccounts.length === 0) return null;
   
   let accountsToFormat = userAccounts;
@@ -278,7 +278,10 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
     let clave = acc["contraseña"] || acc["clave"] || acc["Clave"] || acc["password"] || acc["Password"] || "N/A";
     const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
     const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
-    const perfilDisplay = pin ? `${perfil} - PIN: ${pin}` : perfil;
+    
+    const isSpotify = streamingName.toLowerCase().includes('spotify');
+    const labelPin = isSpotify ? "DIRECCIÓN/LINK" : "PIN";
+    const perfilDisplay = pin ? `${perfil} - ${labelPin}: ${pin}` : perfil;
     
     let fechaVencimiento = "Fecha desconocida";
     let isExpired = false;
@@ -302,6 +305,16 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null) {
         }
     } else if (acc.vencimiento) {
         fechaVencimiento = acc.vencimiento;
+    }
+
+    const isConcise = options.concise || (requestedPlatform && (requestedPlatform.includes('solo pin') || requestedPlatform.includes('unicamente pin')));
+
+    if (isConcise) {
+        let conciseMsg = `🚨 *ACTUALIZACIÓN ${streamingName}*\n\n📧 Cuenta: ${correo}`;
+        if (pin) conciseMsg += `\n📍 ${labelPin}: ${pin}`;
+        conciseMsg += `\n\nSi tienes inconvenientes, escribe "ayuda". 🤖`;
+        formattedAccounts.push(conciseMsg);
+        return;
     }
 
     if (isFamily) {

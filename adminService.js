@@ -181,7 +181,7 @@ async function handleSendBulkCredentials(message, command, client, getAccountsBy
         const cleanPhone = phoneStr.replace(/\s+/g, '');
         try {
             const accounts = await getAccountsByPhone(cleanPhone);
-            const formattedMsg = formatDirectCredentials(accounts, requestedPlatform);
+            const formattedMsg = formatDirectCredentials(accounts, requestedPlatform || command);
             if (formattedMsg) {
                 await client.sendMessage(cleanPhone + '@c.us', formattedMsg);
                 enviados++;
