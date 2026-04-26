@@ -863,13 +863,17 @@ async function processIncomingMessage(messages) {
           const hist = await getChatHistoryText(message, 6); // Historial más largo para capturar contexto humano
           const detection = await detectInitialIntent(message.body, hist, mediaData);
           
-          if (["comprar", "pagar"].includes(detection.intent)) {
-              console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA: ${detection.intent}`);
+          const cleanBody = (message.body || "").trim();
+          const solvableIntents = ["comprar", "pagar", "credenciales"];
+          const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
+
+          if (solvableIntents.includes(detection.intent) || isMenuSelection) {
+              console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA o selección de menú.`);
               userStates.delete(userId);
               currentState = undefined;
-              // Continúa el flujo para vender/procesar pago
+              // Continúa el flujo
           } else {
-              // Silencio absoluto, ya no enviamos sondeos como "seguimos con alta demanda".
+              // Silencio absoluto
               return;
           }
       }

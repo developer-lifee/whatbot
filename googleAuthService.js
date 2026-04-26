@@ -32,7 +32,8 @@ async function getOAuth2Client(serviceName = 'contacts', code = null) {
         const redirectUri = redirect_uris ? redirect_uris[0] : 'urn:ietf:wg:oauth:2.0:oob';
 
         const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
-        const tokenPath = path.join(__dirname, `token_${serviceName}.json`);
+        const tokenPath = path.resolve(__dirname, `token_${serviceName}.json`);
+        console.log(`[GOOGLE AUTH DEBUG] Buscando token en: ${tokenPath}`);
 
         // Si recibimos un código, intentamos generar el token y guardarlo
         if (code) {
