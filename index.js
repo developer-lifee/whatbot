@@ -110,7 +110,8 @@ const {
   getUpcomingExpirationsReport,
   getNetflixMatchReport,
   handleAdminSuggestions,
-  executeTestMode
+  executeTestMode,
+  executePaymentValidation
 } = require('./adminService');
 
 
@@ -1972,77 +1973,4 @@ setInterval(async () => {
     }
 }, 5 * 1000 * 60);
 
-/* 
-// Escáner de Pagos Gmail (DESACTIVADO TEMPORALMENTE - ERROR DE SCOPES)
-setInterval(async () => {
-    try {
-        const newPayments = await checkNewPayments();
-        if (newPayments.length === 0) return;
-
-        console.log(`[GMAIL AUTOMATION] Procesando ${newPayments.length} pagos detectados...`);
-
-        for (const payment of newPayments) {
-            let matches = [];
-            
-            // Buscar usuarios en estado de pago con el mismo monto
-            for (const [uid, ustate] of userStates.entries()) {
-                const isWaiting = ['awaiting_payment_confirmation', 'awaiting_payment_method', 'waiting_human'].includes(ustate.state);
-                if (isWaiting && ustate.total && Math.abs(ustate.total - payment.amount) < 10) {
-                    matches.push({ id: uid, state: ustate });
-                }
-            }
-
-            if (matches.length === 1) {
-                const target = matches[0];
-                console.log(`[GMAIL AUTOMATION] ✅ Coincidencia única hallada para $${payment.amount}: @${target.id}`);
-                
-                // Confirmación Automática
-                const results = await recordNewSale(target.id, target.state, "Bre-B (Auto-detect)");
-                
-                let userMsg = "🤖 ¡BUENAS NOTICIAS! He detectado tu pago vía *Bre-B* automáticamente. 🎉\n\n";
-                let hasFamily = false;
-
-                for (const res of results) {
-                    if (res.status === 'success') {
-                        userMsg += `- *${res.name}*: Cuenta asignada con éxito. ✅\n`;
-                    } else if (res.status === 'manual_invitation_required') {
-                        userMsg += `- *${res.name}*: Pago recibido. Un asesor te enviará la invitación manual en un momento. ⚠️\n`;
-                        hasFamily = true;
-                    } else {
-                        userMsg += `- *${res.name}*: Pago recibido, pero nos quedamos sin cupos. Un asesor te dará una solución ahora mismo. ❌\n`;
-                    }
-                }
-                
-                await client.sendMessage(target.id, userMsg);
-                
-                // Notificar al grupo de administración
-                try {
-                    const groupChat = await client.getChatById(GROUP_ID);
-                    if (groupChat) {
-                        await groupChat.sendMessage(`🤖 [AUTO] Pago detectado de $${payment.amount} para @${target.id.replace('@c.us', '')}.\nVenta procesada automáticamente.`);
-                    }
-                } catch(e){}
-
-                // Resetear estado del usuario
-                userStates.set(target.id, { state: 'main_menu', nombre: target.state.nombre });
-
-            } else if (matches.length > 1) {
-                console.warn(`[GMAIL AUTOMATION] ⚠️ Múltiples coincidencias para $${payment.amount}. Notificando admin.`);
-                try {
-                    const groupChat = await client.getChatById(GROUP_ID);
-                    if (groupChat) {
-                        const phones = matches.map(m => `@${m.id.replace('@c.us', '')}`).join(', ');
-                        await groupChat.sendMessage(`⚠️ [AUTO] He detectado un pago de $${payment.amount} pero tengo ${matches.length} clientes esperando ese valor: ${phones}.\n\nPor favor confirma manualmente.`);
-                    }
-                } catch(e){}
-            } else {
-                console.log(`[GMAIL AUTOMATION] ℹ️ Pago de $${payment.amount} detectado pero no coincide con ningún cliente activo.`);
-            }
-        }
-    } catch (err) {
-        if (!err.message.includes('insufficient authentication scopes')) {
-            console.error('❌ [GMAIL AUTOMATION] Error:', err.message);
-        }
-    }
-}, 2 * 1000 * 60);
-*/
+// Bloque de escaneo automático de pagos eliminado (redundante con validación push)
