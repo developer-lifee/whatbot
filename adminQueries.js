@@ -218,38 +218,62 @@ async function processAdminQuery(message, query, userStates, client) {
                     }
                 }
                 
-                if (matchIndex !== -1 && filters.target_field && filters.new_value) {
-                    const fieldMap = {
-                        "nombre": "Nombre",
-                        "correo": "correo",
-                        "clave": "contraseña",
-                        "vencimiento": "vencimiento",
-                        "deben": "deben",
-                        "operador": "Operador",
-                        "metodo pago": "Metodo Pago",
-                        "streaming": "Streaming",
-                        "plataforma": "Streaming"
-                    };
-                    
-                    const actualField = fieldMap[filters.target_field.toLowerCase()] || filters.target_field;
-                    const updates = {};
-                    updates[actualField] = filters.new_value;
-                    
-                    await updateExcelData(matchIndex, updates);
-                    filteredData = { 
-                        status: "success", 
-                        message: `✅ He actualizado el campo *${actualField}* a "${filters.new_value}" para el cliente *${matchedRow['Nombre'] || 'Sin nombre'}* en la fila ${matchIndex}. 🤖` 
-                    };
-                } else if (matchIndex === -1) {
-                    filteredData = { status: "error", message: `No pude encontrar al cliente "${filters.name || filters.generic_search}" para realizar la actualización.` };
+                if (matchIndex === -1) {
+                    filteredData = { status: 'error', message: `No encontré a ningún cliente que coincida con "${filters.name || filters.generic_search}" para actualizar.` };
                 } else {
-                    filteredData = { status: "error", message: `No entendí qué campo quieres cambiar o a qué valor. (Campo: ${filters.target_field}, Valor: ${filters.new_value})` };
+                    // 2. Mapear el campo a actualizar
+                    const fieldMap = {
+                        'nombre': 'Nombre',
+                        'apellido': 'apellido',
+                        'correo': 'correo',
+                        'email': 'correo',
+                        'clave': 'contraseña',
+                        'password': 'contraseña',
+                        'vencimiento': 'vencimiento',
+                        'pago': 'Metodo de pago',
+                        'metodo': 'Metodo de pago',
+                        'pin': 'pin perfil',
+                        'perfil': 'pin perfil',
+                        'operador': 'operador',
+                        'deben': 'deben'
+                    };
+
+                    const targetField = fieldMap[filters.target_field?.toLowerCase()] || filters.target_field;
+                    
+                    if (!targetField) {
+                        filteredData = { status: 'error', message: `No entendí qué campo deseas actualizar (nombre, correo, clave, etc.).` };
+                    } else {
+                        const updates = {};
+                        updates[targetField] = filters.new_value;
+                        
+                        await updateExcelData(matchIndex, updates);
+                        
+                        // Guardar detalle técnico para la IA
+                        const adminState = userStates.get(message.from) || {};
+                        userStates.set(message.from, { 
+                            ...adminState, 
+                            lastAction: {
+                                type: 'update_data',
+                                row: matchIndex,
+                                field: targetField,
+                                newValue: filters.new_value,
+                                previousValue: matchedRow[targetField],
+                                client: matchedRow.Nombre || matchedRow.whatsapp,
+                                timestamp: new Date().toISOString()
+                            }
+                        });
+
+                        filteredData = { 
+                            status: 'success', 
+                            message: `✅ He actualizado el campo *${targetField}* a "${filters.new_value}" para el cliente *${matchedRow.Nombre || matchedRow.whatsapp}* en la fila ${matchIndex}. 🤖` 
+                        };
+                    }
                 }
             } else if (action === 'record_sale') {
                 const { recordNewSale } = require('./salesRegistryService');
                 const dummyState = {
                     nombre: filters.name || "Cliente Dashboard",
-                    items: [{ platform: { name: filters.platform || filters.generic_search || "Netflix" } }],
+                    items: [{ platform: { name: filters.platform || filters.generic_search || "Netflix" }, plan: { name: "Dashboard" } }],
                     subscriptionType: 'mensual'
                 };
                 const targetPhone = (filters.phone || filters.generic_search || '570000000000').replace(/\D/g, '');
@@ -259,9 +283,21 @@ async function processAdminQuery(message, query, userStates, client) {
                 
                 let detail = "";
                 results.forEach(r => {
-                    detail += `\n- *${r.name}*: ${r.status === 'success' ? `Fila ${r.index} ✅` : `❌ ${r.status}`}`;
+                    detail += `\n- *${r.name}*: ${r.status === 'success' ? `Fila ${r.rowNumber} ✅` : `❌ ${r.status}`}`;
                 });
                 
+                // Guardar detalle técnico para la IA
+                const adminState = userStates.get(message.from) || {};
+                userStates.set(message.from, { 
+                    ...adminState, 
+                    lastAction: {
+                        type: 'record_sale',
+                        details: results,
+                        client: dummyState.nombre,
+                        timestamp: new Date().toISOString()
+                    }
+                });
+
                 filteredData = { 
                     status: "success", 
                     message: `🚀 *Registro de Venta Manual*\nCliente: ${dummyState.nombre}\nResultados:${detail}\n\nEl sistema ha intentado asignar los cupos automáticamente.` 

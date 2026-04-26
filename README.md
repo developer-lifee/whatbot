@@ -131,6 +131,32 @@ Este documento sirve como guía técnica para la mejora continua del bot, priori
 
 ---
 
+# 🛠️ Arquitectura de Comandos Administrativos (Knowledge Base para IA)
+
+Este bot utiliza un flujo de tres capas para procesar comandos del administrador:
+
+1.  **Capa de Intención (Gemini):** En `aiService.js`, la función `parseAdminQueryIntent` extrae la acción deseada (`record_sale`, `update_data`, `search_customer`, `broadcast`) y los filtros (nombre, plataforma, campo a cambiar).
+2.  **Capa de Lógica (adminQueries.js):** Procesa la intención usando la data de Azure.
+    *   **Búsqueda Fuzzy:** Busca en columnas `Nombre`, `apellido` y `whatsapp`.
+    *   **Registro de Venta:** Llama a `salesRegistryService.js` para buscar cupos libres.
+3.  **Capa de Ejecución (Servicios):**
+    *   `salesRegistryService.js`: Busca filas donde el campo `Streaming` coincida y la columna `deben` esté vacía o con fecha vencida. Actualiza `numero`, `Nombre`, `deben` y `Metodo de pago`.
+    *   `apiService.js`: Realiza los `POST` finales a Azure Functions.
+
+## 📌 Mapeo de Columnas Críticas (Exacto)
+Para evitar errores de escritura, el bot debe usar estos nombres exactos de columna:
+- `Nombre`: Nombre del cliente.
+- `numero`: Teléfono (formato 57...).
+- `deben`: Fecha del próximo cobro (formato DD/MM/YYYY).
+- `Metodo de pago`: Banco o medio usado.
+- `operador`: Ciudad/Municipio y proveedor de internet.
+- `contraseña`: Clave del servicio.
+
+## 🐛 Troubleshooting para la IA
+- **Si una venta no se refleja:** Verificar que el cupo encontrado (`findAvailableSlot`) realmente esté en una fila con el nombre de plataforma correcto y que la columna `deben` no tenga una fecha futura.
+- **Si un campo no se actualiza:** Confirmar que el nombre del campo en `adminQueries.js` (fieldMap) coincida con el encabezado del Excel.
+- **Si el bot no responde detalles:** Consultar el objeto `lastAction` guardado en el estado del admin.
+
 ## 🏗️ *(Opcional)* Migración de Framework a BuilderBot
 *Nota: Este objetivo anterior queda pospuesto.*
 - [ ] Al trasladar la lógica pesada a las funciones de Azure, la estructura actual con `whatsapp-web.js` se vuelve suficiente. Solo migraremos a BuilderBot si el enrutamiento de menús estáticos se vuelve insostenible.

@@ -103,15 +103,15 @@ async function recordNewSale(userId, userState, paymentMethod) {
                 const updates = {
                     "numero": phone,
                     "Nombre": name,
-                    "Deben": nextPaymentDate,
-                    "Metodo Pago": paymentMethod || "Confirmado",
-                    "Estado": "ACTIVO (Auto)"
+                    "deben": nextPaymentDate,
+                    "Metodo de pago": paymentMethod || "Confirmado (Auto)",
+                    "observaciones": "Venta Dashboard"
                 };
                 
                 await updateExcelData(slot.index, updates);
                 // Marcar el row en nuestro array local como usado
-                allRows[slot.index - 2].Deben = "RESERVADO"; 
-                results.push({ name: platformName, status: 'success', index: slot.index });
+                allRows[slot.index - 2].deben = "RESERVADO"; 
+                results.push({ name: platformName, status: 'success', rowNumber: slot.index });
             } else {
                 console.log(`[Sales Registry] NO se encontró cupo disponible para ${platformName}.`);
                 results.push({ name: platformName, status: 'no_slots_found' });

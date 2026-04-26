@@ -708,29 +708,33 @@ async function generateAdminReport(query, dataContext) {
  * @param {string} query 
  * @returns {Promise<Object>}
  */
-async function suggestAdminActions(query) {
+/**
+ * Genera una respuesta proactiva o explicativa para el administrador usando contexto de arquitectura y logs.
+ */
+async function suggestAdminActions(query, context = "") {
   const prompt = `
-    Eres el copiloto inteligente del administrador de Sheerit. El administrador te ha escrito: "${query}"
+    Eres el asistente personal de datos (Dashboard Conversacional) del administrador de Sheerit.
+    El administrador te ha escrito: "${query}"
     
-    Tu tarea es determinar qué "modo" o acción desea realizar y generar una respuesta sugerida que facilite su trabajo.
+    CONTEXTO TÉCNICO Y ARQUITECTURA:
+    ${context}
+
+    Tu tarea es responder de forma proactiva y transparente.
     
-    Acciones/Modos posibles:
-    - "test_mode": El admin quiere probar el sistema, insertar datos de prueba, simular pagos.
-    - "data_insertion": El admin quiere agregar nuevos clientes, cuentas o proveedores.
-    - "payment_validation": El admin quiere revisar si llegaron pagos a Gmail o validar comprobantes pendientes.
-    - "billing_start": El admin quiere iniciar el proceso de cobros automáticos del día.
-    - "general_query": Consultas sobre stock, clientes, vencimientos, etc.
+    REGLAS DE RESPUESTA:
+    1. Si el usuario pregunta "qué hiciste" o pide detalles, usa la sección ARQUITECTURA y ÚLTIMA ACCIÓN del contexto para explicar exactamente qué filas o columnas se tocaron.
+    2. Sé extremadamente específico (ej: "Actualicé la columna 'deben' en la fila 466").
+    3. Si algo no se ve reflejado en el Excel, sugiere revisar los nombres de columna del README vs el Excel real.
+    4. Si no hay una acción reciente clara, sugiere acciones administrativas (cobros, validación de pagos, stock).
     
     Salida esperada JSON:
     {
-      "suggestedAction": "test_mode" | "data_insertion" | "payment_validation" | "billing_start" | "general_query",
-      "replyMessage": "Una respuesta breve y proactiva sugiriendo el siguiente paso.",
-      "parameters": object | null // Datos extraídos como nombre, plataforma, etc.
+      "replyMessage": "Tu respuesta conversacional aquí."
     }
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un asistente administrativo proactivo. Responde solo con JSON.", true);
+    const jsonString = await callGemini(prompt, "Eres un asistente administrativo transparente y proactivo. Responde solo con JSON.", true);
     return JSON.parse(jsonString);
   } catch (error) {
     console.error("Error in suggestAdminActions:", error);

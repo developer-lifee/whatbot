@@ -1073,6 +1073,36 @@ async function processIncomingMessage(messages) {
 
   // Comandos de operador/administrador
   if (message.from === OPERATOR_NUMBER || message.from === GROUP_ID) {
+    const adminState = userStates.get(message.from) || {};
+    const bodyLower = (message.body || '').trim().toLowerCase();
+
+    // Activar simulación (solo desde chat privado con el bot para evitar ruidos en grupos)
+    if (bodyLower.includes('@bot simula cliente') && message.from === OPERATOR_NUMBER) {
+        userStates.set(message.from, { ...adminState, state: 'simulating_client', simulationCount: 6 }); // 6 para que el primer mensaje cuente
+        await message.reply("🎭 *MODO SIMULACIÓN ACTIVADO*\n\nA partir de ahora, te trataré como si fueras un cliente nuevo. El bot responderá a tus mensajes sin necesidad de usar @bot.\n\n_Este modo durará 5 mensajes o hasta que digas '@bot detener'._ 🤖");
+        return;
+    }
+
+    // Interceptor de Simulación
+    if (adminState.state === 'simulating_client' && message.from === OPERATOR_NUMBER) {
+        if (bodyLower.includes('@bot detener')) {
+            userStates.set(message.from, { ...adminState, state: 'main_menu', simulationCount: 0 });
+            await message.reply("🎭 *MODO SIMULACIÓN DESACTIVADO* 🤖");
+            return;
+        }
+
+        const newCount = (adminState.simulationCount || 1) - 1;
+        if (newCount <= 0) {
+            userStates.set(message.from, { ...adminState, state: 'main_menu', simulationCount: 0 });
+            console.log(`[Simulación] Finalizada para ${message.from}`);
+        } else {
+            userStates.set(message.from, { ...adminState, simulationCount: newCount });
+            console.log(`[Simulación] Procesando mensaje de admin como cliente (${newCount} restantes)`);
+            await processIncomingMessage(message);
+            return;
+        }
+    }
+
     const body = (message.body || '').trim().toLowerCase();
     
     if (body === '!liberar masivo' || body === 'liberar masivo') {

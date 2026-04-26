@@ -538,11 +538,38 @@ async function notifyProviderExpiringAccounts(client) {
 }
 
 /**
- * Maneja las sugerencias proactivas para el administrador principal.
+ * Maneja consultas genéricas del administrador usando IA y contexto del README.
  */
-async function handleAdminSuggestions(message) {
+async function handleAdminSuggestions(message, userStates) {
+    const fs = require('fs');
+    const path = require('path');
     const { suggestAdminActions } = require('./aiService');
-    const result = await suggestAdminActions(message.body);
+    
+    // Leer arquitectura del README para darle "cerebro" técnico a la IA
+    let readmeContext = "";
+    try {
+        const readmePath = path.join(__dirname, 'README.md');
+        const readme = fs.readFileSync(readmePath, 'utf8');
+        const start = readme.indexOf('# 🛠️ Arquitectura');
+        if (start !== -1) readmeContext = readme.substring(start);
+    } catch(e) {}
+
+    const adminState = userStates.get(message.from) || {};
+    const lastAction = adminState.lastAction ? JSON.stringify(adminState.lastAction, null, 2) : "No hay acciones recientes registradas.";
+
+    const context = `
+    ARQUITECTURA TÉCNICA:
+    ${readmeContext}
+    
+    ÚLTIMA ACCIÓN REALIZADA:
+    ${lastAction}
+    
+    INSTRUCCIÓN: Responde de forma conversacional (tipo Alexa/Asistente inteligente). 
+    Si el usuario pide detalles técnicos o pregunta qué pasó, usa la información de ARQUITECTURA y ÚLTIMA ACCIÓN para explicar EXACTAMENTE qué filas o columnas se tocaron.
+    Si algo no cambió, sugiere revisar los nombres de las columnas mencionados en el README.
+    `;
+
+    const result = await suggestAdminActions(message.body, context);
     
     if (result && result.replyMessage) {
         await message.reply(result.replyMessage + " 🤖");
