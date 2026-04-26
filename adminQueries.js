@@ -51,17 +51,9 @@ async function processAdminQuery(message, query, userStates, client) {
             return;
         }
 
-        if (cleanQuery === 'funciones' || cleanQuery === 'ayuda' || cleanQuery === 'comandos') {
-            const helpMsg = `🤖 *CENTRO DE AYUDA ADMINISTRATIVA*\n\nAquí tienes lo que puedo hacer por ti:\n\n` +
-                `💰 *Cobranza:* "@bot haz los cobros" (Inicia el proceso automático).\n` +
-                `🔍 *Búsqueda:* "@bot busca a [nombre]" o "@bot cuenta de [email]".\n` +
-                `📊 *Matcher:* "@bot match netflix [operador]" (Sugerencias de cupos).\n` +
-                `📡 *Broadcasting:* "@bot notifica c de [email] de [plataforma]" (Envío masivo).\n` +
-                `🕒 *Sistema:* "@bot tiempo" (Verifica el reloj del servidor).\n` +
-                `🏗️ *Diagnóstico:* "prueba de escritura" (Test de conexión con Excel).\n` +
-                `🔓 *Soporte:* "atiende a [tel]" (Libera al bot para que asuma el chat).\n\n` +
-                `_Puedes hablarme con lenguaje natural o usar estos comandos cortos._`;
-            await message.reply(helpMsg);
+        const { handleAdminSuggestions } = require('./adminService');
+        if (cleanQuery === 'funciones' || cleanQuery === 'ayuda' || cleanQuery === 'comandos' || query.toLowerCase().includes('hacer') || query.toLowerCase().includes('pasó')) {
+            await handleAdminSuggestions(message, userStates);
             return;
         }
 
@@ -426,17 +418,9 @@ async function processAdminQuery(message, query, userStates, client) {
                 const GROUP_ID = '120363102144405222@g.us';
                 await handleAutoCobros(message, GROUP_ID, userStates, {}, client);
                 return;
-            } else if (action === 'list_functions') {
-                const helpMsg = `🤖 *CENTRO DE AYUDA ADMINISTRATIVA*\n\nAquí tienes lo que puedo hacer por ti:\n\n` +
-                    `💰 *Cobranza:* "@bot haz los cobros" (Inicia el proceso automático).\n` +
-                    `🔍 *Búsqueda:* "@bot busca a [nombre]" o "@bot cuenta de [email]".\n` +
-                    `📊 *Matcher:* "@bot match netflix [operador]" (Sugerencias de cupos).\n` +
-                    `📡 *Broadcasting:* "@bot notifica c de [email] de [plataforma]" (Envío masivo).\n` +
-                    `🕒 *Sistema:* "@bot tiempo" (Verifica el reloj del servidor).\n` +
-                    `🏗️ *Diagnóstico:* "prueba de escritura" (Test de conexión con Excel).\n` +
-                    `🔓 *Soporte:* "atiende a [tel]" (Libera al bot para que asuma el chat).\n\n` +
-                    `_Puedes hablarme con lenguaje natural o usar estos comandos cortos._`;
-                await message.reply(helpMsg);
+            } else if (action === 'list_functions' || action === 'explain_last_action') {
+                const { handleAdminSuggestions } = require('./adminService');
+                await handleAdminSuggestions(message, userStates);
                 return;
             } else if (action === 'confirm_action') {
                 // Esta acción se activa cuando el admin dice "sí", "dale" etc.

@@ -641,6 +641,7 @@ async function parseAdminQueryIntent(query) {
     - Si pide "historico", "que cuentas ha tenido...", es "check_history".
     - Si pide "cuantas hay en total", "resumen de...", "cuentas totales", es "summary_stats".
     - Si pide "atiende a...", "libera a...", "atender el pendiente de...", "encárgate de...", es "liberate_user".
+    - Si pide "qué acabaste de hacer", "qué pasó", "explícame", "dame detalles de la última acción", es "explain_last_action".
     - Si no encaja, usa "general_query".
 
     Reglas de 'filters':

@@ -752,7 +752,7 @@ async function processIncomingMessage(messages) {
       // Si no es un comando directo de @bot, ofrecer sugerencias inteligentes
       if (!cleanBody.startsWith("@bot") && !message.fromMe && !message.hasMedia) {
           console.log(`[Admin Proactivo] Detectado mensaje de admin: ${cleanBody}`);
-          await handleAdminSuggestions(message);
+          await handleAdminSuggestions(message, userStates);
           // Podemos elegir si retornar aquí o dejar que procese otros comandos
           if (cleanBody === 'pruebas') {
               await executeTestMode(message, client);
@@ -1295,6 +1295,10 @@ async function processIncomingMessage(messages) {
           const { handleSendBulkCredentials } = require('./adminService');
           const { getAccountsByPhone } = require('./apiService');
           await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
+          return;
+      } else {
+          // Si el comando @bot no coincide con nada rígido, usar IA conversacional
+          await handleAdminSuggestions(message, userStates);
           return;
       }
   }
