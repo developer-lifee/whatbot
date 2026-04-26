@@ -1,14 +1,25 @@
 const { parsePurchaseIntent, parsePlanSelection } = require('./aiService');
 
 const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
+const fs = require('fs');
+const path = require('path');
 
 async function getPlatforms() {
+  const localPath = path.join(__dirname, 'platforms.json');
   try {
     const response = await fetch(PLATFORMS_URL);
     if (!response.ok) throw new Error('Failed to fetch platforms');
     return await response.json();
   } catch (error) {
-    console.error('Error fetching platforms:', error);
+    console.warn('[Sales Service] No se pudo obtener plataformas remotas, intentando local...');
+    try {
+        if (fs.existsSync(localPath)) {
+            const localData = fs.readFileSync(localPath, 'utf8');
+            return JSON.parse(localData);
+        }
+    } catch (localError) {
+        console.error('[Sales Service] Error crítico cargando plataformas locales:', localError.message);
+    }
     return [];
   }
 }

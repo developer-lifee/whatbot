@@ -148,15 +148,16 @@ async function processAdminQuery(message, query, userStates, client) {
                     let match = false;
                     const nombreStr = normSearch(row['Nombre'] || row['nombre']);
                     const apellidoStr = normSearch(row['apellido'] || row['Apellido']);
+                    const waNameStr = normSearch(row['whatsapp']); // El nombre como está en WhatsApp
                     const fullName = nombreStr + apellidoStr;
-                    const telStr = normSearch(row['numero'] || row['whatsapp']);
+                    const telStr = normSearch(row['numero']);
                     const correoStr = normSearch(row['correo'] || row['Correo']);
                     const platStr = normSearch(row['Streaming']);
 
-                    if (nameFilter && (fullName.includes(nameFilter) || correoStr.includes(nameFilter))) match = true;
+                    if (nameFilter && (fullName.includes(nameFilter) || waNameStr.includes(nameFilter) || correoStr.includes(nameFilter))) match = true;
                     if (filters.phone && telStr.includes(normSearch(filters.phone))) match = true;
                     if (genericFilter) {
-                        if (fullName.includes(genericFilter) || telStr.includes(genericFilter) || correoStr.includes(genericFilter) || platStr.includes(genericFilter)) match = true;
+                        if (fullName.includes(genericFilter) || waNameStr.includes(genericFilter) || telStr.includes(genericFilter) || correoStr.includes(genericFilter) || platStr.includes(genericFilter)) match = true;
                     }
                     return match;
                 });
@@ -171,13 +172,16 @@ async function processAdminQuery(message, query, userStates, client) {
                         rawData.forEach(row => {
                             const originalName = (row['Nombre'] || row['nombre'] || '').toString().trim();
                             const originalApe = (row['apellido'] || row['Apellido'] || '').toString().trim();
+                            const originalWa = (row['whatsapp'] || '').toString().trim();
+                            
                             const fullOriginal = originalName + (originalApe ? ' ' + originalApe : '');
                             const fullNameNorm = fullOriginal.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                            const waNorm = originalWa.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
                             
                             for (const w of words) {
                                 const wNorm = w.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                                if (fullNameNorm.includes(wNorm) && fullOriginal.length > 0) {
-                                    suggestions.add(fullOriginal);
+                                if ((fullNameNorm.includes(wNorm) && fullOriginal.length > 0) || (waNorm.includes(wNorm) && originalWa.length > 0)) {
+                                    suggestions.add(fullOriginal || originalWa);
                                 }
                             }
                         });
@@ -203,10 +207,11 @@ async function processAdminQuery(message, query, userStates, client) {
                     const row = rawData[i];
                     const nombreStr = normSearch(row['Nombre'] || row['nombre']);
                     const apellidoStr = normSearch(row['apellido'] || row['Apellido']);
+                    const waNameStr = normSearch(row['whatsapp']);
                     const fullName = nombreStr + apellidoStr;
                     const correoStr = normSearch(row['correo'] || row['Correo']);
                     
-                    if (nameFilter && (fullName.includes(nameFilter) || correoStr.includes(nameFilter))) {
+                    if (nameFilter && (fullName.includes(nameFilter) || waNameStr.includes(nameFilter) || correoStr.includes(nameFilter))) {
                         matchIndex = i + 2;
                         matchedRow = row;
                         break;

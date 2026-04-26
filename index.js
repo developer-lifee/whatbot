@@ -35,7 +35,48 @@ const { getChatHistoryText } = require('./salesService');
 const { checkNewPayments, findMatchingPayment } = require('./gmailService');
 
 // --- CONSTANTES Y ESTADOS GLOBALES ---
-const userStates = new Map();
+const USER_STATES_FILE = path.join(__dirname, 'user_states.json');
+let userStates = new Map();
+
+// Cargar estados al iniciar
+try {
+    if (fs.existsSync(USER_STATES_FILE)) {
+        const data = fs.readFileSync(USER_STATES_FILE, 'utf8');
+        const parsed = JSON.parse(data);
+        userStates = new Map(Object.entries(parsed));
+        console.log(`[System] ${userStates.size} estados de usuario cargados desde el disco.`);
+    }
+} catch (e) {
+    console.error("[System] Error cargando user_states.json:", e.message);
+}
+
+/**
+ * Guarda los estados actuales en el disco.
+ */
+function saveUserStates() {
+    try {
+        const obj = Object.fromEntries(userStates);
+        fs.writeFileSync(USER_STATES_FILE, JSON.stringify(obj, null, 2));
+    } catch (e) {
+        console.error("[System] Error guardando user_states.json:", e.message);
+    }
+}
+
+// Sobrescribir Map.set y Map.delete para auto-guardar
+const originalSet = userStates.set.bind(userStates);
+userStates.set = function(key, value) {
+    const result = originalSet(key, value);
+    saveUserStates();
+    return result;
+};
+
+const originalDelete = userStates.delete.bind(userStates);
+userStates.delete = function(key) {
+    const result = originalDelete(key);
+    saveUserStates();
+    return result;
+};
+
 const pendingConfirmations = new Map();
 const GROUP_ID = '120363102144405222@g.us';
 const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573107946794') + '@c.us';
