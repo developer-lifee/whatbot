@@ -79,7 +79,8 @@ userStates.delete = function(key) {
 
 const pendingConfirmations = new Map();
 const GROUP_ID = '120363102144405222@g.us';
-const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573107946794') + '@c.us';
+const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573133890800') + '@c.us';
+const ADMIN_RAW_PHONE = OPERATOR_NUMBER.replace('@c.us', '');
 let globalBotSleep = false;
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
 const BATCH_INTERVAL = 2000; // 2 segundos para agrupar mensajes (más rápido)
@@ -559,7 +560,7 @@ client.on('ready', () => {
   const { setAlertCallback } = require('./googleAuthService');
   setAlertCallback(async (serviceName, authUrl) => {
       try {
-          const adminPhone = '573133890800@c.us';
+          const adminPhone = OPERATOR_NUMBER;
           const msg = `⚠️ *ALERTA DE SISTEMA (Sheer IT)* ⚠️\n\nFalta el token de autorización para el servicio: *${serviceName}*\n\n*Paso a paso para autorizar:*\n1. Abre este enlace desde tu navegador:\n${authUrl}\n\n2. Inicia sesión con la cuenta de Google correspondiente.\n3. Otorga los permisos solicitados.\n4. Serás redirigido a una página de error o a \`localhost\`.\n5. Copia el parámetro \`code=\` de la URL de esa página.\n6. Envíame un mensaje con el formato: \`@bot autorizar ${serviceName.toLowerCase()} [tu_codigo_aqui]\``;
           await client.sendMessage(adminPhone, msg);
           console.log(`[ALERTA ENVIADA] Se notificó al admin sobre el token faltante de ${serviceName}.`);
@@ -738,15 +739,15 @@ async function processIncomingMessage(messages) {
   const combinedBody = messages.map(m => m.body || "").filter(b => b !== "").join("\n");
   // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
   const userId = message.fromMe ? message.to : message.from;
-  const isFromAdmin = userId.includes('3133890800') || (message.author && message.author.includes('3133890800'));
+  const isFromAdmin = userId.includes(ADMIN_RAW_PHONE) || (message.author && message.author.includes(ADMIN_RAW_PHONE));
   
   // --- MUTE ABSOLUTO PROVEEDOR ---
   if (userId.includes('3027892534')) {
       return; // El bot no se mete en la conversación con el proveedor
   }
 
-  // --- INTERCEPTOR ESPECIAL ADMINISTRADOR (3133890800) ---
-  if (userId.includes('3133890800')) {
+  // --- INTERCEPTOR ESPECIAL ADMINISTRADOR ---
+  if (userId.includes(ADMIN_RAW_PHONE)) {
       const adminStateData = userStates.get(userId) || {};
       const cleanBody = (message.body || "").trim().toLowerCase();
       
@@ -873,7 +874,7 @@ async function processIncomingMessage(messages) {
   } catch (err) {}
 
   // Sincronizar con Google Contacts si tenemos un nombre válido
-  if (!message.fromMe && foundName && !realPhone.includes('3133890800')) {
+  if (!message.fromMe && foundName && !realPhone.includes(ADMIN_RAW_PHONE)) {
       const { addNewContact } = require('./googleContactsService');
       // addNewContact ya tiene validación interna y caché local para evitar duplicados
       await addNewContact(foundName, realPhone);
@@ -953,55 +954,6 @@ async function processIncomingMessage(messages) {
     return;
   }
 
-  // --- Admin Data Queries (Dashboard Conversacional) ---
-  const adminState = realPhone.includes('3133890800') ? userStates.get(userId) : null;
-  const isAwaitingAdminConfirm = adminState && adminState.state === 'awaiting_admin_broadcast_confirmation';
-  const isAwaitingAdminSuggestion = adminState && adminState.state === 'awaiting_admin_suggestion_selection';
-  
-  // Permitimos consultas en grupos si empiezan con @bot y vienen del admin, 
-  // O si el admin está en medio de una confirmación o selección (sin necesidad de @bot)
-  if (realPhone.includes('3133890800') && message.body && (message.body.toLowerCase().startsWith('@bot ') || isAwaitingAdminConfirm || isAwaitingAdminSuggestion)) {
-      // Resolución de texto de consulta
-      let queryText = message.body.toLowerCase().startsWith('@bot ') ? message.body.substring(5).trim() : message.body.trim();
-      const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(queryText.toLowerCase());
-
-      if (queryText.length > 0) {
-          const { processAdminQuery } = require('./adminQueries');
-          
-          // --- CASO 1: Respuesta afirmativa ("si", "dale") ---
-          if (isAffirmative && (isAwaitingAdminConfirm || isAwaitingAdminSuggestion)) {
-              if (isAwaitingAdminSuggestion) {
-                  // Si hay una sola opción, la tomamos. Si hay varias, "si" es ambiguo (dejamos que falle o pida clarificación)
-                  if (adminState.payload && adminState.payload.options && adminState.payload.options.length === 1) {
-                      const selectedPlatform = adminState.payload.options[0];
-                      const resultDirect = await processAdminQuery(message, selectedPlatform, userStates, client, adminState.originalFilters, rawData);
-                      if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
-                      return;
-                  }
-              }
-              // Si es para confirmar broadcast (o si el flujo de arriba cayó aquí), procesamos como confirmación
-              const result = await processAdminQuery(message, queryText, userStates, client);
-              if (result && result.filteredData) await handleAdminResultLogic(result.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
-              return;
-          }
-
-          // --- CASO 2: Selección directa de plataforma en estado de sugerencia ---
-          if (isAwaitingAdminSuggestion && !isAffirmative && !message.body.toLowerCase().startsWith('@bot ')) {
-              const { fetchRawData } = require('./apiService');
-              const rawData = await fetchRawData();
-              const resultDirect = await processAdminQuery(message, queryText, userStates, client, adminState.originalFilters, rawData);
-              if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
-              return;
-          }
-
-          // --- CASO 3: Consulta general ---
-          const result = await processAdminQuery(message, queryText, userStates, client);
-          if (result && result.filteredData) {
-              await handleAdminResultLogic(result.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
-          }
-          return;
-      }
-  }
 
   /**
    * Procesa el resultado de un comando administrativo (Dashboard)
@@ -1301,9 +1253,52 @@ async function processIncomingMessage(messages) {
           await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
           return;
       } else {
-          // Si el comando @bot no coincide con nada rígido, usar IA conversacional
-          await handleAdminSuggestions(message, userStates);
-          return;
+          // --- Admin Data Queries (Dashboard Conversacional) ---
+          // Si el comando @bot no coincide con nada rígido, usar IA para consultar datos o conversar
+          const { processAdminQuery } = require('./adminQueries');
+          
+          const adminState = realPhone.includes(ADMIN_RAW_PHONE) ? userStates.get(userId) : null;
+          const isAwaitingAdminConfirm = adminState && adminState.state === 'awaiting_admin_broadcast_confirmation';
+          const isAwaitingAdminSuggestion = adminState && adminState.state === 'awaiting_admin_suggestion_selection';
+
+          // Resolución de texto de consulta
+          let queryText = command; // Usamos el comando ya limpio
+          const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(queryText.toLowerCase());
+
+          if (queryText.length > 0) {
+              // --- CASO 1: Respuesta afirmativa ("si", "dale") ---
+              if (isAffirmative && (isAwaitingAdminConfirm || isAwaitingAdminSuggestion)) {
+                  if (isAwaitingAdminSuggestion) {
+                      if (adminState.payload && adminState.payload.options && adminState.payload.options.length === 1) {
+                          const selectedPlatform = adminState.payload.options[0];
+                          const { fetchRawData } = require('./apiService');
+                          const rawData = await fetchRawData();
+                          const resultDirect = await processAdminQuery(message, selectedPlatform, userStates, client, adminState.originalFilters, rawData);
+                          if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+                          return;
+                      }
+                  }
+                  const result = await processAdminQuery(message, queryText, userStates, client);
+                  if (result && result.filteredData) await handleAdminResultLogic(result.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+                  return;
+              }
+
+              // --- CASO 2: Selección directa de plataforma en estado de sugerencia ---
+              if (isAwaitingAdminSuggestion && !isAffirmative) {
+                  const { fetchRawData } = require('./apiService');
+                  const rawData = await fetchRawData();
+                  const resultDirect = await processAdminQuery(message, queryText, userStates, client, adminState.originalFilters, rawData);
+                  if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+                  return;
+              }
+
+              // --- CASO 3: Consulta general (Data o Conversación) ---
+              const result = await processAdminQuery(message, queryText, userStates, client);
+              if (result && result.filteredData) {
+                  await handleAdminResultLogic(result.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+              }
+              return;
+          }
       }
   }
 

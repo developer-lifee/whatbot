@@ -38,6 +38,7 @@ async function getOAuth2Client(serviceName = 'contacts', code = null) {
 
         const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
         const tokenPath = path.resolve(__dirname, `token_${serviceName}.json`);
+        const legacyTokenPath = path.resolve(__dirname, `token.json`);
         console.log(`[GOOGLE AUTH DEBUG] Buscando token en: ${tokenPath}`);
 
         // Si recibimos un código, intentamos generar el token y guardarlo
@@ -51,8 +52,14 @@ async function getOAuth2Client(serviceName = 'contacts', code = null) {
             return oAuth2Client;
         }
 
-        // Si no existe el token específico, generamos la URL de autorización
-        if (!fs.existsSync(tokenPath)) {
+        // Si no existe el token específico, probamos con el token genérico
+        let activeTokenPath = tokenPath;
+        if (!fs.existsSync(tokenPath) && fs.existsSync(legacyTokenPath)) {
+            console.log(`[GOOGLE AUTH] No hay token específico para ${serviceName}, usando token.json genérico.`);
+            activeTokenPath = legacyTokenPath;
+        }
+
+        if (!fs.existsSync(activeTokenPath)) {
             const scopes = SERVICE_SCOPES[serviceName] || SERVICE_SCOPES['contacts'];
             const authUrl = oAuth2Client.generateAuthUrl({
                 access_type: 'offline',
@@ -68,7 +75,7 @@ async function getOAuth2Client(serviceName = 'contacts', code = null) {
             return null;
         }
 
-        const token = fs.readFileSync(tokenPath, 'utf8');
+        const token = fs.readFileSync(activeTokenPath, 'utf8');
         oAuth2Client.setCredentials(JSON.parse(token));
         
         cachedClients.set(serviceName, oAuth2Client);
