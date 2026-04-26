@@ -699,6 +699,23 @@ async function processIncomingMessage(messages) {
               await executeTestMode(message, client);
               return;
           }
+          
+          if (cleanBody === 'sí, prueba de escritura' || cleanBody === 'si, prueba de escritura') {
+              await message.reply('🧪 Iniciando prueba de escritura en tiempo real...');
+              const { recordNewSale } = require('./salesRegistryService');
+              const dummyState = {
+                  nombre: "TEST USER (IA)",
+                  items: [{ platform: { name: "Netflix" } }],
+                  subscriptionType: 'mensual'
+              };
+              const results = await recordNewSale(userId, dummyState, "TEST_API_WRITE");
+              if (results && results.some(r => r.status === 'success')) {
+                  await message.reply(`✅ *PRUEBA EXITOSA*\nSe escribió correctamente en el Excel. Revisa la fila indicada en los logs.`);
+              } else {
+                  await message.reply(`❌ *FALLO EN PRUEBA*\nNo se encontró cupo para Netflix o hubo un error en la API. Revisa los logs.`);
+              }
+              return;
+          }
       }
   }
   let contact;
