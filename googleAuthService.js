@@ -2,26 +2,25 @@ const fs = require('fs');
 const path = require('path');
 const { google } = require('googleapis');
 
-// Paths to your credentials and token files
-const TOKEN_PATH = path.join(__dirname, 'token.json');
 const CREDENTIALS_PATH = path.join(__dirname, 'credentials.json');
 
-// Combined scopes for both Contacts and Gmail
-const SCOPES = [
-    'https://www.googleapis.com/auth/contacts',
-    'https://www.googleapis.com/auth/gmail.readonly'
-];
+// Scopes específicos por servicio
+const SERVICE_SCOPES = {
+    'contacts': ['https://www.googleapis.com/auth/contacts'],
+    'gmail': ['https://www.googleapis.com/auth/gmail.readonly']
+};
 
-let cachedClient = null;
+const cachedClients = new Map();
 
 /**
- * Initializes or returns the cached Google OAuth2 client.
+ * Inicializa o retorna un cliente OAuth2 específico para un servicio (contacts, gmail, etc.)
+ * @param {string} serviceName - El nombre del servicio para identificar el token
  */
-function getOAuth2Client() {
-    if (cachedClient) return cachedClient;
+function getOAuth2Client(serviceName = 'contacts') {
+    if (cachedClients.has(serviceName)) return cachedClients.get(serviceName);
 
     if (!fs.existsSync(CREDENTIALS_PATH)) {
-        console.error('❌ No se encontró credentials.json. Google APIs deshabilitadas.');
+        console.error(`❌ No se encontró credentials.json. Servicio ${serviceName} deshabilitado.`);
         return null;
     }
 
@@ -31,32 +30,33 @@ function getOAuth2Client() {
         const { client_secret, client_id, redirect_uris } = credentials.installed || credentials.web;
         const redirectUri = redirect_uris ? redirect_uris[0] : 'urn:ietf:wg:oauth:2.0:oob';
 
-        cachedClient = new google.auth.OAuth2(client_id, client_secret, redirectUri);
+        const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
+        const tokenPath = path.join(__dirname, `token_${serviceName}.json`);
 
-        if (!fs.existsSync(TOKEN_PATH)) {
-            const authUrl = cachedClient.generateAuthUrl({
+        // Si no existe el token específico, generamos la URL de autorización
+        if (!fs.existsSync(tokenPath)) {
+            const scopes = SERVICE_SCOPES[serviceName] || SERVICE_SCOPES['contacts'];
+            const authUrl = oAuth2Client.generateAuthUrl({
                 access_type: 'offline',
-                scope: SCOPES,
+                scope: scopes,
                 prompt: 'consent'
             });
-            console.warn('\n⚠️ [GOOGLE AUTH] Se requiere re-autorización debido a los nuevos permisos (Gmail).');
-            console.warn('👉 Abre este enlace en tu navegador:\n', authUrl, '\n');
+            console.warn(`\n⚠️ [GOOGLE AUTH] Se requiere autorización para el servicio: *${serviceName.toUpperCase()}*`);
+            console.warn(`👉 Abre este enlace y usa la cuenta correspondiente:\n`, authUrl, '\n');
             return null;
         }
 
-        const token = fs.readFileSync(TOKEN_PATH, 'utf8');
-        cachedClient.setCredentials(JSON.parse(token));
+        const token = fs.readFileSync(tokenPath, 'utf8');
+        oAuth2Client.setCredentials(JSON.parse(token));
         
-        // Return the client even if it might be expired (it handles refresh internally with the refresh_token)
-        return cachedClient;
+        cachedClients.set(serviceName, oAuth2Client);
+        return oAuth2Client;
     } catch (error) {
-        console.error('❌ Error inicializando Google OAuth2:', error.message);
+        console.error(`❌ Error inicializando Google OAuth2 para ${serviceName}:`, error.message);
         return null;
     }
 }
 
 module.exports = {
-    getOAuth2Client,
-    SCOPES,
-    TOKEN_PATH
+    getOAuth2Client
 };

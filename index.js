@@ -610,7 +610,11 @@ client.on('message_create', async (msg) => {
     }
 
     // Si el mensaje NO contiene el emoji 🤖 ni @bot, asumimos que fue enviado manualmente.
-    if (!msg.body.includes('🤖')) {
+    const body = msg.body.toLowerCase();
+    const isTestCommand = body === 'pruebas' || body.includes('prueba de escritura');
+    const isBotCommand = body.startsWith('@bot');
+    
+    if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand) {
       let st = userStates.get(targetId);
       if (typeof st === 'object' && st.state === 'waiting_human') {
           // Ya estaba silenciado, renovamos el temporizador de mute absoluto (30 min extra)
@@ -1071,7 +1075,7 @@ async function processIncomingMessage(messages) {
   }
 
   // Comandos de Grupo / Admin
-  const isBotCommand = message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot');
+  const isBotCommand = (message.from === GROUP_ID || isFromAdmin) && message.body && message.body.toLowerCase().startsWith('@bot');
   const isReplyConfirmation = message.from === GROUP_ID && message.hasQuotedMsg && (
       ['si', 'ya', 'listo', 'confirmado', 'vale', 'ok', 'claro'].includes(message.body.toLowerCase().trim()) ||
       message.body.toLowerCase().includes('confirmar') ||
@@ -1107,6 +1111,46 @@ async function processIncomingMessage(messages) {
           return;
       } else if (command.includes('contesta') || command.includes('atiende pendientes')) {
           await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
+          return;
+      } else if (command === 'pruebas' || command === 'prueba de escritura') {
+          const { executeTestMode } = require('./adminService');
+          await executeTestMode(message, client);
+          return;
+      } else if (command === 'si, prueba de escritura' || command === 'sí, prueba de escritura') {
+          await message.reply('🧪 Iniciando prueba de escritura verificada...');
+          const { recordNewSale } = require('./salesRegistryService');
+          const { fetchRawData } = require('./apiService');
+          
+          // Dummy state para forzar escritura en una fila de Netflix
+          const dummyState = {
+              nombre: "TEST_IA_VERIFICADO",
+              items: [{ platform: { name: "Netflix" } }],
+              subscriptionType: 'mensual'
+          };
+          
+          // Intentar escribir
+          const results = await recordNewSale(userId, dummyState, "TEST_VERIFICACION_API");
+          
+          if (results && results.some(r => r.status === 'success')) {
+              const successMatch = results.find(r => r.status === 'success');
+              const targetRow = successMatch.index;
+              await message.reply(`⏳ Escritura enviada a la fila ${targetRow}. Verificando persistencia con la API de lectura...`);
+              
+              // Esperar un momento para que Azure procese el cambio
+              await new Promise(r => setTimeout(r, 3000));
+              
+              // Volver a leer para confirmar
+              const freshData = await fetchRawData();
+              const verifiedRow = freshData[targetRow - 2]; // 0-indexed in array
+              
+              if (verifiedRow && (verifiedRow.Nombre === "TEST_IA_VERIFICADO" || verifiedRow.nombre === "TEST_IA_VERIFICADO")) {
+                  await message.reply(`✅ *¡CONFIRMADO!*\nLa API de lectura detectó el cambio en la fila ${targetRow}. La comunicación Escritura -> Excel -> Lectura es 100% correcta.`);
+              } else {
+                  await message.reply(`⚠️ *AVISO*: La escritura se envió con éxito, pero la API de lectura aún no muestra el cambio (puede ser delay de sincronización de OneDrive). Por favor revisa el Excel manualmente en unos segundos.`);
+              }
+          } else {
+              await message.reply(`❌ *FALLO EN PRUEBA*\nNo se encontró cupo disponible para probar o la API de Azure devolvió un error.`);
+          }
           return;
       } else if (command.includes('confirmar') || command.includes('si me llego') || command.includes('si la recibi')) {
           await handleAdminPaymentConfirmation(message, command, client, userStates, overridePhone);

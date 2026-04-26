@@ -9,7 +9,7 @@ const PROCESSING_WINDOW = 1000 * 60 * 5; // 5 minutos de ventana de procesamient
  * Inicializa el cliente de Google People API
  */
 function initPeopleAPI() {
-    const auth = getOAuth2Client();
+    const auth = getOAuth2Client('contacts');
     if (!auth) return null;
     
     personasAPI = google.people({ version: 'v1', auth });

@@ -6,5 +6,6 @@ node_modules
 # Credentials
 credentials.json
 token.json
+token_*.json
 pending_charges.json
 
