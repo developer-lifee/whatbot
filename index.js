@@ -1613,6 +1613,14 @@ async function processPaymentSelection(message, userId, text) {
   // Usar AI para detectar método de pago
   const method = await detectPaymentMethod(text);
 
+  const paymentDetails = {
+    'nequi': "3118587974",
+    'daviplata': "3107946794",
+    'bancolombia': "46772753713\nBancolombia - ahorros\nNumero de cuenta: 46772753713\nCC1032936324",
+    'banco caja social': "24111572331\nESTEBAN AVILA\ncc: 1032936324",
+    'transfiya': "*LLAVE*\n3118587974",
+    'llaves bre-v': "*LLAVE*\n3118587974",
+    'llave bre-b': "*LLAVE*\n3118587974"
   };
   
   const lowerText = text.toLowerCase();
