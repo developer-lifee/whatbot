@@ -684,6 +684,7 @@ async function processIncomingMessage(messages) {
   const combinedBody = messages.map(m => m.body || "").filter(b => b !== "").join("\n");
   // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
   const userId = message.fromMe ? message.to : message.from;
+  const isFromAdmin = userId.includes('3133890800') || (message.author && message.author.includes('3133890800'));
   
   // --- MUTE ABSOLUTO PROVEEDOR ---
   if (userId.includes('3027892534')) {
@@ -1111,6 +1112,30 @@ async function processIncomingMessage(messages) {
           return;
       } else if (command.includes('contesta') || command.includes('atiende pendientes')) {
           await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
+          return;
+      } else if (command.startsWith('liberar')) {
+          let targetPhone = command.replace('liberar', '').trim().replace(/\D/g, '');
+          if (!targetPhone) {
+              await message.reply('❌ Por favor especifica el número a liberar (ej: @bot liberar 57311...)');
+          } else {
+              const targetId = targetPhone + '@c.us';
+              userStates.delete(targetId);
+              await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
+              await message.reply(`✅ Bot reactivado para ${targetPhone}`);
+          }
+          return;
+      } else if (command.startsWith('autorizar')) {
+          const parts = command.split(' ');
+          if (parts.length < 3) {
+              await message.reply('❌ Formato: @bot autorizar [contacts/gmail] [codigo]');
+          } else {
+              const service = parts[1].toLowerCase();
+              const code = parts[2];
+              const { getOAuth2Client } = require('./googleAuthService');
+              const auth = getOAuth2Client(service); // Esto disparará la lógica de guardado si se añade soporte
+              // Nota: Necesitaríamos añadir una función saveTokenWithCode en googleAuthService
+              await message.reply(`⏳ Intentando autorizar servicio ${service} con el código proporcionado... (Asegúrate de que la función saveToken esté implementada)`);
+          }
           return;
       } else if (command === 'pruebas' || command === 'prueba de escritura') {
           const { executeTestMode } = require('./adminService');

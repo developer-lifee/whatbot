@@ -32,7 +32,7 @@ function saveProcessedEmail(id) {
  * Escanea Gmail en busca de correos de Bre-B y extrae los pagos.
  */
 async function checkNewPayments() {
-    const auth = getOAuth2Client('gmail');
+    const auth = await getOAuth2Client('gmail');
     if (!auth) return [];
 
     const gmail = google.gmail({ version: 'v1', auth });
@@ -106,7 +106,7 @@ async function checkNewPayments() {
  */
 async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
     console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min...`);
-    const auth = getOAuth2Client('gmail');
+    const auth = await getOAuth2Client('gmail');
     if (!auth) return null;
 
     const gmail = google.gmail({ version: 'v1', auth });

@@ -15,9 +15,10 @@ const cachedClients = new Map();
 /**
  * Inicializa o retorna un cliente OAuth2 específico para un servicio (contacts, gmail, etc.)
  * @param {string} serviceName - El nombre del servicio para identificar el token
+ * @param {string} code - Opcional. Si se provee, se usa para generar un nuevo token.
  */
-function getOAuth2Client(serviceName = 'contacts') {
-    if (cachedClients.has(serviceName)) return cachedClients.get(serviceName);
+async function getOAuth2Client(serviceName = 'contacts', code = null) {
+    if (cachedClients.has(serviceName) && !code) return cachedClients.get(serviceName);
 
     if (!fs.existsSync(CREDENTIALS_PATH)) {
         console.error(`❌ No se encontró credentials.json. Servicio ${serviceName} deshabilitado.`);
@@ -32,6 +33,17 @@ function getOAuth2Client(serviceName = 'contacts') {
 
         const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
         const tokenPath = path.join(__dirname, `token_${serviceName}.json`);
+
+        // Si recibimos un código, intentamos generar el token y guardarlo
+        if (code) {
+            console.log(`[GOOGLE AUTH] Intentando canjear código para ${serviceName}...`);
+            const { tokens } = await oAuth2Client.getToken(code);
+            oAuth2Client.setCredentials(tokens);
+            fs.writeFileSync(tokenPath, JSON.stringify(tokens));
+            console.log(`✅ Token para ${serviceName} guardado con éxito en ${tokenPath}`);
+            cachedClients.set(serviceName, oAuth2Client);
+            return oAuth2Client;
+        }
 
         // Si no existe el token específico, generamos la URL de autorización
         if (!fs.existsSync(tokenPath)) {

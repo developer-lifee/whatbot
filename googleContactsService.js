@@ -8,8 +8,8 @@ const PROCESSING_WINDOW = 1000 * 60 * 5; // 5 minutos de ventana de procesamient
 /**
  * Inicializa el cliente de Google People API
  */
-function initPeopleAPI() {
-    const auth = getOAuth2Client('contacts');
+async function initPeopleAPI() {
+    const auth = await getOAuth2Client('contacts');
     if (!auth) return null;
     
     personasAPI = google.people({ version: 'v1', auth });
@@ -17,7 +17,7 @@ function initPeopleAPI() {
 }
 
 // Initial attempted boot
-initPeopleAPI();
+initPeopleAPI().catch(err => console.error('[Google Contacts] Error in initial boot:', err.message));
 
 /**
  * Crea un contacto nuevo en Google Contacts.
@@ -26,7 +26,7 @@ initPeopleAPI();
  * @returns {Promise<boolean>} Retorna true si fue exitoso, false si falló.
  */
 async function addNewContact(name, phone) {
-    if (!personasAPI) initPeopleAPI();
+    if (!personasAPI) await initPeopleAPI();
     if (!personasAPI) {
         console.warn('⚠️ Google API no ha sido inicializada (faltan credenciales o token).');
         return false;
@@ -103,7 +103,7 @@ async function addNewContact(name, phone) {
  * @returns {Promise<string|null>} El nombre del contacto si se encuentra, null de lo contrario.
  */
 async function searchContactByPhone(phone) {
-    if (!personasAPI) initPeopleAPI();
+    if (!personasAPI) await initPeopleAPI();
     if (!personasAPI) return null;
 
     try {
@@ -145,7 +145,7 @@ async function searchContactByPhone(phone) {
  * @returns {Promise<string|null>} El número de teléfono si se encuentra, null de lo contrario.
  */
 async function searchContactByName(name) {
-    if (!personasAPI) initPeopleAPI();
+    if (!personasAPI) await initPeopleAPI();
     if (!personasAPI) return null;
 
     try {
