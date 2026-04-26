@@ -82,7 +82,7 @@ const GROUP_ID = '120363102144405222@g.us';
 const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573107946794') + '@c.us';
 let globalBotSleep = false;
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
-const BATCH_INTERVAL = 5000; // 5 segundos para agrupar mensajes
+const BATCH_INTERVAL = 2000; // 2 segundos para agrupar mensajes (más rápido)
 
 const {
   startPurchaseProcess,
@@ -747,10 +747,14 @@ async function processIncomingMessage(messages) {
 
   // --- INTERCEPTOR ESPECIAL ADMINISTRADOR (3133890800) ---
   if (userId.includes('3133890800')) {
+      const adminStateData = userStates.get(userId) || {};
       const cleanBody = (message.body || "").trim().toLowerCase();
       
+      // Si el admin está simulando ser un cliente, NO mostrar sugerencias proactivas para evitar duplicidad
+      const isSimulating = adminStateData.state === 'simulating_client';
+
       // Si no es un comando directo de @bot, ofrecer sugerencias inteligentes
-      if (!cleanBody.startsWith("@bot") && !message.fromMe && !message.hasMedia) {
+      if (!cleanBody.startsWith("@bot") && !message.fromMe && !message.hasMedia && !isSimulating) {
           console.log(`[Admin Proactivo] Detectado mensaje de admin: ${cleanBody}`);
           await handleAdminSuggestions(message, userStates);
           // Podemos elegir si retornar aquí o dejar que procese otros comandos
