@@ -553,7 +553,7 @@ async function handleAdminSuggestions(message) {
  * Ejecuta una acción de prueba para validar flujos sin afectar datos reales de producción.
  */
 async function executeTestMode(message, client) {
-    const testMsg = `🧪 *MODO DE PRUEBAS ACTIVADO*\n\n1. Generando cliente de prueba...\n2. Simulando flujo de pago...\n3. Verificando conexión con Gmail...\n\nTodo parece en orden. ¿Deseas que inserte un registro de prueba en el Excel para validar la escritura? (Responde "Sí, prueba de escritura")`;
+    const testMsg = `🧪 *MODO DE DIAGNÓSTICO ESTRUCTURADO*\n\n1. *Carga de Datos:* Verificando acceso a Azure Spreadsheet...\n2. *Mapeo:* Identificando columnas (Nombre, Correo, Streaming, etc.)...\n3. *Validación de Escritura:* ¿Deseas que intente escribir un dato de prueba en la *Fila 2, Columna Operador* para confirmar que tengo permisos de edición?\n\nResponde *"Sí, prueba de escritura"* para proceder. 🤖`;
     await message.reply(testMsg);
 }
 

@@ -20,6 +20,7 @@ async function processAdminQuery(message, query, userStates, client) {
             try {
                 const { updateExcelData, fetchRawData } = require('./apiService');
                 const testDate = new Date().toLocaleString('es-CO');
+                let targetCol = "Operador";
                 
                 // Intentamos primero con Operador (Mayúscula)
                 try {
@@ -27,9 +28,10 @@ async function processAdminQuery(message, query, userStates, client) {
                 } catch (e) {
                     console.log("[Test] Falló con 'Operador', intentando con 'operador'...");
                     await updateExcelData(2, { "operador": "TEST EXITOSO: " + testDate });
+                    targetCol = "operador";
                 }
 
-                await message.reply(`✅ *Prueba de escritura completada.* He inyectado "TEST EXITOSO: ${testDate}" en la fila 2. Por favor revisa tu Excel.`);
+                await message.reply(`✅ *Prueba de escritura completada.*\n📍 *Ubicación:* Fila 2, Columna "${targetCol}"\n📝 *Dato inyectado:* "TEST EXITOSO: ${testDate}"\n\nPor favor revisa tu Excel para confirmar que el cambio es visible.`);
                 return;
             } catch (err) {
                 const { fetchRawData } = require('./apiService');
@@ -188,6 +190,77 @@ async function processAdminQuery(message, query, userStates, client) {
                         };
                     }
                 }
+            } else if (action === 'update_data') {
+                const { updateExcelData } = require('./apiService');
+                const normSearch = (str) => str ? str.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "") : "";
+                const nameFilter = normSearch(filters.name || filters.generic_search);
+                
+                // 1. Buscar la fila (Fuzzy match)
+                let matchIndex = -1;
+                let matchedRow = null;
+                
+                for (let i = 0; i < rawData.length; i++) {
+                    const row = rawData[i];
+                    const nombreStr = normSearch(row['Nombre'] || row['nombre']);
+                    const apellidoStr = normSearch(row['apellido'] || row['Apellido']);
+                    const fullName = nombreStr + apellidoStr;
+                    const correoStr = normSearch(row['correo'] || row['Correo']);
+                    
+                    if (nameFilter && (fullName.includes(nameFilter) || correoStr.includes(nameFilter))) {
+                        matchIndex = i + 2;
+                        matchedRow = row;
+                        break;
+                    }
+                }
+                
+                if (matchIndex !== -1 && filters.target_field && filters.new_value) {
+                    const fieldMap = {
+                        "nombre": "Nombre",
+                        "correo": "correo",
+                        "clave": "contraseña",
+                        "vencimiento": "vencimiento",
+                        "deben": "deben",
+                        "operador": "Operador",
+                        "metodo pago": "Metodo Pago",
+                        "streaming": "Streaming",
+                        "plataforma": "Streaming"
+                    };
+                    
+                    const actualField = fieldMap[filters.target_field.toLowerCase()] || filters.target_field;
+                    const updates = {};
+                    updates[actualField] = filters.new_value;
+                    
+                    await updateExcelData(matchIndex, updates);
+                    filteredData = { 
+                        status: "success", 
+                        message: `✅ He actualizado el campo *${actualField}* a "${filters.new_value}" para el cliente *${matchedRow['Nombre'] || 'Sin nombre'}* en la fila ${matchIndex}. 🤖` 
+                    };
+                } else if (matchIndex === -1) {
+                    filteredData = { status: "error", message: `No pude encontrar al cliente "${filters.name || filters.generic_search}" para realizar la actualización.` };
+                } else {
+                    filteredData = { status: "error", message: `No entendí qué campo quieres cambiar o a qué valor. (Campo: ${filters.target_field}, Valor: ${filters.new_value})` };
+                }
+            } else if (action === 'record_sale') {
+                const { recordNewSale } = require('./salesRegistryService');
+                const dummyState = {
+                    nombre: filters.name || "Cliente Dashboard",
+                    items: [{ platform: { name: filters.platform || filters.generic_search || "Netflix" } }],
+                    subscriptionType: 'mensual'
+                };
+                const targetPhone = (filters.phone || filters.generic_search || '570000000000').replace(/\D/g, '');
+                const targetId = (targetPhone.length >= 10 ? targetPhone : '570000000000') + '@c.us';
+                
+                const results = await recordNewSale(targetId, dummyState, "Venta Manual (Admin)");
+                
+                let detail = "";
+                results.forEach(r => {
+                    detail += `\n- *${r.name}*: ${r.status === 'success' ? `Fila ${r.index} ✅` : `❌ ${r.status}`}`;
+                });
+                
+                filteredData = { 
+                    status: "success", 
+                    message: `🚀 *Registro de Venta Manual*\nCliente: ${dummyState.nombre}\nResultados:${detail}\n\nEl sistema ha intentado asignar los cupos automáticamente.` 
+                };
             } else if (action === 'summary_stats') {
                 const summary = {};
                 rawData.forEach(row => {

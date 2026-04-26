@@ -614,7 +614,7 @@ async function parseAdminQueryIntent(query) {
 
     Salida esperada usando estricto JSON:
     {
-      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "auto_cobros" | "list_functions" | "general_query",
+      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "auto_cobros" | "list_functions" | "update_data" | "record_sale" | "general_query",
       "filters": {
         "name": string | null,
         "platform": string | null,
@@ -623,7 +623,9 @@ async function parseAdminQueryIntent(query) {
         "generic_search": string | null,
         "new_password": string | null,
         "custom_message": string | null,
-        "only_fields": string[] | null
+        "only_fields": string[] | null,
+        "target_field": string | null,
+        "new_value": string | null
       }
     }
 
@@ -632,6 +634,8 @@ async function parseAdminQueryIntent(query) {
     - Si pide "haz los cobros", "inicia cobranza", "pasa los recibos", "manda avisos", "cobros automáticos", es "auto_cobros".
     - Si pide "funciones", "qué puedes hacer", "ayuda", "comandos", "que haces", es "list_functions".
     - Si pide "envía", "notifica", "pasa", "reparte", "manda", "avisa", "dile" a un grupo de personas, es "broadcast_credentials". Prioriza esta acción si hay un verbo de envío o acción hacia el cliente.
+    - Si pide "registra una venta", "haz una venta", "vende", "asigna una cuenta de...", es "record_sale".
+    - Si pide "cambia", "ponle", "edita", "actualiza", "corrige" un valor o campo (ej: "ponle laura fonseca", "cambia el correo a..."), es "update_data".
     - Si pide "dame la cuenta de...", "que cuentas tiene...", "tienes la cuenta de...", "busca a...", "busca el correo...", es "search_customer".
     - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
     - Si pide "historico", "que cuentas ha tenido...", es "check_history".
@@ -641,9 +645,12 @@ async function parseAdminQueryIntent(query) {
 
     Reglas de 'filters':
     - 'name': Extrae el nombre explícito que el admin busca (ej: "busca a laura fonseca" -> "laura fonseca"). Ignora palabras como "busca a", "dame la cuenta de".
+    - 'target_field': Si es una actualización, identifica qué columna quiere cambiar (ej: "nombre", "correo", "clave", "vencimiento").
+    - 'new_value': El nuevo valor que se debe escribir (ej: "laura bonita", "juan@gmail.com").
     - 'generic_search': Si el admin busca por cuenta/correo pero no está claro si es nombre o correo, ponlo aquí. También usa este campo para el destinatario de un broadcast (ej: "manda a los de disney" -> "disney", "avisa a juan@gmail.com" -> "juan@gmail.com").
     - 'custom_message': Si el admin pide enviar un broadcast diciendo algo específico (ej: "dile a los de netflix que su cuenta caducó", "avisa que cambien de cuenta"), extrae el MENSAJE EXACTO O PARAFRASEADO que el bot debe enviar ("Tu cuenta ha caducado", "Por favor, cambia de cuenta").
     - 'only_fields': Si el admin especifica qué partes de las credenciales enviar (ej: "solo la contraseña", "únicamente el pin", "no mandes el correo, solo clave y perfil"), llena este arreglo con las palabras clave ("clave", "contraseña", "pin", "pin perfil", "perfil"). Si debe enviar todo, déjalo null o vacío.
+  `;
   try {
     const jsonString = await callGemini(prompt, "Eres un extractor de parámetros para consultas de base de datos JSON.", true);
     return JSON.parse(jsonString);
