@@ -1414,8 +1414,9 @@ async function processIncomingMessage(messages) {
           let hasNetflix = false;
           if (stateData.items && Array.isArray(stateData.items)) {
               hasNetflix = stateData.items.some(item => {
-                  const name = item.Streaming || (item.platform ? item.platform.name : "") || item.name || "";
-                  return name.toLowerCase().includes('netflix');
+                  const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                  // Solo pedir operador si es Netflix pero NO es Extra
+                  return name.includes('netflix') && !name.includes('extra');
               });
           }
 

@@ -336,6 +336,72 @@ async function handleAdminSuggestions(message, userStates) {
     }
 }
 
+/**
+ * Confirma manualmente un pago desde el grupo administrativo.
+ */
+async function handleAdminPaymentConfirmation(message, command, client, userStates, overridePhone = null) {
+    let phone = overridePhone;
+    if (!phone) {
+        const regex = /57\s*3\d{2}\s*\d{7}|3\d{9}/g;
+        const matches = command.match(regex);
+        if (matches && matches.length > 0) {
+            phone = matches[0].replace(/\s+/g, '');
+            if (!phone.startsWith('57') && phone.length === 10) phone = '57' + phone;
+        }
+    }
+
+    if (!phone) {
+        await message.reply('❌ No pude identificar el número de teléfono en el comando.');
+        return;
+    }
+
+    const userId = phone + '@c.us';
+    const stateData = userStates.get(userId);
+
+    if (!stateData || !stateData.items) {
+        await message.reply(`⚠️ No encontré una sesión de pago activa para el número ${phone}. Asegúrate de que el bot le haya mostrado el total recientemente.`);
+        return;
+    }
+
+    await message.reply(`⏳ Procesando confirmación manual para ${phone}...`);
+    
+    try {
+        const results = await recordNewSale(userId, stateData, "Confirmado por Admin");
+        
+        let report = `✅ *PAGO CONFIRMADO MANUALMENTE*\nCliente: ${stateData.nombre || phone}\n\n`;
+        results.forEach(res => {
+            report += `- *${res.name}*: ${res.status === 'success' ? 'Asignada ✅' : 'Manual ⚠️'}\n`;
+        });
+        
+        await message.reply(report);
+        await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados/renovados. 🎉\nGracias por tu paciencia. 😊");
+        
+        // Limpiar estado
+        userStates.set(userId, { state: 'main_menu', nombre: stateData.nombre });
+    } catch (error) {
+        console.error("[Admin Service] Error en confirmación manual:", error.message);
+        await message.reply(`❌ Error al registrar: ${error.message}`);
+    }
+}
+
+/**
+ * Envía los métodos de pago de forma manual a un cliente.
+ */
+async function handleSendManualPaymentMethods(message, command, client, userStates) {
+    const regex = /57\s*3\d{2}\s*\d{7}|3\d{9}/g;
+    const matches = command.match(regex);
+    if (!matches || matches.length === 0) {
+        await message.reply('❌ No identifiqué el número del cliente.');
+        return;
+    }
+    const phone = matches[0].replace(/\s+/g, '');
+    const dest = (phone.startsWith('57') ? phone : '57' + phone) + '@c.us';
+
+    const msg = `🤖 Hola, aquí tienes nuestros métodos de pago:\n\n⭐ *Nequi / Daviplata / Transfiya:* 3118587974\n⭐ *Bancolombia:* Ahorros 46772753713\n⭐ *Banco Caja Social:* 24111572331\n\nPor favor envía el comprobante por aquí una vez realices la transferencia.`;
+    await client.sendMessage(dest, msg);
+    await message.reply(`✅ Métodos de pago enviados a ${phone}.`);
+}
+
 module.exports = {
   processPendingChats,
   handleBatchUnanswered,
@@ -346,5 +412,7 @@ module.exports = {
   executeTestMode,
   getUpcomingExpirationsReport,
   getNetflixMatchReport,
-  handleAdminSuggestions
+  handleAdminSuggestions,
+  handleAdminPaymentConfirmation,
+  handleSendManualPaymentMethods
 };

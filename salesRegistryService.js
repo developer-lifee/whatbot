@@ -79,15 +79,30 @@ async function recordNewSale(userId, userState, paymentMethod) {
         const name = userState.nombre || "Cliente WhatsApp";
         const phone = userId.replace('@c.us', '');
 
-        // Obtener todos los datos crudos para buscar cupos
-        const allRows = await fetchRawData();
+        // Obtener todos los datos crudos para buscar cupos (solo si no es renovación)
+        const allRows = !userState.isRenewal ? await fetchRawData() : [];
         
         const results = [];
         for (const item of items) {
-            const platformName = item.platform.name;
+            const platformName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
             const lowerName = platformName.toLowerCase();
             
-            // Verificamos si es un PLAN FAMILIAR
+            // 1. CASO RENOVACIÓN: Ya tenemos la fila
+            if (userState.isRenewal && (item._rowNumber || item.index)) {
+                const targetRow = item._rowNumber || item.index;
+                console.log(`[Sales Registry] RENOVACIÓN detectada para ${platformName} en fila ${targetRow}`);
+                const updates = {
+                    "deben": nextPaymentDate,
+                    "Metodo de pago": paymentMethod || "Renovado (Auto)",
+                    "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
+                };
+                await updateExcelData(targetRow, updates);
+                results.push({ name: platformName, status: 'success', rowNumber: targetRow, type: 'renewal' });
+                continue;
+            }
+
+            // 2. CASO VENTA NUEVA: Buscar cupo
+            // Verificamos si es un PLAN FAMILIAR (Saltar si es venta nueva, pero NO si es renovación)
             const isFamilyPlan = FAMILY_KEYWORDS.some(key => lowerName.includes(key));
             
             if (isFamilyPlan) {
@@ -111,7 +126,7 @@ async function recordNewSale(userId, userState, paymentMethod) {
                 await updateExcelData(slot.index, updates);
                 // Marcar el row en nuestro array local como usado
                 allRows[slot.index - 2].deben = "RESERVADO"; 
-                results.push({ name: platformName, status: 'success', rowNumber: slot.index });
+                results.push({ name: platformName, status: 'success', rowNumber: slot.index, type: 'new_sale' });
             } else {
                 console.log(`[Sales Registry] NO se encontró cupo disponible para ${platformName}.`);
                 results.push({ name: platformName, status: 'no_slots_found' });

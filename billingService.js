@@ -204,10 +204,29 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
           // Intentar encontrar el plan específico que coincida con lo que dice el Excel
           const specificPlan = catalogPlatform.plans.find(pl => {
               const normPlanName = pl.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+              // Match exacto o contenido mutuo (ej: "extra" en "netflix extra" o viceversa)
               return searchName.includes(normPlanName) || normPlanName.includes(searchName);
           });
           
-          const catalogPrice = specificPlan ? specificPlan.price : catalogPlatform.plans[0].price;
+          // Si es Netflix y el Excel dice Extra, pero no encontramos plan específico, 
+          // evitamos asignar el precio base de 13000 si podemos encontrar el de 17000
+          let catalogPrice = 0;
+          if (specificPlan) {
+              catalogPrice = specificPlan.price;
+          } else if (searchName.includes('extra')) {
+              const extraPlan = catalogPlatform.plans.find(pl => pl.name.toLowerCase().includes('extra'));
+              if (extraPlan) catalogPrice = extraPlan.price;
+          }
+          
+          // Fallback al primer plan (base) si no encontramos uno específico
+          if (catalogPrice === 0) {
+              // Si el Excel dice "Extra" pero no hallamos plan "Extra", no queremos el base de 13k
+              // Pero si el Excel NO dice "Extra", el primer plan (13k) es el correcto.
+              if (!searchName.includes('extra')) {
+                  catalogPrice = catalogPlatform.plans[0].price;
+              }
+          }
+
           if (catalogPrice > 0) {
             price = catalogPrice;
           }
