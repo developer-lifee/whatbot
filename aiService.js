@@ -631,14 +631,19 @@ async function parseAdminQueryIntent(query) {
     - Si el mensaje es una confirmación afirmativa o respuesta positiva como "sí", "si", "dale", "proceder", "adelante", "confirmar", "hazlo", "envíaselo", "enviaselo", es "confirm_action".
     - Si pide "haz los cobros", "inicia cobranza", "pasa los recibos", "manda avisos", "cobros automáticos", es "auto_cobros".
     - Si pide "funciones", "qué puedes hacer", "ayuda", "comandos", "que haces", es "list_functions".
-    - Si pide "envía", "notifica", "pasa", "reparte", "manda" o dar credenciales a "todos", es "broadcast_credentials". Prioriza esta acción si hay un verbo de envío o acción hacia el cliente.
-    - Si pide "dame la cuenta de...", "que cuentas tiene...", "tienes la cuenta de...", "busca el correo...", es "search_customer".
+    - Si pide "envía", "notifica", "pasa", "reparte", "manda", "avisa", "dile" a un grupo de personas, es "broadcast_credentials". Prioriza esta acción si hay un verbo de envío o acción hacia el cliente.
+    - Si pide "dame la cuenta de...", "que cuentas tiene...", "tienes la cuenta de...", "busca a...", "busca el correo...", es "search_customer".
     - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
     - Si pide "historico", "que cuentas ha tenido...", es "check_history".
     - Si pide "cuantas hay en total", "resumen de...", "cuentas totales", es "summary_stats".
     - Si pide "atiende a...", "libera a...", "atender el pendiente de...", "encárgate de...", es "liberate_user".
     - Si no encaja, usa "general_query".
-  `;
+
+    Reglas de 'filters':
+    - 'name': Extrae el nombre explícito que el admin busca (ej: "busca a laura fonseca" -> "laura fonseca"). Ignora palabras como "busca a", "dame la cuenta de".
+    - 'generic_search': Si el admin busca por cuenta/correo pero no está claro si es nombre o correo, ponlo aquí. También usa este campo para el destinatario de un broadcast (ej: "manda a los de disney" -> "disney", "avisa a juan@gmail.com" -> "juan@gmail.com").
+    - 'custom_message': Si el admin pide enviar un broadcast diciendo algo específico (ej: "dile a los de netflix que su cuenta caducó", "avisa que cambien de cuenta"), extrae el MENSAJE EXACTO O PARAFRASEADO que el bot debe enviar ("Tu cuenta ha caducado", "Por favor, cambia de cuenta").
+    - 'only_fields': Si el admin especifica qué partes de las credenciales enviar (ej: "solo la contraseña", "únicamente el pin", "no mandes el correo, solo clave y perfil"), llena este arreglo con las palabras clave ("clave", "contraseña", "pin", "pin perfil", "perfil"). Si debe enviar todo, déjalo null o vacío.
   try {
     const jsonString = await callGemini(prompt, "Eres un extractor de parámetros para consultas de base de datos JSON.", true);
     return JSON.parse(jsonString);

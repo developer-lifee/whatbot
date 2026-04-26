@@ -514,6 +514,18 @@ client.on('qr', (qr) => {
 client.on('ready', () => {
   console.log('✅ Conexión establecida correctamente. ¡Bot listo!');
   
+  const { setAlertCallback } = require('./googleAuthService');
+  setAlertCallback(async (serviceName, authUrl) => {
+      try {
+          const adminPhone = '573133890800@c.us';
+          const msg = `⚠️ *ALERTA DE SISTEMA (Sheer IT)* ⚠️\n\nFalta el token de autorización para el servicio: *${serviceName}*\n\n*Paso a paso para autorizar:*\n1. Abre este enlace desde tu navegador:\n${authUrl}\n\n2. Inicia sesión con la cuenta de Google correspondiente.\n3. Otorga los permisos solicitados.\n4. Serás redirigido a una página de error o a \`localhost\`.\n5. Copia el parámetro \`code=\` de la URL de esa página.\n6. Envíame un mensaje con el formato: \`@bot autorizar ${serviceName.toLowerCase()} [tu_codigo_aqui]\``;
+          await client.sendMessage(adminPhone, msg);
+          console.log(`[ALERTA ENVIADA] Se notificó al admin sobre el token faltante de ${serviceName}.`);
+      } catch (err) {
+          console.error("Error enviando alerta de auth al admin:", err);
+      }
+  });
+
   // Iniciar Automatización Diaria (9am y 2pm)
   initDailyAutomation(client, userStates, pendingConfirmations, GROUP_ID);
 
@@ -916,8 +928,6 @@ async function processIncomingMessage(messages) {
                   // Si hay una sola opción, la tomamos. Si hay varias, "si" es ambiguo (dejamos que falle o pida clarificación)
                   if (adminState.payload && adminState.payload.options && adminState.payload.options.length === 1) {
                       const selectedPlatform = adminState.payload.options[0];
-                      const { fetchRawData } = require('./apiService');
-                      const rawData = await fetchRawData();
                       const resultDirect = await processAdminQuery(message, selectedPlatform, userStates, client, adminState.originalFilters, rawData);
                       if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
                       return;
@@ -1144,9 +1154,17 @@ async function processIncomingMessage(messages) {
               const service = parts[1].toLowerCase();
               const code = parts[2];
               const { getOAuth2Client } = require('./googleAuthService');
-              const auth = getOAuth2Client(service); // Esto disparará la lógica de guardado si se añade soporte
-              // Nota: Necesitaríamos añadir una función saveTokenWithCode en googleAuthService
-              await message.reply(`⏳ Intentando autorizar servicio ${service} con el código proporcionado... (Asegúrate de que la función saveToken esté implementada)`);
+              await message.reply(`⏳ Intentando autorizar servicio ${service} con el código proporcionado...`);
+              try {
+                  const auth = await getOAuth2Client(service, code); 
+                  if (auth) {
+                      await message.reply(`✅ Servicio ${service} autorizado y token guardado correctamente.`);
+                  } else {
+                      await message.reply(`❌ No se pudo autorizar el servicio ${service}. Revisa los logs.`);
+                  }
+              } catch (e) {
+                  await message.reply(`❌ Error al autorizar: ${e.message}`);
+              }
           }
           return;
       } else if (command === 'pruebas' || command === 'prueba de escritura') {
@@ -1205,26 +1223,6 @@ async function processIncomingMessage(messages) {
           const { handleSendBulkCredentials } = require('./adminService');
           const { getAccountsByPhone } = require('./apiService');
           await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
-          return;
-      } else {
-          // --- FALLBACK CONVERSACIONAL IA PARA ADMINISTRADOR ---
-          const { parseAdminQueryIntent, generateAdminReport } = require('./aiService');
-          const { fetchRawData } = require('./apiService');
-          
-          console.log(`[Admin AI] Procesando comando conversacional: ${command}`);
-          const intent = await parseAdminQueryIntent(command);
-          
-          if (intent.action === 'broadcast_credentials') {
-              const { handleSendBulkCredentials } = require('./adminService');
-              const { getAccountsByPhone } = require('./apiService');
-              // Si el admin pide "solo pin perfil", lo añadimos al comando para que formatDirectCredentials lo sepa (ajuste necesario abajo)
-              await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
-              return;
-          }
-
-          const rawData = await fetchRawData();
-          const report = await generateAdminReport(command, rawData);
-          await message.reply(report);
           return;
       }
   }

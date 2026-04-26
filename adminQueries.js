@@ -138,21 +138,56 @@ async function processAdminQuery(message, query, userStates, client) {
                     return isLibre && platformMatch;
                 });
             } else if (action === 'search_customer') {
+                const normSearch = (str) => str ? str.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "") : "";
+                const nameFilter = normSearch(filters.name);
+                const genericFilter = normSearch(filters.generic_search);
+                
                 filteredData = rawData.filter(row => {
                     let match = false;
-                    const nombreStr = (row['Nombre'] || '').toString().toLowerCase();
-                    const telStr = (row['numero'] || '').toString();
-                    const correoStr = (row['correo'] || row['Correo'] || '').toString().toLowerCase();
-                    const platStr = (row['Streaming'] || '').toString().toLowerCase();
+                    const nombreStr = normSearch(row['Nombre'] || row['nombre']);
+                    const apellidoStr = normSearch(row['apellido'] || row['Apellido']);
+                    const fullName = nombreStr + apellidoStr;
+                    const telStr = normSearch(row['numero'] || row['whatsapp']);
+                    const correoStr = normSearch(row['correo'] || row['Correo']);
+                    const platStr = normSearch(row['Streaming']);
 
-                    if (filters.name && (nombreStr.includes(filters.name.toLowerCase()) || correoStr.includes(filters.name.toLowerCase()))) match = true;
-                    if (filters.phone && telStr.includes(filters.phone)) match = true;
-                    if (filters.generic_search) {
-                        const gs = filters.generic_search.toLowerCase();
-                        if (nombreStr.includes(gs) || telStr.includes(gs) || correoStr.includes(gs) || platStr.includes(gs)) match = true;
+                    if (nameFilter && (fullName.includes(nameFilter) || correoStr.includes(nameFilter))) match = true;
+                    if (filters.phone && telStr.includes(normSearch(filters.phone))) match = true;
+                    if (genericFilter) {
+                        if (fullName.includes(genericFilter) || telStr.includes(genericFilter) || correoStr.includes(genericFilter) || platStr.includes(genericFilter)) match = true;
                     }
                     return match;
                 });
+                
+                // Si no hay match exacto, buscar sugerencias fuzzy
+                if (filteredData.length === 0 && (nameFilter || genericFilter)) {
+                    const originalSearch = (filters.name || filters.generic_search || "").toLowerCase();
+                    const words = originalSearch.split(' ').filter(w => w.length >= 3);
+                    const suggestions = new Set();
+                    
+                    if (words.length > 0) {
+                        rawData.forEach(row => {
+                            const originalName = (row['Nombre'] || row['nombre'] || '').toString().trim();
+                            const originalApe = (row['apellido'] || row['Apellido'] || '').toString().trim();
+                            const fullOriginal = originalName + (originalApe ? ' ' + originalApe : '');
+                            const fullNameNorm = fullOriginal.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                            
+                            for (const w of words) {
+                                const wNorm = w.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                                if (fullNameNorm.includes(wNorm) && fullOriginal.length > 0) {
+                                    suggestions.add(fullOriginal);
+                                }
+                            }
+                        });
+                    }
+                    
+                    if (suggestions.size > 0) {
+                        filteredData = { 
+                            status: "error", 
+                            message: `No encontré una coincidencia exacta para *${originalSearch}*, pero encontré clientes con nombres similares:\n\n- ${Array.from(suggestions).slice(0, 10).join('\n- ')}\n\n¿Te referías a alguno de ellos? 🤖` 
+                        };
+                    }
+                }
             } else if (action === 'summary_stats') {
                 const summary = {};
                 rawData.forEach(row => {

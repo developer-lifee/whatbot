@@ -11,6 +11,11 @@ const SERVICE_SCOPES = {
 };
 
 const cachedClients = new Map();
+let alertCallback = null;
+
+function setAlertCallback(cb) {
+    alertCallback = cb;
+}
 
 /**
  * Inicializa o retorna un cliente OAuth2 específico para un servicio (contacts, gmail, etc.)
@@ -56,6 +61,10 @@ async function getOAuth2Client(serviceName = 'contacts', code = null) {
             });
             console.warn(`\n⚠️ [GOOGLE AUTH] Se requiere autorización para el servicio: *${serviceName.toUpperCase()}*`);
             console.warn(`👉 Abre este enlace y usa la cuenta correspondiente:\n`, authUrl, '\n');
+            
+            if (alertCallback) {
+                alertCallback(serviceName.toUpperCase(), authUrl);
+            }
             return null;
         }
 
@@ -71,5 +80,6 @@ async function getOAuth2Client(serviceName = 'contacts', code = null) {
 }
 
 module.exports = {
-    getOAuth2Client
+    getOAuth2Client,
+    setAlertCallback
 };
