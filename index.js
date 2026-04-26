@@ -1115,13 +1115,21 @@ async function processIncomingMessage(messages) {
           return;
       } else if (command.startsWith('liberar')) {
           let targetPhone = command.replace('liberar', '').trim().replace(/\D/g, '');
+          let targetName = command.replace('liberar', '').trim();
+          
+          if (!targetPhone && targetName) {
+              const { searchContactByName } = require('./googleContactsService');
+              await message.reply(`🔍 Buscando a "${targetName}" para liberar...`);
+              targetPhone = await searchContactByName(targetName);
+          }
+
           if (!targetPhone) {
-              await message.reply('❌ Por favor especifica el número a liberar (ej: @bot liberar 57311...)');
+              await message.reply('❌ No pude encontrar el número o no especificaste a quién liberar (ej: @bot liberar Juan o @bot liberar 57311...)');
           } else {
               const targetId = targetPhone + '@c.us';
               userStates.delete(targetId);
               await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
-              await message.reply(`✅ Bot reactivado para ${targetPhone}`);
+              await message.reply(`✅ Bot reactivado para ${targetName || targetPhone} (${targetPhone})`);
           }
           return;
       } else if (command.startsWith('autorizar')) {
