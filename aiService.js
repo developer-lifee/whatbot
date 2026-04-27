@@ -507,11 +507,14 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
        - COMPARACIÓN CRÍTICA: Compara el correo/usuario que ves en la pantalla con los datos reales en "Cuentas del usuario".
        - DETECCIÓN DE TYPOS: Si ves que el usuario escribió mal el correo (ej: puso un guion de más, cambió una letra, omitió un punto), indícalo de forma MUY EXPLÍCITA y dile cómo debe escribirlo correctamente basándote en el sistema. Ejemplo: "Veo que en la tele pusiste 'ejemplo@-gmail.com', pero el correo correcto es 'ejemplo@gmail.com'. Borra ese guion extra y funcionará."
        - Si el error es "Cuenta no encontrada" y el correo parece bien escrito, pídele que verifique mayúsculas/minúsculas o confirma si la cuenta cambió.
-    6. Si es soporte técnico o un reporte de falla y el problema ESTÁ en la base de datos de soporte: Dale el paso a paso ("steps") directamente en el "replyMessage" y pon "needsEscalation": false.
+    6. SOPORTE TÉCNICO CON MANUAL: Si el problema (texto o imagen) coincide con un error en "Base de conocimiento de Soporte Técnico":
+       - SIGUE LOS PASOS AL PIE DE LA LETRA. 
+       - INCLUYE SIEMPRE LOS ENLACES (ej: Sheerit.com.co/actualizar) y palabras clave de búsqueda (ej: "sheerit", "sheerit2") que se mencionan en el manual. Es vital para que el usuario resuelva solo.
+       - Pon "needsEscalation": false.
     7. SI EL USUARIO PIDE DATOS ESPECÍFICOS (ej: "¿Cuál es mi clave?", "pásame el pin", "no recuerdo mi correo"): Y los tienes en la lista de "Cuentas del usuario", ¡ENTRÉGALOS DIRECTAMENTE! No lo mandes a soporte si tú tienes la respuesta.
-    7. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
-    8. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
-    9. El "replyMessage" debe ser directo, humano, máximo 5 líneas, incluye el emoji 🤖 al final.
+    8. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
+    9. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
+    10. El "replyMessage" debe ser directo, humano y completo. Si estás dando pasos de soporte, asegúrate de que no falte información clave ni enlaces. Incluye el emoji 🤖 al final.
 
 
 

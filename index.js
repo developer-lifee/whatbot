@@ -721,7 +721,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
          } catch(e) { console.error('Error enviando escalamiento:', e); }
-         userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
+          userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
     }
 }
 
@@ -848,6 +848,8 @@ async function processIncomingMessage(messages) {
       return;
   }
 
+  console.log(`[DEBUG] Procesando mensaje de: ${userId} Contenido: ${message.body || "[Sin texto]"}`);
+
   // Ignorar stickers, reacciones, y estados
   if (message.type === 'sticker' || message.type === 'reaction' || message.isStatus) {
       console.log(`[Ignorado] Mensaje tipo ${message.type} de ${userId}.`);
@@ -938,7 +940,7 @@ async function processIncomingMessage(messages) {
       }
   }
 
-  console.log('[DEBUG] Procesando mensaje de:', userId, 'Contenido:', message.body);
+  // Log de procesamiento movido arriba
 
 
   // --- Cobros parser: mensaje especial ---
@@ -1787,7 +1789,7 @@ async function handleMainMenuSelection(message, userId) {
                   const realPhone = contact.number || userId.replace(/\D/g, '');
                   await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
               }
-              userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
+              userStates.set(userId, { state: 'waiting_human', waitingCount: 0 }); // No seteamos lastHumanInteraction para permitir reactivación por IA si el cliente pide otra cosa
           }
       } else {
           await message.reply("🤖 Por favor, selecciona una opción válida del menú (1-5), o escribe tu duda para ayudarte.");
