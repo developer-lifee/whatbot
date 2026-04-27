@@ -280,6 +280,15 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
     const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
     
     const isSpotify = streamingName.toLowerCase().includes('spotify');
+    const isYoutube = streamingName.toLowerCase().includes('youtube');
+
+    // YouTube / Cuentas familiares: Priorizar el 'customer mail' si existe para no mostrar el correo del marcador/admin
+    let displayCorreo = correo;
+    const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").trim();
+    if ((isYoutube || isFamily) && customerMail) {
+        displayCorreo = customerMail;
+    }
+
     const labelPin = isSpotify ? "DIRECCIÓN/LINK" : "PIN";
     const perfilDisplay = pin ? `${perfil} - ${labelPin}: ${pin}` : perfil;
     
@@ -310,7 +319,7 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
     const isConcise = options.concise || (requestedPlatform && (requestedPlatform.includes('solo pin') || requestedPlatform.includes('unicamente pin')));
 
     if (isConcise) {
-        let conciseMsg = `🚨 *ACTUALIZACIÓN ${streamingName}*\n\n📧 Cuenta: ${correo}`;
+        let conciseMsg = `🚨 *ACTUALIZACIÓN ${streamingName}*\n\n📧 Cuenta: ${displayCorreo}`;
         if (pin) conciseMsg += `\n📍 ${labelPin}: ${pin}`;
         conciseMsg += `\n\nSi tienes inconvenientes, escribe "ayuda". 🤖`;
         formattedAccounts.push(conciseMsg);
@@ -322,16 +331,15 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
             ? `⚠️ *SERVICIO VENCIDO*: Este servicio (${streamingName}) requiere renovación para seguir funcionando.`
             : `ℹ️ *NOTA*: Para este servicio, recibirás una invitación por correo. La contraseña la configuras tú mismo con tu correo al aceptar la invitación. Un asesor te contactará en breve si necesitas ayuda.`;
         
-        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nPERFIL: ${perfilDisplay}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${displayCorreo}\nPERFIL: ${perfilDisplay}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
         return;
     }
 
     // LÓGICA YOPMAIL: Si el correo de cliente es yopmail, damos pasos de recuperación
-    const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").toLowerCase();
-    if (customerMail.includes("@yopmail.com")) {
+    if (customerMail.toLowerCase().includes("@yopmail.com")) {
         clave = "(La configuras tú mismo siguiendo los pasos abajo)";
         const yopInstructions = `\n\n🔑 *PASOS PARA CONFIGURAR TU CLAVE:*\n1. Ve a www.yopmail.com\n2. Ingresa el correo: *${customerMail}*\n3. En la app de ${streamingName}, pide 'Olvidé mi contraseña' a ese correo.\n4. Revisa el código en Yopmail y activa tu cuenta. 📝`;
-        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfilDisplay}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${displayCorreo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfilDisplay}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
         return;
     }
 
@@ -339,7 +347,7 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
         clave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
     }
     
-    formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfilDisplay}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+    formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${displayCorreo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfilDisplay}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
   });
   
   return formattedAccounts.join('\n\n-------------------\n\n');
@@ -458,14 +466,18 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
 
   let accountsContext = "";
   if (userAccounts && userAccounts.length > 0) {
-     const simplifiedAccounts = userAccounts.map(acc => ({
-        Plataforma: acc.Streaming,
-        Correo: acc.correo || acc.Correo || acc["E-mail"],
-        Clave: acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"],
-        Pin_Perfil: acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"],
-        Perfil: acc.Nombre || acc.nombre || acc.Perfil || acc.perfil,
-        Vencimiento: acc.vencimiento || acc.deben
-     }));
+     const simplifiedAccounts = userAccounts.map(acc => {
+        const cMail = (acc["customer mail"] || acc["Customer Mail"] || "").trim();
+        return {
+          Plataforma: acc.Streaming,
+          Correo_Admin: acc.correo || acc.Correo || acc["E-mail"],
+          Correo_Cliente: cMail || null,
+          Clave: acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"],
+          Pin_Perfil: acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"],
+          Perfil: acc.Nombre || acc.nombre || acc.Perfil || acc.perfil,
+          Vencimiento: acc.vencimiento || acc.deben
+        };
+     });
      accountsContext = "Cuentas del usuario en nuestro sistema (ÚSALAS PARA DAR SOPORTE O DAR LAS CREDENCIALES SI EL USUARIO LAS PIDE):\n" + JSON.stringify(simplifiedAccounts);
   }
 

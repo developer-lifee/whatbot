@@ -405,7 +405,8 @@ async function processAdminQuery(message, query, userStates, client) {
                                 nombre: m['Nombre'] || m['nombre'] || 'Cliente',
                                 pin_perfil: m['pin perfil'] || m['pin_perfil'] || m['perfil'] || m['pin'] || null,
                                 vencimiento: m['vencimiento'] || m['Vencimiento'] || null,
-                                is_owner: platMatched.includes('owner') || nameMatched.includes('owner')
+                                is_owner: platMatched.includes('owner') || nameMatched.includes('owner'),
+                                customer_mail: m['customer mail'] || m['Customer Mail'] || null
                             };
                         })
                     };

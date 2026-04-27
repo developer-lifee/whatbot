@@ -83,7 +83,7 @@ const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573133890800') + '@c.us
 const ADMIN_RAW_PHONE = OPERATOR_NUMBER.replace('@c.us', '');
 let globalBotSleep = false;
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
-const BATCH_INTERVAL = 2000; // 2 segundos para agrupar mensajes (más rápido)
+const BATCH_INTERVAL = 4000; // 4 segundos para agrupar mensajes (mejor unificación)
 
 const {
   startPurchaseProcess,
@@ -1004,8 +1004,8 @@ async function processIncomingMessage(messages) {
                   }
 
                   let msg = payload.custom_message 
-                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${payload.target_account}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}`
-                    : `🚨 *${title}*\n\nHola 👋, te contactamos de Sheerit para informarte que los datos de acceso de tu cuenta de *${payload.platform}* han sido actualizados.\n\n📧 *Cuenta:* ${payload.target_account}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${r.customer_mail || payload.target_account}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}`
+                    : `🚨 *${title}*\n\nHola 👋, te contactamos de Sheerit para informarte que los datos de acceso de tu cuenta de *${payload.platform}* han sido actualizados.\n\n📧 *Cuenta:* ${r.customer_mail || payload.target_account}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
                   try {
                       await client.sendMessage(targetUser, msg);
                       exitosos++;
