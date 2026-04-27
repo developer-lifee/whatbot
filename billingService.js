@@ -345,10 +345,28 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
           if (phone.length === 10) phone = '57' + phone;
         }
         
+        const destId = phone + '@c.us';
+        const currentState = userStates.get(destId);
+        const stateStr = (typeof currentState === 'object') ? currentState.state : currentState;
+
         const observacion = (account.observaciones || '').toString().trim();
         let dateStr = accountDate ? accountDate.toLocaleDateString('es-ES') : '';
         if (accountDate && accountDate.getTime() === tomorrow.getTime()) {
             dateStr = "MAÑANA";
+        }
+
+        // --- FILTRO DE SEGURIDAD ---
+        // Si ya envió comprobante o está en charla, lo mandamos a revisión especial
+        if (stateStr === 'waiting_admin_confirmation' || stateStr === 'waiting_human') {
+          records.push({ 
+            name: account.Nombre || 'Cliente', 
+            phone, 
+            service: account.Streaming || 'Servicio',
+            dateStr,
+            observacion: `[PENDIENTE] Ya hay actividad o pago en este chat (${stateStr}).`,
+            isSkip: true
+          });
+          return;
         }
         
         records.push({ 
@@ -368,8 +386,17 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
 
     const toChargeUsers = new Map();
     const toReviewUsers = new Map();
+    const toNotifyAdminUsers = new Map();
     
     records.forEach(r => {
+      if (r.isSkip) {
+        if (!toNotifyAdminUsers.has(r.phone)) {
+            toNotifyAdminUsers.set(r.phone, { name: r.name, phone: r.phone, services: [] });
+        }
+        toNotifyAdminUsers.get(r.phone).services.push(r.service);
+        return;
+      }
+
       const lowerObs = r.observacion ? r.observacion.toLowerCase() : '';
       const hasCorte = lowerObs.includes('cortar') || lowerObs.includes('corte');
       
@@ -395,13 +422,15 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     const toCharge = Array.from(toChargeUsers.values());
     const toReview = Array.from(toReviewUsers.values());
 
-    if (toCharge.length === 0 && toReview.length === 0) {
-      await message.reply('🤖 No se encontraron cobros ni revisiones para procesar.');
+    const toNotify = Array.from(toNotifyAdminUsers.values());
+
+    if (toCharge.length === 0 && toReview.length === 0 && toNotify.length === 0) {
+      await message.reply('🤖 No se encontraron cobros, revisiones ni pagos pendientes para procesar.');
       return;
     }
 
     // AVISAR QUE INICIAMOS
-    await message.reply(`🤖 *PROCESO AUTOMÁTICO DE COBROS INICIADO*\n\nHe encontrado ${toCharge.length} clientes listos para cobrar y ${toReview.length} que requieren revisión manual. Procedo con el envío directo...`);
+    await message.reply(`🤖 *PROCESO AUTOMÁTICO DE COBROS INICIADO*\n\nHe encontrado ${toCharge.length} clientes para cobrar, ${toReview.length} para revisión de corte y ${toNotify.length} con pagos/actividad pendiente. Procedo con el envío...`);
 
     // EJECUCIÓN DIRECTA
     let exitosos = 0;
@@ -416,6 +445,13 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
       finalReport += `\n⚠️ *PENDIENTES PARA REVISIÓN MANUAL (Cortes):*\n`;
       toReview.forEach(r => {
         finalReport += `• ${r.name} - Tel: ${r.phone}\n  Notas: ${r.services.join(' | ')}\n`;
+      });
+    }
+
+    if (toNotify.length > 0) {
+      finalReport += `\n📥 *PAGOS/CHATS POR VALIDAR (Bot saltó el cobro):*\n`;
+      toNotify.forEach(r => {
+        finalReport += `• ${r.name} - Tel: ${r.phone} (${r.services.join(', ')})\n`;
       });
     }
 

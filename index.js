@@ -741,10 +741,7 @@ async function processIncomingMessage(messages) {
   const userId = message.fromMe ? message.to : message.from;
   const isFromAdmin = userId.includes(ADMIN_RAW_PHONE) || (message.author && message.author.includes(ADMIN_RAW_PHONE));
   
-  // --- MUTE ABSOLUTO PROVEEDOR ---
-  if (userId.includes('3027892534')) {
-      return; // El bot no se mete en la conversación con el proveedor
-  }
+  // Mute absoluto proveedor movido abajo tras resolución de número real
 
   // --- INTERCEPTOR ESPECIAL ADMINISTRADOR ---
   if (userId.includes(ADMIN_RAW_PHONE)) {
@@ -791,6 +788,12 @@ async function processIncomingMessage(messages) {
   }
 
   const realPhone = contact.number || userId.replace(/\D/g, '');
+
+  // --- MUTE ABSOLUTO PROVEEDORES (LID Fix) ---
+  if (realPhone.includes('3027892534')) {
+      console.log(`[Mute] Chat con proveedor @${realPhone} ignorado.`);
+      return;
+  }
   
   let foundName = contact.name || contact.pushname;
   if (!foundName) {
@@ -1470,6 +1473,21 @@ async function processIncomingMessage(messages) {
   // Si no hay media, o no fue interceptado como pago, evaluamos el texto combinado
   const inputToUse = combinedBody || message.body || "";
 
+  // 2. DETECCIÓN DE INTENCIÓN Y NOMBRE (Global para todos los estados)
+  const hist = await getChatHistoryText(message, 25);
+  const detection = await detectInitialIntent(inputToUse, hist);
+
+  // 3. IDENTIDAD TERCERO: IA revisando historial o mensaje actual
+  if ((!foundName || foundName === 'Cliente') && detection.userName) {
+      foundName = detection.userName;
+      console.log(`[AI Discovery] Nombre hallado para @${userId.replace('@c.us', '')}: ${foundName}`);
+      
+      // Actualizar estado en memoria si ya existe
+      if (currentStateData) {
+          userStates.set(userId, { ...currentStateData, nombre: foundName });
+      }
+  }
+
   switch (currentState) {
     case undefined:
       const cleanInput = inputToUse.trim();
@@ -1479,14 +1497,7 @@ async function processIncomingMessage(messages) {
          return;
       }
 
-      const hist = await getChatHistoryText(message, 25);
-      const detection = await detectInitialIntent(inputToUse, hist);
-
-      // 3. IDENTIDAD TERCERO: IA revisando historial
-      if (!foundName && detection.userName) {
-          foundName = detection.userName;
-          console.log(`[AI Discovery] Nombre hallado en historial para @${userId.replace('@c.us', '')}: ${foundName}`);
-      }
+      // 3. IDENTIDAD TERCERO movido arriba
 
       // Determinar si el nombre es completo según la IA o si ya lo teníamos validado
       const nameIsComplete = detection.isNameComplete || false;

@@ -499,7 +499,7 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     Instrucciones:
     Eres un asistente de servicio al cliente. Debes dar una respuesta estructurada en formato JSON estricto.
     1. PRIORIDAD DE SOPORTE PARA CLIENTES: Revisa la lista de cuentas del usuario. Si el tema del mensaje o la imagen coincide con una plataforma que el usuario ya tiene contratada, asume inicialmente que es SOPORTE TÉCNICO.
-    2. RECLAMOS DE PAGO/VENCIMIENTO: Si el usuario dice que ya pagó, que adquirió el servicio hace poco o que "aparece vencido" pero tiene una cuenta activa en la lista, ESCALA INMEDIATAMENTE (needsEscalation: true).
+    2. RECLAMOS DE PAGO/VENCIMIENTO: Si el usuario dice que ya pagó, envía un comprobante o dice que "ya lo hizo" en respuesta a un cobro, ESCALA INMEDIATAMENTE (needsEscalation: true). No intentes validar el pago tú mismo a menos que veas un error tipográfico obvio en el correo.
     3. VENTAS Y PRECIOS: Si el usuario pregunta por un servicio o precio, MUESTRA SIEMPRE TODAS LAS OPCIONES de planes disponibles (ej: Estándar vs Platino, 4K vs Extra) con sus respectivos precios. No ofrezcas solo la más barata.
     4. Si es una duda comercial o sobre cómo pagar un NUEVO servicio (incluso si ya tiene uno), responde en "replyMessage" y manda "needsEscalation": false. 
     5. ANÁLISIS VISUAL DE LOGIN/ERRORES: Si hay imágenes de pantallas de inicio de sesión o errores:
@@ -514,7 +514,8 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     7. SI EL USUARIO PIDE DATOS ESPECÍFICOS (ej: "¿Cuál es mi clave?", "pásame el pin", "no recuerdo mi correo"): Y los tienes en la lista de "Cuentas del usuario", ¡ENTRÉGALOS DIRECTAMENTE! No lo mandes a soporte si tú tienes la respuesta.
     8. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
     9. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
-    10. El "replyMessage" debe ser directo, humano y completo. Si estás dando pasos de soporte, asegúrate de que no falte información clave ni enlaces. Incluye el emoji 🤖 al final.
+    10. MANEJO DE NOMBRES Y REGISTRO: Si el usuario proporciona su nombre (especialmente si se lo pediste o acaba de pagar), AGRADÉCELE y dile que has guardado el dato para su registro. No respondas con "no puedo procesar tu consulta". Ejemplo: "¡Perfecto Johann Hernández! Gracias por tu nombre, ya lo anoté para tu registro. Un asesor validará tu pago pronto. 🤖"
+    11. El "replyMessage" debe ser directo, humano y completo. Si estás dando pasos de soporte, asegúrate de que no falte información clave ni enlaces. Incluye el emoji 🤖 al final.
 
 
 
@@ -553,10 +554,10 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     Mensaje actual: "${messageContent}"
     
     Categorías para "intent":
-    - "comprar": El usuario quiere iniciar una compra, saber precios, agregar una pantalla, contratar un nuevo servicio o menciona valores de dinero asociados a un interés (ej: "la de 17 mil").
-    - "credenciales": El usuario pide sus claves, contraseñas, pines, perfiles, correos de acceso o reporta fallas de acceso. Si el usuario escribe solo el nombre de una plataforma (ej: "Netflix") y antes pidió credenciales o se nota que busca entrar, usa este intent.
-    - "pagar": El usuario quiere renovar, pagar, o identifica un medio de pago para una transacción pendiente (ej: "nequi", "daviplata").
-    - "soporte": Problemas técnicos, fallas de pantalla, "no me deja entrar", "se cerró la cuenta".
+    - "comprar": El usuario quiere iniciar una compra o saber precios. **OJO:** Si el usuario solo nombra plataformas (ej: "Netflix, HBO") pero en el historial está hablando de un pago ya realizado o un error, NO uses "comprar", usa "soporte" o "desconocido".
+    - "credenciales": El usuario pide sus claves, contraseñas, pines o reporta fallas de acceso.
+    - "pagar": El usuario quiere renovar, pagar, o identifica un medio de pago para una transacción pendiente.
+    - "soporte": Problemas técnicos, fallas de pantalla, o el usuario indica que ya pagó y el servicio no funciona/aparece cobro.
     - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale").
     - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio, que no va a continuar o pide la baja.
     - "desconocido": Cualquier otro mensaje.
