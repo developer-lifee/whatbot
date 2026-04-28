@@ -837,8 +837,9 @@ async function processIncomingMessage(messages) {
       } else {
           if (currentState !== 'waiting_human') {
               console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
-              userStates.set(userId, { state: 'waiting_human', nombre: foundName, waitingCount: 0 });
           }
+          const existingData = typeof currentStateData === 'object' ? currentStateData : {};
+          userStates.set(userId, { ...existingData, state: 'waiting_human', nombre: foundName, waitingCount: 0, lastHumanInteraction: Date.now() });
           return;
       }
   }
