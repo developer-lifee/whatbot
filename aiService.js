@@ -591,12 +591,12 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     - "desconocido": Cualquier otro mensaje.
 
     Regla de Intents:
-    - "comprar": El usuario quiere adquirir un servicio nuevo o renovar.
+    - "comprar": El usuario quiere adquirir un servicio nuevo, renovar o pregunta precios. **PRIORIDAD MÁXIMA:** Si el usuario menciona una plataforma (Netflix, Disney, Amazon, etc.) junto con "quiero", "para una", "precio", "cuánto", o simplemente menciona la plataforma en un contexto de inicio de charla, DEBES marcar "intent": "comprar" y extraer la plataforma en "detectedPlatform".
     - "credenciales": El usuario pide sus datos de acceso ("mi cuenta", "pásame el pin", "contraseña", "clave", "password"). PRIORIZA este intent si el usuario menciona palabras relacionadas con "llaves", "claves", "password" o "entrar".
     - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
     - "soporte": Problemas técnicos, fallas, errores en pantalla, etc.
     - "cierre": El usuario indica que NO va a renovar, que quiere cancelar el servicio, que "deja así" o "ya no lo va a usar".
-    - "desconocido": Otros temas.
+    - "desconocido": Otros temas que no encajan en lo anterior.
 
     Lógica de recuperación ("recoveredState"):
     - "awaiting_payment_method": 
@@ -611,13 +611,14 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     
     Regla de Frustración:
     - Analiza si el usuario suena desesperado, enojado o ha insistido mucho en corto tiempo sin ser atendido. Púntualo del 0 al 10 en "frustrationLevel". 
-    - IMPORTANTE: Si el mensaje actual es un saludo (Hola, buenos días) o un ping (?, sigo esperando) y en el historial reciente (mensajes no leídos) hay una solicitud clara de **"credenciales", "comprar" o "pagar"** que NO fue respondida adecuadamente, PRIORIZA esa petición sobre el saludo. El intent debe ser el de la petición pendiente (ej: "credenciales").
+    - IMPORTANTE: Si el mensaje actual es un saludo (Hola, buenos días) o un ping (?, sigo esperando) y en el historial reciente (mensajes no leídos) hay una solicitud clara de **"credenciales", "comprar" o "pagar"** que NO fue respondida adecuadamente, PRIORIZA esa petición sobre el saludo. El intent debe ser el de la petición pendiente (ej: "comprar" si pidió Netflix).
     
     REGLA DE DEDUCCIÓN DE CONTEXTO Y CONTINUIDAD (MÁXIMA PRIORIDAD):
     Nunca analices el "Mensaje actual" de forma aislada. Debes deducir estrictamente a qué está respondiendo el cliente basándote en el historial:
     1. Si el Asistente (especialmente si es humano sin 🤖) acaba de hacer una pregunta o pedir un dato (ej: "¿Qué operador tienes?", "Confírmame tu correo", "Pásame el comprobante") y el cliente responde con ese dato (ej: "Claro", "Engativa", "Mi correo es..."), ES UNA CONTINUACIÓN DIRECTA.
     2. En este caso de continuación directa de una charla humana, TU ÚNICA ACCIÓN DEBE SER devolver "recoveredState": "waiting_human" y "intent": "desconocido". NO intentes resolver nada ni dar soporte, porque el humano ya está a cargo de recolectar esa información.
     3. De igual manera, si el bot 🤖 estaba a la mitad de un flujo (ej: esperando método de pago) y el cliente responde a eso, recupera el estado correspondiente. ¡El contexto manda!
+    4. **SI EL USUARIO MENCIONA UNA PLATAFORMA (EJ: NETFLIX) EN EL MENSAJE ACTUAL O EL HISTORIAL RECIENTE, EL INTENT DEBE SER "comprar" Y NO "desconocido".** NO le ofrezcas el menú principal si ya sabes qué quiere.
     
     Salida esperada JSON:
     {

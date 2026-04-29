@@ -1773,7 +1773,13 @@ async function handleMainMenuSelection(message, userId, detection) {
   const userSelection = message.body.trim();
   switch (userSelection) {
     case '1':
-      await startPurchaseProcess(message, userId, userStates);
+      if (detection && detection.detectedPlatform) {
+          console.log(`[Menu Context] Usuario seleccionó 1 pero ya había mencionado: ${detection.detectedPlatform}`);
+          userStates.set(userId, { ...userStates.get(userId), state: 'awaiting_purchase_platforms' });
+          await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+      } else {
+          await startPurchaseProcess(message, userId, userStates);
+      }
       break;
     case '2':
       await processCheckCredentials(message, userId);

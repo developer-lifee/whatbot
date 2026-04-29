@@ -83,15 +83,17 @@ async function addNewContact(name, phone) {
         console.log(`✅ Contacto [${name} - ${formattedPhone}] creado exitosamente en Google Contacts.`);
         return true;
     } catch (error) {
-        if (error.message && error.message.includes('MY_CONTACTS_OVERFLOW_COUNT')) {
+        const errorMsg = error.message || "";
+        if (errorMsg.includes('MY_CONTACTS_OVERFLOW_COUNT')) {
             console.warn(`⚠️ [Google Contacts] Límite de contactos alcanzado. No se pudo guardar a ${name}.`);
+            console.warn(`💡 TIP: Vacía la PAPELERA (Trash) en tu cuenta de Google Contacts. Los contactos eliminados siguen contando para el límite de 25,000 por 30 días hasta que se eliminen definitivamente.`);
             // Silenciar futuras alertas para este número en la ventana de ráfaga
             const digitsOnly = phone.toString().replace(/\D/g, '');
             const coreNumber = digitsOnly.slice(-10);
             recentlyAdded.add(coreNumber);
             setTimeout(() => recentlyAdded.delete(coreNumber), PROCESSING_WINDOW);
         } else {
-            console.error('❌ Error al crear el contacto en Google:', error.message);
+            console.error('❌ Error al crear el contacto en Google:', errorMsg);
         }
         return false;
     }
