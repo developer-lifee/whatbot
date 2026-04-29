@@ -5,10 +5,10 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // List of models to try in order. Prioritizes flash models.
 const MODELS = [
+  "gemini-1.5-flash",
   "gemini-2.0-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-2.5-flash",
-  "gemini-3-flash"
+  "gemini-1.5-flash-8b",
+  "gemini-1.5-pro"
 ];
 
 /**
@@ -173,7 +173,21 @@ async function detectPaymentMethod(messageContent) {
  * @param {Array} userAccounts - The accounts found for the user.
  * @returns {Promise<string>}
  */
-async function generateCredentialsResponse(userAccounts) {
+/**
+ * Generates a text summary of the user's accounts for prompt context.
+ */
+function summarizeAccounts(userAccounts) {
+  if (!userAccounts || userAccounts.length === 0) return "El usuario NO tiene servicios activos registrados.";
+  
+  return userAccounts.map(acc => {
+    const streaming = (acc.Streaming || "Servicio").toUpperCase();
+    const correo = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
+    const vence = acc.deben && !isNaN(parseFloat(acc.deben)) ? getJsDateFromExcel(acc.deben).toLocaleDateString() : (acc.vencimiento || "N/A");
+    return `- ${streaming} (${correo}) - Vence: ${vence}`;
+  }).join("\n");
+}
+
+async function generateCredentialsResponse(userAccounts, userMessage = "", chatHistory = "") {
   let cuentasTexto = "";
   if (!userAccounts || userAccounts.length === 0) {
      cuentasTexto = "El usuario no tiene cuentas activas en este momento o no encontramos registros asociados a su número.";
@@ -229,7 +243,15 @@ async function generateCredentialsResponse(userAccounts) {
   Aquí están los datos de sus plataformas:
   ${cuentasTexto}
 
-  Por favor, redacta un mensaje de WhatsApp para el cliente entregándole esta información de manera amable, clara y amigable.
+  HISTORIAL RECIENTE:
+  ${chatHistory}
+
+  MENSAJE DEL CLIENTE:
+  "${userMessage}"
+  
+  INSTRUCCIONES:
+  1. Si el cliente tiene una duda específica (ej: "¿cambió la clave?", "¿cuál es mi pin?", "no puedo entrar"), RESPÓNDELA directamente usando los datos arriba.
+  2. Luego de responder la duda, entrega la información de sus cuentas de forma amable, clara y amigable.
   
   ⚠️ REGLAS CRÍTICAS:
   1. Muestra SIEMPRE el Correo, la Clave y el Perfil/PIN para CADA cuenta de la lista. NUNCA resumas u omitas esta información.
@@ -545,11 +567,17 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
  * @param {string} messageContent 
  * @param {string} chatHistory 
  * @param {object|null} mediaData { data, mimeType }
+ * @param {Array} userAccounts Context of user's active services
  * @returns {Promise<Object>}
  */
-async function detectInitialIntent(messageContent, chatHistory = "", mediaData = null) {
+async function detectInitialIntent(messageContent, chatHistory = "", mediaData = null, userAccounts = []) {
+  const accountSummary = summarizeAccounts(userAccounts);
   const prompt = `
     Analiza el primer mensaje del usuario para identificar qué desea hacer.
+    
+    INFORMACIÓN DEL CLIENTE (Servicios actuales):
+    ${accountSummary}
+
     Contexto previo: ${chatHistory}
     Mensaje actual: "${messageContent}"
     

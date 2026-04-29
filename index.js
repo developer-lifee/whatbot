@@ -781,13 +781,17 @@ async function processIncomingMessage(messages) {
   }
   let contact;
   try {
-      contact = await message.getContact();
+      if (message && typeof message.getContact === 'function') {
+          contact = await message.getContact();
+      } else {
+          contact = { number: userId.replace(/\D/g, '') };
+      }
   } catch (err) {
       console.warn("No se pudo obtener contacto del mensaje:", err.message);
       contact = { number: userId.replace(/\D/g, '') }; // fallback básico
   }
 
-  const realPhone = contact.number || userId.replace(/\D/g, '');
+  const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
 
   // --- MUTE ABSOLUTO PROVEEDORES (LID Fix) ---
   if (realPhone.includes('3027892534')) {
@@ -1474,9 +1478,18 @@ async function processIncomingMessage(messages) {
   // Si no hay media, o no fue interceptado como pago, evaluamos el texto combinado
   const inputToUse = combinedBody || message.body || "";
 
+  // --- CONTEXTO DE CLIENTE ---
+  const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+  let userAccounts = [];
+  try {
+      userAccounts = await getAccountsByPhone(phoneNumber);
+  } catch(e) {
+      console.warn("[Context] Error fetching accounts for AI context:", e.message);
+  }
+
   // 2. DETECCIÓN DE INTENCIÓN Y NOMBRE (Global para todos los estados)
   const hist = await getChatHistoryText(message, 25);
-  const detection = await detectInitialIntent(inputToUse, hist);
+  const detection = await detectInitialIntent(inputToUse, hist, null, userAccounts);
 
   // 3. IDENTIDAD TERCERO: IA revisando historial o mensaje actual
   if ((!foundName || foundName === 'Cliente') && detection.userName) {
@@ -1494,7 +1507,7 @@ async function processIncomingMessage(messages) {
       const cleanInput = inputToUse.trim();
       if (['1', '2', '3', '4', '5'].includes(cleanInput)) {
          userStates.set(userId, { state: 'main_menu' });
-         await handleMainMenuSelection(message, userId);
+         await handleMainMenuSelection(message, userId, detection);
          return;
       }
 
@@ -1515,7 +1528,11 @@ async function processIncomingMessage(messages) {
           }
 
           if (detection.recoveredState === 'awaiting_payment_method') {
-              await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)`);
+              if (detection.intent === 'pagar' || detection.intent === 'comprar') {
+                  await handleAwaitingPaymentMethod(message, userId);
+              } else {
+                  await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)`);
+              }
               return;
           }
       }
@@ -1580,7 +1597,6 @@ async function processIncomingMessage(messages) {
               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
               return;
           }
-          await message.reply(`🤖 Entendido ${foundName}, te ayudaré a revisar tus credenciales de inmediato.`);
           await processCheckCredentials(message, userId);
           return;
       } else if (detection.intent === 'pagar') {
@@ -1598,7 +1614,7 @@ async function processIncomingMessage(messages) {
       }
       break;
     case 'main_menu':
-      await handleMainMenuSelection(message, userId);
+      await handleMainMenuSelection(message, userId, detection);
       break;
     case 'awaiting_netflix_operator_post_payment':
       const ispInfo = (message.body || "").trim();
@@ -1748,7 +1764,7 @@ client.on('message', async (message) => {
 
 
 // Funciones de manejo de estados
-async function handleMainMenuSelection(message, userId) {
+async function handleMainMenuSelection(message, userId, detection) {
   const userSelection = message.body.trim();
   switch (userSelection) {
     case '1':
@@ -1787,9 +1803,27 @@ async function handleMainMenuSelection(message, userId) {
       userStates.set(userId, { state: 'waiting_human', waitingCount: 0 }); // No seteamos lastHumanInteraction para que no sea un mute absoluto
       break;
     default:
+      if (detection) {
+          if (detection.intent === 'comprar') {
+              userStates.set(userId, { state: 'awaiting_purchase_platforms' });
+              await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+              return;
+          } else if (detection.intent === 'pagar') {
+              await processCheckPrices(message, userId, userStates, detection.detectedPlatform);
+              return;
+          } else if (detection.intent === 'credenciales') {
+              await processCheckCredentials(message, userId);
+              return;
+          }
+      }
+
       // Si no es un número, usamos la IA para ver si tiene una duda o comentario
       const history = await getChatHistoryText(message);
-      const fallback = await generateEmpatheticFallback(message.body, false, history);
+      
+      let accounts = [];
+      try { accounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch(e){}
+      
+      const fallback = await generateEmpatheticFallback(message.body, false, history, null, accounts);
       
       if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
           await message.reply(fallback.replyMessage);
@@ -1917,6 +1951,7 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
 
 async function processCheckCredentials(message, userId) {
   try {
+    const history = await getChatHistoryText(message);
     const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); 
     let userAccounts = await getAccountsByPhone(phoneNumber);
 
@@ -1948,7 +1983,7 @@ async function processCheckCredentials(message, userId) {
         return;
     }
 
-    const aiResponse = await generateCredentialsResponse(userAccounts);
+    const aiResponse = await generateCredentialsResponse(userAccounts, message.body, history);
     await message.reply(aiResponse);
 
   } catch (error) {
