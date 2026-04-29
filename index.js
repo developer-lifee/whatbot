@@ -716,7 +716,12 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
             const chat = await client.getChatById(GROUP_ID);
             if (chat) {
                // Resolver número real para el reporte (LID fix)
-               const contact = await message.getContact();
+               let contact;
+               try {
+                   contact = await message.getContact();
+               } catch(e) {
+                   contact = { number: userId.replace(/\D/g, '') };
+               }
                const realPhone = contact.number || userId.replace(/\D/g, '');
                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
@@ -1831,8 +1836,13 @@ async function handleMainMenuSelection(message, userId, detection) {
           if (fallback.needsEscalation) {
               const chat = await client.getChatById(GROUP_ID);
               if (chat) {
-                  const contact = await message.getContact();
-                  const realPhone = contact.number || userId.replace(/\D/g, '');
+                  let contact;
+                  try {
+                      contact = await message.getContact();
+                  } catch(e) {
+                      contact = { number: userId.replace(/\D/g, '') };
+                  }
+                  const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
                   await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
               }
               userStates.set(userId, { state: 'waiting_human', waitingCount: 0 }); // No seteamos lastHumanInteraction para permitir reactivación por IA si el cliente pide otra cosa
@@ -1921,8 +1931,13 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
       const chat = await client.getChatById(GROUP_ID);
       if (chat) {
         const type = message.hasMedia ? "📸 Comprobante" : "✅ Confirmación de pago u observación";
-        const contact = await message.getContact();
-        const realPhone = contact.number || userId.replace(/\D/g, '');
+        let contact;
+        try {
+            contact = await message.getContact();
+        } catch(e) {
+            contact = { number: userId.replace(/\D/g, '') };
+        }
+        const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
         await chat.sendMessage(`🚨 ${type} recibido de @${realPhone}. Por favor revisar.\n\nPara validar, responde: *@bot confirmar ${realPhone}* o *si me llegó ${realPhone}*`);
       }
     } catch (error) {
