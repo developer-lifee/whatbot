@@ -191,13 +191,7 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
           return normalizedCatalogName === searchName || searchName.includes(normalizedCatalogName) || normalizedCatalogName.includes(searchName);
         });
         
-        // Fix: Evitar que "Netflix Extra" adquiera el precio de la plataforma "Netflix" base
-        if (catalogPlatform && searchName.includes('extra') && !catalogPlatform.name.toLowerCase().includes('extra')) {
-          catalogPlatform = platforms.find(p => {
-            const normalizedCatalogName = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-            return normalizedCatalogName === searchName && searchName.includes('extra');
-          }) || null;
-        }
+
 
         if (catalogPlatform && catalogPlatform.plans && catalogPlatform.plans.length > 0) {
           // El catálogo manda sobre el precio manual si el catálogo tiene precio válido
