@@ -1674,8 +1674,9 @@ async function processIncomingMessage(messages) {
            return;
        } else if (detection.intent === 'credenciales') {
           if (!foundName) {
+              const existingState = userStates.get(userId) || {};
               await message.reply(`🤖 ¡Hola! Con gusto te ayudo. Para buscar tus cuentas de forma segura, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
-              userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
+              userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
               return;
           }
           await processCheckCredentials(message, userId);
@@ -1698,17 +1699,19 @@ async function processIncomingMessage(messages) {
       if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
           await message.reply(fallback.replyMessage);
           // Si el usuario parece estar perdido después de la respuesta, podemos sugerir el menú sutilmente después.
-          userStates.set(userId, { state: 'main_menu', nombre: foundName });
+          const currentData = userStates.get(userId) || {};
+          userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
           return;
       }
 
       // Si la respuesta es genérica o es un saludo, ahí sí mandamos el menú
+      const currentData = userStates.get(userId) || {};
       if (foundName) {
-        userStates.set(userId, { state: 'main_menu', nombre: foundName });
+        userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
         await message.reply(`🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*' }! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
       } else {
         await message.reply("🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nEscoge una opción para ayudarte:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
-        userStates.set(userId, { state: 'main_menu' });
+        userStates.set(userId, { ...currentData, state: 'main_menu' });
       }
       break;
     case 'main_menu':

@@ -133,8 +133,11 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
     const PLATFORM_ALIASES = {
       'amazon': 'prime video',
       'prime': 'prime video',
-      'hbo': 'max',
-      'hbomax': 'max',
+      'hbo': 'hbomax',
+      'hbomax': 'hbomax',
+      'max': 'hbomax',
+      'hbo platino': 'hbomax',
+      'hboplatino': 'hbomax',
       'disney': 'disney+',
       'star': 'disney+',
       'm365': 'microsoft 365',
@@ -180,10 +183,20 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
         let price = parseFloat(account["Ingreso Mensual"]) || 0;
         
         // 2. Normalizar nombre y buscar en catálogo
-        let searchName = rawStreamingName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const normalizedFullName = rawStreamingName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        let searchName = normalizedFullName;
+        
         // Aplicar alias si existe
         if (PLATFORM_ALIASES[searchName]) {
           searchName = PLATFORM_ALIASES[searchName].toLowerCase().replace(/[^a-z0-9]/g, '');
+        } else {
+          // Búsqueda parcial de alias (ej: si dice "HBO PLATINO" y tenemos alias "hbo")
+          for (const aliasKey in PLATFORM_ALIASES) {
+            if (normalizedFullName.includes(aliasKey)) {
+              searchName = PLATFORM_ALIASES[aliasKey].toLowerCase().replace(/[^a-z0-9]/g, '');
+              break;
+            }
+          }
         }
 
         let catalogPlatform = platforms.find(p => {
@@ -198,8 +211,8 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
           // Intentar encontrar el plan específico que coincida con lo que dice el Excel
           const specificPlan = catalogPlatform.plans.find(pl => {
               const normPlanName = pl.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-              // Match exacto o contenido mutuo (ej: "extra" en "netflix extra" o viceversa)
-              return searchName.includes(normPlanName) || normPlanName.includes(searchName);
+              // Match con el nombre completo original (ej: "platino" en "hboplatino")
+              return normalizedFullName.includes(normPlanName) || normPlanName.includes(normalizedFullName);
           });
           
           // Si es Netflix y el Excel dice Extra, pero no encontramos plan específico, 

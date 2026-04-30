@@ -259,7 +259,7 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
        // Excluir cuentas familiares y extras
        const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'netflix extra'];
        const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
-       if (isFamily) return;
+       // if (isFamily) return;
 
        const correo = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
        let clave = acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"] || "N/A";
