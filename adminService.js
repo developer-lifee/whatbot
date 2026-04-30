@@ -368,13 +368,28 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     try {
         const results = await recordNewSale(userId, stateData, "Confirmado por Admin");
         
-        let report = `✅ *PAGO CONFIRMADO MANUALMENTE*\nCliente: ${stateData.nombre || phone}\n\n`;
+        let report = `✅ *PAGO PROCESADO*\nCliente: ${stateData.nombre || phone}\n\n`;
+        let someFailed = false;
+
         results.forEach(res => {
-            report += `- *${res.name}*: ${res.status === 'success' ? 'Asignada ✅' : 'Manual ⚠️'}\n`;
+            if (res.status === 'success') {
+                report += `- *${res.name}*: Auto-asignada (Fila ${res.rowNumber}) ✅\n`;
+            } else if (res.status === 'no_slots_found') {
+                report += `- *${res.name}*: SIN STOCK (Manual) ⚠️\n`;
+                someFailed = true;
+            } else {
+                report += `- *${res.name}*: Registro Manual Requerido ⚠️\n`;
+                someFailed = true;
+            }
         });
         
         await message.reply(report);
-        await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados/renovados. 🎉\nGracias por tu paciencia. 😊");
+
+        if (someFailed) {
+            await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! 🎉\n\nSin embargo, para uno de tus servicios estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos* mientras un asesor completa la entrega. ¡Gracias por tu paciencia! 😊");
+        } else {
+            await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nYa puedes revisar tus credenciales actualizadas escribiendo *2* en el chat principal. ¡Disfruta! 😊");
+        }
         
         // Limpiar estado
         userStates.set(userId, { state: 'main_menu', nombre: stateData.nombre });

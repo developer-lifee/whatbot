@@ -1,0 +1,64 @@
+[
+  {
+    "id": "gemini",
+    "name": "Gemini AI",
+    "documentation": {
+      "shared": {
+        "price": 10000,
+        "process": "Te entregamos un correo y contraseña de Sheerit.",
+        "limitations": "Los créditos de IA (imágenes, análisis largo) se comparten con otros usuarios. No tiene almacenamiento personal.",
+        "advantages": "Ideal si solo quieres probar la IA a bajo costo."
+      },
+      "personal": {
+        "price": 22000,
+        "process": "Se activa en TU PROPIO correo personal (te enviamos una invitación de Plan Familiar).",
+        "limitations": "Tienes 200 créditos de IA propios al mes y 1TB de almacenamiento en Google One.",
+        "advantages": "Privacidad total (nadie ve tus archivos ni chats) y funciona en Gmail/Docs."
+      }
+    }
+  },
+  {
+    "id": "gpt",
+    "name": "ChatGPT Plus",
+    "documentation": {
+      "shared": {
+        "price": 20000,
+        "process": "Te entregamos un correo y contraseña de Sheerit.",
+        "limitations": "Cuenta compartida. Debes desactivar la 'Memoria' en los ajustes para que otros no vean tus chats (instrucciones en Soporte).",
+        "advantages": "Acceso a GPT-4o, generación de imágenes (DALL-E) y análisis de datos."
+      }
+    }
+  },
+  {
+    "id": "netflix",
+    "name": "Netflix",
+    "documentation": {
+      "extra": {
+        "price": 17000,
+        "process": "Perfil individual con tu propio correo y clave. Ideal para evitar el bloqueo de 'Hogar Netflix'.",
+        "advantages": "Funciona en cualquier ciudad u operador sin restricciones de hogar."
+      },
+      "standard": {
+        "price": 13000,
+        "process": "Perfil en una cuenta compartida de Sheerit.",
+        "limitations": "Sujeto a restricciones de hogar de Netflix si se usa en TV."
+      }
+    }
+  },
+  {
+    "id": "microsoft",
+    "name": "Microsoft 365",
+    "documentation": {
+      "personal": {
+        "price": 12000,
+        "process": "Se activa en TU PROPIO correo personal.",
+        "advantages": "1TB de OneDrive, Office completo (Word, Excel, PPT) y privacidad total."
+      },
+      "shared": {
+        "price": 5000,
+        "process": "Te entregamos un correo y clave de Sheerit.",
+        "limitations": "El almacenamiento es en una cuenta compartida. Solo recomendado para uso básico de Office."
+      }
+    }
+  }
+]

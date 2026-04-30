@@ -268,6 +268,23 @@ async function getSupportKnowledge() {
 }
 
 
+/**
+ * Obtiene la documentación detallada de funcionamiento de las plataformas.
+ */
+async function getPlatformKnowledge() {
+    try {
+        const docPath = path.join(__dirname, 'platform_documentation.json');
+        if (fs.existsSync(docPath)) {
+            const data = fs.readFileSync(docPath, 'utf8');
+            return JSON.parse(data);
+        }
+        return [];
+    } catch (e) {
+        console.error("[API Service] Error cargando platform_documentation.json:", e.message);
+        return [];
+    }
+}
+
 module.exports = {
   fetchRawData,
   fetchCustomersData,
@@ -277,6 +294,7 @@ module.exports = {
   updateExcelData,
   getSupportKnowledge,
   getTodayInBogota,
-  getJsDateFromExcel
+  getJsDateFromExcel,
+  getPlatformKnowledge
 };
 

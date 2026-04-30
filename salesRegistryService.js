@@ -24,6 +24,17 @@ function calculateNextPaymentDate(subscriptionType) {
 }
 
 /**
+ * Formatea un número de teléfono al estilo Sheerit: "57 3XX XXXXXXX"
+ */
+function formatWhatsAppNumber(phone) {
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 12) {
+        return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
+    }
+    return phone; // Fallback
+}
+
+/**
  * Intenta convertir una cadena de fecha (DD/MM/YYYY o similar) a objeto Date.
  */
 function parseExcelDate(dateStr) {
@@ -42,10 +53,9 @@ function parseExcelDate(dateStr) {
 
 /**
  * Busca un cupo disponible para una plataforma específica.
- * Un cupo es "disponible" si la plataforma coincide y el campo 'Deben' está vacío o vencido.
+ * Un cupo es "disponible" si la plataforma coincide y el campo 'whatsapp' o 'Nombre' está vacío.
  */
 function findAvailableSlot(platformName, allRows) {
-    const now = new Date();
     const targetPlatform = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
 
     for (let i = 0; i < allRows.length; i++) {
@@ -54,12 +64,13 @@ function findAvailableSlot(platformName, allRows) {
         
         // Si la plataforma coincide
         if (rowStreaming.includes(targetPlatform) || targetPlatform.includes(rowStreaming)) {
-            const debenStr = row.Deben || "";
-            const debenDate = parseExcelDate(debenStr);
+            const whatsapp = (row.whatsapp || row.whatsapp || "").toString().trim();
+            const nombre = (row.Nombre || row.nombre || "").toString().trim();
+            const debenStr = row.deben || row.Deben || "";
             
-            // Si está vacío o vencido (anterior a hoy)
-            if (!debenDate || debenDate < now) {
-                return { rowData: row, index: i + 2 }; // Index en Excel (1-based, +1 for header)
+            // Solo usamos filas que están vacías o marcadas como 'libre' (STOCK real)
+            if (!whatsapp && (!nombre || nombre.toLowerCase() === 'libre')) {
+                return { rowData: row, index: i + 2 }; 
             }
         }
     }
@@ -115,17 +126,41 @@ async function recordNewSale(userId, userState, paymentMethod) {
             
             if (slot) {
                 console.log(`[Sales Registry] Cupo encontrado para ${platformName} en fila ${slot.index}`);
+                
+                // Lógica de separación de nombres
+                const nameParts = name.trim().split(/\s+/);
+                const firstName = nameParts[0] || "";
+                const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "";
+                
                 const updates = {
+                    "Nombre": firstName,
+                    "apellido": lastName,
+                    "Nombre Completo": name,
+                    "whatsapp": formatWhatsAppNumber(phone),
                     "numero": phone,
-                    "Nombre": name,
                     "deben": nextPaymentDate,
                     "Metodo de pago": paymentMethod || "Confirmado (Auto)",
-                    "observaciones": "Venta Dashboard"
+                    "observaciones": `Venta Auto - ${new Date().toLocaleDateString()}`
                 };
+
+                // Si es Netflix o Disney y tenemos operador en el estado, lo llenamos
+                if (lowerName.includes('netflix') || lowerName.includes('disney')) {
+                    if (userState.netflixIsp) {
+                        updates["operador"] = userState.netflixIsp;
+                    }
+                }
+
+                // Customer mail (si lo tenemos en el estado)
+                if (userState.correo) {
+                    updates["customer mail"] = userState.correo;
+                }
                 
                 await updateExcelData(slot.index, updates);
-                // Marcar el row en nuestro array local como usado
-                allRows[slot.index - 2].deben = "RESERVADO"; 
+                // Marcar el row en nuestro array local como usado para evitar colisiones
+                if (allRows[slot.index - 2]) {
+                    allRows[slot.index - 2].whatsapp = phone;
+                    allRows[slot.index - 2].deben = "RESERVADO";
+                }
                 results.push({ name: platformName, status: 'success', rowNumber: slot.index, type: 'new_sale' });
             } else {
                 console.log(`[Sales Registry] NO se encontró cupo disponible para ${platformName}.`);

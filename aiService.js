@@ -1,15 +1,29 @@
-require('dotenv').config();
-const { getJsDateFromExcel } = require('./apiService');
+const { getJsDateFromExcel, getTodayInBogota, getPlatformKnowledge } = require('./apiService');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// List of models to try in order. Prioritizes flash models.
+// List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
+  "gemini-1.5-flash-latest",
   "gemini-1.5-flash",
+  "gemini-1.5-flash-002",
   "gemini-2.0-flash",
-  "gemini-1.5-flash-8b",
-  "gemini-1.5-pro"
+  "gemini-1.5-pro-latest"
 ];
+
+/**
+ * Convierte el JSON de documentación en un resumen de texto para el prompt.
+ */
+function summarizePlatformKnowledge(knowledge) {
+  if (!knowledge || knowledge.length === 0) return "No hay documentación detallada disponible.";
+  return knowledge.map(p => {
+    let text = `PLATAFORMA: ${p.name}\n`;
+    for (const [planId, planInfo] of Object.entries(p.documentation)) {
+      text += `- Plan ${planId.toUpperCase()}: ${planInfo.process}. Ventajas: ${planInfo.advantages}. ${planInfo.limitations ? `Limitaciones: ${planInfo.limitations}` : ''}\n`;
+    }
+    return text;
+  }).join('\n---\n');
+}
 
 /**
  * Call Gemini API with a given prompt and system instruction.
@@ -96,11 +110,15 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
     } catch (error) {
       console.error(`Error with ${modelName}:`, error.message);
+      // If it's the last model, we re-throw to be caught by the caller
       if (modelName === MODELS[MODELS.length - 1]) {
-        throw new Error("All fallback models failed or exceeded quota.");
+        throw error;
       }
     }
   }
+
+  // If we reach here, it means all models were skipped (e.g. all 404 or 429)
+  throw new Error("All fallback models were unavailable or exceeded quota.");
 }
 
 /**
@@ -128,7 +146,10 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
     
     Reglas:
     - Normaliza los nombres de planes y plataformas (ej. "Netflix - Básico" -> platform: "Netflix", plan: "Básico").
-    - Si no se especifica plan, pon null en "plan".
+    - **REGLA CRÍTICA PARA MICROSOFT:** 
+        * Si el usuario dice "Microsoft" o "Office" a secas (sin la palabra "compartida"), el plan es "Personal".
+        * Si el usuario dice explícitamente "Microsoft compartida" o "Microsoft 365 compartida", el plan es "Compartida".
+    - Si no se especifica plan para otras plataformas, pon null en "plan".
     - Si detectas "ChatGPT", normalizalo como platform: "ChatGPT".
     - Revisa las fechas/horas en el contexto. Si ha pasado mucho tiempo (varias horas o 1 día) entre el último mensaje del usuario y la respuesta (Hora actual del sistema), genera un breve "empathyGreeting" (ej. "¡Hola! Qué pena la demora en responderte..."). Si no hay demora significativa, déjalo en null.
   `;
@@ -213,11 +234,12 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
            const jsDate = getJsDateFromExcel(acc.deben);
            fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
 
-           const today = new Date();
-           today.setHours(0,0,0,0);
+           const today = getTodayInBogota();
            const compareDate = new Date(jsDate);
            compareDate.setHours(0,0,0,0);
-           if (compareDate.getTime() < today.getTime()) {
+
+           // Si la fecha de vencimiento es HOY o anterior, se considera vencida
+           if (compareDate.getTime() <= today.getTime()) {
                isExpired = true;
            }
        } else if (acc.vencimiento) {
@@ -268,7 +290,8 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
     return responseText.trim();
   } catch (error) {
     console.error("Error generating credentials response:", error);
-    return "Hola! Aquí tienes tus credenciales:\n\n" + cuentasTexto + "\nSi necesitas ayuda, avísame.";
+    // Fallback humano si falla la IA para no dejar al cliente sin datos
+    return "👋 ¡Hola! Aquí tienes los datos de tus servicios actuales:\n\n" + cuentasTexto + "\n🤖 (Respuesta de respaldo automática)";
   }
 }
 
@@ -327,11 +350,10 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
         const year = jsDate.getFullYear();
         fechaVencimiento = `${day} de ${month} de ${year}`;
 
-        const today = new Date();
-        today.setHours(0,0,0,0);
+        const today = getTodayInBogota();
         const compareDate = new Date(jsDate);
         compareDate.setHours(0,0,0,0);
-        if (compareDate.getTime() < today.getTime()) {
+        if (compareDate.getTime() <= today.getTime()) {
             isExpired = true;
         }
     } else if (acc.vencimiento) {
@@ -486,6 +508,14 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     }
   } catch (e) { }
 
+  let platformContext = "";
+  try {
+    const docData = await getPlatformKnowledge();
+    if (docData && docData.length > 0) {
+      platformContext = "Guía de funcionamiento y restricciones de plataformas:\n" + summarizePlatformKnowledge(docData);
+    }
+  } catch (e) { }
+
   let accountsContext = "";
   if (userAccounts && userAccounts.length > 0) {
      const simplifiedAccounts = userAccounts.map(acc => {
@@ -514,6 +544,8 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
     
     ${supportContext}
 
+    ${platformContext}
+
     ${accountsContext}
     
     Mensaje textual/Tipo: "${isMedia ? "[ARCHIVO MULTIMEDIA/STICKER]" : userMessage}"
@@ -530,14 +562,18 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
        - DETECCIÓN DE TYPOS: Si ves que el usuario escribió mal el correo (ej: puso un guion de más, cambió una letra, omitió un punto), indícalo de forma MUY EXPLÍCITA y dile cómo debe escribirlo correctamente basándote en el sistema. Ejemplo: "Veo que en la tele pusiste 'ejemplo@-gmail.com', pero el correo correcto es 'ejemplo@gmail.com'. Borra ese guion extra y funcionará."
        - Si el error es "Cuenta no encontrada" y el correo parece bien escrito, pídele que verifique mayúsculas/minúsculas o confirma si la cuenta cambió.
     6. SOPORTE TÉCNICO CON MANUAL: Si el problema (texto o imagen) coincide con un error en "Base de conocimiento de Soporte Técnico":
-       - SIGUE LOS PASOS AL PIE DE LA LETRA. 
-       - INCLUYE SIEMPRE LOS ENLACES (ej: Sheerit.com.co/actualizar) y palabras clave de búsqueda (ej: "sheerit", "sheerit2") que se mencionan en el manual. Es vital para que el usuario resuelva solo.
-       - Pon "needsEscalation": false.
-    7. SI EL USUARIO PIDE DATOS ESPECÍFICOS (ej: "¿Cuál es mi clave?", "pásame el pin", "no recuerdo mi correo"): Y los tienes en la lista de "Cuentas del usuario", ¡ENTRÉGALOS DIRECTAMENTE! No lo mandes a soporte si tú tienes la respuesta.
-    8. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
-    9. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
-    10. MANEJO DE NOMBRES Y REGISTRO: Si el usuario proporciona su nombre (especialmente si se lo pediste o acaba de pagar), AGRADÉCELE y dile que has guardado el dato para su registro. No respondas con "no puedo procesar tu consulta". Ejemplo: "¡Perfecto Johann Hernández! Gracias por tu nombre, ya lo anoté para tu registro. Un asesor validará tu pago pronto. 🤖"
-    11. El "replyMessage" debe ser directo, humano y completo. Si estás dando pasos de soporte, asegúrate de que no falte información clave ni enlaces. Incluye el emoji 🤖 al final.
+        - SIGUE LOS PASOS AL PIE DE LA LETRA. 
+        - INCLUYE SIEMPRE LOS ENLACES (ej: Sheerit.com.co/actualizar) y palabras clave de búsqueda (ej: "sheerit", "sheerit2") que se mencionan en el manual. Es vital para que el usuario resuelva solo.
+        - Pon "needsEscalation": false.
+     7. PREGUNTAS SOBRE FUNCIONAMIENTO: Si el usuario pregunta cómo funciona un servicio o qué diferencias hay entre planes (ej: Gemini 10k vs 22k, Netflix Extra, etc.):
+        - Usa la "Guía de funcionamiento y restricciones de plataformas".
+        - Explica de forma clara y amable las ventajas de cada plan basándote en la guía.
+        - Pon "needsEscalation": false.
+     8. SI EL USUARIO PIDE DATOS ESPECÍFICOS (ej: "¿Cuál es mi clave?", "pásame el pin", "no recuerdo mi correo"): Y los tienes en la lista de "Cuentas del usuario", ¡ENTRÉGALOS DIRECTAMENTE! No lo mandes a soporte si tú tienes la respuesta.
+     9. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
+     10. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
+     11. MANEJO DE NOMBRES Y REGISTRO: Si el usuario proporciona su nombre (especialmente si se lo pediste o acaba de pagar), AGRADÉCELE y dile que has guardado el dato para su registro. No respondas con "no puedo procesar tu consulta". Ejemplo: "¡Perfecto Johann Hernández! Gracias por tu nombre, ya lo anoté para tu registro. Un asesor validará tu pago pronto. 🤖"
+     12. El "replyMessage" debe ser directo, humano y completo. Si estás dando pasos de soporte, asegúrate de que no falte información clave ni enlaces. Incluye el emoji 🤖 al final.
 
 
 
@@ -571,10 +607,16 @@ async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = ""
  * @returns {Promise<Object>}
  */
 async function detectInitialIntent(messageContent, chatHistory = "", mediaData = null, userAccounts = []) {
-  const accountSummary = summarizeAccounts(userAccounts);
-  const prompt = `
+    const accountSummary = summarizeAccounts(userAccounts);
+    const platformDocs = await getPlatformKnowledge();
+    const platformContext = summarizePlatformKnowledge(platformDocs);
+
+    const prompt = `
     Analiza el primer mensaje del usuario para identificar qué desea hacer.
     
+    GUÍA DE FUNCIONAMIENTO DE PLATAFORMAS:
+    ${platformContext}
+
     INFORMACIÓN DEL CLIENTE (Servicios actuales):
     ${accountSummary}
 
@@ -648,7 +690,15 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     return parsed;
   } catch (error) {
     console.error("Error detecting initial intent:", error);
-    return { intent: "desconocido" };
+    return { 
+        intent: "desconocido",
+        recoveredState: null,
+        frustrationLevel: 0,
+        userName: null,
+        isNameComplete: false,
+        detectedPlatform: null,
+        metadata: null
+    };
   }
 }
 
