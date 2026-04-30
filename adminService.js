@@ -274,7 +274,7 @@ async function getUpcomingExpirationsReport() {
 /**
  * Maneja el reporte de cuentas Netflix libres.
  */
-async function getNetflixMatchReport() {
+async function getNetflixMatchReport(ispInfo = '') {
     const { fetchRawData } = require('./apiService');
     try {
         const data = await fetchRawData();
@@ -285,15 +285,26 @@ async function getNetflixMatchReport() {
             return plat.includes('netflix') && (status.includes('libre') || nombre === 'libre' || nombre === '');
         });
         
-        if (netflixLibres.length === 0) return "No hay cuentas de Netflix libres en este momento. ❌";
+        const hasStock = netflixLibres.length > 0;
+        let report = "";
         
-        let report = `📺 *CUENTAS NETFLIX DISPONIBLES*\n\n`;
+        if (!hasStock) {
+            report = "No hay cuentas de Netflix libres en este momento. ❌";
+            return { rawReport: report, hasStock: false };
+        }
+        
+        report = `📺 *CUENTAS NETFLIX DISPONIBLES*\n\n`;
+        if (ispInfo) {
+            report += `*🔍 Referencia operador cliente: ${ispInfo}*\n\n`;
+        }
+        
         netflixLibres.forEach(c => {
             report += `- ${c.correo} (${c['pin perfil'] || 'Sin PIN'})\n`;
         });
-        return report;
+        
+        return { rawReport: report, hasStock: true };
     } catch (e) {
-        return "Error buscando cuentas de Netflix.";
+        return { rawReport: "Error buscando cuentas de Netflix.", hasStock: false };
     }
 }
 

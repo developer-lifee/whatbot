@@ -759,7 +759,7 @@ async function processIncomingMessage(messages) {
   if (messages.length === 0) return;
 
   const firstMsg = messages[0];
-  const userId = firstMsg.from;
+  let userId = firstMsg.from;
   let realPhone = userId.replace('@c.us', '').replace(/\D/g, '');
   // Reconocimiento blindado del jefe (3133890800)
   const isFromAdmin = realPhone.includes(ADMIN_RAW_PHONE) || realPhone.includes('3133890800') || realPhone.includes('573133890800');
@@ -808,7 +808,13 @@ async function processIncomingMessage(messages) {
   try {
       if (message && typeof message.getContact === 'function') {
           contact = await message.getContact();
-          if (contact && contact.number) realPhone = contact.number;
+          if (contact && contact.number) {
+              realPhone = contact.number;
+              if (userId.includes('@lid')) {
+                  console.log(`[LID Fix] Redirigiendo ID @lid (${userId}) a @c.us (${realPhone}@c.us) para preservar contexto.`);
+                  userId = realPhone + '@c.us';
+              }
+          }
       }
   } catch (err) {
       console.warn("No se pudo obtener contacto del mensaje:", err.message);
@@ -1465,7 +1471,7 @@ async function processIncomingMessage(messages) {
               });
           }
 
-          if (hasNetflix) {
+          if (hasNetflix && !stateData.isRenewal) {
               await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
               
               userStates.set(userId, { 
@@ -1484,7 +1490,11 @@ async function processIncomingMessage(messages) {
               paymentMethod: check.bank || 'Transferencia'
           });
 
-          await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\nUn asesor lo validará manualmente en un momento para entregarte tu cuenta. ¡Gracias por tu paciencia! 😊");
+          const replyText = stateData.isRenewal 
+              ? "🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\nUn asesor validará tu pago en un momento y renovará tus servicios activos. ¡Gracias por tu paciencia! 😊"
+              : "🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\nUn asesor lo validará manualmente en un momento para entregarte tu cuenta. ¡Gracias por tu paciencia! 😊";
+          
+          await message.reply(replyText);
 
           // Notificar al grupo administrativo
           try {
@@ -1958,13 +1968,13 @@ async function processPaymentSelection(message, userId, text) {
   const method = await detectPaymentMethod(text);
 
   const paymentDetails = {
-    'nequi': "3118587974",
-    'daviplata': "3107946794",
-    'bancolombia': "46772753713\nBancolombia - ahorros\nNumero de cuenta: 46772753713\nCC1032936324",
-    'banco caja social': "24111572331\nESTEBAN AVILA\ncc: 1032936324",
-    'transfiya': "*LLAVE*\n3118587974",
-    'llaves bre-v': "*LLAVE*\n3118587974",
-    'llave bre-b': "*LLAVE*\n3118587974"
+    'nequi': "🤖 *Nequi*\n3118587974",
+    'daviplata': "🤖 *Daviplata*\n3107946794",
+    'bancolombia': "🤖 *Bancolombia - ahorros*\nNumero de cuenta: 46772753713\nCC1032936324",
+    'banco caja social': "🤖 *Banco Caja Social*\n24111572331\nESTEBAN AVILA\ncc: 1032936324",
+    'transfiya': "🤖 *Transfiya*\n*LLAVE*\n3118587974",
+    'llaves bre-v': "🤖 *LLAVE bre-v*\n3118587974",
+    'llave bre-b': "🤖 *LLAVE bre-b*\n3118587974"
   };
   
   const lowerText = text.toLowerCase();
