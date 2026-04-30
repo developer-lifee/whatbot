@@ -1592,9 +1592,35 @@ async function processIncomingMessage(messages) {
 
       // 5. MANEJO DE INTENCIONES
       if (detection.intent === 'cancelar') {
-          console.log(`[Cierre] Intent 'cancelar' detectado para ${userId}. Enviando despedida de churn.`);
-          await message.reply("🤖 Oh, entiendo perfectamente. Lamento mucho que hoy no podamos continuar con tu servicio. 😔\n\nEn Sheerit siempre buscamos mejorar: ¿podrías contarnos brevemente la razón de tu decisión? Tu opinión nos ayuda mucho a ser mejores. ¡Igual aquí tienes tu casa para cuando decidas volver! 👋");
-          userStates.delete(userId);
+          console.log(`[Cierre] Intent 'cancelar' detectado para ${userId}. Pidiendo razón de churn.`);
+          
+          let rowNumberToCancel = null;
+          if (userAccounts && userAccounts.length > 0) {
+              let targetAccount = userAccounts[0];
+              if (detection.detectedPlatform) {
+                  const targetSearch = detection.detectedPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
+                  const match = userAccounts.find(a => (a.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetSearch));
+                  if (match) targetAccount = match;
+              }
+              rowNumberToCancel = targetAccount._rowNumber;
+          }
+
+          if (rowNumberToCancel) {
+              await message.reply("🤖 Oh, entiendo perfectamente. Lamento mucho que hoy no podamos continuar con tu servicio. 😔\n\nEn Sheerit siempre buscamos mejorar: ¿podrías contarnos brevemente la razón de tu decisión? Tu opinión nos ayuda mucho a ser mejores.");
+              userStates.set(userId, { 
+                  state: 'awaiting_churn_reason', 
+                  nombre: foundName,
+                  rowNumber: rowNumberToCancel 
+              });
+              
+              // Guardado inmediato preventivo ("cortar") en caso de que el cliente no responda a la pregunta.
+              const { updateExcelData } = require('./apiService');
+              updateExcelData(rowNumberToCancel, { "observaciones": "cortar" }).catch(e => console.error("[Churn] Error guardado preventivo:", e.message));
+
+          } else {
+              await message.reply("🤖 Entiendo. ¡Aquí tienes tu casa para cuando decidas volver! 👋");
+              userStates.delete(userId);
+          }
           return;
       }
       
@@ -1730,6 +1756,21 @@ async function processIncomingMessage(messages) {
       } catch(e) {}
       userStates.set(userId, { state: 'main_menu', nombre: name });
       await message.reply("🤖 ¡Un placer conocerte, *" + name + "*! Ya quedaste agendado. Ahora sí, ¿en qué te puedo ayudar hoy?\n\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
+      break;
+    case 'awaiting_churn_reason':
+      const reason = (message.body || "").trim();
+      const cState = userStates.get(userId) || {};
+      if (cState.rowNumber) {
+          const { updateExcelData } = require('./apiService');
+          try {
+              await updateExcelData(cState.rowNumber, { "observaciones": `cortar ${reason}` });
+              console.log(`[Churn] Razón guardada en fila ${cState.rowNumber}: cortar ${reason}`);
+          } catch(e) {
+              console.error("[Churn] Error guardando razón en Excel:", e.message);
+          }
+      }
+      await message.reply("🤖 ¡Muchas gracias por tu comentario! Lo tendré muy en cuenta. ¡Aquí tienes tu casa para cuando decidas volver! 👋");
+      userStates.delete(userId);
       break;
     default:
       const historyText = await getChatHistoryText(message);
