@@ -426,6 +426,75 @@ async function handleSendManualPaymentMethods(message, command, client, userStat
     await message.reply(`✅ Métodos de pago enviados a ${phone}.`);
 }
 
+/**
+ * Recupera forzosamente una cuenta para el administrador, sin importar el stock.
+ */
+async function handleAdminForceRetrieve(message, command, client) {
+    const platformName = command.replace('dame una de', '').replace('@bot', '').trim().toLowerCase();
+    if (!platformName) {
+        await message.reply("🤖 Jefe, dime de qué plataforma quieres la cuenta. Ej: `@bot dame una de Netflix`.");
+        return;
+    }
+
+    await message.reply(`🤖 Buscando cualquier cuenta disponible de *${platformName}* para ti, jefe...`);
+
+    try {
+        const { fetchRawData } = require('./apiService');
+        const allRows = await fetchRawData();
+        const targetSearch = platformName.replace(/[^a-z0-9]/g, '');
+
+        // Buscamos: 1. Libres, 2. Vencidas, 3. Cualquiera (aunque esté usada)
+        let match = null;
+        const rows = allRows.filter(r => {
+            const rowStreaming = (r.Streaming || r.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+            return rowStreaming.includes(targetSearch) || targetSearch.includes(rowStreaming);
+        });
+
+        if (rows.length === 0) {
+            await message.reply(`❌ Jefe, no encontré ninguna fila que coincida con "${platformName}" en el Excel.`);
+            return;
+        }
+
+        // 1. Intentar libre
+        match = rows.find(r => !(r.whatsapp || r.whatsapp) || (r.Nombre || "").toLowerCase() === 'libre');
+        
+        // 2. Intentar vencida (si no hay libre)
+        if (!match) {
+            const { parseExcelDate } = require('./salesRegistryService');
+            const now = new Date();
+            match = rows.find(r => {
+                const date = parseExcelDate(r.deben || r.Deben);
+                return date && date < now;
+            });
+        }
+
+        // 3. LA QUE SEA (si no hay ni libres ni vencidas)
+        if (!match) {
+            match = rows[0]; // La primera que aparezca
+            await message.reply(`⚠️ Jefe, no hay cuentas libres ni vencidas de ${platformName}. Te paso una que está en uso actualmente:`);
+        }
+
+        // Formatear respuesta
+        const correo = match.correo || match.Correo || match["E-mail"] || "N/A";
+        const clave = match.contraseña || match.Clave || match.clave || "N/A";
+        const pin = match["pin perfil"] || match.pin || "";
+        const perfil = match.Nombre || match.nombre || match.Perfil || "";
+
+        let response = `✅ *AQUÍ TIENES TU CUENTA, JEFE*\n\n`;
+        response += `*Plataforma:* ${platformName.toUpperCase()}\n`;
+        response += `*Correo:* ${correo}\n`;
+        response += `*Clave:* ${clave}\n`;
+        if (perfil) response += `*Perfil:* ${perfil}\n`;
+        if (pin) response += `*PIN:* ${pin}\n`;
+        
+        await message.reply(response);
+
+    } catch (error) {
+        console.error("[Admin Force] Error:", error);
+        await message.reply("❌ Error interno buscando la cuenta jefe.");
+    }
+}
+
 module.exports = {
   processPendingChats,
   handleBatchUnanswered,

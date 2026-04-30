@@ -1188,6 +1188,10 @@ async function processIncomingMessage(messages) {
       } else if (command.includes('contesta') || command.includes('atiende pendientes')) {
           await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
           return;
+      } else if (command.includes('dame una de')) {
+          const { handleAdminForceRetrieve } = require('./adminService');
+          await handleAdminForceRetrieve(message, command, client);
+          return;
       } else if (command.startsWith('liberar')) {
           let targetPhone = command.replace('liberar', '').trim().replace(/\D/g, '');
           let targetName = command.replace('liberar', '').trim();
