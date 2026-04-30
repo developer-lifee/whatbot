@@ -12,14 +12,23 @@ const MODELS = [
 ];
 
 /**
- * Convierte el JSON de documentación en un resumen de texto para el prompt.
+ * Convierte el JSON de plataformas (con planes y detalles) en un resumen de texto para el prompt.
  */
-function summarizePlatformKnowledge(knowledge) {
-  if (!knowledge || knowledge.length === 0) return "No hay documentación detallada disponible.";
-  return knowledge.map(p => {
+function summarizePlatformKnowledge(platforms) {
+  if (!platforms || platforms.length === 0) return "No hay documentación detallada disponible.";
+  return platforms.map(p => {
     let text = `PLATAFORMA: ${p.name}\n`;
-    for (const [planId, planInfo] of Object.entries(p.documentation)) {
-      text += `- Plan ${planId.toUpperCase()}: ${planInfo.process}. Ventajas: ${planInfo.advantages}. ${planInfo.limitations ? `Limitaciones: ${planInfo.limitations}` : ''}\n`;
+    if (p.plans && p.plans.length > 0) {
+      p.plans.forEach(plan => {
+        text += `- Plan ${plan.name}: $${plan.price}. `;
+        if (plan.detalles) text += `Info: ${plan.detalles} `;
+        if (plan.characteristics && plan.characteristics.length > 0) {
+          text += `Características: ${plan.characteristics.join(', ')}`;
+        }
+        text += '\n';
+      });
+    } else {
+      text += `- Precio base: $${p.price}\n`;
     }
     return text;
   }).join('\n---\n');

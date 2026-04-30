@@ -6,6 +6,7 @@ const AZURE_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurew
 const AZURE_HISTORICO_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readhistoricofunction";
 const AZURE_WRITE_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/writeexcelfunction";
 const SUPPORT_API_URL = "https://sheerit.com.co/api/support.json";
+const PLATFORMS_URL = "https://sheerit.com.co/data/platforms.json";
 
 /**
  * Llama a la API de Azure con lógica de reintentos (Retries).
@@ -269,18 +270,22 @@ async function getSupportKnowledge() {
 
 
 /**
- * Obtiene la documentación detallada de funcionamiento de las plataformas.
+ * Obtiene la documentación detallada de funcionamiento de las plataformas desde el JSON central.
  */
 async function getPlatformKnowledge() {
+    const localPath = path.join(__dirname, 'platforms.json');
     try {
-        const docPath = path.join(__dirname, 'platform_documentation.json');
-        if (fs.existsSync(docPath)) {
-            const data = fs.readFileSync(docPath, 'utf8');
-            return JSON.parse(data);
-        }
-        return [];
-    } catch (e) {
-        console.error("[API Service] Error cargando platform_documentation.json:", e.message);
+        const response = await fetch(PLATFORMS_URL);
+        if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
+        return await response.json();
+    } catch (error) {
+        console.warn("[API Service] No se pudo obtener plataformas remotas para conocimiento, intentando local...");
+        try {
+            if (fs.existsSync(localPath)) {
+                const data = fs.readFileSync(localPath, 'utf8');
+                return JSON.parse(data);
+            }
+        } catch (e) {}
         return [];
     }
 }

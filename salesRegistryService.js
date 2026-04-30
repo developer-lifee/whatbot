@@ -7,12 +7,22 @@ const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify', '
  * @param {string} subscriptionType - 'mensual', 'semestral', 'anual'
  * @returns {string} Fecha en formato DD/MM/YYYY
  */
-function calculateNextPaymentDate(subscriptionType) {
+/**
+ * Calcula la fecha del próximo pago sumando los meses correspondientes.
+ * @param {string} subscriptionType - 'mensual', 'semestral', 'anual'
+ * @param {number} overrideMonths - Opcional, cantidad de meses a sumar
+ * @returns {string} Fecha en formato DD/MM/YYYY
+ */
+function calculateNextPaymentDate(subscriptionType, overrideMonths = null) {
     const now = new Date();
     let monthsToAdd = 1;
     
-    if (subscriptionType === 'semestral') monthsToAdd = 6;
-    else if (subscriptionType === 'anual') monthsToAdd = 12;
+    if (overrideMonths) {
+        monthsToAdd = overrideMonths;
+    } else {
+        if (subscriptionType === 'semestral') monthsToAdd = 6;
+        else if (subscriptionType === 'anual') monthsToAdd = 12;
+    }
     
     now.setMonth(now.getMonth() + monthsToAdd);
     
@@ -80,13 +90,13 @@ function findAvailableSlot(platformName, allRows) {
 /**
  * Registra una venta intentando llenar cupos existentes.
  */
-async function recordNewSale(userId, userState, paymentMethod) {
-    console.log(`[Sales Registry] Procesando registro inteligente para ${userId}...`);
+async function recordNewSale(userId, userState, paymentMethod, overrideMonths = null) {
+    console.log(`[Sales Registry] Procesando registro inteligente para ${userId} (${overrideMonths || 'auto'} meses)...`);
     
     try {
         const items = userState.items || [];
         const subscriptionType = userState.subscriptionType || 'mensual';
-        const nextPaymentDate = calculateNextPaymentDate(subscriptionType);
+        const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths);
         const name = userState.nombre || "Cliente WhatsApp";
         const phone = userId.replace('@c.us', '');
 

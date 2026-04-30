@@ -365,8 +365,16 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
 
     await message.reply(`⏳ Procesando confirmación manual para ${phone}...`);
     
+    // Detectar meses si se especifican (ej: "2 meses", "3 mes")
+    let overrideMonths = null;
+    const monthsMatch = command.match(/(\d+)\s*mes/i);
+    if (monthsMatch) {
+        overrideMonths = parseInt(monthsMatch[1]);
+        console.log(`[Admin] Se detectaron ${overrideMonths} meses en el comando.`);
+    }
+
     try {
-        const results = await recordNewSale(userId, stateData, "Confirmado por Admin");
+        const results = await recordNewSale(userId, stateData, "Confirmado por Admin", overrideMonths);
         
         let report = `✅ *PAGO PROCESADO*\nCliente: ${stateData.nombre || phone}\n\n`;
         let someFailed = false;
