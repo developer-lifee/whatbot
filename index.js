@@ -760,11 +760,10 @@ async function processIncomingMessage(messages) {
 
   const firstMsg = messages[0];
   const userId = firstMsg.from;
-  const realPhone = userId.replace('@c.us', '');
+  let realPhone = userId.replace('@c.us', '').replace(/\D/g, '');
   const isFromAdmin = realPhone.includes(ADMIN_RAW_PHONE);
 
   // --- PRIORIDAD JEFE (3133890800) ---
-  // Si el mensaje viene del administrador, usamos la IA de Administrador directamente
   if (isFromAdmin && !userId.includes('@g.us')) {
       const { detectAdminIntent } = require('./aiService');
       const combinedAdminBody = messages.map(m => m.body).join(' ');
@@ -785,72 +784,36 @@ async function processIncomingMessage(messages) {
           userStates.delete(userId);
           await firstMsg.reply(`✅ Bot reactivado para ti, jefe.`);
           return;
-      } else if (adminAI.intent !== 'desconocido') {
-          // Si es otra intención administrativa clara, procesarla
-          // ... (se pueden añadir más aquí)
       }
-      // Si la intención es desconocida o es charla, continuamos o respondemos normal
   }
 
-  const message = messages[messages.length - 1]; // Usamos el último como referencia para responder
+  const message = messages[messages.length - 1];
   const isMedia = messages.some(m => m.hasMedia);
   const combinedBody = messages.map(m => m.body || "").filter(b => b !== "").join("\n");
-  // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
-  const isFromAdmin = userId.includes(ADMIN_RAW_PHONE) || (message.author && message.author.includes(ADMIN_RAW_PHONE));
   
-  // Mute absoluto proveedor movido abajo tras resolución de número real
-
   // --- INTERCEPTOR ESPECIAL ADMINISTRADOR ---
-  if (userId.includes(ADMIN_RAW_PHONE)) {
+  if (isFromAdmin) {
       const adminStateData = userStates.get(userId) || {};
       const cleanBody = (message.body || "").trim().toLowerCase();
-      
-      // Si el admin está simulando ser un cliente, NO mostrar sugerencias proactivas para evitar duplicidad
       const isSimulating = adminStateData.state === 'simulating_client';
 
-      // Si no es un comando directo de @bot, ofrecer sugerencias inteligentes
       if (!cleanBody.startsWith("@bot") && !message.fromMe && !message.hasMedia && !isSimulating) {
-          console.log(`[Admin Proactivo] Detectado mensaje de admin: ${cleanBody}`);
+          const { handleAdminSuggestions } = require('./adminQueries');
           await handleAdminSuggestions(message, userStates);
-          // Podemos elegir si retornar aquí o dejar que procese otros comandos
-          if (cleanBody === 'pruebas') {
-              await executeTestMode(message, client);
-              return;
-          }
-          
-          if (cleanBody === 'sí, prueba de escritura' || cleanBody === 'si, prueba de escritura') {
-              await message.reply('🧪 Iniciando prueba de escritura en tiempo real...');
-              const { recordNewSale } = require('./salesRegistryService');
-              const dummyState = {
-                  nombre: "TEST USER (IA)",
-                  items: [{ platform: { name: "Netflix" } }],
-                  subscriptionType: 'mensual'
-              };
-              const results = await recordNewSale(userId, dummyState, "TEST_API_WRITE");
-              if (results && results.some(r => r.status === 'success')) {
-                  await message.reply(`✅ *PRUEBA EXITOSA*\nSe escribió correctamente en el Excel. Revisa la fila indicada en los logs.`);
-              } else {
-                  await message.reply(`❌ *FALLO EN PRUEBA*\nNo se encontró cupo para Netflix o hubo un error en la API. Revisa los logs.`);
-              }
-              return;
-          }
       }
   }
+
   let contact;
   try {
       if (message && typeof message.getContact === 'function') {
           contact = await message.getContact();
-      } else {
-          contact = { number: userId.replace(/\D/g, '') };
+          if (contact && contact.number) realPhone = contact.number;
       }
   } catch (err) {
       console.warn("No se pudo obtener contacto del mensaje:", err.message);
-      contact = { number: userId.replace(/\D/g, '') }; // fallback básico
   }
 
-  const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
-
-  // --- MUTE ABSOLUTO PROVEEDORES (LID Fix) ---
+  // --- MUTE ABSOLUTO PROVEEDORES ---
   if (realPhone.includes('3027892534')) {
       console.log(`[Mute] Chat con proveedor @${realPhone} ignorado.`);
       return;
