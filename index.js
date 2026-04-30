@@ -761,7 +761,8 @@ async function processIncomingMessage(messages) {
   const firstMsg = messages[0];
   const userId = firstMsg.from;
   let realPhone = userId.replace('@c.us', '').replace(/\D/g, '');
-  const isFromAdmin = realPhone.includes(ADMIN_RAW_PHONE);
+  // Reconocimiento blindado del jefe (3133890800)
+  const isFromAdmin = realPhone.includes(ADMIN_RAW_PHONE) || realPhone.includes('3133890800') || realPhone.includes('573133890800');
 
   // --- PRIORIDAD JEFE (3133890800) ---
   if (isFromAdmin && !userId.includes('@g.us')) {

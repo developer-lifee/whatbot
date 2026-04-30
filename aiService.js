@@ -4,10 +4,10 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
-  "models/gemini-2.0-flash",
-  "models/gemini-1.5-flash",
-  "models/gemini-1.5-flash-8b",
-  "models/gemini-1.5-pro"
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-flash-latest",
+  "gemini-2.5-pro"
 ];
 
 /**
