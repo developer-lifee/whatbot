@@ -4,12 +4,43 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
-  "gemini-1.5-flash-latest",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-002",
-  "gemini-2.0-flash",
-  "gemini-1.5-pro-latest"
+  "models/gemini-2.0-flash",
+  "models/gemini-1.5-flash",
+  "models/gemini-1.5-flash-8b",
+  "models/gemini-1.5-pro"
 ];
+
+/**
+ * Detecta la intención de un administrador basándose en sus facultades.
+ */
+async function detectAdminIntent(messageContent) {
+  const prompt = `
+    Eres el asistente personal del JEFE de la plataforma Sheerit. 
+    Tu tarea es identificar qué acción administrativa quiere realizar el jefe basándose en su mensaje: "${messageContent}"
+
+    FACULTADES DEL JEFE:
+    - "confirmar_pago": El jefe quiere validar el pago de un cliente. Busca si menciona un número de teléfono o nombre.
+    - "liberar_bot": El jefe quiere que el bot vuelva a atender a un cliente que estaba silenciado (menciona "liberar", "atiende", "vuelve", "contesta").
+    - "dame_cuenta": El jefe quiere que le des las credenciales de una plataforma inmediatamente (menciona "dame una de", "pásame", "pasa cuenta").
+    - "dormir_bot": El jefe quiere apagar las respuestas automáticas globales ("duérmete", "apágate").
+    - "despertar_bot": El jefe quiere reactivar el bot globalmente ("despiértate", "actívate").
+    - "desconocido": Cualquier charla casual o que no sea una orden directa.
+
+    Salida esperada JSON:
+    {
+      "intent": "confirmar_pago" | "liberar_bot" | "dame_cuenta" | "dormir_bot" | "despertar_bot" | "desconocido",
+      "target": string | null, // Teléfono, nombre o plataforma mencionada
+      "months": number | null // Si menciona duración para una confirmación
+    }
+  `;
+
+  try {
+    const jsonString = await callGemini(prompt, "Eres un analista de comandos administrativos. Responde solo con JSON.", true);
+    return JSON.parse(jsonString);
+  } catch (error) {
+    return { intent: "desconocido", target: null, months: null };
+  }
+}
 
 /**
  * Convierte el JSON de plataformas (con planes y detalles) en un resumen de texto para el prompt.
@@ -861,7 +892,8 @@ module.exports = {
   generateCredentialsResponse, 
   parsePlanSelection, 
   generateEmpatheticFallback, 
-  detectInitialIntent, 
+  detectInitialIntent,
+  detectAdminIntent, 
   formatDirectCredentials, 
   isPaymentReceipt, 
   parseAdminQueryIntent, 

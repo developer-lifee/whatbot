@@ -756,12 +756,46 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
  * @param {Message[]} messages 
  */
 async function processIncomingMessage(messages) {
-  if (!messages || messages.length === 0) return;
+  if (messages.length === 0) return;
+
+  const firstMsg = messages[0];
+  const userId = firstMsg.from;
+  const realPhone = userId.replace('@c.us', '');
+  const isFromAdmin = realPhone.includes(ADMIN_RAW_PHONE);
+
+  // --- PRIORIDAD JEFE (3133890800) ---
+  // Si el mensaje viene del administrador, usamos la IA de Administrador directamente
+  if (isFromAdmin && !userId.includes('@g.us')) {
+      const { detectAdminIntent } = require('./aiService');
+      const combinedAdminBody = messages.map(m => m.body).join(' ');
+      const adminAI = await detectAdminIntent(combinedAdminBody);
+      
+      console.log(`[Chief Mode] Intención detectada: ${adminAI.intent} para ${adminAI.target}`);
+
+      if (adminAI.intent === 'dame_cuenta' && adminAI.target) {
+          const { handleAdminForceRetrieve } = require('./adminService');
+          await handleAdminForceRetrieve(firstMsg, adminAI.target, client);
+          return;
+      } else if (adminAI.intent === 'confirmar_pago') {
+          const { handleAdminPaymentConfirmation } = require('./adminService');
+          const cmd = adminAI.months ? `confirmar ${adminAI.months} meses` : "confirmar";
+          await handleAdminPaymentConfirmation(firstMsg, cmd, client, userStates, userId);
+          return;
+      } else if (adminAI.intent === 'liberar_bot') {
+          userStates.delete(userId);
+          await firstMsg.reply(`✅ Bot reactivado para ti, jefe.`);
+          return;
+      } else if (adminAI.intent !== 'desconocido') {
+          // Si es otra intención administrativa clara, procesarla
+          // ... (se pueden añadir más aquí)
+      }
+      // Si la intención es desconocida o es charla, continuamos o respondemos normal
+  }
+
   const message = messages[messages.length - 1]; // Usamos el último como referencia para responder
   const isMedia = messages.some(m => m.hasMedia);
   const combinedBody = messages.map(m => m.body || "").filter(b => b !== "").join("\n");
   // 1. IDENTIDAD Y RESOLUCIÓN DE NÚMERO (LID FIX)
-  const userId = message.fromMe ? message.to : message.from;
   const isFromAdmin = userId.includes(ADMIN_RAW_PHONE) || (message.author && message.author.includes(ADMIN_RAW_PHONE));
   
   // Mute absoluto proveedor movido abajo tras resolución de número real
@@ -1159,59 +1193,69 @@ async function processIncomingMessage(messages) {
   );
 
   if (isBotCommand || isReplyConfirmation) {
-      let command = "";
-      let overridePhone = null;
+      const { detectAdminIntent } = require('./aiService');
+      const adminAI = await detectAdminIntent(message.body);
+      console.log(`[Admin AI] Intención detectada: ${adminAI.intent} para ${adminAI.target}`);
 
+      if (adminAI.intent === 'dormir_bot') {
+          globalBotSleep = true;
+          await message.reply('😴 Modo dormido activado, jefe.');
+          return;
+      } else if (adminAI.intent === 'despertar_bot') {
+          globalBotSleep = false;
+          await message.reply('😃 ¡He despertado, jefe! Vuelvo a atender a los clientes.');
+          return;
+      } else if (adminAI.intent === 'liberar_bot') {
+          const { handleBatchUnanswered } = require('./adminService');
+          if (message.body.toLowerCase().includes('masivo') || message.body.toLowerCase().includes('pendientes')) {
+              await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
+          } else {
+              // Liberar a uno solo
+              let targetPhone = adminAI.target ? adminAI.target.replace(/\D/g, '') : null;
+              let targetId = targetPhone ? targetPhone + '@c.us' : (isFromAdmin && !message.from.includes('@g.us') ? message.to : null);
+              
+              if (targetId) {
+                  userStates.delete(targetId);
+                  await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
+                  await message.reply(`✅ Bot reactivado para ${targetId.replace('@c.us', '')}`);
+              } else {
+                  await message.reply('❌ No pude saber a quién liberar, jefe.');
+              }
+          }
+          return;
+      } else if (adminAI.intent === 'dame_cuenta') {
+          const { handleAdminForceRetrieve } = require('./adminService');
+          await handleAdminForceRetrieve(message, adminAI.target || message.body, client);
+          return;
+      } else if (adminAI.intent === 'confirmar_pago' || isReplyConfirmation) {
+          const { handleAdminPaymentConfirmation } = require('./adminService');
+          let targetPhone = adminAI.target ? adminAI.target.replace(/\D/g, '') : null;
+          let targetId = targetPhone ? targetPhone + '@c.us' : (isFromAdmin && !message.from.includes('@g.us') ? message.to : null);
+          
+          if (isReplyConfirmation) {
+              const quotedMsg = await message.getQuotedMessage();
+              const phoneRegex = /57\d{10}/;
+              const match = quotedMsg.body.match(phoneRegex);
+              if (match) targetId = match[0] + '@c.us';
+          }
+
+          if (targetId) {
+              // Construir el comando para que admita meses si la IA los detectó
+              const cmd = adminAI.months ? `confirmar ${adminAI.months} meses` : "confirmar";
+              await handleAdminPaymentConfirmation(message, cmd, client, userStates, targetId);
+          } else {
+              await message.reply('❌ No pude identificar al cliente para confirmar el pago, jefe.');
+          }
+          return;
+      }
+      
+      // Fallback a lógica antigua para comandos específicos no manejados por IA
+      let command = "";
       if (isBotCommand) {
           command = message.body.toLowerCase().replace('@bot', '').trim();
       }
 
-      if (isReplyConfirmation) {
-          const quotedMsg = await message.getQuotedMessage();
-          const phoneRegex = /57\d{10}/;
-          const match = quotedMsg.body.match(phoneRegex);
-          if (match) {
-              overridePhone = match[0];
-              command = "confirmar " + overridePhone;
-              console.log(`[Admin] Detectada confirmación por respuesta para @${overridePhone}`);
-          }
-      }
-
-      if (command === 'duermete') {
-          globalBotSleep = true;
-          await message.reply('😴 Modo dormido activado. No responderé a los clientes automáticamente hasta que me despiertes con *@bot despiertate*.');
-          return;
-      } else if (command === 'despiertate') {
-          globalBotSleep = false;
-          await message.reply('😃 ¡He despertado! Vuelvo a atender a los clientes.');
-          return;
-      } else if (command.includes('contesta') || command.includes('atiende pendientes')) {
-          await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
-          return;
-      } else if (command.includes('dame una de')) {
-          const { handleAdminForceRetrieve } = require('./adminService');
-          await handleAdminForceRetrieve(message, command, client);
-          return;
-      } else if (command.startsWith('liberar')) {
-          let targetPhone = command.replace('liberar', '').trim().replace(/\D/g, '');
-          let targetName = command.replace('liberar', '').trim();
-          
-          if (!targetPhone && targetName) {
-              const { searchContactByName } = require('./googleContactsService');
-              await message.reply(`🔍 Buscando a "${targetName}" para liberar...`);
-              targetPhone = await searchContactByName(targetName);
-          }
-
-          if (!targetPhone) {
-              await message.reply('❌ No pude encontrar el número o no especificaste a quién liberar (ej: @bot liberar Juan o @bot liberar 57311...)');
-          } else {
-              const targetId = targetPhone + '@c.us';
-              userStates.delete(targetId);
-              await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
-              await message.reply(`✅ Bot reactivado para ${targetName || targetPhone} (${targetPhone})`);
-          }
-          return;
-      } else if (command.startsWith('autorizar')) {
+      if (command.startsWith('autorizar')) {
           const parts = command.split(' ');
           if (parts.length < 3) {
               await message.reply('❌ Formato: @bot autorizar [contacts/gmail] [codigo]');

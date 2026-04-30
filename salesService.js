@@ -167,17 +167,40 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   }
 
   let calculatedTotal = 0;
+  let plansToClarify = [];
 
   for (const s of selectedItems) {
     if (s.plan) {
       calculatedTotal += s.plan.price;
       consolidatedResponse += `- ${s.platform.name} (${s.plan.name}): $${s.plan.price}\n`;
     } else {
-      const defaultPlan = s.platform.plans[0];
-      calculatedTotal += defaultPlan.price;
-      s.plan = defaultPlan; 
-      consolidatedResponse += `- ${s.platform.name} (${defaultPlan.name}): $${defaultPlan.price} (Plan Básico asumido)\n`;
+      if (s.platform.plans.length > 1) {
+          plansToClarify.push(s.platform);
+      } else {
+          const defaultPlan = s.platform.plans[0];
+          calculatedTotal += defaultPlan.price;
+          s.plan = defaultPlan; 
+          consolidatedResponse += `- ${s.platform.name}: $${defaultPlan.price}\n`;
+      }
     }
+  }
+
+  // Si hay planes que aclarar, interrumpimos el flujo de pago para preguntar
+  if (plansToClarify.length > 0) {
+      let clarificationMsg = "🤖 ¡Excelente elección! Pero antes de continuar, cuéntame qué plan prefieres para estas plataformas:\n\n";
+      plansToClarify.forEach(p => {
+          clarificationMsg += `*${p.name}:*\n`;
+          p.plans.forEach(plan => {
+              clarificationMsg += `- ${plan.name}: $${plan.price}\n`;
+          });
+          clarificationMsg += "\n";
+      });
+      clarificationMsg += "¿Cuál de estos te gustaría activar? 😊";
+      await message.reply(clarificationMsg);
+      
+      // Mantenemos el estado de búsqueda pero sin pasar a pago aún
+      userStates.set(userId, { ...userStates.get(userId), state: 'awaiting_purchase_platforms' });
+      return;
   }
 
   const numPlatforms = selectedItems.length;
