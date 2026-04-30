@@ -1434,6 +1434,14 @@ async function processIncomingMessage(messages) {
           const existing = userStates.get(userId);
           const stateData = typeof existing === 'object' ? { ...existing } : { nombre: foundName };
           
+          // Si el carrito está vacío y la IA dedujo qué estaba pagando, auto-rellenar el carrito
+          if (!stateData.items || stateData.items.length === 0) {
+              if (check.inferredPlatform) {
+                  console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}`);
+                  stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
+              }
+          }
+          
           // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---
           if (check.amount && check.amount > 0) {
               const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min

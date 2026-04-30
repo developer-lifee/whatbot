@@ -486,7 +486,8 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
       "amount": number | null, // El valor EXACTO de la transferencia (solo números) si es legible. Es vital para la validación automática.
       "bank": string | null, // Nombre del banco detectado (Nequi, Daviplata, etc.)
       "confidence": number, // 0 a 1
-      "extractedDetails": string | null // Cualquier texto extra como ID de transacción o fecha/hora visible.
+      "extractedDetails": string | null, // Cualquier texto extra como ID de transacción o fecha/hora visible.
+      "inferredPlatform": string | null // Según el historial, ¿qué plataforma está pagando? (ej. 'Netflix', 'Spotify'). null si no es evidente.
     }
 
     Reglas:
@@ -494,6 +495,7 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
     - Sé muy riguroso con el 'amount'. Si hay varios números, busca el que diga 'Monto', 'Valor', 'Total' o esté resaltado.
     - No lo confundas con una foto de la plataforma de streaming.
     - Si el banco es Nequi, Daviplata, Bancolombia, dale prioridad.
+    - Analiza el historial reciente: si el bot le estaba cobrando Netflix, o el usuario dijo "pago de Netflix", inferredPlatform DEBE ser "Netflix".
   `;
 
   try {
@@ -502,7 +504,8 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
     return {
       isReceipt: result.isReceipt && result.confidence > 0.7,
       amount: result.amount,
-      bank: result.bank
+      bank: result.bank,
+      inferredPlatform: result.inferredPlatform || null
     };
   } catch (error) {
     console.error("Error recognizing payment proof:", error);
