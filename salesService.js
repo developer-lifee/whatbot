@@ -231,9 +231,18 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   await message.reply(consolidatedResponse);
 
   const existing = userStates.get(userId);
+  let finalTotal = calculatedTotal;
+  let finalItems = selectedItems;
+  
+  if (existing && existing.items && existing.isRenewal) {
+      finalTotal += (existing.total || 0);
+      finalItems = [...existing.items, ...selectedItems];
+      consolidatedResponse = consolidatedResponse.replace(`Total calculado: $${calculatedTotal}${periodText}`, `Total con renovación pendiente: $${finalTotal} COP`);
+  }
+
   const stateData = typeof existing === 'object' 
-    ? { ...existing, state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems, subscriptionType: subscriptionType || 'mensual' }
-    : { state: 'awaiting_payment_method', total: calculatedTotal, items: selectedItems, subscriptionType: subscriptionType || 'mensual' };
+    ? { ...existing, state: 'awaiting_payment_method', total: finalTotal, items: finalItems, subscriptionType: subscriptionType || 'mensual' }
+    : { state: 'awaiting_payment_method', total: finalTotal, items: finalItems, subscriptionType: subscriptionType || 'mensual' };
   userStates.set(userId, stateData);
 }
 

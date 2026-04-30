@@ -778,8 +778,8 @@ async function processIncomingMessage(messages) {
           return;
       } else if (adminAI.intent === 'confirmar_pago') {
           const { handleAdminPaymentConfirmation } = require('./adminService');
-          const cmd = adminAI.months ? `confirmar ${adminAI.months} meses` : "confirmar";
-          await handleAdminPaymentConfirmation(firstMsg, cmd, client, userStates, userId);
+          // Pasamos el texto original para que extraiga el número del cliente y los meses, y null para que no se auto-asigne el número del admin
+          await handleAdminPaymentConfirmation(firstMsg, firstMsg.body, client, userStates, null);
           return;
       } else if (adminAI.intent === 'liberar_bot') {
           userStates.delete(userId);
@@ -1641,10 +1641,12 @@ async function processIncomingMessage(messages) {
       }
       
        if (detection.intent === 'comprar') {
+           const existingState = userStates.get(userId) || {};
+           
            // Priorizamos la venta: Si ya tenemos algún nombre (venga de contactos o de la IA), seguimos adelante.
            if (!foundName) {
                await message.reply(`🤖 ¡Hola! Con gusto te ayudo con tu compra. ¿Me podrías regalar tu nombre y apellido completo para registrarte oficialmente? 😊`);
-               userStates.set(userId, { state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
+               userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
                return;
            }
 
@@ -1652,13 +1654,13 @@ async function processIncomingMessage(messages) {
            // Saltamos el menú de selección de plataformas y vamos directo a la cotización detallada.
            if (detection.detectedPlatform) {
                console.log(`[Flow Optimization] Saltando menú de plataformas para @${userId}. Plataforma detectada: ${detection.detectedPlatform}`);
-               userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
+               userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
                await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
                return;
            }
 
            // Flujo estándar con menú
-           userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
+           userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
            await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
            await startPurchaseProcess(message, userId, userStates);
            return;

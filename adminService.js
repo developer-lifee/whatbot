@@ -370,8 +370,8 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     const displayPhone = userId.replace('@c.us', '');
     const stateData = userStates.get(userId);
 
-    if (!stateData || !stateData.items) {
-        await message.reply(`⚠️ No encontré una sesión de pago activa para el número ${displayPhone}. Asegúrate de que el bot le haya mostrado el total recientemente.`);
+    if (!stateData || !stateData.items || stateData.items.length === 0) {
+        await message.reply(`⚠️ El cliente ${displayPhone} envió un comprobante pero NO tiene un pedido activo (su carrito está vacío).\n\n*Causa más probable:* El cliente envió la foto del pago sin haber usado el menú para cotizar o pedir una cuenta primero.\n\n*Solución:* Escríbele para confirmar qué servicio pagó, y luego usa el comando \`@bot dame una cuenta de [servicio]\` por aquí para extraerle una manualmente.`);
         return;
     }
 
