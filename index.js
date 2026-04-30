@@ -651,13 +651,31 @@ client.on('message_create', async (msg) => {
   if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast') && !msg.to.includes('@lid')) {
     const targetId = msg.to;
     
-    // Comando o mención en el chat para reactivar el bot
+    // Comando o mención en el chat para reactivar el bot o confirmar pagos
     if (msg.body.toLowerCase().includes('@bot')) {
+       const command = msg.body.toLowerCase();
+       
+       // NUEVO: Manejo directo de confirmación en el chat del cliente
+       if (command.includes('confirmar')) {
+           const { handleAdminPaymentConfirmation } = require('./adminService');
+           // Pasamos targetId como overridePhone para que no tenga que buscarlo
+           handleAdminPaymentConfirmation(msg, command, client, userStates, targetId)
+               .catch(err => console.error('Error en confirmación directa:', err));
+           return;
+       }
+
+       // Manejo de liberar
+       if (command.includes('libera')) {
+           userStates.delete(targetId);
+           console.log(`[BOT UNMUTE] Reactivado por comando liberar en el chat ${targetId}.`);
+           client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
+           return;
+       }
+
        userStates.delete(targetId);
        console.log(`[BOT UNMUTE] Reactivado por mención en el chat ${targetId}.`);
        
        // Suministramos el mensaje al procesador para que la IA lea el contexto y responda
-       // Usamos un pequeño delay para que WhatsApp registre el mensaje enviado antes de responder
        setTimeout(() => {
            processIncomingMessage([msg]).catch(err => console.error('Error en reactivación por mención:', err));
        }, 1000);
@@ -1609,7 +1627,24 @@ async function processIncomingMessage(messages) {
           return;
       }
 
-      // 6. FLUJO POR DEFECTO (Si no hay intención clara, no forzamos nombre completo aún)
+      // 6. FLUJO POR DEFECTO (Más sutil y conversacional)
+      const { getChatHistoryText } = require('./salesService');
+      const history = await getChatHistoryText(message);
+      
+      let userAccounts = [];
+      try { userAccounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch(e){}
+      
+      const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, null, userAccounts);
+      
+      // Si la IA generó una respuesta útil (no es el mensaje de error por defecto)
+      if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
+          await message.reply(fallback.replyMessage);
+          // Si el usuario parece estar perdido después de la respuesta, podemos sugerir el menú sutilmente después.
+          userStates.set(userId, { state: 'main_menu', nombre: foundName });
+          return;
+      }
+
+      // Si la respuesta es genérica o es un saludo, ahí sí mandamos el menú
       if (foundName) {
         userStates.set(userId, { state: 'main_menu', nombre: foundName });
         await message.reply(`🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*' }! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);

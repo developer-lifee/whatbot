@@ -355,11 +355,12 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         return;
     }
 
-    const userId = phone + '@c.us';
+    const userId = phone.includes('@') ? phone : phone + '@c.us';
+    const displayPhone = userId.replace('@c.us', '');
     const stateData = userStates.get(userId);
 
     if (!stateData || !stateData.items) {
-        await message.reply(`⚠️ No encontré una sesión de pago activa para el número ${phone}. Asegúrate de que el bot le haya mostrado el total recientemente.`);
+        await message.reply(`⚠️ No encontré una sesión de pago activa para el número ${displayPhone}. Asegúrate de que el bot le haya mostrado el total recientemente.`);
         return;
     }
 
@@ -376,7 +377,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     try {
         const results = await recordNewSale(userId, stateData, "Confirmado por Admin", overrideMonths);
         
-        let report = `✅ *PAGO PROCESADO*\nCliente: ${stateData.nombre || phone}\n\n`;
+        let report = `✅ *PAGO PROCESADO*\nCliente: ${stateData.nombre || displayPhone}\n\n`;
         let someFailed = false;
 
         results.forEach(res => {
