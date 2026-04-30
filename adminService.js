@@ -507,5 +507,6 @@ module.exports = {
   getNetflixMatchReport,
   handleAdminSuggestions,
   handleAdminPaymentConfirmation,
-  handleSendManualPaymentMethods
+  handleSendManualPaymentMethods,
+  handleAdminForceRetrieve
 };
