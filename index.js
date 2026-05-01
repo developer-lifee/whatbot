@@ -1308,7 +1308,7 @@ async function processIncomingMessage(messages) {
           // Si el comando @bot no coincide con nada rígido, usar IA para consultar datos o conversar
           const { processAdminQuery } = require('./adminQueries');
           
-          const adminState = realPhone.includes(ADMIN_RAW_PHONE) ? userStates.get(userId) : null;
+          const adminState = isFromAdmin ? userStates.get(userId) : null;
           const isAwaitingAdminConfirm = adminState && adminState.state === 'awaiting_admin_broadcast_confirmation';
           const isAwaitingAdminSuggestion = adminState && adminState.state === 'awaiting_admin_suggestion_selection';
 

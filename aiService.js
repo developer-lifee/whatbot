@@ -29,7 +29,8 @@ async function detectAdminIntent(messageContent) {
     Salida esperada JSON:
     {
       "intent": "confirmar_pago" | "liberar_bot" | "dame_cuenta" | "dormir_bot" | "despertar_bot" | "desconocido",
-      "target": string | null, // Teléfono, nombre o plataforma mencionada
+      "target_platform": string | null, // Ej: "Netflix", "HBO"
+      "target_user": string | null, // Ej: "57304...", "Estefania Arias"
       "months": number | null // Si menciona duración para una confirmación
     }
   `;

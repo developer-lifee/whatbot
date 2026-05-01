@@ -341,11 +341,13 @@ async function processAdminQuery(message, query, userStates, client) {
                     if (isMassiveToPlatform && platformFilter) {
                         // Caso: "pasa X a todos los de spotify"
                         recipients = rawData.filter(row => {
-                            const platStr = (row['Streaming'] || row['streaming'] || '').toString();
+                            const platStr = (row['Streaming'] || row['streaming'] || '').toString().toLowerCase();
                             const numeroStr = (row['numero'] || '').toString().trim();
                             const nombreStr = (row['Nombre'] || row['nombre'] || '').toString().toLowerCase();
                             const isLibre = nombreStr === 'libre' || nombreStr === '';
-                            return cln(platStr).includes(cln(platformFilter)) && numeroStr.length >= 8 && !isLibre;
+                            const isOwner = platStr.includes('owner');
+                            
+                            return cln(platStr).includes(cln(platformFilter)) && numeroStr.length >= 8 && !isLibre && !isOwner;
                         });
                     } else {
                         // Caso estándar: "pasa las claves de X" (a los que ya la tienen)

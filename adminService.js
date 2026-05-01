@@ -434,21 +434,21 @@ async function handleSendManualPaymentMethods(message, command, client, userStat
 /**
  * Recupera forzosamente una cuenta para el administrador, sin importar el stock.
  */
-async function handleAdminForceRetrieve(message, command, client) {
+async function handleAdminForceRetrieve(message, command, client, targetUser = null) {
     const platformName = command.replace('dame una de', '').replace('@bot', '').trim().toLowerCase();
     if (!platformName) {
         await message.reply("🤖 Jefe, dime de qué plataforma quieres la cuenta. Ej: `@bot dame una de Netflix`.");
         return;
     }
 
-    await message.reply(`🤖 Buscando cualquier cuenta disponible de *${platformName}* para ti, jefe...`);
+    await message.reply(`🤖 Buscando cualquier cuenta disponible de *${platformName}* para ${targetUser || 'ti'}, jefe...`);
 
     try {
         const { fetchRawData } = require('./apiService');
         const allRows = await fetchRawData();
-        const targetSearch = platformName.replace(/[^a-z0-9]/g, '');
+        const targetSearch = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-        // Buscamos: 1. Libres, 2. Vencidas, 3. Cualquiera (aunque esté usada)
+        // 1. BUSCAR CUENTA DISPONIBLE
         let match = null;
         const rows = allRows.filter(r => {
             const rowStreaming = (r.Streaming || r.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -460,10 +460,8 @@ async function handleAdminForceRetrieve(message, command, client) {
             return;
         }
 
-        // 1. Intentar libre
+        // Prioridad: 1. Libre, 2. Vencida, 3. Cualquiera
         match = rows.find(r => !(r.whatsapp || r.whatsapp) || (r.Nombre || "").toLowerCase() === 'libre');
-        
-        // 2. Intentar vencida (si no hay libre)
         if (!match) {
             const { parseExcelDate } = require('./salesRegistryService');
             const now = new Date();
@@ -472,27 +470,51 @@ async function handleAdminForceRetrieve(message, command, client) {
                 return date && date < now;
             });
         }
+        if (!match) match = rows[0];
 
-        // 3. LA QUE SEA (si no hay ni libres ni vencidas)
-        if (!match) {
-            match = rows[0]; // La primera que aparezca
-            await message.reply(`⚠️ Jefe, no hay cuentas libres ni vencidas de ${platformName}. Te paso una que está en uso actualmente:`);
+        // 2. IDENTIFICAR DESTINATARIO
+        let recipientId = message.from; // Por defecto el remitente (admin)
+        let recipientDisplay = "ti, jefe";
+
+        if (targetUser) {
+            const cleanTarget = targetUser.toString().replace(/\D/g, '');
+            if (cleanTarget.length >= 8) {
+                recipientId = (cleanTarget.startsWith('57') ? cleanTarget : '57' + cleanTarget) + '@c.us';
+                recipientDisplay = `el número ${cleanTarget}`;
+            } else {
+                // Es un nombre, buscamos en el Excel
+                const userRow = allRows.find(r => {
+                    const rowName = (r.Nombre || r['Nombre Completo'] || "").toString().toLowerCase();
+                    return rowName.includes(targetUser.toLowerCase());
+                });
+                if (userRow && userRow.numero) {
+                    const tel = userRow.numero.toString().replace(/\D/g, '');
+                    recipientId = (tel.startsWith('57') ? tel : '57' + tel) + '@c.us';
+                    recipientDisplay = `*${userRow.Nombre || targetUser}*`;
+                } else {
+                    await message.reply(`⚠️ Jefe, no encontré a nadie llamado "${targetUser}" en la base de datos para enviarle la cuenta. Te la paso a ti:`);
+                }
+            }
         }
 
-        // Formatear respuesta
+        // 3. FORMATEAR Y ENVIAR
         const correo = match.correo || match.Correo || match["E-mail"] || "N/A";
         const clave = match.contraseña || match.Clave || match.clave || "N/A";
         const pin = match["pin perfil"] || match.pin || "";
         const perfil = match.Nombre || match.nombre || match.Perfil || "";
 
-        let response = `✅ *AQUÍ TIENES TU CUENTA, JEFE*\n\n`;
+        let response = `✅ *AQUÍ TIENES TU CUENTA*\n\n`;
         response += `*Plataforma:* ${platformName.toUpperCase()}\n`;
         response += `*Correo:* ${correo}\n`;
         response += `*Clave:* ${clave}\n`;
         if (perfil) response += `*Perfil:* ${perfil}\n`;
         if (pin) response += `*PIN:* ${pin}\n`;
         
-        await message.reply(response);
+        await client.sendMessage(recipientId, response);
+
+        if (recipientId !== message.from) {
+            await message.reply(`✅ Cuenta de ${platformName.toUpperCase()} enviada exitosamente a ${recipientDisplay}.`);
+        }
 
     } catch (error) {
         console.error("[Admin Force] Error:", error);
