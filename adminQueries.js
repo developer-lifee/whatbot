@@ -338,25 +338,36 @@ async function processAdminQuery(message, query, userStates, client) {
                 } else {
                     // 2. BUSCAR LOS DESTINATARIOS
                     let recipients = [];
-                    if (isMassiveToPlatform && platformFilter) {
-                        // Caso: "pasa X a todos los de spotify"
-                        recipients = rawData.filter(row => {
+                    const filterRecipients = (rows) => {
+                        return rows.map(row => {
                             const platStr = (row['Streaming'] || row['streaming'] || '').toString().toLowerCase();
                             const numeroStr = (row['numero'] || '').toString().trim();
                             const nombreStr = (row['Nombre'] || row['nombre'] || '').toString().toLowerCase();
                             const isLibre = nombreStr === 'libre' || nombreStr === '';
                             const isOwner = platStr.includes('owner');
                             
-                            return cln(platStr).includes(cln(platformFilter)) && numeroStr.length >= 8 && !isLibre && !isOwner;
-                        });
-                    } else {
-                        // Caso estándar: "pasa las claves de X" (a los que ya la tienen)
-                        recipients = rawData.filter(row => {
-                            const correoStr = (row['correo'] || row['Correo'] || '').toString();
-                            const numeroStr = (row['numero'] || '').toString().trim();
+                            const emailMatch = cln(row['correo'] || row['Correo']) === cln(sourceMatch.correo);
+                            const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
                             const hasNum = numeroStr.length >= 8;
-                            return cln(correoStr) === cln(sourceMatch.correo) && hasNum;
-                        });
+
+                            if (emailMatch && platMatch && hasNum && !isLibre) {
+                                return {
+                                    name: row['Nombre'] || row['nombre'] || "Cliente",
+                                    phone: numeroStr,
+                                    customer_mail: row['customer mail'] || row['customer_mail'] || null,
+                                    pin_perfil: row['pin perfil'] || row['pin_perfil'] || null,
+                                    vencimiento: row['vencimiento'] || row['deben'] || null,
+                                    is_owner: isOwner
+                                };
+                            }
+                            return null;
+                        }).filter(r => r !== null);
+                    };
+
+                    if (isMassiveToPlatform && platformFilter) {
+                        recipients = filterRecipients(rawData.filter(row => cln(row['Streaming'] || row['streaming']).includes(cln(platformFilter))));
+                    } else {
+                        recipients = filterRecipients(rawData.filter(row => cln(row['correo'] || row['Correo']) === cln(sourceMatch.correo)));
                     }
 
                     if (recipients.length > 0) {

@@ -1019,11 +1019,11 @@ async function processIncomingMessage(messages) {
                   const telRaw = (r.tel || '').toString().replace(/\D/g, '');
                   const targetUser = `57${telRaw.startsWith('57') ? telRaw.substring(2) : telRaw}@c.us`;
 
-                  // Lógica selectiva de campos
                   const only = payload.only_fields || []; 
                   const showAll = only.length === 0;
+                  const isSpotify = (payload.platform || "").toLowerCase().includes('spotify');
                   
-                  const isClave = r.is_owner || showAll || only.includes('clave') || only.includes('password') || only.includes('contraseña');
+                  const isClave = r.is_owner || (showAll && !isSpotify) || only.includes('clave') || only.includes('password') || only.includes('contraseña');
                   const isPinPerfil = !r.is_owner && (showAll || only.includes('pin perfil') || (only.includes('pin') && only.includes('perfil')));
                   const isPinOnly = !isPinPerfil && !r.is_owner && only.includes('pin');
                   const isPerfilOnly = !isPinPerfil && !r.is_owner && only.includes('perfil');
