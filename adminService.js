@@ -434,6 +434,25 @@ async function handleSendManualPaymentMethods(message, command, client, userStat
 /**
  * Recupera forzosamente una cuenta para el administrador, sin importar el stock.
  */
+/**
+ * Notifica al proveedor sobre las cuentas que están próximas a vencer.
+ */
+async function notifyProviderExpiringAccounts(client) {
+    try {
+        const report = await getUpcomingExpirationsReport();
+        if (report.includes("No hay cuentas próximas a vencer")) return;
+
+        // Número del proveedor (ejemplo, ajustar si es necesario)
+        const providerNumber = "573027892534@c.us"; 
+        const msg = `🤖 *AVISO DE RENOVACIONES PRÓXIMAS*\n\nHola, te paso el reporte de las cuentas que vencen pronto para gestionar las renovaciones:\n\n${report}`;
+        
+        await client.sendMessage(providerNumber, msg);
+        console.log(`[Automation] Reporte de vencimientos enviado al proveedor.`);
+    } catch (error) {
+        console.error("Error en notifyProviderExpiringAccounts:", error);
+    }
+}
+
 async function handleAdminForceRetrieve(message, command, client, targetUser = null) {
     const platformName = command.replace('dame una de', '').replace('@bot', '').trim().toLowerCase();
     if (!platformName) {
@@ -535,5 +554,6 @@ module.exports = {
   handleAdminSuggestions,
   handleAdminPaymentConfirmation,
   handleSendManualPaymentMethods,
-  handleAdminForceRetrieve
+  handleAdminForceRetrieve,
+  notifyProviderExpiringAccounts
 };

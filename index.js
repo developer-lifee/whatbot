@@ -826,7 +826,7 @@ async function processIncomingMessage(messages) {
       return;
   }
   
-  let foundName = contact.name || contact.pushname;
+  let foundName = contact ? (contact.name || contact.pushname) : null;
   if (!foundName) {
       const { searchContactByPhone } = require('./googleContactsService');
       foundName = await searchContactByPhone(userId);

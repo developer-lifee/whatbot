@@ -52,16 +52,20 @@ async function startPurchaseProcess(message, userId, userStates) {
 async function getChatHistoryText(message, limit = 6) {
   let chatHistoryText = "";
   try {
-    const chat = await message.getChat();
+    if (!message) return "";
+    const chat = await message.getChat().catch(() => null);
+    if (!chat) return "";
+
     let messages = [];
     
     // Evitar fetchMessages en ciertos casos problemáticos
-    if (!message.from.includes('@lid') && !message.from.includes('status@broadcast')) {
+    const fromId = (message.from || "");
+    if (!fromId.includes('@lid') && !fromId.includes('status@broadcast')) {
         messages = await safeFetchMessages(chat, limit);
     }
     
     // Filtramos el mensaje actual para que no aparezca duplicado en el historial previo
-    const history = messages.filter(m => {
+    const history = (messages || []).filter(m => {
         if (!m || !m.id || !message || !message.id) return false;
         return m.id._serialized !== message.id._serialized;
     });
@@ -71,11 +75,11 @@ async function getChatHistoryText(message, limit = 6) {
     
     chatHistoryText += history.map(m => {
       const timeStr = new Date(m.timestamp * 1000).toLocaleString('es-CO');
-      return `[${timeStr}] ${m.fromMe ? 'Asistente' : 'Usuario'}: ${m.body}`;
+      return `[${timeStr}] ${m.fromMe ? 'Asistente' : 'Usuario'}: ${m.body || ''}`;
     }).join('\n');
     
     const currentMsgTime = new Date(message.timestamp * 1000).toLocaleString('es-CO');
-    chatHistoryText += `\n[${currentMsgTime}] Usuario (Mensaje Actual): ${message.body}`;
+    chatHistoryText += `\n[${currentMsgTime}] Usuario (Mensaje Actual): ${message.body || ''}`;
   } catch (err) {
     console.error("Error fetching chat history", err.message);
   }
