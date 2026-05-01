@@ -772,9 +772,9 @@ async function processIncomingMessage(messages) {
       
       console.log(`[Chief Mode] Intención detectada: ${adminAI.intent} para ${adminAI.target}`);
 
-      if (adminAI.intent === 'dame_cuenta' && adminAI.target) {
+      if (adminAI.intent === 'dame_cuenta' && (adminAI.target_platform || adminAI.target_user)) {
           const { handleAdminForceRetrieve } = require('./adminService');
-          await handleAdminForceRetrieve(firstMsg, adminAI.target, client);
+          await handleAdminForceRetrieve(firstMsg, adminAI.target_platform || adminAI.target_user, client, adminAI.target_user);
           return;
       } else if (adminAI.intent === 'confirmar_pago') {
           const { handleAdminPaymentConfirmation } = require('./adminService');
@@ -1195,7 +1195,7 @@ async function processIncomingMessage(messages) {
           return;
       } else if (adminAI.intent === 'dame_cuenta') {
           const { handleAdminForceRetrieve } = require('./adminService');
-          await handleAdminForceRetrieve(message, adminAI.target || message.body, client);
+          await handleAdminForceRetrieve(message, adminAI.target_platform || adminAI.target_user || message.body, client, adminAI.target_user);
           return;
       } else if (adminAI.intent === 'confirmar_pago' || isReplyConfirmation) {
           const { handleAdminPaymentConfirmation } = require('./adminService');
