@@ -371,18 +371,15 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     const stateData = userStates.get(userId);
 
     if (!stateData || !stateData.items || stateData.items.length === 0) {
-        await message.reply(`⚠️ El cliente ${displayPhone} envió un comprobante pero NO tiene un pedido activo (su carrito está vacío).\n\n*Causa más probable:* El cliente envió la foto del pago sin haber usado el menú para cotizar o pedir una cuenta primero.\n\n*Solución:* Escríbele para confirmar qué servicio pagó, y luego usa el comando \`@bot dame una cuenta de [servicio]\` por aquí para extraerle una manualmente.`);
+        await message.reply(`⚠️ El cliente ${displayPhone} no tiene un pedido activo.`);
         return;
     }
 
-    await message.reply(`⏳ Procesando confirmación manual para ${phone}...`);
-    
     // Detectar meses si se especifican (ej: "2 meses", "3 mes")
     let overrideMonths = null;
     const monthsMatch = command.match(/(\d+)\s*mes/i);
     if (monthsMatch) {
         overrideMonths = parseInt(monthsMatch[1]);
-        console.log(`[Admin] Se detectaron ${overrideMonths} meses en el comando.`);
     }
 
     try {
@@ -393,12 +390,9 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
 
         results.forEach(res => {
             if (res.status === 'success') {
-                report += `- *${res.name}*: Auto-asignada (Fila ${res.rowNumber}) ✅\n`;
-            } else if (res.status === 'no_slots_found') {
-                report += `- *${res.name}*: SIN STOCK (Manual) ⚠️\n`;
-                someFailed = true;
+                report += `- *${res.name}*: Fila ${res.rowNumber} ✅\n`;
             } else {
-                report += `- *${res.name}*: Registro Manual Requerido ⚠️\n`;
+                report += `- *${res.name}*: MANUAL ⚠️\n`;
                 someFailed = true;
             }
         });
@@ -406,9 +400,9 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         await message.reply(report);
 
         if (someFailed) {
-            await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! 🎉\n\nSin embargo, para uno de tus servicios estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos* mientras un asesor completa la entrega. ¡Gracias por tu paciencia! 😊");
+            await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! 🎉\n\nSin embargo, para uno de tus servicios estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊");
         } else {
-            await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nYa puedes revisar tus credenciales actualizadas escribiendo *2* en el chat principal. ¡Disfruta! 😊");
+            await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nYa puedes revisar tus credenciales actualizadas escribiendo *2*. ¡Disfruta! 😊");
         }
         
         // Limpiar estado

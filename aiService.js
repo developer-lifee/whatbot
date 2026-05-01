@@ -185,13 +185,16 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
     }
     
     Reglas:
+    - **REGLA DE ORO:** NO inventes productos. Si el usuario solo dice "Hola", "Buenas", o mensajes de saludo, "items" debe ser [].
+    - **RELEVANCIA TEMPORAL:** Analiza las fechas y horas en el [Historial reciente]. Si hubo un pedido hace mucho tiempo (ej: más de 24 horas) y el usuario hoy solo envía un saludo inicial, usa el sentido común: lo más probable es que ese pedido ya no sea relevante. No lo incluyas en "items" a menos que el usuario lo mencione o confirme hoy.
+    - Solo agrega plataformas si el mensaje actual ("${messageContent}") las menciona explícitamente o si el historial reciente indica una continuación lógica inmediata.
     - Normaliza los nombres de planes y plataformas (ej. "Netflix - Básico" -> platform: "Netflix", plan: "Básico").
     - **REGLA CRÍTICA PARA MICROSOFT:** 
         * Si el usuario dice "Microsoft" o "Office" a secas (sin la palabra "compartida"), el plan es "Personal".
         * Si el usuario dice explícitamente "Microsoft compartida" o "Microsoft 365 compartida", el plan es "Compartida".
     - Si no se especifica plan para otras plataformas, pon null en "plan".
     - Si detectas "ChatGPT", normalizalo como platform: "ChatGPT".
-    - Revisa las fechas/horas en el contexto. Si ha pasado mucho tiempo (varias horas o 1 día) entre el último mensaje del usuario y la respuesta (Hora actual del sistema), genera un breve "empathyGreeting" (ej. "¡Hola! Qué pena la demora en responderte..."). Si no hay demora significativa, déjalo en null.
+    - Revisa las fechas/horas en el contexto. Si ha pasado mucho tiempo (varias horas o 1 día) entre el último mensaje del usuario y la respuesta (Hora actual del sistema), genera un breve "empathyGreeting". Si no hay demora significativa, déjalo en null.
   `;
 
   try {
@@ -706,7 +709,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     1. Si el Asistente (especialmente si es humano sin 🤖) acaba de hacer una pregunta o pedir un dato (ej: "¿Qué operador tienes?", "Confírmame tu correo", "Pásame el comprobante") y el cliente responde con ese dato (ej: "Claro", "Engativa", "Mi correo es..."), ES UNA CONTINUACIÓN DIRECTA.
     2. En este caso de continuación directa de una charla humana, TU ÚNICA ACCIÓN DEBE SER devolver "recoveredState": "waiting_human" y "intent": "desconocido". NO intentes resolver nada ni dar soporte, porque el humano ya está a cargo de recolectar esa información.
     3. De igual manera, si el bot 🤖 estaba a la mitad de un flujo (ej: esperando método de pago) y el cliente responde a eso, recupera el estado correspondiente. ¡El contexto manda!
-    4. **SI EL USUARIO MENCIONA UNA PLATAFORMA (EJ: NETFLIX) EN EL MENSAJE ACTUAL O EL HISTORIAL RECIENTE, EL INTENT DEBE SER "comprar" Y NO "desconocido".** NO le ofrezcas el menú principal si ya sabes qué quiere.
+    4. **RELEVANCIA TEMPORAL:** Si el usuario menciona una plataforma (ej: Netflix) pero esa mención es de hace mucho tiempo (ej: más de 24 horas) y hoy solo envía un saludo inicial, usa el sentido común. No asumas que sigue queriendo comprar eso. El intent debe ser "desconocido" (saludo) y no "comprar", a menos que el usuario lo mencione de nuevo hoy o sea una continuación lógica clara.
     
     Salida esperada JSON:
     {
@@ -762,11 +765,11 @@ async function parseAdminQueryIntent(query) {
     {
       "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "auto_cobros" | "list_functions" | "update_data" | "record_sale" | "general_query",
       "filters": {
-        "name": string | null,
+        "name": string | null, // Nombre de la persona o nombre específico de la cuenta/correo
         "platform": string | null,
         "status": "libre" | "ocupado" | "vencido" | null,
         "phone": string | null,
-        "generic_search": string | null,
+        "generic_search": string | null, // Contexto adicional o destinatario masivo (ej: "todos los de spotify")
         "new_password": string | null,
         "custom_message": string | null,
         "only_fields": string[] | null,
@@ -776,6 +779,8 @@ async function parseAdminQueryIntent(query) {
     }
 
     Reglas de 'action':
+    - Si el mensaje pide "pasa la cuenta de X a todos los de Y", es "broadcast_credentials".
+    - En "broadcast_credentials", 'name' debe ser el nombre/correo de la cuenta que se va a enviar (la fuente), y 'generic_search' debe ser el público objetivo (el destino).
     - Si el mensaje es una confirmación afirmativa o respuesta positiva como "sí", "si", "dale", "proceder", "adelante", "confirmar", "hazlo", "envíaselo", "enviaselo", es "confirm_action".
     - Si pide "haz los cobros", "inicia cobranza", "pasa los recibos", "manda avisos", "cobros automáticos", es "auto_cobros".
     - Si pide "funciones", "qué puedes hacer", "ayuda", "comandos", "que haces", es "list_functions".

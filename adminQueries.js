@@ -315,103 +315,74 @@ async function processAdminQuery(message, query, userStates, client) {
                     filteredData = { resumen_estadisticas: filteredSummary };
                 } else filteredData = { resumen_estadisticas: summary };
             } else if (action === 'broadcast_credentials') {
-                const accountQuery = filters.generic_search ? filters.generic_search.toLowerCase().trim() : "";
+                const sourceQuery = filters.name ? filters.name.toLowerCase().trim() : (filters.generic_search ? filters.generic_search.toLowerCase().trim() : "");
                 const platformFilter = filters.platform ? filters.platform.toLowerCase().trim() : null;
+                const isMassiveToPlatform = filters.generic_search && (filters.generic_search.toLowerCase().includes('todos') || filters.generic_search.toLowerCase().includes('usuarios'));
 
-                // Función de normalización para matches "gordos" (ignora espacios, puntos, etc.)
+                // Función de normalización para matches "gordos"
                 const cln = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
 
-                // 1. BÚSQUEDA SMART (Fuzzy) con filtro de OWNERS y VENCIMIENTO
-                let matches = rawData.filter(row => {
+                // 1. BUSCAR LA CUENTA FUENTE (De dónde sacamos las credenciales)
+                const sourceMatch = rawData.find(row => {
                     const correoStr = (row['correo'] || row['Correo'] || '').toString();
                     const nombreStr = (row['Nombre'] || row['nombre'] || '').toString();
                     const platStr = (row['Streaming'] || row['streaming'] || '').toString();
-                    const numeroStr = (row['numero'] || '').toString().trim();
-                    const hasNum = numeroStr.length >= 8;
-
-                    if (!accountQuery) return false;
-
-                    // DETECTAR: Owners (ej: spotify owner)
-                    const isOwner = platStr.toLowerCase().includes('owner') || nombreStr.toLowerCase().includes('owner');
                     
-                    // CONDICIÓN: Match de Correo o Nombre
-                    const accountMatch = cln(correoStr).includes(cln(accountQuery)) || cln(nombreStr).includes(cln(accountQuery));
+                    const accountMatch = cln(correoStr).includes(cln(sourceQuery)) || cln(nombreStr).includes(cln(sourceQuery));
                     const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
-                    
-                    if (!(accountMatch && platMatch && hasNum)) return false;
-
-                    // FILTRO: Solo si está ACTIVO (no ha vencido)
-                    let isActive = false;
-                    
-                    // 'deben' es para el cliente, 'Vencimiento' es para el administrador (owner)
-                    const dateValue = isOwner ? (row['Vencimiento'] || row['vencimiento']) : row.deben;
-                    
-                    const accountDate = getJsDateFromExcel(dateValue);
-                    if (accountDate) {
-                        const today = getTodayInBogota();
-                        // Si la fecha de vencimiento es HOY o en el FUTURO, está activo
-                        if (accountDate.getTime() >= today.getTime()) isActive = true;
-                    }
-
-
-                    
-                    // Si es una cuenta 'libre' o sin nombre real, no enviamos broadcast
-                    const statusStr = (row['Estado'] || row['estado'] || '').toString().toLowerCase();
-                    const isLibre = statusStr.includes('libre') || nombreStr.toLowerCase() === 'libre' || nombreStr.trim() === '';
-                    if (isLibre) isActive = false;
-                    
-                    return isActive && hasNum;
+                    return accountMatch && platMatch;
                 });
 
-
-
-
-                // 2. Si no hubo matches con plataforma, intentamos SIN plataforma para sugerir alternativas
-                if (matches.length === 0 && accountQuery && platformFilter) {
-                    const altMatches = rawData.filter(row => cln(row['correo'] || row['Correo'] || '').includes(cln(accountQuery)));
-                    if (altMatches.length > 0) {
-                        const platsEncontradas = [...new Set(altMatches.map(r => r['Streaming'] || 'Otro'))];
-                        filteredData = { 
-                            status: "suggestion", 
-                            message: `No encontré el correo "${accountQuery}" en ${platformFilter}, pero sí lo encontré en: ${platsEncontradas.join(', ')}. ¿Te referías a alguna de estas plataformas? 🤔`,
-                            originalFilters: filters,
-                            options: platsEncontradas,
-                            options_count: platsEncontradas.length
-                        };
+                if (!sourceMatch && !filters.new_password) {
+                    filteredData = { status: "error", message: `No encontré ninguna cuenta que coincida con "${sourceQuery}" para usar como fuente de las credenciales.` };
+                } else {
+                    // 2. BUSCAR LOS DESTINATARIOS
+                    let recipients = [];
+                    if (isMassiveToPlatform && platformFilter) {
+                        // Caso: "pasa X a todos los de spotify"
+                        recipients = rawData.filter(row => {
+                            const platStr = (row['Streaming'] || row['streaming'] || '').toString();
+                            const numeroStr = (row['numero'] || '').toString().trim();
+                            const nombreStr = (row['Nombre'] || row['nombre'] || '').toString().toLowerCase();
+                            const isLibre = nombreStr === 'libre' || nombreStr === '';
+                            return cln(platStr).includes(cln(platformFilter)) && numeroStr.length >= 8 && !isLibre;
+                        });
                     } else {
-                        filteredData = { status: "error", message: `No pude encontrar nada parecido a "${accountQuery}" en ninguna plataforma.` };
+                        // Caso estándar: "pasa las claves de X" (a los que ya la tienen)
+                        recipients = rawData.filter(row => {
+                            const correoStr = (row['correo'] || row['Correo'] || '').toString();
+                            const numeroStr = (row['numero'] || '').toString().trim();
+                            const hasNum = numeroStr.length >= 8;
+                            return cln(correoStr) === cln(sourceMatch.correo) && hasNum;
+                        });
                     }
-                } else if (matches.length > 0) {
-                    // MODO PREVIEW: No enviamos nada aún.
-                    const uniqueAccount = [...new Set(matches.map(m => m['correo'] || m['Correo']))][0];
-                    const platFound = matches[0]['Streaming'] || 'Streaming';
-                    const passToSend = filters.new_password || matches[0]['contraseña'] || matches[0]['clave'] || matches[0]['Clave'] || 'La actual';
-                    
-                    filteredData = {
-                        status: "pending_confirmation",
-                        action_type: "broadcast",
-                        target_account: uniqueAccount,
-                        platform: platFound,
-                        new_password: passToSend,
-                        custom_message: filters.custom_message || null,
-                        only_fields: filters.only_fields || null,
-                        count: matches.length,
-                        // Guardamos más datos para que el mensaje sea más rico (Pin, Factura, etc.)
-                        recipients: matches.map(m => {
-                            const platMatched = (m['Streaming'] || m['streaming'] || '').toString().toLowerCase();
-                            const nameMatched = (m['Nombre'] || m['nombre'] || '').toString().toLowerCase();
-                            return { 
+
+                    if (recipients.length > 0) {
+                        const uniqueAccount = sourceMatch ? (sourceMatch['correo'] || sourceMatch['Correo']) : "Nueva Cuenta";
+                        const platFound = platformFilter || (sourceMatch ? sourceMatch['Streaming'] : 'Streaming');
+                        const passToSend = filters.new_password || (sourceMatch ? (sourceMatch['contraseña'] || sourceMatch['clave'] || sourceMatch['Clave']) : 'La actual');
+                        
+                        filteredData = {
+                            status: "pending_confirmation",
+                            action_type: "broadcast",
+                            target_account: uniqueAccount,
+                            platform: platFound,
+                            new_password: passToSend,
+                            custom_message: filters.custom_message || null,
+                            only_fields: filters.only_fields || null,
+                            count: recipients.length,
+                            recipients: recipients.map(m => ({ 
                                 tel: m['numero'], 
                                 nombre: m['Nombre'] || m['nombre'] || 'Cliente',
                                 pin_perfil: m['pin perfil'] || m['pin_perfil'] || m['perfil'] || m['pin'] || null,
                                 vencimiento: m['vencimiento'] || m['Vencimiento'] || null,
-                                is_owner: platMatched.includes('owner') || nameMatched.includes('owner'),
+                                is_owner: (m['Streaming'] || '').toLowerCase().includes('owner'),
                                 customer_mail: m['customer mail'] || m['Customer Mail'] || null
-                            };
-                        })
-                    };
-                } else {
-                    filteredData = { status: "error", message: `No encontré ningún usuario válido (con teléfono) asociado a "${accountQuery}".` };
+                            }))
+                        };
+                    } else {
+                        filteredData = { status: "error", message: `No encontré destinatarios válidos para el broadcast de ${platformFilter || sourceQuery}.` };
+                    }
                 }
 
             } else if (action === 'auto_cobros') {

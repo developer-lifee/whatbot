@@ -1662,6 +1662,18 @@ async function processIncomingMessage(messages) {
            // Saltamos el menú de selección de plataformas y vamos directo a la cotización detallada.
            if (detection.detectedPlatform) {
                console.log(`[Flow Optimization] Saltando menú de plataformas para @${userId}. Plataforma detectada: ${detection.detectedPlatform}`);
+               
+               // Limpieza de seguridad: si el usuario cambió de idea respecto a lo que había en el carrito
+               if (existingState.items && existingState.items.length > 0) {
+                   const currentPlat = (existingState.items[0].Streaming || existingState.items[0].platform?.name || "").toLowerCase();
+                   const newPlat = detection.detectedPlatform.toLowerCase();
+                   if (!newPlat.includes(currentPlat) && !currentPlat.includes(newPlat)) {
+                       console.log(`[Flow Optimization] Detectado cambio de interés (${currentPlat} -> ${newPlat}). Limpiando carrito previo.`);
+                       existingState.items = [];
+                       existingState.total = 0;
+                   }
+               }
+
                userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
                await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
                return;

@@ -146,7 +146,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "Nombre": firstName,
                     "apellido": lastName,
                     "Nombre Completo": name,
-                    "whatsapp": formatWhatsAppNumber(phone),
+                    "whatsapp": phone,
                     "numero": phone,
                     "deben": nextPaymentDate,
                     "Metodo de pago": paymentMethod || "Confirmado (Auto)",
