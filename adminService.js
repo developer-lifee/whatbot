@@ -22,7 +22,7 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
             if (!chat || !chat.id || !chat.id._serialized) return false;
             
             const chatId = chat.id._serialized;
-            if (chat.isGroup || chatId.includes('@broadcast')) return false;
+            if (chat.isGroup || chatId.includes('@broadcast') || chatId.includes('@lid')) return false;
             
             // Criterio 1: Mensajes sin leer
             if (chat.unreadCount > 0) return true;

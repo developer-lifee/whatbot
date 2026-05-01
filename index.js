@@ -1555,6 +1555,26 @@ async function processIncomingMessage(messages) {
       }
   }
 
+  // 4.6 BREAKOUT DE FLUJOS (Si el usuario cambia de tema bruscamente o está frustrado)
+  const flowsRequiringBreakout = ['selecting_plans', 'awaiting_purchase_platforms', 'adding_platform', 'awaiting_payment_method', 'awaiting_name_for_contact', 'awaiting_churn_reason'];
+  const isChangingTopic = detection.intent && !['desconocido', 'comprar'].includes(detection.intent);
+  const isVeryFrustrated = detection.frustrationLevel >= 7;
+
+  if (flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated)) {
+      console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChangingTopic ? 'Cambio de tema ('+detection.intent+')' : 'Alta frustración'}`);
+      
+      if (isVeryFrustrated) {
+          userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1 });
+          await message.reply("🤖 Entiendo tu frustración y lamento si no he sido claro. He avisado a un asesor humano para que te ayude personalmente ahora mismo. ¡Gracias por tu paciencia! 😊");
+          return;
+      }
+      
+      // Si el usuario simplemente cambió de tema (pide soporte, credenciales, etc.)
+      // Limpiamos el estado actual para que el mensaje sea procesado por la lógica global (case undefined)
+      currentState = undefined; 
+      currentStateData = undefined;
+  }
+
   switch (currentState) {
     case undefined:
       const cleanInput = inputToUse.trim();
@@ -1693,10 +1713,23 @@ async function processIncomingMessage(messages) {
           }
           await processCheckCredentials(message, userId);
           return;
-      } else if (detection.intent === 'pagar') {
-          await processCheckPrices(message, userId, userStates, detection.detectedPlatform);
-          return;
-      }
+       } else if (detection.intent === 'pagar') {
+           await processCheckPrices(message, userId, userStates, detection.detectedPlatform);
+           return;
+       } else if (detection.intent === 'soporte') {
+           // Si el usuario pide soporte, le damos la bienvenida y le preguntamos el detalle (o lo escalamos si ya lo dio)
+           const history = await getChatHistoryText(message);
+           const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, null, userAccounts);
+           if (fallback.replyMessage) {
+               await message.reply(fallback.replyMessage);
+               if (fallback.needsEscalation) {
+                   userStates.set(userId, { state: 'waiting_human', waitingCount: 1 });
+               } else {
+                   userStates.set(userId, { state: 'main_menu', nombre: foundName });
+               }
+           }
+           return;
+       }
 
       // 6. FLUJO POR DEFECTO (Más sutil y conversacional)
       const { getChatHistoryText } = require('./salesService');
