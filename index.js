@@ -1834,7 +1834,7 @@ async function processIncomingMessage(messages) {
            const history = await getChatHistoryText(message);
            const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, null, userAccounts);
            if (fallback.replyMessage) {
-               await message.reply(fallback.replyMessage);
+               await safeReply(message, fallback.replyMessage, userId);
                if (fallback.needsEscalation) {
                    userStates.set(userId, { state: 'waiting_human', waitingCount: 1 });
                } else {
@@ -1854,7 +1854,7 @@ async function processIncomingMessage(messages) {
       
       // Si la IA generó una respuesta útil (no es el mensaje de error por defecto)
       if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
-          await message.reply(fallback.replyMessage);
+          await safeReply(message, fallback.replyMessage, userId);
           // Si el usuario parece estar perdido después de la respuesta, podemos sugerir el menú sutilmente después.
           const currentData = userStates.get(userId) || {};
           userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
@@ -1865,9 +1865,9 @@ async function processIncomingMessage(messages) {
       const currentData = userStates.get(userId) || {};
       if (foundName) {
         userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
-        await message.reply(`🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*' }! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`);
+        await safeReply(message, `🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*' }! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`, userId);
       } else {
-        await message.reply("🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nEscoge una opción para ayudarte:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
+        await safeReply(message, "🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nEscoge una opción para ayudarte:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)", userId);
         userStates.set(userId, { ...currentData, state: 'main_menu' });
       }
       break;

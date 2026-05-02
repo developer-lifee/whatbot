@@ -708,10 +708,11 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     
     REGLA DE DEDUCCIÓN DE CONTEXTO Y CONTINUIDAD (MÁXIMA PRIORIDAD):
     Nunca analices el "Mensaje actual" de forma aislada. Debes deducir estrictamente a qué está respondiendo el cliente basándote en el historial:
-    1. Si el Asistente (especialmente si es humano sin 🤖) acaba de hacer una pregunta o pedir un dato (ej: "¿Qué operador tienes?", "Confírmame tu correo", "Pásame el comprobante") y el cliente responde con ese dato (ej: "Claro", "Engativa", "Mi correo es..."), ES UNA CONTINUACIÓN DIRECTA.
-    2. En este caso de continuación directa de una charla humana, TU ÚNICA ACCIÓN DEBE SER devolver "recoveredState": "waiting_human" y "intent": "desconocido". NO intentes resolver nada ni dar soporte, porque el humano ya está a cargo de recolectar esa información.
-    3. De igual manera, si el bot 🤖 estaba a la mitad de un flujo (ej: esperando método de pago) y el cliente responde a eso, recupera el estado correspondiente. ¡El contexto manda!
-    4. **RELEVANCIA TEMPORAL:** Si el usuario menciona una plataforma (ej: Netflix) pero esa mención es de hace mucho tiempo (ej: más de 24 horas) y hoy solo envía un saludo inicial, usa el sentido común. No asumas que sigue queriendo comprar eso. El intent debe ser "desconocido" (saludo) y no "comprar", a menos que el usuario lo mencione de nuevo hoy o sea una continuación lógica clara.
+    1. Si el "Mensaje actual" contiene varios mensajes (separados por \n), analízalos como una ráfaga lógica. Si hay contradicciones, dale prioridad al último mensaje de la ráfaga o al que sea más específico (ej: si dice "Hola" y luego "Quiero Netflix", el intent es "comprar").
+    2. Si el Asistente (especialmente si es humano sin 🤖) acaba de hacer una pregunta o pedir un dato (ej: "¿Qué operador tienes?", "Confírmame tu correo", "Pásame el comprobante") y el cliente responde con ese dato (ej: "Claro", "Engativa", "Mi correo es..."), ES UNA CONTINUACIÓN DIRECTA.
+    3. En este caso de continuación directa de una charla humana, TU ÚNICA ACCIÓN DEBE SER devolver "recoveredState": "waiting_human" y "intent": "desconocido". NO intentes resolver nada ni dar soporte, porque el humano ya está a cargo de recolectar esa información.
+    4. Si el bot 🤖 estaba a la mitad de un flujo (ej: esperando método de pago) y el cliente responde a eso, recupera el estado correspondiente. ¡El contexto manda!
+    5. **RELEVANCIA TEMPORAL:** Si el usuario menciona una plataforma (ej: Netflix) pero esa mención es de hace mucho tiempo (ej: más de 24 horas) y hoy solo envía un saludo inicial, usa el sentido común. No asumas que sigue queriendo comprar eso. El intent debe ser "desconocido" (saludo) y no "comprar", a menos que el usuario lo mencione de nuevo hoy o sea una continuación lógica clara.
     
     Salida esperada JSON:
     {
@@ -724,7 +725,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
         "metadata": object | null 
     }
 
-    Si el mensaje actual es una imagen, revisa si es un comprobante de pago. Si lo es, pon intent: "pagar".
+    Si el mensaje actual es una imagen o el texto menciona un pago, revisa si es un comprobante. Si lo es, pon intent: "pagar".
   `;
 
   try {
