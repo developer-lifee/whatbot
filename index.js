@@ -957,8 +957,8 @@ async function processIncomingMessage(messages) {
       }
   } catch (err) {}
 
-  // Sincronizar con Google Contacts si tenemos un nombre válido
-  if (!message.fromMe && foundName && !realPhone.includes(ADMIN_RAW_PHONE)) {
+  // Sincronizar con Google Contacts si tenemos un nombre válido y es un chat individual
+  if (!message.fromMe && foundName && !realPhone.includes(ADMIN_RAW_PHONE) && !userId.includes('@g.us')) {
       const { addNewContact } = require('./googleContactsService');
       // addNewContact ya tiene validación interna y caché local para evitar duplicados
       await addNewContact(foundName, realPhone);
@@ -1045,7 +1045,7 @@ async function processIncomingMessage(messages) {
   async function handleAdminResultLogic(data, userId, userStates, message, isAwaitingAdminConfirm, adminState) {
       console.log(`[Admin Dashboard DEBUG] handleAdminResultLogic: status=${data.status}, userId=${userId}, isAwaitingConfirm=${!!isAwaitingAdminConfirm}, hasState=${!!adminState}, state=${adminState ? adminState.state : 'none'}`);
       
-      if (!adminState || !isAwaitingAdminConfirm) {
+      if (!adminState || (adminState.state !== 'awaiting_admin_broadcast_confirmation' && adminState.state !== 'awaiting_admin_suggestion_selection')) {
           // Intento de recuperación: Si no hay estado en el ID actual, buscar en el ID del admin directo
           const contact = await message.getContact();
           if (contact && contact.number) {
@@ -1058,6 +1058,8 @@ async function processIncomingMessage(messages) {
               }
           }
       }
+
+      console.log(`[Admin Dashboard DEBUG AFTER RECOVERY] userId=${userId}, isAwaitingConfirm=${!!isAwaitingAdminConfirm}, state=${adminState ? adminState.state : 'none'}`);
       
       if (data.status === 'pending_confirmation') {
           userStates.set(userId, { state: 'awaiting_admin_broadcast_confirmation', payload: data, timestamp: Date.now() });
@@ -1400,45 +1402,46 @@ async function processIncomingMessage(messages) {
           // Si el comando @bot no coincide con nada rígido, usar IA para consultar datos o conversar
           const { processAdminQuery } = require('./adminQueries');
           
-          const adminState = isFromAdmin ? userStates.get(userId) : null;
-          const isAwaitingAdminConfirm = adminState && adminState.state === 'awaiting_admin_broadcast_confirmation';
-          const isAwaitingAdminSuggestion = adminState && adminState.state === 'awaiting_admin_suggestion_selection';
-
           // Resolución de texto de consulta
           let queryText = command; // Usamos el comando ya limpio
           const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(queryText.toLowerCase());
 
+          // Recalcular estados para asegurar frescura
+          const freshAdminState = userStates.get(userId);
+          const freshIsAwaitingConfirm = freshAdminState && freshAdminState.state === 'awaiting_admin_broadcast_confirmation';
+          const freshIsAwaitingSuggestion = freshAdminState && freshAdminState.state === 'awaiting_admin_suggestion_selection';
+
           if (queryText.length > 0) {
               // --- CASO 1: Respuesta afirmativa ("si", "dale") ---
-              if (isAffirmative && (isAwaitingAdminConfirm || isAwaitingAdminSuggestion)) {
-                  if (isAwaitingAdminSuggestion) {
-                      if (adminState.payload && adminState.payload.options && adminState.payload.options.length === 1) {
-                          const selectedPlatform = adminState.payload.options[0];
+              if (isAffirmative && (freshIsAwaitingConfirm || freshIsAwaitingSuggestion)) {
+                  if (freshIsAwaitingSuggestion) {
+                      if (freshAdminState.payload && freshAdminState.payload.options && freshAdminState.payload.options.length === 1) {
+                          const selectedPlatform = freshAdminState.payload.options[0];
                           const { fetchRawData } = require('./apiService');
                           const rawData = await fetchRawData();
-                          const resultDirect = await processAdminQuery(message, selectedPlatform, userStates, client, adminState.originalFilters, rawData);
-                          if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+                          const resultDirect = await processAdminQuery(message, selectedPlatform, userStates, client, freshAdminState.originalFilters, rawData);
+                          if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
                           return;
                       }
                   }
                   const result = await processAdminQuery(message, queryText, userStates, client);
-                  if (result && result.filteredData) await handleAdminResultLogic(result.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+                  if (result && result.filteredData) await handleAdminResultLogic(result.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
                   return;
               }
 
               // --- CASO 2: Selección directa de plataforma en estado de sugerencia ---
-              if (isAwaitingAdminSuggestion && !isAffirmative) {
+              if (freshIsAwaitingSuggestion && !isAffirmative) {
                   const { fetchRawData } = require('./apiService');
                   const rawData = await fetchRawData();
-                  const resultDirect = await processAdminQuery(message, queryText, userStates, client, adminState.originalFilters, rawData);
-                  if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+                  const resultDirect = await processAdminQuery(message, queryText, userStates, client, freshAdminState.originalFilters, rawData);
+                  if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
                   return;
               }
 
               // --- CASO 3: Consulta general (Data o Conversación) ---
               const result = await processAdminQuery(message, queryText, userStates, client);
               if (result && result.filteredData) {
-                  await handleAdminResultLogic(result.filteredData, userId, userStates, message, isAwaitingAdminConfirm, adminState);
+                  await handleAdminResultLogic(result.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
               }
               return;
           }
