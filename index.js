@@ -90,8 +90,7 @@ const {
   handleSubscriptionInterest,
   handleAwaitingPurchasePlatforms,
   handleSelectingPlans,
-  handleAddingPlatform,
-  getChatHistoryText
+  handleAddingPlatform
 } = require('./salesService');
 
 const {
@@ -1581,7 +1580,12 @@ async function processIncomingMessage(messages) {
 
   // 2. DETECCIÓN DE INTENCIÓN Y NOMBRE (Global para todos los estados)
   const hist = await getChatHistoryText(message, 25);
-  const detection = await detectInitialIntent(inputToUse, hist, null, userAccounts);
+  const messageAgeMinutes = Math.floor((Date.now() / 1000 - message.timestamp) / 60);
+  
+  // Añadimos el contexto de antigüedad al historial para que la IA se disculpe si es necesario
+  const timedHist = `[AVISO: El mensaje actual fue enviado hace ${messageAgeMinutes} minutos]\n${hist}`;
+  
+  const detection = await detectInitialIntent(inputToUse, timedHist, null, userAccounts);
 
   // 3. IDENTIDAD TERCERO: IA revisando historial o mensaje actual
   if ((!foundName || foundName === 'Cliente') && detection.userName) {
