@@ -664,16 +664,15 @@ client.on('message_create', async (msg) => {
     let targetId = msg.to;
     
     // Traducción de LID a @c.us para consistencia en el estado (evita pisar charlas humanas)
-    if (targetId.includes('@lid')) {
+    if (targetId && targetId.includes('@lid')) {
         try {
-            const contact = await msg.getContact();
-            if (contact && contact.number) {
-                targetId = contact.number + '@c.us';
-           }
-       } catch(e) { 
-           // Silencio parcial: solo loguear si realmente hay algo que reportar
-           if (msg && msg.body) console.warn("[LID Fix message_create] Error traduciendo contacto:", e.message); 
-       }
+            const contact = await client.getContactById(targetId);
+            if (contact && contact.id && contact.id.user) {
+                targetId = contact.id.user + '@c.us';
+            }
+        } catch(e) { 
+            if (msg && msg.body) console.warn("[LID Fix message_create] Error traduciendo contacto:", e.message); 
+        }
     }
     
     // Comando o mención en el chat para reactivar el bot o confirmar pagos
@@ -835,13 +834,24 @@ async function processIncomingMessage(messages) {
       if (message && typeof message.getContact === 'function') {
           contact = await message.getContact();
           if (contact && contact.number) {
+              const oldId = userId;
               realPhone = contact.number;
-              if (userId.includes('@lid')) {
-                  console.log(`[LID Fix] Redirigiendo ID @lid (${userId}) a @c.us (${realPhone}@c.us) para preservar contexto.`);
+              
+              if (userId.includes('@lid') || (isFromAdmin && !userId.includes('@g.us'))) {
                   userId = realPhone + '@c.us';
-              } else if (isFromAdmin && !userId.includes('@g.us')) {
-                  // Aseguramos que el admin siempre use su ID @c.us incluso si viene de @lid o similar
-                  userId = realPhone + '@c.us';
+                  
+                  // MIGRACIÓN DE ESTADO: Si el ID cambió (de @lid a @c.us) y tenemos estado en el viejo, lo pasamos al nuevo
+                  if (oldId !== userId && userStates.has(oldId)) {
+                      const oldData = userStates.get(oldId);
+                      const newData = userStates.get(userId) || {};
+                      
+                      // Solo migramos si el nuevo está vacío o si el viejo tiene información más relevante (como items en carrito)
+                      if (!newData.state || (oldData.items && oldData.items.length > 0)) {
+                          userStates.set(userId, { ...oldData, ...newData });
+                          console.log(`[LID Migration] Migrado estado de ${oldId} a ${userId} para preservar contexto.`);
+                      }
+                      userStates.delete(oldId);
+                  }
               }
           }
       }
@@ -1501,7 +1511,8 @@ async function processIncomingMessage(messages) {
     // --- INTERCEPTOR GLOBAL DE PAGOS ---
     if (mediaData.length > 0) {
       // Tomamos la primera imagen para el interceptor de pagos (normalmente el usuario manda el recibo solo)
-      const check = await isPaymentReceipt(mediaData[0], history);
+      const batchText = messages.map(m => m.body).filter(b => b).join('\n');
+      const check = await isPaymentReceipt(mediaData[0], `[TEXTO EN ESTE LOTE: ${batchText}]\n\n${history}`);
       if (check.isReceipt) {
           console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);
           
@@ -1620,8 +1631,13 @@ async function processIncomingMessage(messages) {
   const hist = await getChatHistoryText(message, 25);
   const messageAgeMinutes = Math.floor((Date.now() / 1000 - message.timestamp) / 60);
   
+  // Construimos el contexto del lote actual para que la IA entienda la ráfaga de mensajes
+  const batchContext = messages.length > 1 
+    ? `\n[MENSAJES EN ESTA RÁFAGA RECIENTE]:\n${messages.map(m => `- ${m.body || '[Media]'}`).join('\n')}\n`
+    : "";
+
   // Añadimos el contexto de antigüedad al historial para que la IA se disculpe si es necesario
-  const timedHist = `[AVISO: El mensaje actual fue enviado hace ${messageAgeMinutes} minutos]\n${hist}`;
+  const timedHist = `[AVISO: El mensaje actual fue enviado hace ${messageAgeMinutes} minutos]\n${batchContext}${hist}`;
   
   const detection = await detectInitialIntent(inputToUse, timedHist, null, userAccounts);
 
@@ -1638,7 +1654,7 @@ async function processIncomingMessage(messages) {
 
   // 4.6 BREAKOUT DE FLUJOS (Si el usuario cambia de tema bruscamente o está frustrado)
   const flowsRequiringBreakout = ['selecting_plans', 'awaiting_purchase_platforms', 'adding_platform', 'awaiting_payment_method', 'awaiting_name_for_contact', 'awaiting_churn_reason'];
-  const isChangingTopic = detection.intent && !['desconocido', 'comprar'].includes(detection.intent);
+  const isChangingTopic = detection.intent && !['desconocido', 'comprar', 'pagar'].includes(detection.intent);
   const isVeryFrustrated = detection.frustrationLevel >= 7;
 
   if (flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated)) {
@@ -1806,7 +1822,12 @@ async function processIncomingMessage(messages) {
           await processCheckCredentials(message, userId);
           return;
        } else if (detection.intent === 'pagar') {
-           await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform);
+           const stateData = userStates.get(userId) || {};
+           if (userAccounts.length === 0 && stateData.items && stateData.items.length > 0) {
+               await handleAwaitingPaymentMethod(message, userId);
+           } else {
+               await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform);
+           }
            return;
        } else if (detection.intent === 'soporte') {
            // Si el usuario pide soporte, le damos la bienvenida y le preguntamos el detalle (o lo escalamos si ya lo dio)
@@ -1824,13 +1845,12 @@ async function processIncomingMessage(messages) {
        }
 
       // 6. FLUJO POR DEFECTO (Más sutil y conversacional)
-      const { getChatHistoryText } = require('./salesService');
-      const history = await getChatHistoryText(message);
+      const historyForFallback = await getChatHistoryText(message);
       
-      let userAccounts = [];
+      userAccounts = [];
       try { userAccounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch(e){}
       
-      const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, null, userAccounts);
+      const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, null, userAccounts);
       
       // Si la IA generó una respuesta útil (no es el mensaje de error por defecto)
       if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
@@ -1937,6 +1957,18 @@ async function processIncomingMessage(messages) {
       await processFallbackWithEscalation(message, userId, isMedia, mediaData.length > 0 ? mediaData : null, historyText);
       break;
   }
+}
+
+/**
+ * Envía una respuesta al cliente solo si no han llegado mensajes nuevos para el mismo usuario
+ * durante el tiempo de procesamiento, evitando "pisar" al usuario con respuestas stale.
+ */
+async function safeReply(message, content, userId) {
+    if (messageQueues.has(userId)) {
+        console.log(`[Stale Guard] 🛑 Abortando respuesta para @${userId.replace('@c.us', '')} porque hay nuevos mensajes en cola.`);
+        return null;
+    }
+    return await message.reply(content);
 }
 
 /**
@@ -2160,9 +2192,8 @@ async function processPaymentSelection(message, userId, text) {
       userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
     } else {
       // Usar la IA en vez del mensaje genérico terco (esto responde precios exactos gracias a aiService)
-      const { getChatHistoryText } = require('./salesService');
-      const historyText = await getChatHistoryText(message);
-      await processFallbackWithEscalation(message, userId, false, null, historyText);
+      const historyTextForFallback = await getChatHistoryText(message);
+      await processFallbackWithEscalation(message, userId, false, null, historyTextForFallback);
     }
   }
 }

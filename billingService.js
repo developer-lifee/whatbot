@@ -333,8 +333,15 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
           await message.reply(replyMessage);
       }
     } else {
-      await message.reply(`🤖 No encontramos cuentas pendientes o asociadas al número ${phoneNumber}. Si crees que hay un error, contacta a un asesor. 😊`);
-      userStates.delete(userId);
+      const stateData = userStates.get(userId) || {};
+      if (stateData.items && stateData.items.length > 0) {
+          // Si está comprando algo nuevo, no mostramos error de "no hay cuentas", simplemente lo guiamos al pago.
+          await message.reply(`🤖 ¡Perfecto! Veo que estás por completar tu primera compra.\n\n¿Por cuál medio deseas hacer la transferencia?\n⭐Nequi | ⭐Daviplata | ⭐Bancolombia | ⭐QR Negocios`);
+          userStates.set(userId, { ...stateData, state: 'awaiting_payment_method' });
+      } else {
+          await message.reply(`🤖 No encontramos cuentas pendientes o asociadas al número ${phoneNumber}. Si crees que hay un error, contacta a un asesor. 😊`);
+          userStates.delete(userId);
+      }
     }
   } catch (error) {
     console.error('Error en processCheckPrices con la base de datos de Azure:', error);
