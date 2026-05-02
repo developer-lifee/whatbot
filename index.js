@@ -1729,7 +1729,7 @@ async function processIncomingMessage(messages) {
            
            // SI EL USUARIO TIENE CUENTAS Y NO MENCIONA UNA PLATAFORMA NUEVA, ASUMIMOS QUE ES RENOVACIÓN/PAGO
            if (userAccounts.length > 0 && !detection.detectedPlatform) {
-               await processCheckPrices(message, userId, userStates);
+               await processCheckPrices(message, userId, userStates, null, detection.detectedPlatform);
                return;
            }
 
@@ -1767,7 +1767,7 @@ async function processIncomingMessage(messages) {
            await startPurchaseProcess(message, userId, userStates);
            return;
        } else if (detection.intent === 'renovar') {
-           await processCheckPrices(message, userId, userStates, detection.detectedPlatform);
+           await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform);
            return;
        } else if (detection.intent === 'credenciales') {
           if (!foundName) {
@@ -1779,7 +1779,7 @@ async function processIncomingMessage(messages) {
           await processCheckCredentials(message, userId);
           return;
        } else if (detection.intent === 'pagar') {
-           await processCheckPrices(message, userId, userStates, detection.detectedPlatform);
+           await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform);
            return;
        } else if (detection.intent === 'soporte') {
            // Si el usuario pide soporte, le damos la bienvenida y le preguntamos el detalle (o lo escalamos si ya lo dio)
@@ -2041,7 +2041,7 @@ async function handleMainMenuSelection(message, userId, detection) {
               await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
               return;
           } else if (detection.intent === 'pagar') {
-              await processCheckPrices(message, userId, userStates, detection.detectedPlatform);
+              await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform);
               return;
           } else if (detection.intent === 'credenciales') {
               await processCheckCredentials(message, userId);

@@ -113,7 +113,7 @@ async function handleAwaitingCobrosConfirmation(message, userId, userStates, pen
   }
 }
 
-async function processCheckPrices(message, userId, userStates, preferredMethod = null) {
+async function processCheckPrices(message, userId, userStates, preferredMethod = null, platformFilter = null) {
   try {
     // RESOLUCIÓN DE CONTACTO: Queremos el número del CLIENTE, no del remitente
     // (Útil si el último mensaje fue del bot en un batch scan)
@@ -126,8 +126,24 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
     }
     
     const phoneNumber = contact.number; // number es el teléfono real sin @c.us o LID
-    const userAccounts = await getAccountsByPhone(phoneNumber);
+    const allUserAccounts = await getAccountsByPhone(phoneNumber);
     const platforms = await getPlatforms();
+
+    // Filtrar por plataforma si se especificó una (ej: "solo quiero pagar Disney")
+    let userAccounts = allUserAccounts;
+    if (platformFilter) {
+        const filterLower = platformFilter.toLowerCase();
+        userAccounts = allUserAccounts.filter(acc => {
+            const accName = (acc.Streaming || "").toLowerCase();
+            return accName.includes(filterLower) || filterLower.includes(accName);
+        });
+        
+        // Si no encontramos nada con el filtro, volvemos a la lista completa por seguridad
+        if (userAccounts.length === 0) {
+            userAccounts = allUserAccounts;
+            platformFilter = null;
+        }
+    }
 
     // Mapa de alias para normalizar nombres del Excel al catálogo
     const PLATFORM_ALIASES = {
@@ -145,7 +161,9 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
     };
 
     if (userAccounts.length > 0) {
-      let replyMessage = "Tus cuentas actuales para renovar o pagar son:\n";
+      let replyMessage = platformFilter 
+        ? `Tus cuentas de *${platformFilter.toUpperCase()}* para renovar o pagar son:\n`
+        : "Tus cuentas actuales para renovar o pagar son:\n";
       let totalToPay = 0;
       let dateGroups = new Map();
 
@@ -262,7 +280,7 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
         }
       });
 
-      if (totalDiscount > 0) {
+      if (totalDiscount > 0 && !platformFilter) {
         totalToPay -= totalDiscount;
         replyMessage += `\n\nDescuento por combo (vencimiento mismo día): -$${totalDiscount}`;
       }
@@ -299,7 +317,8 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
           };
           
           const methodKey = preferredMethod.toLowerCase();
-          if (details[methodKey]) {
+          const foundKey = Object.keys(details).find(k => methodKey.includes(k) || k.includes(methodKey));
+          if (foundKey) {
               await message.reply(`🤖 Entendido, aquí tienes los datos para *${preferredMethod.toUpperCase()}*:\n\n${details[methodKey]}\n\nUna vez realices la transferencia, por favor envíame el comprobante por aquí.`);
               userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation', paymentMethod: preferredMethod });
           } else {
