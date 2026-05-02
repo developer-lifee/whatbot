@@ -83,7 +83,7 @@ const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573133890800') + '@c.us
 const ADMIN_RAW_PHONE = OPERATOR_NUMBER.replace('@c.us', '');
 let globalBotSleep = false;
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
-const BATCH_INTERVAL = 4000; // 4 segundos para agrupar mensajes (mejor unificación)
+const BATCH_INTERVAL = 6000; // 6 segundos para agrupar mensajes (mejor unificación para gente que escribe lento)
 
 const {
   startPurchaseProcess,
@@ -1093,6 +1093,7 @@ async function processIncomingMessage(messages) {
               try {
                   await client.sendMessage(userId, `✅ *Envío completado exitosamente.*\n- Total: ${payload.count}\n- Enviados: ${exitosos}`);
                   userStates.delete(userId);
+              } catch(e) { console.error('Error enviando mensaje completado:', e.message); }
            } else {
                try {
                    console.log(`[Admin State DEBUG] No se halló estado para ${userId}. Contenido de userStates:`, Array.from(userStates.keys()));
@@ -1706,8 +1707,7 @@ async function processIncomingMessage(messages) {
                   nombre: foundName,
                   rowNumber: rowNumberToCancel 
               });
-              
-              // Guardado inmediato preventivo ("cortar") en caso de que el cliente no responda a la pregunta.
+                            // Guardado inmediato preventivo ("cortar") en caso de que el cliente no responda a la pregunta.
               const { updateExcelData } = require('./apiService');
               updateExcelData(rowNumberToCancel, { "observaciones": "cortar" }).catch(e => console.error("[Churn] Error guardado preventivo:", e.message));
 
@@ -1728,7 +1728,10 @@ async function processIncomingMessage(messages) {
            const existingState = userStates.get(userId) || {};
            
            // SI EL USUARIO TIENE CUENTAS Y NO MENCIONA UNA PLATAFORMA NUEVA, ASUMIMOS QUE ES RENOVACIÓN/PAGO
-           if (userAccounts.length > 0 && !detection.detectedPlatform) {
+           // Pero solo si el mensaje NO contiene palabras de compra explícitas (ej: "comprar", "nueva", "quiero una")
+           const isExplicitPurchase = inputToUse.toLowerCase().includes('comprar') || inputToUse.toLowerCase().includes('nueva');
+           
+           if (userAccounts.length > 0 && !detection.detectedPlatform && !isExplicitPurchase) {
                await processCheckPrices(message, userId, userStates, null, detection.detectedPlatform);
                return;
            }
@@ -1994,9 +1997,10 @@ async function handleMainMenuSelection(message, userId, detection) {
   const userSelection = message.body.trim();
   switch (userSelection) {
     case '1':
+      const existing = userStates.get(userId) || {};
       if (detection && detection.detectedPlatform) {
           console.log(`[Menu Context] Usuario seleccionó 1 pero ya había mencionado: ${detection.detectedPlatform}`);
-          userStates.set(userId, { ...userStates.get(userId), state: 'awaiting_purchase_platforms' });
+          userStates.set(userId, { ...existing, state: 'awaiting_purchase_platforms', nombre: foundName });
           await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
       } else {
           await startPurchaseProcess(message, userId, userStates);
