@@ -82,6 +82,7 @@ const GROUP_ID = '120363102144405222@g.us';
 const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573133890800') + '@c.us';
 const ADMIN_RAW_PHONE = OPERATOR_NUMBER.replace('@c.us', '');
 let globalBotSleep = false;
+let globalLastPaymentUserId = null; // Memoria del último usuario que envió un comprobante o pidió ayuda
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
 const BATCH_INTERVAL = 6000; // 6 segundos para agrupar mensajes (mejor unificación para gente que escribe lento)
 
@@ -769,6 +770,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
             }
          } catch(e) { console.error('Error enviando escalamiento:', e); }
           userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+          globalLastPaymentUserId = userId;
     }
 }
 
@@ -1251,22 +1253,42 @@ async function processIncomingMessage(messages) {
           return;
       } else if (adminAI.intent === 'confirmar_pago' || isReplyConfirmation) {
           const { handleAdminPaymentConfirmation } = require('./adminService');
-          let targetPhone = adminAI.target ? adminAI.target.replace(/\D/g, '') : null;
-          let targetId = targetPhone ? targetPhone + '@c.us' : (isFromAdmin && !message.from.includes('@g.us') ? message.to : null);
+          let targetPhone = adminAI.target_user ? adminAI.target_user.replace(/\D/g, '') : null;
           
+          // Fallback manual si la IA no detectó el número pero está en el texto
+          if (!targetPhone) {
+              const regex = /57\s*3\d{2}\s*\d{7}|3\d{9}/;
+              const match = message.body.match(regex);
+              if (match) targetPhone = match[0].replace(/\s+/g, '');
+          }
+
+          let targetId = targetPhone ? (targetPhone.includes('@') ? targetPhone : targetPhone + '@c.us') : null;
+          
+          // Prioridad: 1. Quoted Message, 2. Target Phone, 3. globalLastPaymentUserId
           if (isReplyConfirmation) {
               const quotedMsg = await message.getQuotedMessage();
-              const phoneRegex = /57\d{10}/;
+              const phoneRegex = /(57\d{10})|(\d{10})/;
               const match = quotedMsg.body.match(phoneRegex);
-              if (match) targetId = match[0] + '@c.us';
+              if (match) {
+                  let num = match[0];
+                  if (num.length === 10) num = '57' + num;
+                  targetId = num + '@c.us';
+              } else if (quotedMsg.from !== client.info.wid._serialized) {
+                  // Si no hay número en el texto pero el mensaje citado es de un cliente (no del bot)
+                  targetId = quotedMsg.from;
+              }
+          }
+
+          if (!targetId && globalLastPaymentUserId) {
+              console.log(`[Admin Logic] No se halló ID en comando, usando memoria global: ${globalLastPaymentUserId}`);
+              targetId = globalLastPaymentUserId;
           }
 
           if (targetId) {
-              // Construir el comando para que admita meses si la IA los detectó
               const cmd = adminAI.months ? `confirmar ${adminAI.months} meses` : "confirmar";
               await handleAdminPaymentConfirmation(message, cmd, client, userStates, targetId);
           } else {
-              await message.reply('❌ No pude identificar al cliente para confirmar el pago, jefe.');
+              await message.reply('❌ No pude identificar al cliente para confirmar el pago, jefe. Intenta poniendo el número o respondiendo al reporte del cliente.');
           }
           return;
       }
@@ -1549,6 +1571,8 @@ async function processIncomingMessage(messages) {
               state: 'awaiting_payment_confirmation',
               paymentMethod: check.bank || 'Transferencia'
           });
+          
+          globalLastPaymentUserId = userId; // Guardamos en memoria para que el admin solo diga "@bot confirmar"
 
           const replyText = stateData.isRenewal 
               ? "🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\nUn asesor validará tu pago en un momento y renovará tus servicios activos. ¡Gracias por tu paciencia! 😊"
