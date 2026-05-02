@@ -668,8 +668,11 @@ client.on('message_create', async (msg) => {
             const contact = await msg.getContact();
             if (contact && contact.number) {
                 targetId = contact.number + '@c.us';
-            }
-        } catch(e) { console.error("[LID Fix message_create] Falló traducción:", e.message); }
+           }
+       } catch(e) { 
+           // Silencio parcial: solo loguear si realmente hay algo que reportar
+           if (msg && msg.body) console.warn("[LID Fix message_create] Error traduciendo contacto:", e.message); 
+       }
     }
     
     // Comando o mención en el chat para reactivar el bot o confirmar pagos
@@ -1089,13 +1092,13 @@ async function processIncomingMessage(messages) {
               }
               try {
                   await client.sendMessage(userId, `✅ *Envío completado exitosamente.*\n- Total: ${payload.count}\n- Enviados: ${exitosos}`);
-              } catch(e) { console.error('Error enviando mensaje completado:', e.message); }
-              userStates.delete(userId);
-          } else {
-              try {
-                  await client.sendMessage(userId, "❌ No tengo ninguna acción pendiente para confirmar.");
-              } catch(e) { console.error('Error respondiendo acción pendiente:', e.message); }
-          }
+                  userStates.delete(userId);
+           } else {
+               try {
+                   console.log(`[Admin State DEBUG] No se halló estado para ${userId}. Contenido de userStates:`, Array.from(userStates.keys()));
+                   await client.sendMessage(userId, "❌ No tengo ninguna acción pendiente para confirmar.");
+               } catch(e) { console.error('Error respondiendo acción pendiente:', e.message); }
+           }
       } else if (data.status === 'error') {
           try {
               await client.sendMessage(userId, `❌ ${data.message || 'Error procesando la consulta'}`);
@@ -1112,6 +1115,16 @@ async function processIncomingMessage(messages) {
     if (bodyLower.includes('@bot simula cliente') && message.from === OPERATOR_NUMBER) {
         userStates.set(message.from, { ...adminState, state: 'simulating_client', simulationCount: 6 }); // 6 para que el primer mensaje cuente
         await message.reply("🎭 *MODO SIMULACIÓN ACTIVADO*\n\nA partir de ahora, te trataré como si fueras un cliente nuevo. El bot responderá a tus mensajes sin necesidad de usar @bot.\n\n_Este modo durará 5 mensajes o hasta que digas '@bot detener'._ 🤖");
+        return;
+    }
+
+    if (bodyLower === '@bot stats') {
+        const stats = {
+            totalStates: userStates.size,
+            states: Array.from(userStates.entries()).map(([k, v]) => `${k}: ${v.state}`),
+            queues: messageQueues.size
+        };
+        await message.reply(`📊 *ESTADÍSTICAS DEL SISTEMA*\n\n- Estados en memoria: ${stats.totalStates}\n- Colas activas: ${stats.queues}\n\n*Estados:* \n${stats.states.slice(-10).join('\n')}`);
         return;
     }
 
