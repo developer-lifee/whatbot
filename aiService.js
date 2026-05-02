@@ -20,18 +20,20 @@ async function detectAdminIntent(messageContent) {
 
     FACULTADES DEL JEFE:
     - "confirmar_pago": El jefe quiere validar el pago de un cliente. Busca si menciona un número de teléfono o nombre.
+    - "confirm_action": El jefe confirma una acción pendiente (menciona "sí", "si", "dale", "proceder", "confirmar", "hazlo").
     - "liberar_bot": El jefe quiere que el bot vuelva a atender a un cliente que estaba silenciado (menciona "liberar", "atiende", "vuelve", "contesta").
     - "dame_cuenta": El jefe quiere que le des las credenciales de una plataforma inmediatamente (menciona "dame una de", "pásame", "pasa cuenta").
     - "dormir_bot": El jefe quiere apagar las respuestas automáticas globales ("duérmete", "apágate").
     - "despertar_bot": El jefe quiere reactivar el bot globalmente ("despiértate", "actívate").
     - "desconocido": Cualquier charla casual o que no sea una orden directa.
-
+ 
     Salida esperada JSON:
     {
-      "intent": "confirmar_pago" | "liberar_bot" | "dame_cuenta" | "dormir_bot" | "despertar_bot" | "desconocido",
+      "intent": "confirmar_pago" | "confirm_action" | "liberar_bot" | "dame_cuenta" | "dormir_bot" | "despertar_bot" | "desconocido",
       "target_platform": string | null, // Ej: "Netflix", "HBO"
       "target_user": string | null, // Ej: "57304...", "Estefania Arias"
       "months": number | null // Si menciona duración para una confirmación
+    }irmación
     }
   `;
 

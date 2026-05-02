@@ -785,9 +785,17 @@ async function processIncomingMessage(messages) {
 
   const firstMsg = messages[0];
   let userId = firstMsg.from;
-  let realPhone = userId.replace('@c.us', '').replace(/\D/g, '');
-  // Reconocimiento blindado del jefe (3133890800)
-  const isFromAdmin = realPhone.includes(ADMIN_RAW_PHONE) || realPhone.includes('3133890800') || realPhone.includes('573133890800');
+  
+  // Extraemos el autor real del mensaje (especialmente en grupos o dispositivos vinculados)
+  const authorId = firstMsg.author || firstMsg.from; 
+  const authorPhone = authorId.replace('@c.us', '').replace(/\D/g, '');
+  const chatPhone = userId.replace('@c.us', '').replace(/\D/g, '');
+  
+  // Reconocimiento blindado del jefe (por su número personal, incluso en grupos)
+  const isFromAdmin = authorPhone.includes(ADMIN_RAW_PHONE) || authorPhone.includes('3133890800') || authorPhone.includes('573133890800') || firstMsg.fromMe;
+  
+  // realPhone se mantiene como el ID del chat para búsqueda de cuentas etc.
+  let realPhone = chatPhone;
 
   // --- PRIORIDAD JEFE (3133890800) ---
   if (isFromAdmin && !userId.includes('@g.us')) {
@@ -1454,6 +1462,17 @@ async function processIncomingMessage(messages) {
               await handleSendManualPaymentMethods(message, `medios ${targetResponse}`, client, userStates, true);
               userStates.delete(GROUP_ID);
               return;
+          } else if (gState === 'awaiting_admin_broadcast_confirmation' || gState === 'awaiting_admin_suggestion_selection') {
+              const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(targetResponse.toLowerCase());
+              if (isAffirmative) {
+                  const { processAdminQuery } = require('./adminQueries');
+                  const result = await processAdminQuery(message, targetResponse, userStates, client);
+                  const isAwaitingConfirm = gState === 'awaiting_admin_broadcast_confirmation';
+                  if (result && result.filteredData) {
+                      await handleAdminResultLogic(result.filteredData, GROUP_ID, userStates, message, isAwaitingConfirm, groupStateData);
+                  }
+                  return;
+              }
           }
       }
   }
