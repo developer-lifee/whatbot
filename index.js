@@ -90,7 +90,8 @@ const {
   handleSubscriptionInterest,
   handleAwaitingPurchasePlatforms,
   handleSelectingPlans,
-  handleAddingPlatform
+  handleAddingPlatform,
+  getChatHistoryText
 } = require('./salesService');
 
 const {
@@ -1020,7 +1021,21 @@ async function processIncomingMessage(messages) {
    * Procesa el resultado de un comando administrativo (Dashboard)
    */
   async function handleAdminResultLogic(data, userId, userStates, message, isAwaitingAdminConfirm, adminState) {
-      console.log(`[Admin Dashboard DEBUG] handleAdminResultLogic: status=${data.status}, isAwaitingConfirm=${!!isAwaitingAdminConfirm}, hasState=${!!adminState}, state=${adminState ? adminState.state : 'none'}`);
+      console.log(`[Admin Dashboard DEBUG] handleAdminResultLogic: status=${data.status}, userId=${userId}, isAwaitingConfirm=${!!isAwaitingAdminConfirm}, hasState=${!!adminState}, state=${adminState ? adminState.state : 'none'}`);
+      
+      if (!adminState || !isAwaitingAdminConfirm) {
+          // Intento de recuperación: Si no hay estado en el ID actual, buscar en el ID del admin directo
+          const contact = await message.getContact();
+          if (contact && contact.number) {
+              const adminId = contact.number + '@c.us';
+              const recoveredState = userStates.get(adminId);
+              if (recoveredState && (recoveredState.state === 'awaiting_admin_broadcast_confirmation' || recoveredState.state === 'awaiting_admin_suggestion_selection')) {
+                  console.log(`[Admin Dashboard] Recuperado estado desde ID de admin: ${adminId}`);
+                  adminState = recoveredState;
+                  isAwaitingAdminConfirm = adminState.state === 'awaiting_admin_broadcast_confirmation';
+              }
+          }
+      }
       
       if (data.status === 'pending_confirmation') {
           userStates.set(userId, { state: 'awaiting_admin_broadcast_confirmation', payload: data, timestamp: Date.now() });
