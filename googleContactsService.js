@@ -38,24 +38,23 @@ async function addNewContact(name, phone) {
         
         const coreNumber = digitsOnly.slice(-10);
 
-        // 1. Verificar caché local (para ráfagas de mensajes)
+        // 1. Verificar caché local INMEDIATAMENTE (para evitar race conditions en ráfagas)
         if (recentlyAdded.has(coreNumber)) {
             console.log(`[Google Contacts] ℹ️ Número ${coreNumber} ya está en proceso de creación o fue creado recientemente (Caché).`);
             return true;
         }
+        
+        // Marcar como en proceso antes de cualquier await
+        recentlyAdded.add(coreNumber);
+        // Limpiar del caché después de un tiempo para permitir actualizaciones si fuera necesario
+        setTimeout(() => recentlyAdded.delete(coreNumber), PROCESSING_WINDOW);
 
         // 2. Verificar existencia real en Google Contacts
         const existingName = await searchContactByPhone(phone);
         if (existingName) {
             console.log(`[Google Contacts] ℹ️ Contacto ya existe en Google: ${existingName} (${coreNumber}).`);
-            recentlyAdded.add(coreNumber); // Agregamos a caché por si acaso
             return true;
         }
-
-        // Marcar como en proceso
-        recentlyAdded.add(coreNumber);
-        // Limpiar del caché después de un tiempo para permitir actualizaciones si fuera necesario
-        setTimeout(() => recentlyAdded.delete(coreNumber), PROCESSING_WINDOW);
 
         let formattedPhone = digitsOnly;
         if (formattedPhone.startsWith('57') && formattedPhone.length === 12) {
@@ -114,12 +113,22 @@ async function searchContactByPhone(phone) {
 
         if (coreNumber.length < 10) return null;
 
-        const response = await personasAPI.people.searchContacts({
+        let response = await personasAPI.people.searchContacts({
             query: coreNumber,
             readMask: 'names,phoneNumbers',
         });
 
-        const results = response.data.results || [];
+        let results = response.data.results || [];
+        
+        // Si no hay resultados, intentamos con los últimos 7 dígitos por si está guardado con formato raro
+        if (results.length === 0) {
+            response = await personasAPI.people.searchContacts({
+                query: coreNumber.slice(-7),
+                readMask: 'names,phoneNumbers',
+            });
+            results = response.data.results || [];
+        }
+
         for (const res of results) {
             const person = res.person;
             const phoneNumbers = person.phoneNumbers || [];
