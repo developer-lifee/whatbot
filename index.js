@@ -485,12 +485,23 @@ server.listen(port, () => {
   // Heartbeat cada 5 minutos (reducido para detectar cuelgues de Puppeteer)
   setInterval(async () => {
     try {
-      const state = client ? await client.getState() : 'UNINITIALIZED';
+      if (!client) return;
+      const state = await client.getState();
       console.log(`💓 Heartbeat: Proceso vivo. Estado del cliente: ${state}`);
+      
+      // Verificación de salud profunda: ¿Sigue respondiendo el navegador?
+      if (state === 'CONNECTED') {
+          // Intentamos obtener info básica del cliente para verificar que el canal IPC con Puppeteer sigue vivo
+          const info = await Promise.race([
+              client.getContactById(client.info.wid._serialized),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 10000))
+          ]);
+          if (!info) throw new Error("Browser unresponsive (Deep check failed)");
+      }
     } catch (err) {
-      console.error('⚠️ Heartbeat: Error al obtener el estado del cliente:', err.message);
-      if (isCriticalBrowserError(err)) {
-          console.error('🔥 [ANTI-ZOMBIE] Detectado error crítico de Puppeteer. Forzando reinicio para PM2...');
+      console.error('⚠️ Heartbeat: Error de salud detectado:', err.message);
+      if (isCriticalBrowserError(err) || err.message.includes("Timeout") || err.message.includes("unresponsive")) {
+          console.error('🔥 [ANTI-ZOMBIE] Detectado estado crítico o zombie de Puppeteer. Forzando reinicio para PM2...');
           process.exit(1);
       }
     }
@@ -812,6 +823,9 @@ async function processIncomingMessage(messages) {
               realPhone = contact.number;
               if (userId.includes('@lid')) {
                   console.log(`[LID Fix] Redirigiendo ID @lid (${userId}) a @c.us (${realPhone}@c.us) para preservar contexto.`);
+                  userId = realPhone + '@c.us';
+              } else if (isFromAdmin && !userId.includes('@g.us')) {
+                  // Aseguramos que el admin siempre use su ID @c.us incluso si viene de @lid o similar
                   userId = realPhone + '@c.us';
               }
           }
@@ -1901,7 +1915,7 @@ client.on('message', async (message) => {
       return;
   }
 
-  if (message.from.includes('status@broadcast') || message.from.includes('@lid')) return;
+  if (message.from.includes('status@broadcast')) return;
   if (globalBotSleep && message.from !== OPERATOR_NUMBER && message.from !== GROUP_ID) return;
 
   // --- MECANISMO DE BATCHING PARA MENSAJES INDIVIDUALES ---

@@ -18,11 +18,13 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
     let count = 0;
     try {
         const chats = await client.getChats();
+        console.log(`[BATCH] Escaneo iniciado. Total chats recuperados: ${chats.length}`);
+        
         const pendingChats = chats.filter(chat => {
             if (!chat || !chat.id || !chat.id._serialized) return false;
             
             const chatId = chat.id._serialized;
-            if (chat.isGroup || chatId.includes('@broadcast') || chatId.includes('@lid')) return false;
+            if (chat.isGroup || chatId.includes('@broadcast')) return false;
             
             // Criterio 1: Mensajes sin leer
             if (chat.unreadCount > 0) return true;
@@ -34,6 +36,8 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
             
             return false;
         });
+        
+        console.log(`[BATCH] Chats pendientes detectados: ${pendingChats.length}`);
 
         for (const chat of pendingChats) {
             try {
