@@ -60,7 +60,7 @@ async function getChatHistoryText(message, limit = 6) {
     
     // Evitar fetchMessages en ciertos casos problemáticos
     const fromId = (message.from || "");
-    if (!fromId.includes('@lid') && !fromId.includes('status@broadcast')) {
+    if (!fromId.includes('status@broadcast')) {
         messages = await safeFetchMessages(chat, limit);
     }
     

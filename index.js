@@ -659,8 +659,18 @@ client.on('message_create', async (msg) => {
 
   // DETECTAR INTERVENCIÓN HUMANA: Si el mensaje lo envío yo manualmente
   // a un chat que NO es un grupo y NO tiene el emoji del bot.
-  if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast') && !msg.to.includes('@lid')) {
-    const targetId = msg.to;
+  if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast')) {
+    let targetId = msg.to;
+    
+    // Traducción de LID a @c.us para consistencia en el estado (evita pisar charlas humanas)
+    if (targetId.includes('@lid')) {
+        try {
+            const contact = await msg.getContact();
+            if (contact && contact.number) {
+                targetId = contact.number + '@c.us';
+            }
+        } catch(e) { console.error("[LID Fix message_create] Falló traducción:", e.message); }
+    }
     
     // Comando o mención en el chat para reactivar el bot o confirmar pagos
     if (msg.body.toLowerCase().includes('@bot')) {
@@ -970,7 +980,7 @@ async function processIncomingMessage(messages) {
           }
 
           const { detectInitialIntent } = require('./aiService');
-          const hist = await getChatHistoryText(message, 6); // Historial más largo para capturar contexto humano
+          const hist = await getChatHistoryText(message, 15); // Historial más largo para capturar contexto humano y LID
           const detection = await detectInitialIntent(message.body, hist, mediaData);
           
           const cleanBody = (message.body || "").trim();
@@ -1685,6 +1695,12 @@ async function processIncomingMessage(messages) {
        if (detection.intent === 'comprar') {
            const existingState = userStates.get(userId) || {};
            
+           // SI EL USUARIO TIENE CUENTAS Y NO MENCIONA UNA PLATAFORMA NUEVA, ASUMIMOS QUE ES RENOVACIÓN/PAGO
+           if (userAccounts.length > 0 && !detection.detectedPlatform) {
+               await processCheckPrices(message, userId, userStates);
+               return;
+           }
+
            // Priorizamos la venta: Si ya tenemos algún nombre (venga de contactos o de la IA), seguimos adelante.
            if (!foundName) {
                await message.reply(`🤖 ¡Hola! Con gusto te ayudo con tu compra. ¿Me podrías regalar tu nombre y apellido completo para registrarte oficialmente? 😊`);
@@ -1717,6 +1733,9 @@ async function processIncomingMessage(messages) {
            userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
            await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
            await startPurchaseProcess(message, userId, userStates);
+           return;
+       } else if (detection.intent === 'renovar') {
+           await processCheckPrices(message, userId, userStates, detection.detectedPlatform);
            return;
        } else if (detection.intent === 'credenciales') {
           if (!foundName) {

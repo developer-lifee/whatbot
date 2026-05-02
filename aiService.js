@@ -674,16 +674,17 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     Mensaje actual: "${messageContent}"
     
     Categorías para "intent":
-    - "comprar": El usuario quiere iniciar una compra o saber precios. **OJO:** Si el usuario solo nombra plataformas (ej: "Netflix, HBO") pero en el historial está hablando de un pago ya realizado o un error, NO uses "comprar", usa "soporte" o "desconocido".
-    - "credenciales": El usuario pide sus claves, contraseñas, pines o reporta fallas de acceso.
-    - "pagar": El usuario quiere renovar, pagar, o identifica un medio de pago para una transacción pendiente.
+    - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por precios de algo que NO tiene.
+    - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado (revisa la lista de cuentas del usuario).
+    - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
     - "soporte": Problemas técnicos, fallas de pantalla, o el usuario indica que ya pagó y el servicio no funciona/aparece cobro.
     - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale").
     - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio, que no va a continuar o pide la baja.
     - "desconocido": Cualquier otro mensaje.
 
     Regla de Intents:
-    - "comprar": El usuario quiere adquirir un servicio nuevo, renovar o pregunta precios. **PRIORIDAD MÁXIMA:** Si el usuario menciona una plataforma (Netflix, Disney, Amazon, etc.) junto con "quiero", "para una", "precio", "cuánto", o simplemente menciona la plataforma en un contexto de inicio de charla, DEBES marcar "intent": "comprar" y extraer la plataforma en "detectedPlatform".
+    - "comprar": PRIORIDAD si menciona plataforma nueva. Si el usuario ya tiene el servicio y pregunta "cuánto es", usa "renovar".
+    - "renovar": PRIORIZA este intent si el usuario pregunta "cuánto es", "puedo pagar", "mándame el nequi" o "cuánto te debo" y ves que tiene cuentas activas o vencidas en su lista.
     - "credenciales": El usuario pide sus datos de acceso ("mi cuenta", "pásame el pin", "contraseña", "clave", "password"). PRIORIZA este intent si el usuario menciona palabras relacionadas con "llaves", "claves", "password" o "entrar".
     - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
     - "soporte": Problemas técnicos, fallas, errores en pantalla, etc.
