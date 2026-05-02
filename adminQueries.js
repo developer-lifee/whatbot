@@ -385,12 +385,12 @@ async function processAdminQuery(message, query, userStates, client) {
                             only_fields: filters.only_fields || null,
                             count: recipients.length,
                             recipients: recipients.map(m => ({ 
-                                tel: m['numero'], 
-                                nombre: m['Nombre'] || m['nombre'] || 'Cliente',
-                                pin_perfil: m['pin perfil'] || m['pin_perfil'] || m['perfil'] || m['pin'] || null,
-                                vencimiento: m['vencimiento'] || m['Vencimiento'] || null,
-                                is_owner: (m['Streaming'] || '').toLowerCase().includes('owner'),
-                                customer_mail: m['customer mail'] || m['Customer Mail'] || null
+                                tel: m.phone, 
+                                nombre: m.name,
+                                pin_perfil: m.pin_perfil,
+                                vencimiento: m.vencimiento,
+                                is_owner: m.is_owner,
+                                customer_mail: m.customer_mail
                             }))
                         };
                     } else {

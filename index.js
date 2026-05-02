@@ -1079,17 +1079,26 @@ async function processIncomingMessage(messages) {
               
               let exitosos = 0;
               for (const r of payload.recipients) {
-                  const telRaw = (r.tel || '').toString().replace(/\D/g, '');
+                  const telRaw = (r.tel || r.phone || '').toString().replace(/\D/g, '');
+                  if (telRaw.length < 8) {
+                      console.warn(`[Admin Broadcast] Saltando destinatario ${r.nombre} por falta de número válido.`);
+                      continue;
+                  }
                   const targetUser = `57${telRaw.startsWith('57') ? telRaw.substring(2) : telRaw}@c.us`;
 
-                  const only = payload.only_fields || []; 
+                  const only = (payload.only_fields || []).map(f => f.toLowerCase()); 
                   const showAll = only.length === 0;
                   const isSpotify = (payload.platform || "").toLowerCase().includes('spotify');
                   
-                  const isClave = r.is_owner || (showAll && !isSpotify) || only.includes('clave') || only.includes('password') || only.includes('contraseña');
-                  const isPinPerfil = !r.is_owner && (showAll || only.includes('pin perfil') || (only.includes('pin') && only.includes('perfil')));
-                  const isPinOnly = !isPinPerfil && !r.is_owner && only.includes('pin');
-                  const isPerfilOnly = !isPinPerfil && !r.is_owner && only.includes('perfil');
+                  // Detección flexible de campos
+                  const wantClave = only.some(f => f.includes('clave') || f.includes('password') || f.includes('contraseña'));
+                  const wantPin = only.some(f => f.includes('pin'));
+                  const wantPerfil = only.some(f => f.includes('perfil'));
+
+                  const isClave = r.is_owner || (showAll && !isSpotify) || wantClave;
+                  const isPinPerfil = !r.is_owner && (showAll || (wantPin && wantPerfil) || only.some(f => f.includes('pin perfil') || f.includes('pin de perfil')));
+                  const isPinOnly = !isPinPerfil && !r.is_owner && wantPin;
+                  const isPerfilOnly = !isPinPerfil && !r.is_owner && wantPerfil;
 
 
                   const pinPerfilLine = (r.pin_perfil && isPinPerfil) ? `\n📍 *Pin Perfil:* ${r.pin_perfil}` : "";
