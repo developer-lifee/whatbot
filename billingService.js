@@ -252,7 +252,11 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
               }
           }
 
-          if (catalogPrice > 0) {
+          // REGLA ESPECIAL SPOTIFY: Respetar precio del Excel si es mayor al del catálogo (ej: 9000 vs 8000)
+          // a menos que sea un plan de dueño (owner) que suele ser más barato o específico.
+          if (searchName.includes('spotify') && !normalizedFullName.includes('owner') && price > catalogPrice) {
+              // Mantener el precio del Excel (ej: 9000)
+          } else if (catalogPrice > 0) {
             price = catalogPrice;
           }
         }
@@ -280,7 +284,7 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
         }
       });
 
-      if (totalDiscount > 0 && !platformFilter) {
+      if (totalDiscount > 0) {
         totalToPay -= totalDiscount;
         replyMessage += `\n\nDescuento por combo (vencimiento mismo día): -$${totalDiscount}`;
       }
