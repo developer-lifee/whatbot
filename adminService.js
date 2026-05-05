@@ -53,15 +53,12 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     
                     console.log(`[BATCH] Escaneando chat: ${chatId} (Unread: ${unreadCount}${isSilenced ? ', Silenced' : ''})`);
 
-                    // Procesar todos los mensajes no leídos
-                    const unreadMessages = unreadCount > 0 ? messages.slice(-unreadCount) : [];
-                    // Si no hay no leídos (pero estaba en waiting_human), procesar al menos el último
-                    const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
-
-                    for (const m of toProcess) {
-                        m._unreadCount = unreadCount; // Referencia para el procesador
+                    // Procesar solo mensajes que NO sean del bot
+                    const filteredMessages = toProcess.filter(m => !m.fromMe);
+                    
+                    if (filteredMessages.length > 0) {
+                        await processIncomingMessage(filteredMessages);
                     }
-                    await processIncomingMessage(toProcess);
                 }
             } catch (err) {
 

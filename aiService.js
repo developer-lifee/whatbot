@@ -506,10 +506,6 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
   try {
     const jsonString = await callGemini(prompt, "Eres un validador de comprobantes de pago bancarios.", true, mediaData);
     const result = JSON.parse(jsonString);
-    return {
-      isReceipt: result.isReceipt && result.confidence > 0.7,
-      amount: result.amount,
-      bank: result.bank,
       inferredPlatform: result.inferredPlatform || null
     };
   } catch (error) {
@@ -518,58 +514,49 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
   }
 }
 
-/**
- * Clasifica la intención inicial de un mensaje para decidir qué flujo disparar.
- * También intenta extraer el nombre del usuario si se presenta.
- */
-async function detectInitialIntent(messageContent, history = "", userName = null, userAccounts = []) {
+async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = []) {
+  const accountSummary = summarizeAccounts(userAccounts);
+  const platformDocs = await getPlatformKnowledge();
+  const platformContext = summarizePlatformKnowledge(platformDocs);
+
   const prompt = `
-    Eres "Sheerit", un asistente de ventas y soporte para una plataforma de streaming. 
-    TU PERSONALIDAD: Eres un vendedor servicial, empático y muy profesional. No eres un robot rígido. Tu objetivo es ayudar al cliente a comprar o resolver sus dudas, explicando las ventajas de cada servicio si es necesario.
+    Eres "Sheerit", el asesor experto de la plataforma Sheerit. 
+    Tu objetivo es ser un vendedor servicial, empático y resolutivo.
+    
+    GUÍA DE FUNCIONAMIENTO Y PRECIOS:
+    ${platformContext}
 
-    CONVENCIÓN DE RESPUESTA:
-    Responde ÚNICAMENTE en formato JSON.
+    SERVICIOS ACTUALES DEL CLIENTE:
+    ${accountSummary}
 
-    HISTORIAL Y CONTEXTO:
-    - Nombre del usuario (si se conoce): ${userName || 'Desconocido'}
-    - Cuentas del usuario (si tiene): ${JSON.stringify(userAccounts)}
-    - Mensajes recientes:
-    ${history}
+    CONTEXTO DE LA CONVERSACIÓN:
+    ${chatHistory}
 
-    TAREA:
-    Analiza el mensaje actual: "${messageContent}" y determina lo siguiente:
+    MENSAJE ACTUAL DEL CLIENTE:
+    "${messageContent}"
+    ${isMedia ? "[El usuario envió una imagen/archivo]" : ""}
 
-    1. "intent": 
-       - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por precios/promociones.
-       - "pagar": El usuario quiere renovar, pagar una deuda o pregunta cómo transferir.
-       - "credenciales": El usuario pide su clave, pin, perfil o dice que no puede entrar.
-       - "soporte": Problemas técnicos, fallos, dudas sobre el funcionamiento.
-       - "cancelar": El usuario quiere dar de baja un servicio o no renovar.
-       - "cierre": Despedidas, agradecimientos (gracias, listo, ok, vale).
-       - "desconocido": Charla casual o algo que no encaja.
+    INSTRUCCIONES DE RESPUESTA:
+    1. **Personalidad**: Sé amable, usa emojis, y mantén un tono de "asesor experto".
+    2. **Hallucination Check**: Revisa SIEMPRE la "GUÍA DE FUNCIONAMIENTO" antes de afirmar algo sobre una plataforma. 
+       - **IMPORTANTE**: Disney+ Premium SI incluye deportes (ESPN, Champions, Libertadores). No digas que no los tiene.
+    3. **Prioridad de Venta**: Si el usuario pregunta por algo que no tiene, intenta cerrar la venta explicando los beneficios.
+    4. **Soporte**: Si el usuario tiene un problema, dale una solución inicial amigable o dile que un humano entrará pronto si es muy complejo.
+    5. **Brevedad**: Sé conciso pero completo. No uses párrafos gigantes.
+    6. **Despedida**: Firma siempre con un 🤖 al final.
 
-    2. "frustrationLevel": Un número del 1 al 10 indicando qué tan molesto o impaciente está el cliente.
-    3. "userName": Si el usuario dice su nombre o se presenta, extráelo.
-    4. "isNameComplete": Booleano, true si el nombre parece ser Nombre + Apellido.
-    5. "detectedPlatform": Si menciona una plataforma específica (Netflix, Disney, etc.)
-    6. "recoveredState": Si en el historial ves que la conversación se interrumpió en medio de un proceso (ej. iba a pagar y dejó de responder), sugiere el estado a recuperar ("awaiting_payment_method", "selecting_plans", etc.).
-
-    REGLAS DE ORO:
-    - Si el usuario pregunta por una plataforma distinta a la que se estaba hablando, marca intent "comprar" para que el bot pueda pivotar.
-    - Si el usuario pregunta "qué significa" un plan o pide detalles, marca intent "soporte" o "comprar" según el contexto para explicarle.
-    - No fuerces al usuario a seguir un flujo si su pregunta es válida y distinta.
-
-    JSON esperado:
-    {
-      "intent": string,
-      "frustrationLevel": number,
-      "userName": string | null,
-      "isNameComplete": boolean,
-      "detectedPlatform": string | null,
-      "recoveredState": string | null,
-      "metadata": object // Cualquier dato extra útil
-    }
+    No respondas con JSON, responde con el TEXTO FINAL que se enviará al cliente.
   `;
+
+  try {
+    const response = await callGemini(prompt, "Eres Sheerit, un asesor de ventas empático y experto. Responde de forma humana y servicial.", false, mediaData);
+    return response.trim();
+  } catch (error) {
+    console.error("Error in generateEmpatheticFallback:", error);
+    return "¡Hola! He notificado a tu asesor para que te ayude con este caso específico. Dame unos minutos. 🤖";
+  }
+}
+
 async function detectInitialIntent(messageContent, chatHistory = "", mediaData = null, userAccounts = []) {
     const accountSummary = summarizeAccounts(userAccounts);
     const platformDocs = await getPlatformKnowledge();
