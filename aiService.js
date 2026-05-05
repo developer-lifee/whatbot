@@ -506,6 +506,10 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
   try {
     const jsonString = await callGemini(prompt, "Eres un validador de comprobantes de pago bancarios.", true, mediaData);
     const result = JSON.parse(jsonString);
+    return {
+      isReceipt: result.isReceipt && result.confidence > 0.7,
+      amount: result.amount,
+      bank: result.bank,
       inferredPlatform: result.inferredPlatform || null
     };
   } catch (error) {
