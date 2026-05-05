@@ -1,4 +1,5 @@
 const { parsePurchaseIntent, parsePlanSelection } = require('./aiService');
+const { fetchRawData } = require('./apiService');
 
 const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
 const fs = require('fs');
@@ -22,6 +23,25 @@ async function getPlatforms() {
     }
     return [];
   }
+}
+
+/**
+ * Verifica disponibilidad de stock para Netflix Extra
+ */
+async function checkNetflixExtraStock() {
+    try {
+        const data = await fetchRawData();
+        // Criterio: Filas que digan "EXTRA" y no tengan número ni Nombre ni customer mail
+        const availableExtra = data.filter(d => {
+            const isExtra = (d.Streaming || "").toLowerCase().includes('extra');
+            const hasNoCustomer = !d.numero && !d.Nombre && (!d["customer mail"] || d["customer mail"].trim() === "" || d["customer mail"] === " ");
+            return isExtra && hasNoCustomer;
+        });
+        return availableExtra.length > 0;
+    } catch (e) {
+        console.error("[Stock Check] Error:", e.message);
+        return true; // Fallback optimista para no bloquear ventas si la API falla
+    }
 }
 
 async function startPurchaseProcess(message, userId, userStates) {
@@ -343,9 +363,26 @@ async function showPlanSelection(message, userId, userStates) {
   }
 
   let reply = `Selecciona el plan para ${platform.name}:\n`;
+  
+  // STOCK CHECK PARA NETFLIX EXTRA
+  let hasExtraStock = true;
+  if (platform.name.toLowerCase().includes('netflix')) {
+      hasExtraStock = await checkNetflixExtraStock();
+  }
+
   platform.plans.forEach((plan, idx) => {
-    reply += `${idx + 1}. ${plan.name} - $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
+    const isExtra = plan.name.toLowerCase().includes('extra');
+    if (isExtra && !hasExtraStock) {
+        reply += `${idx + 1}. ~~${plan.name} - $${plan.price}~~ (SIN STOCK ❌)\n`;
+    } else {
+        reply += `${idx + 1}. ${plan.name} - $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
+    }
   });
+  
+  if (!hasExtraStock && platform.name.toLowerCase().includes('netflix')) {
+      reply += `\n⚠️ *Nota:* De momento no tenemos disponibilidad de cuentas "Extra" (correo personalizado). Solo contamos con el plan estándar de $13.000. 😊`;
+  }
+
   reply += `\n🤖 Responde con el número del plan, o 'agregar' para añadir otra plataforma.`;
 
   await message.reply(reply);
@@ -384,7 +421,18 @@ async function handleSelectingPlans(message, userId, userStates) {
     return;
   }
 
-  selected[currentIndex].chosenPlan = current.platform.plans[selection];
+  const chosenPlan = current.platform.plans[selection];
+  const isExtra = chosenPlan.name.toLowerCase().includes('extra');
+  
+  if (isExtra && current.platform.name.toLowerCase().includes('netflix')) {
+      const hasStock = await checkNetflixExtraStock();
+      if (!hasStock) {
+          await message.reply('🤖 Lo siento, se nos acaba de agotar el stock de Netflix Extra. Por favor selecciona el plan de $13.000 para continuar con tu compra. 😊');
+          return;
+      }
+  }
+
+  selected[currentIndex].chosenPlan = chosenPlan;
   state.currentIndex++;
 
   if (state.currentIndex >= selected.length) {

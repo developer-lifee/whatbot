@@ -216,7 +216,7 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
 async function detectPaymentMethod(messageContent) {
   const prompt = `
     Identifica el método de pago mencionado en: "${messageContent}".
-    Opciones válidas: "nequi", "daviplata", "bancolombia", "banco caja social", "transfiya", "llaves bre-v", "llave bre-b".
+    Opciones válidas: "nequi", "daviplata", "bancolombia", "banco caja social", "transfiya", "llaves bre-v", "llave bre-b", "qr negocios".
     
     Salida esperada JSON:
     {
@@ -543,11 +543,12 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
     INSTRUCCIONES DE RESPUESTA:
     1. **Personalidad**: Sé amable, usa emojis, y mantén un tono de "asesor experto".
     2. **Hallucination Check**: Revisa SIEMPRE la "GUÍA DE FUNCIONAMIENTO" antes de afirmar algo sobre una plataforma. 
-       - **IMPORTANTE**: Disney+ Premium SI incluye deportes (ESPN, Champions, Libertadores). No digas que no los tiene.
-    3. **Prioridad de Venta**: Si el usuario pregunta por algo que no tiene, intenta cerrar la venta explicando los beneficios.
+       - **IMPORTANTE**: Disney+ Premium SI incluye deportes (ESPN, Champions, Libertadores). Menciona esto BREVEMENTE solo si el usuario pregunta por deportes o si estás comparando planes de Disney. No lo incluyas en cada mensaje de forma repetitiva.
+    3. **Prioridad de Venta**: Si el usuario pregunta por algo que no tiene, intenta cerrar la venta explicando los beneficios de forma concisa.
     4. **Soporte**: Si el usuario tiene un problema, dale una solución inicial amigable o dile que un humano entrará pronto si es muy complejo.
-    5. **Brevedad**: Sé conciso pero completo. No uses párrafos gigantes.
-    6. **Despedida**: Firma siempre con un 🤖 al final.
+    5. **Pagos**: Si el usuario pide la cuenta para pagar o renovar (Nequi, Daviplata, QR), no intentes dar los números tú mismo. Responde amablemente confirmando que le enviarás los medios de pago enseguida.
+    6. **Brevedad**: Sé conciso pero completo. No uses párrafos gigantes.
+    7. **Despedida**: Firma siempre con un 🤖 al final.
 
     No respondas con JSON, responde con el TEXTO FINAL que se enviará al cliente.
   `;
@@ -597,7 +598,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado (revisa la lista de cuentas del usuario).
     - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
     - "soporte": Problemas técnicos, fallas de pantalla, errores en el cobro, o si el usuario CUESTIONA un precio (ej: "no eran 12 mil?", "esta mal el precio"). También si pide hablar con una persona específica (ej: "pásame a Esteban").
-    - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale").
+    - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale"). También incluye expresiones de cortesía inicial o relleno (ej: "hola", "que pena", "buenas") SIEMPRE Y CUANDO no vengan acompañadas de una petición clara en el mismo bloque.
     - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio, que no va a continuar o pide la baja.
     - "desconocido": Cualquier otro mensaje.
 

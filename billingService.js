@@ -321,14 +321,15 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
             'bancolombia': "46772753713\nBancolombia - ahorros\nNumero de cuenta: 46772753713\nCC1032936324",
             'banco caja social': "24111572331\nESTEBAN AVILA\ncc: 1032936324",
             'transfiya': "*LLAVE*\n3118587974",
-            'llaves bre-v': "*LLAVE*\n3118587974",
-            'llave bre-b': "*LLAVE*\n3118587974"
+            'llaves bre-v': "3118587974",
+            'llave bre-b': "3118587974",
+            'qr negocios': "Escanea el código QR que te enviaré a continuación."
           };
           
           const methodKey = preferredMethod.toLowerCase();
           const foundKey = Object.keys(details).find(k => methodKey.includes(k) || k.includes(methodKey));
           if (foundKey) {
-              await message.reply(`🤖 Entendido, aquí tienes los datos para *${preferredMethod.toUpperCase()}*:\n\n${details[methodKey]}\n\nUna vez realices la transferencia, por favor envíame el comprobante por aquí.`);
+              await message.reply(`🤖 Entendido, aquí tienes los datos para *${preferredMethod.toUpperCase()}*:\n\n${details[foundKey]}\n\nUna vez realices la transferencia, por favor envíame el comprobante por aquí.`);
               userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation', paymentMethod: preferredMethod });
           } else {
               await message.reply("\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi | ⭐Daviplata | ⭐Bancolombia | ⭐QR Negocios");

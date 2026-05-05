@@ -2206,15 +2206,16 @@ async function processPaymentSelection(message, userId, text) {
     'banco caja social': "🤖 *Banco Caja Social*\n24111572331\nESTEBAN AVILA\ncc: 1032936324",
     'transfiya': "🤖 *Transfiya*\n*LLAVE*\n3118587974",
     'llaves bre-v': "🤖 *LLAVE bre-v*\n3118587974",
-    'llave bre-b': "🤖 *LLAVE bre-b*\n3118587974"
+    'llave bre-b': "🤖 *LLAVE bre-b*\n3118587974",
+    'qr negocios': "🤖 *QR Negocios*\nPor favor, escanea el código que te envío a continuación para realizar tu pago de forma rápida y segura."
   };
   
   const lowerText = text.toLowerCase();
-  const isQrRequest = lowerText.includes('qr') || lowerText.includes('código') || lowerText.includes('codigo');
+  const isQrRequest = lowerText.includes('qr') || lowerText.includes('código') || lowerText.includes('codigo') || lowerText.includes('consignar') || lowerText.includes('cuenta para');
 
   if (isQrRequest) {
     const { MessageMedia } = require('whatsapp-web.js');
-    const qrPath = path.join(__dirname, 'uploads', 'qr_pago.jpg');
+    const qrPath = path.join(__dirname, 'uploads', 'qr_pago.jpeg');
     if (fs.existsSync(qrPath)) {
         try {
             const media = MessageMedia.fromFilePath(qrPath);
