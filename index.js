@@ -1642,8 +1642,15 @@ async function processIncomingMessage(messages) {
       }
     }
 
-    await processFallbackWithEscalation(message, userId, isMedia, mediaData.length > 0 ? mediaData : null, history);
-    return;
+    // --- INTERCEPTOR DE TEXTO PARA PAGOS (Sin media) ---
+    // Si el usuario dice algo como "ya pagué" o "aquí el soporte" sin la imagen aún
+    if (isPaymentReceipt(combinedBody)) {
+        console.log(`[PAYMENT INTERCEPTOR] 📝 Texto de pago detectado para @${userId}`);
+        const replyText = "🤖 ¡Excelente! Quedo a la espera de la imagen de tu comprobante para que un asesor pueda validarlo. Mientras tanto, si es una cuenta de Netflix, ¿podrías decirme tu localidad y operador de internet? 😊";
+        await message.reply(replyText);
+        userStates.set(userId, { state: 'awaiting_payment_confirmation' });
+        return;
+    }
   }
 
   // Si no hay media, o no fue interceptado como pago, evaluamos el texto combinado
@@ -1685,11 +1692,22 @@ async function processIncomingMessage(messages) {
 
   // 4.6 BREAKOUT DE FLUJOS (Si el usuario cambia de tema bruscamente o está frustrado)
   const flowsRequiringBreakout = ['selecting_plans', 'awaiting_purchase_platforms', 'adding_platform', 'awaiting_payment_method', 'awaiting_name_for_contact', 'awaiting_churn_reason'];
-  const isChangingTopic = detection.intent && !['desconocido', 'comprar', 'pagar'].includes(detection.intent);
+  
+  // Pivotar si detecta una plataforma distinta a la que estamos configurando
+  let isPivottingPlatform = false;
+  if (currentState === 'selecting_plans' && currentStateData.selected && currentStateData.currentIndex !== undefined) {
+      const currentPlatformName = currentStateData.selected[currentStateData.currentIndex].platform.name.toLowerCase();
+      if (detection.detectedPlatform && !currentPlatformName.includes(detection.detectedPlatform.toLowerCase())) {
+          isPivottingPlatform = true;
+          console.log(`[Flow Breakout] Pivotando plataforma: ${currentPlatformName} -> ${detection.detectedPlatform}`);
+      }
+  }
+
+  const isChangingTopic = detection.intent && !['desconocido', 'comprar', 'pagar', 'cierre'].includes(detection.intent);
   const isVeryFrustrated = detection.frustrationLevel >= 7;
 
-  if (flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated)) {
-      console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChangingTopic ? 'Cambio de tema ('+detection.intent+')' : 'Alta frustración'}`);
+  if (flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform)) {
+      console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema ('+detection.intent+')' : 'Alta frustración')}`);
       
       if (isVeryFrustrated) {
           userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1 });
@@ -1697,7 +1715,7 @@ async function processIncomingMessage(messages) {
           return;
       }
       
-      // Si el usuario simplemente cambió de tema (pide soporte, credenciales, etc.)
+      // Si el usuario simplemente cambió de tema o plataforma
       // Limpiamos el estado actual para que el mensaje sea procesado por la lógica global (case undefined)
       currentState = undefined; 
       currentStateData = undefined;

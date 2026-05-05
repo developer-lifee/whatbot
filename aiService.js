@@ -519,144 +519,57 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
 }
 
 /**
- * Generates an empathetic response for unsupported media or off-script messages, and decides if it needs human escalation.
- * @param {string} userMessage 
- * @param {boolean} isMedia 
- * @param {string} chatHistory 
- * @param {object|null} mediaData { data: 'base64', mimeType: 'image/jpeg' }
- * @param {Array} userAccounts Cuentas del usuario obtenidas de la base
- * @returns {Promise<Object>} { replyMessage, needsEscalation, escalationSummary }
+ * Clasifica la intención inicial de un mensaje para decidir qué flujo disparar.
+ * También intenta extraer el nombre del usuario si se presenta.
  */
-async function generateEmpatheticFallback(userMessage, isMedia, chatHistory = "", mediaData = null, userAccounts = []) {
-  const mediaInstruction = isMedia && mediaData 
-    ? "El usuario ha enviado una o varias imágenes/stickers adjuntos. Obsérvalas detenidamente y analiza su contenido/emoción."
-    : "";
-
-  let priceContext = "";
-  let supportContext = "";
-  try {
-    const { getPlatforms } = require('./salesService');
-    const platforms = await getPlatforms();
-    if (platforms && platforms.length > 0) {
-      priceContext = "Catálogo de suscripciones y planes (MUESTRA SIEMPRE TODAS LAS OPCIONES DISPONIBLES AL USUARIO):\n" + 
-                     platforms.map(p => {
-                       const plansStr = p.plans && p.plans.length > 0 
-                         ? p.plans.map(plan => `  - ${plan.name}: $${plan.price}`).join('\n')
-                         : `  - Suscripción: $${p.price}`;
-                       return `*${p.name}*:\n${plansStr}`;
-                     }).join('\n\n');
-    }
-  } catch (e) { }
-
-  try {
-    const { getSupportKnowledge } = require('./apiService');
-    const supportData = await getSupportKnowledge();
-    if (supportData && supportData.length > 0) {
-      supportContext = "Base de conocimiento de Soporte Técnico (SOLUCIONARIO DE PROBLEMAS):\n" + JSON.stringify(supportData) + "\n\n(Usa ESTOS pasos si el problema del usuario o la captura de pantalla coincide con alguno de estos errores. Dale las instrucciones o pídele los datos que ahí se mencionan. Sé asertivo, es el conocimiento oficial.)";
-    }
-  } catch (e) { }
-
-  let platformContext = "";
-  try {
-    const docData = await getPlatformKnowledge();
-    if (docData && docData.length > 0) {
-      platformContext = "Guía de funcionamiento y restricciones de plataformas:\n" + summarizePlatformKnowledge(docData);
-    }
-  } catch (e) { }
-
-  let accountsContext = "";
-  if (userAccounts && userAccounts.length > 0) {
-     const simplifiedAccounts = userAccounts.map(acc => {
-        const cMail = (acc["customer mail"] || acc["Customer Mail"] || "").trim();
-        return {
-          Plataforma: acc.Streaming,
-          Correo_Admin: acc.correo || acc.Correo || acc["E-mail"],
-          Correo_Cliente: cMail || null,
-          Clave: acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"],
-          Pin_Perfil: acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"],
-          Perfil: acc.Nombre || acc.nombre || acc.Perfil || acc.perfil,
-          Vencimiento: acc.vencimiento || acc.deben
-        };
-     });
-     accountsContext = "Cuentas del usuario en nuestro sistema (ÚSALAS PARA DAR SOPORTE O DAR LAS CREDENCIALES SI EL USUARIO LAS PIDE):\n" + JSON.stringify(simplifiedAccounts);
-  }
-
+async function detectInitialIntent(messageContent, history = "", userName = null, userAccounts = []) {
   const prompt = `
-    El usuario envió un mensaje que el bot no puede procesar técnicamente mediante los flujos regulares o requiere soporte técnico.
-    ${mediaInstruction}
-    
-    Contexto previo de la conversación:
-    ${chatHistory}
-    
-    ${priceContext}
-    
-    ${supportContext}
+    Eres "Sheerit", un asistente de ventas y soporte para una plataforma de streaming. 
+    TU PERSONALIDAD: Eres un vendedor servicial, empático y muy profesional. No eres un robot rígido. Tu objetivo es ayudar al cliente a comprar o resolver sus dudas, explicando las ventajas de cada servicio si es necesario.
 
-    ${platformContext}
+    CONVENCIÓN DE RESPUESTA:
+    Responde ÚNICAMENTE en formato JSON.
 
-    ${accountsContext}
-    
-    Mensaje textual/Tipo: "${isMedia ? "[ARCHIVO MULTIMEDIA/STICKER]" : userMessage}"
-    
-    Instrucciones:
-    Eres un asistente de servicio al cliente. Debes dar una respuesta estructurada en formato JSON estricto.
-    1. PRIORIDAD DE SOPORTE PARA CLIENTES: Revisa la lista de cuentas del usuario. Si el tema del mensaje o la imagen coincide con una plataforma que el usuario ya tiene contratada, asume inicialmente que es SOPORTE TÉCNICO.
-    2. RECLAMOS DE PAGO/VENCIMIENTO: Si el usuario dice que ya pagó, envía un comprobante o dice que "ya lo hizo" en respuesta a un cobro, ESCALA INMEDIATAMENTE (needsEscalation: true). No intentes validar el pago tú mismo a menos que veas un error tipográfico obvio en el correo.
-    3. VENTAS Y PRECIOS: Si el usuario pregunta por un servicio o precio, MUESTRA SIEMPRE TODAS LAS OPCIONES de planes disponibles (ej: Estándar vs Platino, 4K vs Extra) con sus respectivos precios. No ofrezcas solo la más barata.
-    4. Si es una duda comercial o sobre cómo pagar un NUEVO servicio (incluso si ya tiene uno), responde en "replyMessage" y manda "needsEscalation": false. 
-    5. ANÁLISIS VISUAL DE LOGIN/ERRORES: Si hay imágenes de pantallas de inicio de sesión o errores:
-       - Realiza un OCR mental: Extrae correos, usuarios y mensajes de error visibles.
-       - COMPARACIÓN CRÍTICA: Compara el correo/usuario que ves en la pantalla con los datos reales en "Cuentas del usuario".
-       - DETECCIÓN DE TYPOS: Si ves que el usuario escribió mal el correo (ej: puso un guion de más, cambió una letra, omitió un punto), indícalo de forma MUY EXPLÍCITA y dile cómo debe escribirlo correctamente basándote en el sistema. Ejemplo: "Veo que en la tele pusiste 'ejemplo@-gmail.com', pero el correo correcto es 'ejemplo@gmail.com'. Borra ese guion extra y funcionará."
-       - Si el error es "Cuenta no encontrada" y el correo parece bien escrito, pídele que verifique mayúsculas/minúsculas o confirma si la cuenta cambió.
-    6. SOPORTE TÉCNICO CON MANUAL: Si el problema (texto o imagen) coincide con un error en "Base de conocimiento de Soporte Técnico":
-        - SIGUE LOS PASOS AL PIE DE LA LETRA. 
-        - INCLUYE SIEMPRE LOS ENLACES (ej: Sheerit.com.co/actualizar) y palabras clave de búsqueda (ej: "sheerit", "sheerit2") que se mencionan en el manual. Es vital para que el usuario resuelva solo.
-        - Pon "needsEscalation": false.
-     7. PREGUNTAS SOBRE FUNCIONAMIENTO: Si el usuario pregunta cómo funciona un servicio o qué diferencias hay entre planes (ej: Gemini 10k vs 22k, Netflix Extra, etc.):
-        - Usa la "Guía de funcionamiento y restricciones de plataformas".
-        - Explica de forma clara y amable las ventajas de cada plan basándote en la guía.
-        - Pon "needsEscalation": false.
-     8. SI EL USUARIO PIDE DATOS ESPECÍFICOS (ej: "¿Cuál es mi clave?", "pásame el pin", "no recuerdo mi correo"): Y los tienes en la lista de "Cuentas del usuario", ¡ENTRÉGALOS DIRECTAMENTE! No lo mandes a soporte si tú tienes la respuesta.
-     9. REFERENCIAS AMBIGUAS: Si el usuario pregunta algo como "¿Para qué sirve este?", "¿Qué precio tiene ese?", o "¿Cómo funciona esto?" y tú NO ves ninguna imagen o contexto previo de una plataforma específica:
-        - Responde con honestidad y amabilidad: "No logro ver exactamente a qué te refieres (tal vez respondiste a un estado o imagen que no puedo visualizar), ¿podrías indicarme el nombre de la plataforma o enviarme una captura? ¡Con gusto te doy toda la información! 🤖"
-        - Pon "needsEscalation": false.
-     10. Si el problema es técnico, complejo, no está en la base, es un reclamo de cuenta vencida que debería estar activa, o es de un cliente activo que requiere ayuda manual, pon "needsEscalation": true y un breve reporte en "escalationSummary".
-     11. Recuerda siempre mencionar sutilmente que atendemos solo por chat si el usuario parece querer llamar.
-     12. MANEJO DE NOMBRES Y REGISTRO: Si el usuario proporciona su nombre (especialmente si se lo pediste o acaba de pagar), AGRADÉCELE y dile que has guardado el dato para su registro. No respondas con "no puedo procesar tu consulta". Ejemplo: "¡Perfecto Johann Hernández! Gracias por tu nombre, ya lo anoté para tu registro. Un asesor validará tu pago pronto. 🤖"
-     13. El "replyMessage" debe ser directo, humano y completo. Si estás dando pasos de soporte, asegúrate de que no falte información clave ni enlaces. Incluye el emoji 🤖 al final.
+    HISTORIAL Y CONTEXTO:
+    - Nombre del usuario (si se conoce): ${userName || 'Desconocido'}
+    - Cuentas del usuario (si tiene): ${JSON.stringify(userAccounts)}
+    - Mensajes recientes:
+    ${history}
 
+    TAREA:
+    Analiza el mensaje actual: "${messageContent}" y determina lo siguiente:
 
+    1. "intent": 
+       - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por precios/promociones.
+       - "pagar": El usuario quiere renovar, pagar una deuda o pregunta cómo transferir.
+       - "credenciales": El usuario pide su clave, pin, perfil o dice que no puede entrar.
+       - "soporte": Problemas técnicos, fallos, dudas sobre el funcionamiento.
+       - "cancelar": El usuario quiere dar de baja un servicio o no renovar.
+       - "cierre": Despedidas, agradecimientos (gracias, listo, ok, vale).
+       - "desconocido": Charla casual o algo que no encaja.
 
-    Salida esperada JSON:
+    2. "frustrationLevel": Un número del 1 al 10 indicando qué tan molesto o impaciente está el cliente.
+    3. "userName": Si el usuario dice su nombre o se presenta, extráelo.
+    4. "isNameComplete": Booleano, true si el nombre parece ser Nombre + Apellido.
+    5. "detectedPlatform": Si menciona una plataforma específica (Netflix, Disney, etc.)
+    6. "recoveredState": Si en el historial ves que la conversación se interrumpió en medio de un proceso (ej. iba a pagar y dejó de responder), sugiere el estado a recuperar ("awaiting_payment_method", "selecting_plans", etc.).
+
+    REGLAS DE ORO:
+    - Si el usuario pregunta por una plataforma distinta a la que se estaba hablando, marca intent "comprar" para que el bot pueda pivotar.
+    - Si el usuario pregunta "qué significa" un plan o pide detalles, marca intent "soporte" o "comprar" según el contexto para explicarle.
+    - No fuerces al usuario a seguir un flujo si su pregunta es válida y distinta.
+
+    JSON esperado:
     {
-       "replyMessage": "Texto empático para el usuario...",
-       "needsEscalation": boolean,
-       "escalationSummary": "Reporte para operadores o null"
+      "intent": string,
+      "frustrationLevel": number,
+      "userName": string | null,
+      "isNameComplete": boolean,
+      "detectedPlatform": string | null,
+      "recoveredState": string | null,
+      "metadata": object // Cualquier dato extra útil
     }
   `;
-
-  try {
-    const jsonString = await callGemini(prompt, "Eres un asistente de servicio al cliente experto. Responde ÚNICAMENTE con formato JSON.", true, mediaData);
-    return JSON.parse(jsonString);
-  } catch (error) {
-    console.error("Error generating empathetic fallback JSON:", error);
-    return {
-       replyMessage: "¡He notificado a tu asesor! Dame unos minutos en lo que entra a revisar tu caso en detalle. 🤖",
-       needsEscalation: true,
-       escalationSummary: "Falla de conectividad local con la IA al procesar: " + userMessage
-    };
-  }
-}
-
-/**
- * Analyzes the first message to identify the user's intent.
- * @param {string} messageContent 
- * @param {string} chatHistory 
- * @param {object|null} mediaData { data, mimeType }
- * @param {Array} userAccounts Context of user's active services
- * @returns {Promise<Object>}
- */
 async function detectInitialIntent(messageContent, chatHistory = "", mediaData = null, userAccounts = []) {
     const accountSummary = summarizeAccounts(userAccounts);
     const platformDocs = await getPlatformKnowledge();
