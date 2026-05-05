@@ -554,10 +554,24 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
 
   try {
     const response = await callGemini(prompt, "Eres Sheerit, un asesor de ventas empático y experto. Responde de forma humana y servicial.", false, mediaData);
-    return response.trim();
+    const replyText = response.trim();
+    
+    // Detección heurística de necesidad de escalación
+    const needsEscalation = replyText.toLowerCase().includes('asesor') || 
+                            replyText.toLowerCase().includes('humano') || 
+                            replyText.toLowerCase().includes('soporte técnico') ||
+                            replyText.toLowerCase().includes('revisar tu caso');
+
+    return { 
+      replyMessage: replyText, 
+      needsEscalation: needsEscalation 
+    };
   } catch (error) {
     console.error("Error in generateEmpatheticFallback:", error);
-    return "¡Hola! He notificado a tu asesor para que te ayude con este caso específico. Dame unos minutos. 🤖";
+    return { 
+      replyMessage: "¡Hola! He notificado a tu asesor para que te ayude con este caso específico. Dame unos minutos. 🤖",
+      needsEscalation: true
+    };
   }
 }
 
@@ -582,12 +596,13 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por precios de algo que NO tiene.
     - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado (revisa la lista de cuentas del usuario).
     - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
-    - "soporte": Problemas técnicos, fallas de pantalla, o el usuario indica que ya pagó y el servicio no funciona/aparece cobro.
+    - "soporte": Problemas técnicos, fallas de pantalla, errores en el cobro, o si el usuario CUESTIONA un precio (ej: "no eran 12 mil?", "esta mal el precio"). También si pide hablar con una persona específica (ej: "pásame a Esteban").
     - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale").
     - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio, que no va a continuar o pide la baja.
     - "desconocido": Cualquier otro mensaje.
 
     Regla de Intents:
+    - "soporte": PRIORIDAD si el usuario dice que hay un error, que el precio no coincide, o si suena confundido con la factura.
     - "comprar": PRIORIDAD si menciona plataforma nueva. Si el usuario ya tiene el servicio y pregunta "cuánto es", usa "renovar".
     - "renovar": PRIORIZA este intent si el usuario pregunta "cuánto es", "puedo pagar", "mándame el nequi" o "cuánto te debo" y ves que tiene cuentas activas o vencidas en su lista.
     - "credenciales": El usuario pide sus datos de acceso ("mi cuenta", "pásame el pin", "contraseña", "clave", "password"). PRIORIZA este intent si el usuario menciona palabras relacionadas con "llaves", "claves", "password" o "entrar".

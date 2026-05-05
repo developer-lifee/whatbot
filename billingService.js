@@ -245,17 +245,22 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
           
           // Fallback al primer plan (base) si no encontramos uno específico
           if (catalogPrice === 0) {
-              // Si el Excel dice "Extra" pero no hallamos plan "Extra", no queremos el base de 13k
-              // Pero si el Excel NO dice "Extra", el primer plan (13k) es el correcto.
-              if (!searchName.includes('extra')) {
+              // REGLA INTELIGENTE: Si el precio del Excel ya coincide con alguno de los precios del catálogo,
+              // respetamos ese precio en lugar de forzar el primer plan.
+              const matchesAnyPlanPrice = catalogPlatform.plans.some(pl => pl.price === price);
+              
+              if (matchesAnyPlanPrice && price > 0) {
+                  catalogPrice = price;
+              } else if (!searchName.includes('extra')) {
+                  // Solo si no coincide con nada y no es un "Extra" (que tiene lógica propia), 
+                  // tomamos el primer plan como base.
                   catalogPrice = catalogPlatform.plans[0].price;
               }
           }
 
           // REGLA ESPECIAL SPOTIFY: Respetar precio del Excel si es mayor al del catálogo (ej: 9000 vs 8000)
-          // a menos que sea un plan de dueño (owner) que suele ser más barato o específico.
           if (searchName.includes('spotify') && !normalizedFullName.includes('owner') && price > catalogPrice) {
-              // Mantener el precio del Excel (ej: 9000)
+              // Mantener el precio del Excel
           } else if (catalogPrice > 0) {
             price = catalogPrice;
           }
