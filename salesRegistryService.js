@@ -30,7 +30,8 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null) {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const year = now.getFullYear();
     
-    return `${day}-${month}-${year}`;
+    // El usuario prefiere MM-DD-YYYY (ej: 06-05-2026 para el 5 de junio)
+    return `${month}-${day}-${year}`;
 }
 
 /**
@@ -134,7 +135,36 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 continue;
             }
 
-            // 2. CASO VENTA NUEVA: Buscar cupo
+            // 2. CASO INTELIGENTE: Si no viene marcado como renovación, BUSCAR si el usuario YA TIENE esta plataforma
+            let finalRow = null;
+            let isAutoRenewal = false;
+            
+            if (!userState.isRenewal) {
+                const existingAccount = allRows.find(r => {
+                    const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
+                    const rowStreaming = (r.Streaming || "").toLowerCase();
+                    return rowPhone.includes(phone.slice(-10)) && rowStreaming.includes(lowerName);
+                });
+                
+                if (existingAccount) {
+                    finalRow = existingAccount._rowNumber || allRows.indexOf(existingAccount) + 2;
+                    isAutoRenewal = true;
+                    console.log(`[Sales Registry] Auto-detección: El cliente ya tiene ${platformName}. Procesando como RENOVACIÓN en fila ${finalRow}`);
+                }
+            }
+
+            if (finalRow) {
+                const updates = {
+                    "deben": nextPaymentDate,
+                    "Metodo de pago": paymentMethod || "Renovado (Auto)",
+                    "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
+                };
+                await updateExcelData(finalRow, updates);
+                results.push({ name: platformName, status: 'success', rowNumber: finalRow, type: 'renewal' });
+                continue;
+            }
+
+            // 3. CASO VENTA NUEVA: Buscar cupo
             // Verificamos si es un PLAN FAMILIAR (Saltar si es venta nueva, pero NO si es renovación)
             const isFamilyPlan = FAMILY_KEYWORDS.some(key => lowerName.includes(key));
             
@@ -158,8 +188,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "Nombre": firstName,
                     "apellido": lastName,
                     "Nombre Completo": name,
-                    "whatsapp": name, // El usuario requiere el nombre aquí
+                    "whatsapp": name, 
                     "numero": phone,
+                    "Numero": phone, // Por si acaso es con Mayúscula
                     "deben": nextPaymentDate,
                     "Metodo de pago": paymentMethod || "Confirmado (Auto)",
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`

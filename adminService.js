@@ -227,7 +227,12 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     });
     
     if (adminMessage) await adminMessage.reply(report);
-    else await client.sendMessage(userId, "🤖 ¡Pago confirmado! Tus servicios han sido activados. 🎉");
+    else {
+        const successMsg = "🤖 ¡Pago confirmado! Tus servicios han sido activados. 🎉\n\n" +
+                           "Te avisaremos un día antes de que venza tu cuenta para que no pierdas ni un día de diversión. 😊\n\n" +
+                           "💡 *Dato importante:* Cuando llegue el momento del vencimiento, apreciamos mucho que nos cuentes si deseas renovar o no. Esto nos ayuda a organizar los cupos y seguir ofreciendo el mejor servicio a todos. ¡Gracias por preferirnos! 🙏";
+        await client.sendMessage(userId, successMsg);
+    }
     
     userStates.set(userId, { state: 'main_menu', nombre: userState.nombre });
     return { success: true };
@@ -408,7 +413,10 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         if (someFailed) {
             await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! 🎉\n\nSin embargo, para uno de tus servicios estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊");
         } else {
-            await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nYa puedes revisar tus credenciales actualizadas escribiendo *2*. ¡Disfruta! 😊");
+            const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
+                               "Ya puedes revisar tus credenciales actualizadas escribiendo *2*. ¡Disfruta! 😊\n\n" +
+                               "📅 Te avisaremos un día antes de que venza tu cuenta. Apreciamos mucho que en ese momento nos confirmes si seguirás con nosotros; esto nos ayuda a mantener cupos estables para todos. 🙏";
+            await client.sendMessage(userId, successMsg);
         }
         
         // Limpiar estado
