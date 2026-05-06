@@ -1148,8 +1148,26 @@ async function processIncomingMessage(messages) {
         userStates.set(message.from, { ...adminState, state: 'simulating_client', simulationCount: 6 }); // 6 para que el primer mensaje cuente
         await message.reply("🎭 *MODO SIMULACIÓN ACTIVADO*\n\nA partir de ahora, te trataré como si fueras un cliente nuevo. El bot responderá a tus mensajes sin necesidad de usar @bot.\n\n_Este modo durará 5 mensajes o hasta que digas '@bot detener'._ 🤖");
         return;
+    } else if (bodyLower.includes('@bot codigos')) {
+        const { findRecentCodes } = require('./gmailService');
+        const codes = await findRecentCodes(10);
+        if (codes.length === 0) {
+            await message.reply("🤖 No encontré códigos recientes en los últimos 10 minutos.");
+        } else {
+            let reply = "🤖 *CÓDIGOS RECIENTES (GMAIL)*:\n\n";
+            codes.forEach(c => {
+                reply += `📧 *${c.subject}*\n🔢 *Código:* ${c.code || 'Ver snippet'}\n📝 ${c.snippet}...\n⏰ Hace ${c.time} min\n\n`;
+            });
+            await message.reply(reply);
+        }
+        return;
+    } else if (bodyLower.includes('@bot pendientes')) {
+        const { getPendientesReport } = require('./adminService');
+        const report = await getPendientesReport(userStates);
+        await message.reply(report);
+        return;
     }
-
+    
     if (bodyLower === '@bot stats') {
         const stats = {
             totalStates: userStates.size,

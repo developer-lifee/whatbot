@@ -167,7 +167,61 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
     }
 }
 
+/**
+ * Busca códigos de verificación (OTP) o inicios de sesión en los últimos minutos.
+ */
+async function findRecentCodes(toleranceMinutes = 10) {
+    console.log(`[GMAIL CODES] Buscando códigos en los últimos ${toleranceMinutes} min...`);
+    const auth = await getOAuth2Client('gmail');
+    if (!auth) return [];
+
+    const gmail = google.gmail({ version: 'v1', auth });
+    
+    try {
+        const res = await gmail.users.messages.list({
+            userId: 'me',
+            q: 'subject:(código OR code OR inició OR inicio OR login OR otp OR verification)',
+            maxResults: 5
+        });
+
+        const messages = res.data.messages || [];
+        const now = Date.now();
+        const codesFound = [];
+
+        for (const msg of messages) {
+            const fullMsg = await gmail.users.messages.get({
+                userId: 'me',
+                id: msg.id
+            });
+
+            const internalDate = parseInt(fullMsg.data.internalDate);
+            const diffMinutes = (now - internalDate) / (1000 * 60);
+
+            if (diffMinutes > toleranceMinutes) continue;
+
+            const snippet = fullMsg.data.snippet || '';
+            const subject = fullMsg.data.payload.headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';
+            
+            // Intentar extraer un número de 4 a 8 dígitos (típico de OTP)
+            const codeMatch = snippet.match(/\b\d{4,8}\b/);
+            const code = codeMatch ? codeMatch[0] : null;
+
+            codesFound.push({
+                subject,
+                snippet: snippet.substring(0, 150),
+                code,
+                time: Math.round(diffMinutes)
+            });
+        }
+        return codesFound;
+    } catch (error) {
+        console.error('❌ Error en findRecentCodes:', error.message);
+        return [];
+    }
+}
+
 module.exports = {
     checkNewPayments,
-    findMatchingPayment
+    findMatchingPayment,
+    findRecentCodes
 };

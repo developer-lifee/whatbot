@@ -547,6 +547,25 @@ async function handleAdminForceRetrieve(message, command, client, targetUser = n
     }
 }
 
+/**
+ * Genera un reporte de chats con estados pendientes (esperando humano, etc.)
+ */
+async function getPendientesReport(userStates) {
+    let report = "📝 *CHATS PENDIENTES DE ATENCIÓN*:\n\n";
+    let count = 0;
+    
+    for (const [userId, state] of userStates.entries()) {
+        if (state && (state.state === 'waiting_human' || state.state === 'awaiting_payment_confirmation')) {
+            count++;
+            const status = state.state === 'waiting_human' ? '🆘 Esperando Asesor' : '💰 Esperando Pago';
+            report += `• @${userId.replace('@c.us', '')} [${status}]\n`;
+        }
+    }
+    
+    if (count === 0) return "✅ No hay chats pendientes de atención en este momento.";
+    return report + `\nTotal: ${count} pendientes.`;
+}
+
 module.exports = {
   processPendingChats,
   handleBatchUnanswered,
@@ -561,5 +580,6 @@ module.exports = {
   handleAdminPaymentConfirmation,
   handleSendManualPaymentMethods,
   handleAdminForceRetrieve,
-  notifyProviderExpiringAccounts
+  notifyProviderExpiringAccounts,
+  getPendientesReport
 };

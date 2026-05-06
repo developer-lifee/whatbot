@@ -30,7 +30,7 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null) {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const year = now.getFullYear();
     
-    return `${day}/${month}/${year}`;
+    return `${day}-${month}-${year}`;
 }
 
 /**
@@ -97,7 +97,19 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
         const items = userState.items || [];
         const subscriptionType = userState.subscriptionType || 'mensual';
         const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths);
-        const name = userState.nombre || "Cliente WhatsApp";
+        
+        // Intentar obtener el nombre real si el estado tiene el genérico
+        let name = userState.nombre;
+        if (!name || name === "Cliente WhatsApp") {
+            try {
+                const { getContactNameByPhone } = require('./googleContactsService');
+                const contactName = await getContactNameByPhone(userId.replace(/\D/g, ''));
+                if (contactName) name = contactName;
+                else name = "Cliente WhatsApp";
+            } catch (e) {
+                name = "Cliente WhatsApp";
+            }
+        }
         const phone = userId.replace('@c.us', '');
 
         // Obtener todos los datos crudos para buscar cupos (solo si no es renovación)
@@ -150,7 +162,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "numero": phone,
                     "deben": nextPaymentDate,
                     "Metodo de pago": paymentMethod || "Confirmado (Auto)",
-                    "observaciones": `Venta Auto - ${new Date().toLocaleDateString()}`
+                    "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
                 };
 
                 // Si es Netflix o Disney y tenemos operador en el estado, lo llenamos

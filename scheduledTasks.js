@@ -62,6 +62,24 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
         }
     });
 
+    // 3. REENVÍO DE CÓDIGOS GMAIL (Cada 2 minutos)
+    schedule.scheduleJob('*/2 * * * *', async () => {
+        try {
+            const { findRecentCodes } = require('./gmailService');
+            const codes = await findRecentCodes(3); // Buscar de los últimos 3 min
+            
+            if (codes.length > 0) {
+                const chat = await client.getChatById(groupId);
+                for (const c of codes) {
+                    const message = `📧 *CÓDIGO DETECTADO EN GMAIL*\n\n*Asunto:* ${c.subject}\n*Código:* ${c.code || 'No detectado en snippet'}\n*Detalle:* ${c.snippet}...\n*Recibido hace:* ${c.time} min`;
+                    await chat.sendMessage(message);
+                }
+            }
+        } catch (err) {
+            console.error('❌ Error en tarea de reenvío de códigos:', err);
+        }
+    });
+
     console.log('✅ [AUTOMATION] Tareas programadas con éxito.');
 }
 
