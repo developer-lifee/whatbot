@@ -1662,11 +1662,21 @@ async function processIncomingMessage(messages) {
 
     // --- INTERCEPTOR DE TEXTO PARA PAGOS (Sin media) ---
     // Si el usuario dice algo como "ya pagué" o "aquí el soporte" sin la imagen aún
-    if (isPaymentReceipt(combinedBody)) {
+    const checkText = await isPaymentReceipt(combinedBody, `Contexto: El usuario está enviando un mensaje de texto. Evalúa si confirma un pago.`);
+    if (checkText.isReceipt) {
         console.log(`[PAYMENT INTERCEPTOR] 📝 Texto de pago detectado para @${userId}`);
-        const replyText = "🤖 ¡Excelente! Quedo a la espera de la imagen de tu comprobante para que un asesor pueda validarlo. Mientras tanto, si es una cuenta de Netflix, ¿podrías decirme tu localidad y operador de internet? 😊";
+        
+        let replyText = "🤖 ¡Entendido! Quedo a la espera de la imagen de tu comprobante para que un asesor pueda validarlo rápidamente. 😊";
+        
+        // Solo preguntar operador si es Netflix
+        const state = userStates.get(userId);
+        const isNetflix = state && state.items && state.items.some(it => (it.Streaming || "").toLowerCase().includes('netflix'));
+        if (isNetflix) {
+            replyText += "\n\nPor cierto, como es para Netflix, ¿podrías decirme tu localidad y operador de internet? Esto nos ayuda a asegurar la estabilidad de tu cuenta. 🏠";
+        }
+        
         await message.reply(replyText);
-        userStates.set(userId, { state: 'awaiting_payment_confirmation' });
+        userStates.set(userId, { ...state, state: 'awaiting_payment_confirmation' });
         return;
     }
   }

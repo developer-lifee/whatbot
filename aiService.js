@@ -497,6 +497,7 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
 
     Reglas:
     - Solo marca isReceipt: true si es una confirmación de envío/transferencia exitosa.
+    - **IMPORTANTE**: Si la imagen muestra un ERROR, una CUENTA SUSPENDIDA, un MENSAJE DE REINICIO DE MEMBRESÍA o cualquier fallo de la plataforma de streaming, marca isReceipt: false. No confundas un fallo con un pago.
     - Sé muy riguroso con el 'amount'. Si hay varios números, busca el que diga 'Monto', 'Valor', 'Total' o esté resaltado.
     - No lo confundas con una foto de la plataforma de streaming.
     - Si el banco es Nequi, Daviplata, Bancolombia, dale prioridad.
