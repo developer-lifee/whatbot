@@ -1562,6 +1562,7 @@ async function processIncomingMessage(messages) {
       // Tomamos la primera imagen para el interceptor de pagos (normalmente el usuario manda el recibo solo)
       const batchText = messages.map(m => m.body).filter(b => b).join('\n');
       const check = await isPaymentReceipt(mediaData[0], `[TEXTO EN ESTE LOTE: ${batchText}]\n\n${history}`);
+      
       if (check.isReceipt) {
           console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);
           
@@ -1657,6 +1658,40 @@ async function processIncomingMessage(messages) {
               console.error("Error notificando al grupo sobre pago interceptado:", adminErr.message);
           }
           return; // Salir, ya procesamos el mensaje
+      } else {
+          // --- NUEVO: DETECCIÓN DE FALLO PREMATURO ---
+          // Si mandó una imagen que NO es pago, revisamos si tiene cuentas activas
+          const lowerBatch = batchText.toLowerCase();
+          const errorKeywords = ['falla', 'error', 'funciona', 'caido', 'suspendid', 'problema', 'sale asi', 'sacó'];
+          const hasErrorText = errorKeywords.some(k => lowerBatch.includes(k));
+
+          if (hasErrorText) {
+              const { getAccountsByPhone } = require('./apiService');
+              const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
+              const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+              const accounts = await getAccountsByPhone(phoneNumber);
+              
+              const activeAccountWithProblem = accounts.find(acc => {
+                  const expDate = getJsDateFromExcel(acc.deben);
+                  const today = getTodayInBogota();
+                  return expDate && expDate > today; // Cuenta sigue vigente en el papel
+              });
+
+              if (activeAccountWithProblem) {
+                  console.log(`[FAULT DETECTOR] 🚨 Posible fallo prematuro detectado para @${userId}`);
+                  try {
+                      const groupChat = await client.getChatById(GROUP_ID);
+                      if (groupChat) {
+                          const adminMsg = `🚨 *POSIBLE FALLO PREMATURO* (@${userId.replace('@c.us', '')})\n` +
+                                         `El cliente reporta un error pero su cuenta de *${activeAccountWithProblem.Streaming}* vence hasta el *${activeAccountWithProblem.deben}*.\n\n` +
+                                         `Favor revisar el chat de inmediato.`;
+                          await groupChat.sendMessage(adminMsg);
+                          const mediaToForward = await message.downloadMedia();
+                          await groupChat.sendMessage(mediaToForward);
+                      }
+                  } catch (e) {}
+              }
+          }
       }
     }
 
