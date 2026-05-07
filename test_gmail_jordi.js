@@ -5,10 +5,13 @@ const { google } = require('googleapis');
 // Configuración específica para el correo de Jordi
 const EMAIL_IDENTIFIER = 'jordimemesmomazosdick@gmail.com';
 const TOKEN_PATH = path.join(__dirname, 'token_gmail.json');
-const CREDENTIALS_PATH = path.join(__dirname, 'credentials.json'); // Usamos el credentials.json que ya tienes
+const CREDENTIALS_PATH = fs.existsSync(path.join(__dirname, 'credentials_pagos.json')) 
+    ? path.join(__dirname, 'credentials_pagos.json') 
+    : path.join(__dirname, 'credentials.json');
 
 async function testGmailJordi() {
     console.log(`\n🔍 --- INICIANDO TEST DE GMAIL PARA: ${EMAIL_IDENTIFIER} ---`);
+    console.log(`ℹ️ Usando archivo de credenciales: ${path.basename(CREDENTIALS_PATH)}`);
 
     if (!fs.existsSync(CREDENTIALS_PATH)) {
         console.error('❌ Error: No se encontró credentials.json en la raíz del proyecto.');

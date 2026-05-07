@@ -25,13 +25,23 @@ function setAlertCallback(cb) {
 async function getOAuth2Client(serviceName = 'contacts', code = null) {
     if (cachedClients.has(serviceName) && !code) return cachedClients.get(serviceName);
 
-    if (!fs.existsSync(CREDENTIALS_PATH)) {
-        console.error(`❌ No se encontró credentials.json. Servicio ${serviceName} deshabilitado.`);
+    // Permitir archivo de credenciales específico por servicio (ej: credentials_pagos.json para gmail)
+    let activeCredentialsPath = CREDENTIALS_PATH;
+    if (serviceName === 'gmail') {
+        const specificGmailCreds = path.join(__dirname, 'credentials_pagos.json');
+        if (fs.existsSync(specificGmailCreds)) {
+            activeCredentialsPath = specificGmailCreds;
+            console.log(`[GOOGLE AUTH] Usando credenciales específicas para GMAIL: ${activeCredentialsPath}`);
+        }
+    }
+
+    if (!fs.existsSync(activeCredentialsPath)) {
+        console.error(`❌ No se encontró el archivo de credenciales (${activeCredentialsPath}). Servicio ${serviceName} deshabilitado.`);
         return null;
     }
 
     try {
-        const content = fs.readFileSync(CREDENTIALS_PATH, 'utf8');
+        const content = fs.readFileSync(activeCredentialsPath, 'utf8');
         const credentials = JSON.parse(content);
         const { client_secret, client_id, redirect_uris } = credentials.installed || credentials.web;
         const redirectUri = redirect_uris ? redirect_uris[0] : 'urn:ietf:wg:oauth:2.0:oob';

@@ -7,10 +7,13 @@ const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
 // Ruta donde se guardará tu token de Gmail
 const TOKEN_PATH = 'token_gmail.json';
 
-// Cargar credenciales desde credentials.json
-fs.readFile('credentials.json', (err, content) => {
-  if (err) return console.log('❌ Error cargando credentials.json (¿Seguro que descargaste el archivo de Google Cloud?):', err);
+// Cargar credenciales: Priorizamos credentials_pagos.json si existe
+const credFile = fs.existsSync('credentials_pagos.json') ? 'credentials_pagos.json' : 'credentials.json';
+
+fs.readFile(credFile, (err, content) => {
+  if (err) return console.log(`❌ Error cargando ${credFile} (¿Seguro que descargaste el archivo de Google Cloud?):`, err);
   
+  console.log(`ℹ️ Cargando credenciales desde: ${credFile}`);
   // Autorizar al cliente
   authorize(JSON.parse(content), auth => {
      console.log('✅ Autorización exitosa. Ahora el bot tiene acceso a Gmail usando token_gmail.json');
