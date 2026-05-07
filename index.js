@@ -2270,7 +2270,7 @@ async function processPaymentSelection(message, userId, text) {
     'transfiya': "🤖 *Transfiya*\n*LLAVE*\n3118587974",
     'llaves bre-v': "🤖 *LLAVE bre-v*\n3118587974",
     'llave bre-b': "🤖 *LLAVE bre-b*\n3118587974",
-    'qr negocios': "🤖 *QR Negocios*\nPor favor, escanea el código que te envío a continuación para realizar tu pago de forma rápida y segura."
+    'qr negocios': "🤖 *QR Negocios (RECOMENDADO)*\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** de tus servicios en pocos minutos. ⚡"
   };
   
   const lowerText = text.toLowerCase();
@@ -2282,13 +2282,13 @@ async function processPaymentSelection(message, userId, text) {
     if (fs.existsSync(qrPath)) {
         try {
             const media = MessageMedia.fromFilePath(qrPath);
-            await message.reply(media, undefined, { caption: "🤖 Aquí tienes nuestro *QR de Negocios* oficial para realizar tu pago fácilmente. 😊" });
+            await message.reply(media, undefined, { caption: "🤖 Aquí tienes nuestro *QR de Negocios* oficial. Úsalo para una validación automática y activación inmediata de tu servicio. 🎉" });
         } catch(e) {
             console.error("Error enviando QR:", e.message);
             await message.reply("🤖 No pude enviar la imagen del QR en este momento, pero puedes usar los datos de texto abajo.");
         }
     } else {
-        await message.reply("🤖 Aún no tengo configurada la imagen del QR oficial, pero puedes usar estos datos para transferir:");
+        await message.reply("🤖 Aún no tengo configurada la imagen del QR oficial, pero puedes usar estos datos para transferir (recuerda que el QR agiliza tu entrega):");
     }
   }
 

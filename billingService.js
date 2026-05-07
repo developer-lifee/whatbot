@@ -323,7 +323,7 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
             'transfiya': "*LLAVE*\n3118587974",
             'llaves bre-v': "3118587974",
             'llave bre-b': "3118587974",
-            'qr negocios': "Escanea el código QR que te enviaré a continuación."
+            'qr negocios': "Escanea el código QR que te enviaré a continuación (Recomendado para validación automática ⚡)."
           };
           
           const methodKey = preferredMethod.toLowerCase();
@@ -332,10 +332,10 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
               await message.reply(`🤖 Entendido, aquí tienes los datos para *${preferredMethod.toUpperCase()}*:\n\n${details[foundKey]}\n\nUna vez realices la transferencia, por favor envíame el comprobante por aquí.`);
               userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation', paymentMethod: preferredMethod });
           } else {
-              await message.reply("\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi | ⭐Daviplata | ⭐Bancolombia | ⭐QR Negocios");
+              await message.reply("\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐QR Negocios (Más rápido ⚡) | ⭐Nequi | ⭐Daviplata | ⭐Bancolombia");
           }
       } else {
-          replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐Nequi | ⭐Daviplata | ⭐Bancolombia | ⭐QR Negocios";
+          replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n⭐QR Negocios (Más rápido ⚡) | ⭐Nequi | ⭐Daviplata | ⭐Bancolombia";
           await message.reply(replyMessage);
       }
     } else {
