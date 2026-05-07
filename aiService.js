@@ -1,6 +1,50 @@
-const { getJsDateFromExcel, getTodayInBogota, getPlatformKnowledge } = require('./apiService');
+const { getJsDateFromExcel, getTodayInBogota, getPlatformKnowledge, getWisdomKnowledge } = require('./apiService');
+const fs = require('fs');
+const path = require('path');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+/**
+ * Convierte el JSON de sabiduría en un texto legible para el prompt de la IA.
+ */
+function summarizeWisdom(wisdom) {
+    if (!wisdom) return "";
+    let summary = "";
+    
+    if (wisdom.company_info) {
+        summary += `EMPRESA: ${wisdom.company_info.name}\nMISIÓN: ${wisdom.company_info.mission}\n\n`;
+    }
+
+    if (wisdom.human_support_schedule) {
+        summary += "HORARIOS DE ATENCIÓN HUMANA:\n";
+        wisdom.human_support_schedule.forEach(s => {
+            summary += `- ${s.days} (${s.staff}): ${s.details}\n`;
+        });
+        summary += "\n";
+    }
+
+    if (wisdom.platform_rules) {
+        summary += "REGLAS ESPECÍFICAS DE PLATAFORMAS:\n";
+        for (const [plat, rule] of Object.entries(wisdom.platform_rules)) {
+            summary += `- ${plat}: ${rule}\n`;
+        }
+        summary += "\n";
+    }
+
+    if (wisdom.general_policies) {
+        summary += "POLÍTICAS GENERALES:\n";
+        for (const [key, val] of Object.entries(wisdom.general_policies)) {
+            summary += `- ${key.toUpperCase()}: ${val}\n`;
+        }
+        summary += "\n";
+    }
+
+    if (wisdom.support_protocol) {
+        summary += `PROTOCOLO DE SOPORTE: ${wisdom.support_protocol.first_step} (${wisdom.support_protocol.rationale})\n`;
+    }
+
+    return summary;
+}
 
 // List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
@@ -522,47 +566,34 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
 async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = []) {
   const accountSummary = summarizeAccounts(userAccounts);
   const platformDocs = await getPlatformKnowledge();
+  const wisdomData = await getWisdomKnowledge();
+  
   const platformContext = summarizePlatformKnowledge(platformDocs);
+  const wisdomContext = summarizeWisdom(wisdomData);
 
-  const prompt = `
-    Eres "Sheerit", el asesor experto de la plataforma Sheerit. 
-    Tu objetivo es ser un vendedor servicial, empático y resolutivo.
-    
-    GUÍA DE FUNCIONAMIENTO Y PRECIOS:
-    ${platformContext}
+  let template = "";
+  try {
+      const templatePath = path.join(__dirname, 'prompts', 'fallback_template.txt');
+      template = fs.readFileSync(templatePath, 'utf8');
+  } catch (e) {
+      console.warn("No se pudo cargar la plantilla de prompt, usando fallback básico.");
+      template = "Responde de forma amable a: {{MESSAGE_CONTENT}}";
+  }
 
-    SERVICIOS ACTUALES DEL CLIENTE:
-    ${accountSummary}
-
-    CONTEXTO DE LA CONVERSACIÓN:
-    ${chatHistory}
-
-    MENSAJE ACTUAL DEL CLIENTE:
-    "${messageContent}"
-    ${isMedia ? "[El usuario envió una imagen/archivo]" : ""}
-
-    INSTRUCCIONES DE RESPUESTA:
-    1. **Personalidad**: Eres el asistente virtual de "Sheerit Store". Sé amable, usa emojis, y mantén un tono de "asesor experto". NUNCA uses frases positivas como "¡Excelente!" si el usuario está reportando un problema o falla.
-    2. **Horarios de Atención**: Informa SIEMPRE (especialmente si el usuario pide un asesor o reporta una falla) que la **Atención Humana es únicamente de 4:00 PM a 10:00 PM**. Fuera de ese horario, el bot es el único encargado de procesar compras y renovaciones.
-    3. **Manejo de Errores**: Si el usuario reporta un problema, error, o dice que el servicio está "caído":
-       - Pídeles SIEMPRE y amablemente una foto o pantallazo del error que les aparece. 
-       - Explícales que esto nos permite ver si es un problema de conexión o si debemos enviarle las credenciales de nuevo.
-    4. **Hallucination Check**: Revisa SIEMPRE la "GUÍA DE FUNCIONAMIENTO" antes de afirmar algo sobre una plataforma. 
-       - **IMPORTANTE**: Disney+ Premium SI incluye deportes (ESPN, Champions, Libertadores). Menciona esto BREVEMENTE solo si el usuario pregunta por deportes o si estás comparando planes de Disney. No lo incluyas en cada mensaje de forma repetitiva.
-    5. **Prioridad de Venta**: Si el usuario pregunta por algo que no tiene, intenta cerrar la venta explicando los beneficios de forma concisa.
-    6. **Soporte**: Si el usuario tiene un problema, dale una solución inicial amigable o dile que un humano entrará pronto si es muy complejo.
-    7. **Pagos**: Si el usuario pide la cuenta para pagar o renovar (Nequi, Daviplata, QR), no intentes dar los números tú mismo. Responde amablemente confirmando que le enviarás los medios de pago enseguida.
-    8. **Brevedad**: Sé conciso pero completo. No uses párrafos gigantes.
-    9. **Despedida**: Firma siempre con un 🤖 al final.
-
-    No respondas con JSON, responde con el TEXTO FINAL que se enviará al cliente.
-  `;
+  const prompt = template
+      .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
+      .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
+      .replace('{{WISDOM_CONTEXT}}', wisdomContext)
+      .replace('{{PLATFORM_CONTEXT}}', platformContext)
+      .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
+      .replace('{{CHAT_HISTORY}}', chatHistory)
+      .replace('{{MESSAGE_CONTENT}}', messageContent)
+      .replace('{{MEDIA_STATUS}}', isMedia ? "[El usuario envió una imagen/archivo]" : "");
 
   try {
-    const response = await callGemini(prompt, "Eres Sheerit, un asesor de ventas empático y experto. Responde de forma humana y servicial.", false, mediaData);
+    const response = await callGemini(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false, mediaData);
     const replyText = response.trim();
     
-    // Detección heurística de necesidad de escalación
     const needsEscalation = replyText.toLowerCase().includes('asesor') || 
                             replyText.toLowerCase().includes('humano') || 
                             replyText.toLowerCase().includes('soporte técnico') ||

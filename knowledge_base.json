@@ -1,0 +1,33 @@
+{
+  "company_info": {
+    "name": "Sheerit Store",
+    "mission": "Proveer acceso premium a plataformas de streaming de forma económica y estable.",
+    "assistant_name": "Asistente Virtual de Sheerit Store"
+  },
+  "human_support_schedule": [
+    {
+      "days": "Lunes a Viernes",
+      "staff": "Esteban",
+      "details": "Atención directa de 4:00 PM a 10:00 PM. (De 1 PM a 4 PM está en desarrollo interno del bot)."
+    },
+    {
+      "days": "Sábado y Domingo",
+      "staff": "Brayan",
+      "details": "Atención de 10:00 AM a 9:00 PM (Hora de almuerzo de 4 PM a 5 PM)."
+    }
+  ],
+  "platform_rules": {
+    "Disney+ Premium": "Incluye deportes en vivo (ESPN, Champions League, Copa Libertadores). Menciona esto si preguntan por deportes.",
+    "Netflix": "Si el cliente tiene problemas de 'Hogar Netflix', debe solicitar el código de viaje al bot.",
+    "Spotify": "Si la cuenta vuelve a 'Free', debe reportarlo con una foto para enviarle una nueva invitación familiar."
+  },
+  "general_policies": {
+    "refunds": "No hay reembolsos en efectivo, pero se garantiza la reposición del servicio o el saldo a favor para otras plataformas en caso de fallas masivas.",
+    "renewals": "Apreciamos que confirmes tu renovación con antelación para mantener tus perfiles y listas intactos.",
+    "payments": "El método preferido y más rápido es QR Negocios para validación automática 24/7."
+  },
+  "support_protocol": {
+    "first_step": "Si el usuario reporta un error o caída, pídeles SIEMPRE una foto o pantallazo del error.",
+    "rationale": "La foto nos permite ver si es un problema de conexión local o si las credenciales fallaron para enviarlas de nuevo."
+  }
+}

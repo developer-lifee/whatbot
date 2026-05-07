@@ -290,6 +290,23 @@ async function getPlatformKnowledge() {
     }
 }
 
+/**
+ * Obtiene la 'Sabiduría' o base de conocimiento general (Políticas, FAQ, etc.)
+ */
+async function getWisdomKnowledge() {
+    const localPath = path.join(__dirname, 'knowledge_base.json');
+    try {
+        if (fs.existsSync(localPath)) {
+            const data = fs.readFileSync(localPath, 'utf8');
+            return JSON.parse(data);
+        }
+        return null;
+    } catch (e) {
+        console.error("[API Service] Error cargando base de sabiduría:", e.message);
+        return null;
+    }
+}
+
 module.exports = {
   fetchRawData,
   fetchCustomersData,
@@ -300,6 +317,7 @@ module.exports = {
   getSupportKnowledge,
   getTodayInBogota,
   getJsDateFromExcel,
-  getPlatformKnowledge
+  getPlatformKnowledge,
+  getWisdomKnowledge
 };
 
