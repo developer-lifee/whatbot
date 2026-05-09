@@ -134,7 +134,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const updates = {
                     "numero": formattedPhone,
                     "deben": nextPaymentDate,
-                    "Metodo de pago": paymentMethod || "Renovado (Auto)",
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
                 };
                 await updateExcelData(targetRow, updates);
@@ -164,7 +163,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const updates = {
                     "numero": formattedPhone,
                     "deben": nextPaymentDate,
-                    "Metodo de pago": paymentMethod || "Renovado (Auto)",
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
                 };
                 await updateExcelData(finalRow, updates);
@@ -200,7 +198,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "numero": formattedPhone,
                     "Numero": formattedPhone, 
                     "deben": nextPaymentDate,
-                    "Metodo de pago": paymentMethod || "Confirmado (Auto)",
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
                 };
 
