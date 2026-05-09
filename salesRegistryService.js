@@ -36,13 +36,17 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null) {
 
 /**
  * Formatea un número de teléfono al estilo Sheerit: "57 3XX XXXXXXX"
+ * Asegura un espacio después del indicativo 57 para evitar formatos feos en Excel.
  */
 function formatWhatsAppNumber(phone) {
     const digits = phone.replace(/\D/g, '');
-    if (digits.length === 12) {
-        return `${digits.slice(0, 2)} ${digits.slice(2, 5)} ${digits.slice(5)}`;
+    if (digits.startsWith('57') && digits.length === 12) {
+        return `57 ${digits.slice(2, 5)} ${digits.slice(5)}`;
     }
-    return phone; // Fallback
+    if (digits.startsWith('57')) {
+        return `57 ${digits.slice(2)}`;
+    }
+    return digits;
 }
 
 /**
@@ -111,7 +115,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 name = "Cliente WhatsApp";
             }
         }
-        const phone = userId.replace('@c.us', '');
+        // Limpiar el ID de WhatsApp para obtener solo el número (eliminar sufijos de multi-dispositivo como :12)
+        const phone = userId.split('@')[0].split(':')[0].replace(/\D/g, '');
+        const formattedPhone = formatWhatsAppNumber(phone);
 
         // Obtener todos los datos crudos para buscar cupos (solo si no es renovación)
         const allRows = !userState.isRenewal ? await fetchRawData() : [];
@@ -126,6 +132,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const targetRow = item._rowNumber || item.index;
                 console.log(`[Sales Registry] RENOVACIÓN detectada para ${platformName} en fila ${targetRow}`);
                 const updates = {
+                    "numero": formattedPhone,
                     "deben": nextPaymentDate,
                     "Metodo de pago": paymentMethod || "Renovado (Auto)",
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
@@ -155,6 +162,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
             if (finalRow) {
                 const updates = {
+                    "numero": formattedPhone,
                     "deben": nextPaymentDate,
                     "Metodo de pago": paymentMethod || "Renovado (Auto)",
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
@@ -189,8 +197,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "apellido": lastName,
                     "Nombre Completo": name,
                     "whatsapp": name, 
-                    "numero": phone,
-                    "Numero": phone, // Por si acaso es con Mayúscula
+                    "numero": formattedPhone,
+                    "Numero": formattedPhone, 
                     "deben": nextPaymentDate,
                     "Metodo de pago": paymentMethod || "Confirmado (Auto)",
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
