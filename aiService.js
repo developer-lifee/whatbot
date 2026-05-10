@@ -759,8 +759,8 @@ async function parseAdminQueryIntent(query) {
     - 'name': Extrae el nombre explícito que el admin busca (ej: "busca a laura fonseca" -> "laura fonseca"). Ignora palabras como "busca a", "dame la cuenta de".
     - 'target_field': Si es una actualización, identifica qué columna quiere cambiar (ej: "nombre", "correo", "clave", "vencimiento").
     - 'new_value': El nuevo valor que se debe escribir (ej: "laura bonita", "juan@gmail.com").
-    - 'generic_search': Si el admin busca por cuenta/correo pero no está claro si es nombre o correo, ponlo aquí. También usa este campo para el destinatario de un broadcast (ej: "manda a los de disney" -> "disney", "avisa a juan@gmail.com" -> "juan@gmail.com").
-    - 'custom_message': Si el admin pide enviar un broadcast diciendo algo específico (ej: "dile a los de netflix que su cuenta caducó", "avisa que cambien de cuenta"), extrae el MENSAJE EXACTO O PARAFRASEADO que el bot debe enviar ("Tu cuenta ha caducado", "Por favor, cambia de cuenta").
+    - 'generic_search': Si el admin busca por cuenta/correo pero no está claro si es nombre o correo, ponlo aquí, pero NUNCA incluyas el nombre de la plataforma en este campo. Extrae SOLO la palabra clave o prefijo del correo (ej: "los de sheerit08 de disney" -> extrae solo "sheerit08"). También usa este campo para el destinatario de un broadcast.
+    - 'custom_message': Si el admin pide enviar un broadcast, extrae el MENSAJE EXACTO que el bot debe enviar. Si el admin pone el mensaje entre comillas ("" o ''), DEBES extraer únicamente el texto literal que está dentro de las comillas sin alterarlo.
     - 'only_fields': Si el admin especifica qué partes de las credenciales enviar (ej: "solo la contraseña", "únicamente el pin", "no mandes el correo, solo clave y perfil"), llena este arreglo con las palabras clave ("clave", "contraseña", "pin", "pin perfil", "perfil"). Si debe enviar todo, déjalo null o vacío.
   `;
   try {
