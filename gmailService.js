@@ -4,8 +4,8 @@ const fs = require('fs');
 const path = require('path');
 
 const PROCESSED_EMAILS_PATH = path.join(__dirname, 'processed_emails.json');
-+
-+const PAYMENT_EMAIL = 'jordimemesmomazosdick@gmail.com';
+
+const PAYMENT_EMAIL = 'jordimemesmomazosdick@gmail.com';
 
 /**
  * Carga la lista de IDs de correos ya procesados para evitar duplicados.
