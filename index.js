@@ -85,7 +85,7 @@ let globalBotSleep = false;
 let globalLastPaymentUserId = null; // Memoria del último usuario que envió un comprobante o pidió ayuda
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
 const BATCH_INTERVAL = 6000; // 6 segundos para agrupar mensajes (mejor unificación para gente que escribe lento)
-
+global.supportQueue = []; // Cola global de soporte anti-spam
 const {
   startPurchaseProcess,
   handleSubscriptionInterest,
@@ -721,6 +721,12 @@ client.on('message_create', async (msg) => {
           console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot por 30 mins.`);
           userStates.set(targetId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
       }
+      
+      // Si el asesor intervino manualmente, lo sacamos de la cola de espera
+      if (global.supportQueue) {
+          const qIdx = global.supportQueue.indexOf(targetId);
+          if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
+      }
     }
   }
 });
@@ -1084,7 +1090,12 @@ async function processIncomingMessage(messages) {
                       console.warn(`[Admin Broadcast] Saltando destinatario ${r.nombre} por falta de número válido.`);
                       continue;
                   }
-                  const targetUser = `57${telRaw.startsWith('57') ? telRaw.substring(2) : telRaw}@c.us`;
+                  // Formateo robusto (respeta códigos internacionales)
+                  let cleanNumber = telRaw;
+                  if (!cleanNumber.startsWith('57') && cleanNumber.length === 10) {
+                      cleanNumber = '57' + cleanNumber;
+                  }
+                  const targetUser = `${cleanNumber}@c.us`;
 
                   const only = (payload.only_fields || []).map(f => f.toLowerCase()); 
                   const showAll = only.length === 0;
@@ -1165,6 +1176,21 @@ async function processIncomingMessage(messages) {
         const { getPendientesReport } = require('./adminService');
         const report = await getPendientesReport(userStates);
         await message.reply(report);
+        return;
+    } else if (bodyLower.includes('@bot cola') || bodyLower.includes('@bot soporte')) {
+        if (!global.supportQueue || global.supportQueue.length === 0) {
+            await message.reply("📋 *COLA DE ESPERA*\n\nActualmente no hay usuarios en cola de espera (0 pendientes).");
+        } else {
+            let reply = `📋 *COLA DE ESPERA (${global.supportQueue.length} casos):*\n\n`;
+            for (let i = 0; i < global.supportQueue.length; i++) {
+                const qId = global.supportQueue[i];
+                const st = userStates.get(qId) || {};
+                const name = st.nombre || "Cliente";
+                reply += `${i + 1}. ${name} - Tel: +${qId.replace('@c.us', '')}\n`;
+            }
+            reply += "\n_Nota: Los clientes que envían nuevos mensajes se mueven automáticamente al final de esta lista._";
+            await message.reply(reply);
+        }
         return;
     }
     
@@ -1454,6 +1480,24 @@ async function processIncomingMessage(messages) {
                   const result = await processAdminQuery(message, queryText, userStates, client);
                   if (result && result.filteredData) await handleAdminResultLogic(result.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
                   return;
+              }
+
+              // --- CASO 1.5: Cancelar o Editar Broadcast ---
+              if (freshIsAwaitingConfirm && !isAffirmative) {
+                  const isNegative = ['no', 'cancelar', 'abortar', 'detener'].includes(queryText.toLowerCase());
+                  if (isNegative) {
+                      userStates.delete(userId);
+                      await message.reply("🚫 *Envío masivo cancelado.*");
+                      return;
+                  } else {
+                      // Edición interactiva
+                      const { editBroadcastPayload } = require('./aiService');
+                      await message.reply("🤖 Procesando cambios al mensaje masivo...");
+                      const newPayload = await editBroadcastPayload(queryText, freshAdminState.payload);
+                      const resultData = { ...newPayload, status: 'pending_confirmation' };
+                      await handleAdminResultLogic(resultData, userId, userStates, message, true, freshAdminState);
+                      return;
+                  }
               }
 
               // --- CASO 2: Selección directa de plataforma en estado de sugerencia ---
@@ -2055,7 +2099,21 @@ async function processIncomingMessage(messages) {
       await handleAwaitingPaymentConfirmation(message, userId);
       break;
     case 'waiting_human':
-      console.log(`[DEBUG] Usuario ${userId} en modo waiting_human. Bot ignorando.`);
+      console.log(`[DEBUG] Usuario ${userId} en modo waiting_human.`);
+      const currentSt = userStates.get(userId) || {};
+      const count = currentSt.waitingCount || 0;
+      
+      if (!global.supportQueue) global.supportQueue = [];
+      const qIdx = global.supportQueue.indexOf(userId);
+      if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
+      global.supportQueue.push(userId);
+      const pos = global.supportQueue.length;
+
+      if (count > 0) {
+          await message.reply(`🤖 Tu mensaje ha sido recibido y sigues en nuestra cola de soporte.\n\n⚠️ *Aviso automático:* Cada vez que envías un mensaje nuevo, el sistema te mueve al último lugar de la fila para dar prioridad a los chats más antiguos.\n\n📍 *Tu posición actual en la fila es la número ${pos}.*`);
+      }
+      
+      userStates.set(userId, { ...currentSt, waitingCount: count + 1 });
       break;
     case 'awaiting_purchase_platforms':
       await handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID);

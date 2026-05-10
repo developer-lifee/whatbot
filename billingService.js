@@ -367,19 +367,20 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
 
     
     let records = [];
+    const { updateExcelData } = require('./apiService');
     
-    clientes.forEach(account => {
+    for (const account of clientes) {
       let isTargetDate = false;
       let accountDate = null;
+      let diffDays = 0;
       
       accountDate = getJsDateFromExcel(account.deben);
       if (accountDate) {
-
-        
-        // Incluir cualquier fecha que sea mañana o en el pasado
         if (accountDate.getTime() <= tomorrow.getTime()) {
            isTargetDate = true;
         }
+        const diffTime = today.getTime() - accountDate.getTime();
+        diffDays = Math.floor(diffTime / (1000 * 3600 * 24));
       }
       
       if (isTargetDate && account.numero) {
@@ -392,14 +393,28 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         const currentState = userStates.get(destId);
         const stateStr = (typeof currentState === 'object') ? currentState.state : currentState;
 
-        const observacion = (account.observaciones || '').toString().trim();
+        let observacion = (account.observaciones || '').toString().trim();
         let dateStr = accountDate ? accountDate.toLocaleDateString('es-ES') : '';
         if (accountDate && accountDate.getTime() === tomorrow.getTime()) {
             dateStr = "MAÑANA";
         }
 
+        // LÓGICA DE SUSPENSIÓN (CORTAR)
+        let wasSuspendedNow = false;
+        if (diffDays >= 3 && !observacion.toLowerCase().includes('cortar')) {
+            observacion = observacion ? observacion + " - cortar" : "cortar";
+            try {
+                if (account.rowNumber) {
+                    await updateExcelData(account.rowNumber, { "observaciones": observacion });
+                    console.log(`[SUSPENSIÓN] Se agregó 'cortar' a fila ${account.rowNumber} (${account.Nombre}) por >3 días de mora.`);
+                    wasSuspendedNow = true;
+                }
+            } catch (err) {
+                console.error(`Error auto-suspendiendo fila ${account.rowNumber}:`, err);
+            }
+        }
+
         // --- FILTRO DE SEGURIDAD ---
-        // Si ya envió comprobante o está en charla, lo mandamos a revisión especial
         if (stateStr === 'waiting_admin_confirmation' || stateStr === 'waiting_human') {
           records.push({ 
             name: account.Nombre || 'Cliente', 
@@ -409,7 +424,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
             observacion: `[PENDIENTE] Ya hay actividad o pago en este chat (${stateStr}).`,
             isSkip: true
           });
-          return;
+          continue;
         }
         
         records.push({ 
@@ -417,10 +432,11 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
           phone, 
           service: account.Streaming || 'Servicio',
           dateStr,
-          observacion
+          observacion,
+          wasSuspendedNow // Bandera para enviar mensaje de corte hoy
         });
       }
-    });
+    }
 
     if (records.length === 0) {
       await message.reply('🤖 Revisé la base de datos y no encontré cobros pendientes para hoy o fechas anteriores en la columna "deben".');
@@ -430,6 +446,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     const toChargeUsers = new Map();
     const toReviewUsers = new Map();
     const toNotifyAdminUsers = new Map();
+    const toSuspendUsers = new Map();
     
     records.forEach(r => {
       if (r.isSkip) {
@@ -438,6 +455,14 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         }
         toNotifyAdminUsers.get(r.phone).services.push(r.service);
         return;
+      }
+
+      if (r.wasSuspendedNow) {
+          if (!toSuspendUsers.has(r.phone)) {
+              toSuspendUsers.set(r.phone, { name: r.name, phone: r.phone, services: [] });
+          }
+          toSuspendUsers.get(r.phone).services.push(r.service);
+          return;
       }
 
       const lowerObs = r.observacion ? r.observacion.toLowerCase() : '';
@@ -464,28 +489,50 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
 
     const toCharge = Array.from(toChargeUsers.values());
     const toReview = Array.from(toReviewUsers.values());
-
     const toNotify = Array.from(toNotifyAdminUsers.values());
+    const toSuspend = Array.from(toSuspendUsers.values());
 
-    if (toCharge.length === 0 && toReview.length === 0 && toNotify.length === 0) {
+    if (toCharge.length === 0 && toReview.length === 0 && toNotify.length === 0 && toSuspend.length === 0) {
       await message.reply('🤖 No se encontraron cobros, revisiones ni pagos pendientes para procesar.');
       return;
     }
 
     // AVISAR QUE INICIAMOS
-    await message.reply(`🤖 *PROCESO AUTOMÁTICO DE COBROS INICIADO*\n\nHe encontrado ${toCharge.length} clientes para cobrar, ${toReview.length} para revisión de corte y ${toNotify.length} con pagos/actividad pendiente. Procedo con el envío...`);
+    await message.reply(`🤖 *PROCESO AUTOMÁTICO DE COBROS INICIADO*\n\nHe encontrado ${toCharge.length} para cobrar, ${toSuspend.length} para corte inminente, ${toReview.length} para revisión y ${toNotify.length} con pagos/actividad pendiente. Procedo con el envío...`);
 
     // EJECUCIÓN DIRECTA
     let exitosos = 0;
     if (toCharge.length > 0) {
         exitosos = await sendBulkCharges(client || message._client, toCharge, userId);
     }
+    
+    // ENVIAR AVISO DE CORTE
+    let exitososCorte = 0;
+    for (const r of toSuspend) {
+        try {
+            const destId = r.phone + '@c.us';
+            const suspendMsg = `⚠️ *AVISO DE CORTE INMINENTE* ⚠️\n\nHola ${r.name}, te informamos que por falta de respuesta, tus cuentas de *${r.services.join(', ')}* serán suspendidas el día de hoy a menos de que envíes el comprobante de pago en el transcurso del día.\n\nPor favor envíanos tu comprobante lo antes posible para evitar la interrupción del servicio.`;
+            await (client || message._client).sendMessage(destId, suspendMsg);
+            exitososCorte++;
+            await new Promise(res => setTimeout(res, 1000));
+        } catch (e) {
+            console.error(`Error enviando aviso de corte a ${r.phone}:`, e);
+        }
+    }
 
     let finalReport = `✅ *REPORTE DE EJECUCIÓN FINALIZADO*\n\n`;
     finalReport += `- Cobros enviados: ${exitosos}/${toCharge.length}\n`;
+    finalReport += `- Avisos de corte enviados: ${exitososCorte}/${toSuspend.length}\n`;
     
+    if (toSuspend.length > 0) {
+      finalReport += `\n🚨 *CUENTAS MARCADAS PARA CORTE HOY:*\n`;
+      toSuspend.forEach(r => {
+        finalReport += `• ${r.name} - Tel: ${r.phone}\n  Servicios: ${r.services.join(', ')}\n`;
+      });
+    }
+
     if (toReview.length > 0) {
-      finalReport += `\n⚠️ *PENDIENTES PARA REVISIÓN MANUAL (Cortes):*\n`;
+      finalReport += `\n⚠️ *PENDIENTES PARA REVISIÓN MANUAL (Cortes antiguos):*\n`;
       toReview.forEach(r => {
         finalReport += `• ${r.name} - Tel: ${r.phone}\n  Notas: ${r.services.join(' | ')}\n`;
       });

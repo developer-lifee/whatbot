@@ -854,6 +854,50 @@ async function suggestAdminActions(query, context = "") {
   }
 }
 
+/**
+ * Permite la edición interactiva de un payload de broadcast
+ */
+async function editBroadcastPayload(query, currentPayload) {
+  const prompt = `
+    El administrador está editando el borrador de un mensaje masivo (broadcast) antes de enviarlo.
+    
+    PAYLOAD ACTUAL (Borrador):
+    ${JSON.stringify({
+        custom_message: currentPayload.custom_message,
+        only_fields: currentPayload.only_fields,
+        platform: currentPayload.platform,
+        target_account: currentPayload.target_account
+    }, null, 2)}
+    
+    INSTRUCCIÓN DEL ADMINISTRADOR: "${query}"
+    
+    Tu tarea es aplicar los cambios solicitados por el administrador al payload actual.
+    - Si pide "cambia el mensaje a X", actualiza 'custom_message' al texto X exacto. Si el mensaje está entre comillas ("" o ''), EXTRAE TEXTUALMENTE lo de las comillas.
+    - Si pide "quita el mensaje" o "no mandes mensaje", pon 'custom_message' en null.
+    - Si pide "solo manda el correo" o "quita la contraseña", ajusta el arreglo 'only_fields' agregando o quitando las palabras clave ("clave", "contraseña", "pin", "perfil", "correo"). Si debe mandar todo de nuevo, déjalo vacío o null.
+    
+    Responde ÚNICAMENTE con el JSON actualizado con esta estructura exacta:
+    {
+       "custom_message": string | null,
+       "only_fields": string[] | null
+    }
+  `;
+
+  try {
+    const jsonString = await callGemini(prompt, "Eres un editor JSON experto.", true);
+    const result = JSON.parse(jsonString);
+    
+    return {
+        ...currentPayload,
+        custom_message: result.custom_message !== undefined ? result.custom_message : currentPayload.custom_message,
+        only_fields: result.only_fields !== undefined ? result.only_fields : currentPayload.only_fields
+    };
+  } catch (error) {
+    console.error("Error in editBroadcastPayload:", error);
+    return currentPayload; // Devolver intacto si falla
+  }
+}
+
 module.exports = { 
   parsePurchaseIntent, 
   detectPaymentMethod, 
@@ -866,5 +910,6 @@ module.exports = {
   isPaymentReceipt, 
   parseAdminQueryIntent, 
   generateAdminReport,
-  suggestAdminActions
+  suggestAdminActions,
+  editBroadcastPayload
 };
