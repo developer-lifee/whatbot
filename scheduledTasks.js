@@ -66,7 +66,7 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
     schedule.scheduleJob('*/2 * * * *', async () => {
         try {
             const { findRecentCodes } = require('./gmailService');
-            const codes = await findRecentCodes(3); // Buscar de los últimos 3 min
+            const codes = await findRecentCodes('jordimemesmomazosdick@gmail.com', 3); // Buscar de los últimos 3 min
             
             if (codes.length > 0) {
                 const chat = await client.getChatById(groupId);
