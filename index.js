@@ -1150,7 +1150,7 @@ async function processIncomingMessage(messages) {
         return;
     } else if (bodyLower.includes('@bot codigos')) {
         const { findRecentCodes } = require('./gmailService');
-        const codes = await findRecentCodes(10);
+        const codes = await findRecentCodes('jordimemesmomazosdick@gmail.com', 10);
         if (codes.length === 0) {
             await message.reply("🤖 No encontré códigos recientes en los últimos 10 minutos.");
         } else {
