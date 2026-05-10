@@ -21,9 +21,11 @@ function setAlertCallback(cb) {
  * Inicializa o retorna un cliente OAuth2 específico para un servicio (contacts, gmail, etc.)
  * @param {string} serviceName - El nombre del servicio para identificar el token
  * @param {string} code - Opcional. Si se provee, se usa para generar un nuevo token.
+ * @param {string} email - Opcional. El correo específico para buscar su token en tokens/
  */
-async function getOAuth2Client(serviceName = 'contacts', code = null) {
-    if (cachedClients.has(serviceName) && !code) return cachedClients.get(serviceName);
+async function getOAuth2Client(serviceName = 'contacts', code = null, email = null) {
+    const cacheKey = email ? `${serviceName}_${email}` : serviceName;
+    if (cachedClients.has(cacheKey) && !code) return cachedClients.get(cacheKey);
 
     // Permitir archivo de credenciales específico por servicio (ej: credentials_pagos.json para gmail)
     let activeCredentialsPath = CREDENTIALS_PATH;
@@ -47,7 +49,15 @@ async function getOAuth2Client(serviceName = 'contacts', code = null) {
         const redirectUri = redirect_uris ? redirect_uris[0] : 'urn:ietf:wg:oauth:2.0:oob';
 
         const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
-        const tokenPath = path.resolve(__dirname, `token_${serviceName}.json`);
+        
+        // Determinar ruta del token
+        let tokenPath;
+        if (email) {
+            tokenPath = path.resolve(__dirname, 'tokens', `token_${email}.json`);
+        } else {
+            tokenPath = path.resolve(__dirname, `token_${serviceName}.json`);
+        }
+        
         const legacyTokenPath = path.resolve(__dirname, `token.json`);
         console.log(`[GOOGLE AUTH DEBUG] Buscando token en: ${tokenPath}`);
 
@@ -57,8 +67,8 @@ async function getOAuth2Client(serviceName = 'contacts', code = null) {
             const { tokens } = await oAuth2Client.getToken(code);
             oAuth2Client.setCredentials(tokens);
             fs.writeFileSync(tokenPath, JSON.stringify(tokens));
-            console.log(`✅ Token para ${serviceName} guardado con éxito en ${tokenPath}`);
-            cachedClients.set(serviceName, oAuth2Client);
+            console.log(`✅ Token para ${serviceName}${email ? ' ('+email+')' : ''} guardado con éxito en ${tokenPath}`);
+            cachedClients.set(cacheKey, oAuth2Client);
             return oAuth2Client;
         }
 
@@ -88,7 +98,7 @@ async function getOAuth2Client(serviceName = 'contacts', code = null) {
         const token = fs.readFileSync(activeTokenPath, 'utf8');
         oAuth2Client.setCredentials(JSON.parse(token));
         
-        cachedClients.set(serviceName, oAuth2Client);
+        cachedClients.set(cacheKey, oAuth2Client);
         return oAuth2Client;
     } catch (error) {
         console.error(`❌ Error inicializando Google OAuth2 para ${serviceName}:`, error.message);

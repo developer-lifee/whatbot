@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 
 const PROCESSED_EMAILS_PATH = path.join(__dirname, 'processed_emails.json');
++
++const PAYMENT_EMAIL = 'jordimemesmomazosdick@gmail.com';
 
 /**
  * Carga la lista de IDs de correos ya procesados para evitar duplicados.
@@ -32,7 +34,7 @@ function saveProcessedEmail(id) {
  * Escanea Gmail en busca de correos de Bre-B y extrae los pagos.
  */
 async function checkNewPayments() {
-    const auth = await getOAuth2Client('gmail');
+    const auth = await getOAuth2Client('gmail', null, PAYMENT_EMAIL);
     if (!auth) return [];
 
     const gmail = google.gmail({ version: 'v1', auth });
@@ -106,7 +108,7 @@ async function checkNewPayments() {
  */
 async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
     console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min...`);
-    const auth = await getOAuth2Client('gmail');
+    const auth = await getOAuth2Client('gmail', null, PAYMENT_EMAIL);
     if (!auth) return null;
 
     const gmail = google.gmail({ version: 'v1', auth });
@@ -168,11 +170,17 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
 }
 
 /**
- * Busca códigos de verificación (OTP) o inicios de sesión en los últimos minutos.
+ * Busca códigos de verificación (OTP) o inicios de sesión en los últimos minutos en una cuenta específica.
+ * @param {string} email El correo donde buscar.
+ * @param {number} toleranceMinutes Tiempo máximo hacia atrás.
  */
-async function findRecentCodes(toleranceMinutes = 10) {
-    console.log(`[GMAIL CODES] Buscando códigos en los últimos ${toleranceMinutes} min...`);
-    const auth = await getOAuth2Client('gmail');
+async function findRecentCodes(email, toleranceMinutes = 10) {
+    if (!email) {
+        console.error("[GMAIL CODES] ❌ No se proporcionó un email para buscar códigos.");
+        return [];
+    }
+    console.log(`[GMAIL CODES] Buscando códigos en ${email} (últimos ${toleranceMinutes} min)...`);
+    const auth = await getOAuth2Client('gmail', null, email);
     if (!auth) return [];
 
     const gmail = google.gmail({ version: 'v1', auth });

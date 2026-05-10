@@ -1522,7 +1522,34 @@ async function processIncomingMessage(messages) {
               return streamingName.includes('netflix') && !streamingName.includes('extra');
           });
           if (netflixAcct) {
-              await message.reply(`🤖 ¡Hola! Para generar tu código de hogar de forma segura, ingresa a este enlace:\n\n👉 https://sheerit.com.co/verificar?tel=${realPhone}`);
+              const accountEmail = (netflixAcct.correo || "").trim().toLowerCase();
+              console.log(`[Netflix Code] Intentando buscar código para ${accountEmail}...`);
+              
+              const fs = require('fs');
+              const path = require('path');
+              const tokenExists = fs.existsSync(path.join(__dirname, 'tokens', `token_${accountEmail}.json`));
+
+              if (accountEmail && tokenExists) {
+                  await message.reply(`🔍 *Buscando código en la cuenta:* ${accountEmail}...\nPor favor espera un momento.`);
+                  
+                  const { findRecentCodes } = require('./gmailService');
+                  const codes = await findRecentCodes(accountEmail, 10);
+
+                  if (codes && codes.length > 0) {
+                      const latest = codes[0];
+                      let response = `🤖 *Código de Netflix Encontrado* 🚀\n\n`;
+                      if (latest.code) {
+                          response += `🔢 Código: *${latest.code}*\n`;
+                      }
+                      response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código vence pronto._`;
+                      await message.reply(response);
+                  } else {
+                      await message.reply(`🤖 No encontré códigos recientes en ${accountEmail}. Por favor, asegúrate de haber solicitado el código en tu televisor hace menos de 10 minutos y vuelve a intentarlo.`);
+                  }
+              } else {
+                  // Fallback al enlace si no tenemos el correo o el token
+                  await message.reply(`🤖 ¡Hola! Para generar tu código de hogar, ingresa a este enlace:\n\n👉 https://sheerit.com.co/verificar?tel=${realPhone}`);
+              }
           } else {
               await message.reply(`🤖 No encontré una cuenta de Netflix principal activa a este número para asociar el hogar.`);
           }
