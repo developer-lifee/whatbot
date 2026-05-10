@@ -91,15 +91,20 @@ async function getChatHistoryText(message, limit = 6) {
     });
     
     const now = new Date();
-    chatHistoryText += `[Hora actual del sistema: ${now.toLocaleString('es-CO')}]\n\nHistorial reciente:\n`;
+    const dateStr = now.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+    chatHistoryText += `[Fecha/Hora actual del sistema: ${dateStr}, ${now.toLocaleTimeString('es-CO')}]\n\nHistorial reciente:\n`;
     
     chatHistoryText += history.map(m => {
-      const timeStr = new Date(m.timestamp * 1000).toLocaleString('es-CO');
-      return `[${timeStr}] ${m.fromMe ? 'Asistente' : 'Usuario'}: ${m.body || ''}`;
+      const d = new Date(m.timestamp * 1000);
+      const mDateStr = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+      const mTimeStr = d.toLocaleTimeString('es-CO');
+      return `[${mDateStr}, ${mTimeStr}] ${m.fromMe ? 'Asistente' : 'Usuario'}: ${m.body || ''}`;
     }).join('\n');
     
-    const currentMsgTime = new Date(message.timestamp * 1000).toLocaleString('es-CO');
-    chatHistoryText += `\n[${currentMsgTime}] Usuario (Mensaje Actual): ${message.body || ''}`;
+    const currentMsgDate = new Date(message.timestamp * 1000);
+    const currDateStr = currentMsgDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+    const currTimeStr = currentMsgDate.toLocaleTimeString('es-CO');
+    chatHistoryText += `\n[${currDateStr}, ${currTimeStr}] Usuario (Mensaje Actual): ${message.body || ''}`;
   } catch (err) {
     console.error("Error fetching chat history", err.message);
   }

@@ -84,7 +84,7 @@ const ADMIN_RAW_PHONE = OPERATOR_NUMBER.replace('@c.us', '');
 let globalBotSleep = false;
 let globalLastPaymentUserId = null; // Memoria del último usuario que envió un comprobante o pidió ayuda
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
-const BATCH_INTERVAL = 6000; // 6 segundos para agrupar mensajes (mejor unificación para gente que escribe lento)
+const BATCH_INTERVAL = 12000; // 12 segundos para agrupar mensajes (mejor unificación para gente que escribe lento)
 global.supportQueue = []; // Cola global de soporte anti-spam
 const {
   startPurchaseProcess,
@@ -1749,12 +1749,14 @@ async function processIncomingMessage(messages) {
               });
 
               if (activeAccountWithProblem) {
+                  const expD = getJsDateFromExcel(activeAccountWithProblem.deben);
+                  const dateStr = expD ? expD.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : activeAccountWithProblem.deben;
                   console.log(`[FAULT DETECTOR] 🚨 Posible fallo prematuro detectado para @${userId}`);
                   try {
                       const groupChat = await client.getChatById(GROUP_ID);
                       if (groupChat) {
                           const adminMsg = `🚨 *POSIBLE FALLO PREMATURO* (@${userId.replace('@c.us', '')})\n` +
-                                         `El cliente reporta un error pero su cuenta de *${activeAccountWithProblem.Streaming}* vence hasta el *${activeAccountWithProblem.deben}*.\n\n` +
+                                         `El cliente reporta un error pero su cuenta de *${activeAccountWithProblem.Streaming}* vence hasta el *${dateStr}*.\n\n` +
                                          `Favor revisar el chat de inmediato.`;
                           await groupChat.sendMessage(adminMsg);
                           const mediaToForward = await message.downloadMedia();
