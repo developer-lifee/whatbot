@@ -9,7 +9,7 @@ const { fetchRawData, fetchHistoricoData, getTodayInBogota, getJsDateFromExcel }
  * @param {Map} userStates - El mapa global de estados de usuarios
  * @param {Client} client - Cliente de WhatsApp
  */
-async function processAdminQuery(message, query, userStates, client) {
+async function processAdminQuery(message, query, userStates, client, adminState = null) {
     try {
         await message.reply("🤖 *Analizando datos...* Dame un momento mientras busco la información.");
 
@@ -57,7 +57,14 @@ async function processAdminQuery(message, query, userStates, client) {
             return;
         }
 
-        const intent = await parseAdminQueryIntent(query);
+        const userId = message.from;
+        const currentAdminState = adminState || userStates.get(userId);
+        let previousContext = "";
+        if (currentAdminState && currentAdminState.state === 'awaiting_admin_broadcast_confirmation') {
+            previousContext = `Se está preparando un envío masivo para la cuenta: ${currentAdminState.payload.target_account} de ${currentAdminState.payload.platform}.`;
+        }
+
+        const intent = await parseAdminQueryIntent(query, previousContext);
         console.log(`[Admin Query] Intent:`, intent);
         
         const action = intent.action;
@@ -348,9 +355,44 @@ async function processAdminQuery(message, query, userStates, client) {
                             
                             const emailMatch = cln(row['correo'] || row['Correo']) === cln(sourceMatch.correo);
                             const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
+                            
+                            // --- REGLAS PREDETERMINADAS (DEFAULTS) ---
+                            
+                            // 1. Excluir 'Extra' en Netflix por defecto
+                            const isNetflix = platformFilter && cln(platformFilter).includes('netflix');
+                            const isExtra = cln(platStr).includes('extra');
+                            if (isNetflix && isExtra && !filters.include_extra) {
+                                return null;
+                            }
+
+                            // 2. Excluir vencidos hace más de 3 días por defecto
+                            const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
+                            const expDate = getJsDateFromExcel(row['vencimiento'] || row['deben']);
+                            if (expDate) {
+                                const diffDays = (getTodayInBogota() - expDate) / (1000 * 60 * 60 * 24);
+                                if (diffDays > 3 && !filters.include_expired) {
+                                    return null; // Excluir si lleva más de 3 días vencido
+                                }
+                            }
+
+                            // --- FILTROS DE REFINAMIENTO EXPLÍCITOS ---
+                            let excludeMatch = false;
+                            if (filters.exclude_keyword) {
+                                const kw = cln(filters.exclude_keyword);
+                                if (cln(platStr).includes(kw) || cln(row['Nombre'] || row['nombre']).includes(kw)) {
+                                    excludeMatch = true;
+                                }
+                            }
+
+                            if (filters.only_active) {
+                                if (expDate && expDate < getTodayInBogota()) {
+                                    return null;
+                                }
+                            }
+
                             const hasNum = numeroStr.length >= 8;
 
-                            if (emailMatch && platMatch && hasNum && !isLibre) {
+                            if (emailMatch && platMatch && hasNum && !isLibre && !excludeMatch) {
                                 return {
                                     name: row['Nombre'] || row['nombre'] || "Cliente",
                                     phone: numeroStr,

@@ -1488,27 +1488,21 @@ async function processIncomingMessage(messages) {
                           return;
                       }
                   }
-                  const result = await processAdminQuery(message, queryText, userStates, client);
+                  const result = await processAdminQuery(message, queryText, userStates, client, freshAdminState);
                   if (result && result.filteredData) await handleAdminResultLogic(result.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
                   return;
               }
 
-              // --- CASO 1.5: Cancelar o Editar Broadcast ---
+              // --- CASO 1.5: Cancelar Broadcast ---
               if (freshIsAwaitingConfirm && !isAffirmative) {
                   const isNegative = ['no', 'cancelar', 'abortar', 'detener'].includes(queryText.toLowerCase());
                   if (isNegative) {
                       userStates.delete(userId);
                       await message.reply("🚫 *Envío masivo cancelado.*");
                       return;
-                  } else {
-                      // Edición interactiva
-                      const { editBroadcastPayload } = require('./aiService');
-                      await message.reply("🤖 Procesando cambios al mensaje masivo...");
-                      const newPayload = await editBroadcastPayload(queryText, freshAdminState.payload);
-                      const resultData = { ...newPayload, status: 'pending_confirmation' };
-                      await handleAdminResultLogic(resultData, userId, userStates, message, true, freshAdminState);
-                      return;
                   }
+                  // Si no es negativo ni afirmativo, dejamos que pase a Caso 3 para que processAdminQuery
+                  // lo trate como un refinamiento contextual (ej. "descarta los extra").
               }
 
               // --- CASO 2: Selección directa de plataforma en estado de sugerencia ---
@@ -1521,7 +1515,7 @@ async function processIncomingMessage(messages) {
               }
 
               // --- CASO 3: Consulta general (Data o Conversación) ---
-              const result = await processAdminQuery(message, queryText, userStates, client);
+              const result = await processAdminQuery(message, queryText, userStates, client, freshAdminState);
               if (result && result.filteredData) {
                   await handleAdminResultLogic(result.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
               }
@@ -1745,7 +1739,7 @@ async function processIncomingMessage(messages) {
           // --- NUEVO: DETECCIÓN DE FALLO PREMATURO ---
           // Si mandó una imagen que NO es pago, revisamos si tiene cuentas activas
           const lowerBatch = batchText.toLowerCase();
-          const errorKeywords = ['falla', 'error', 'funciona', 'caido', 'suspendid', 'problema', 'sale asi', 'sacó'];
+          const errorKeywords = ['falla', 'error', 'funciona', 'caido', 'suspendid', 'problema', 'sale asi', 'sacó', 'mira lo que', 'no deja', 'qué pasó', 'que paso', 'bloquead', 'no sirve'];
           const hasErrorText = errorKeywords.some(k => lowerBatch.includes(k));
 
           if (hasErrorText) {
@@ -1890,8 +1884,15 @@ async function processIncomingMessage(messages) {
           userStates.set(userId, { state: detection.recoveredState, nombre: foundName, ...metadata });
           
           if (detection.recoveredState === 'waiting_human') {
-              console.log(`[Flow Recovery] 🤫 Silenciando bot para @${userId.replace('@c.us', '')} por intervención humana detectada en historial.`);
-              return; // Silencio absoluto si un humano estaba hablando
+              // Si la intención es soporte o compra con frustración, NO nos quedamos callados.
+              // Esto evita que el bot ignore fallas reales si un humano habló hace días.
+              const isCritical = ['soporte', 'comprar', 'pagar'].includes(detection.intent);
+              if (isCritical && (detection.frustrationLevel >= 4)) {
+                  console.log(`[Flow Recovery] 🚨 Detectada intención crítica (${detection.intent}) con frustración (${detection.frustrationLevel}). Rompiendo silencio para @${userId}.`);
+              } else {
+                  console.log(`[Flow Recovery] 🤫 Silenciando bot para @${userId.replace('@c.us', '')} por intervención humana detectada en historial.`);
+                  return; // Silencio absoluto si un humano estaba hablando y no hay urgencia
+              }
           }
 
           if (detection.recoveredState === 'awaiting_payment_method') {

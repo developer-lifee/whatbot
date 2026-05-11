@@ -717,9 +717,12 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
  * @param {string} query 
  * @returns {Promise<Object>} { action: string, filters: { name, platform, status, generic_search } }
  */
-async function parseAdminQueryIntent(query) {
+async function parseAdminQueryIntent(query, previousContext = "") {
   const prompt = `
     Eres un asistente analítico experto en extraer parámetros de búsqueda sobre una base de datos de streaming.
+    
+    ${previousContext ? "CONTEXTO PREVIO:\n" + previousContext + "\n" : ""}
+
     El administrador te ha pedido la siguiente consulta en lenguaje natural: "${query}"
 
     Salida esperada usando estricto JSON:
@@ -735,9 +738,17 @@ async function parseAdminQueryIntent(query) {
         "custom_message": string | null,
         "only_fields": string[] | null,
         "target_field": string | null,
-        "new_value": string | null
+        "new_value": string | null,
+        "exclude_keyword": string | null, // Si pide "descarta los extra", "quita los de disney", etc.
+        "only_active": boolean // Si pide "solo los que no estén vencidos", "solo activos", etc.
       }
     }
+
+    Regla de Refinamiento (IMPORTANTE):
+    - Si hay un CONTEXTO PREVIO, úsalo para rellenar los filtros que falten en el mensaje actual. 
+    - Por ejemplo, si se está preparando un envío masivo para "sheeritsbox@gmail.com" y el admin dice "descarta los extra", el JSON debe mantener 'action': "broadcast_credentials", 'name': "sheeritsbox@gmail.com" (extraído del contexto) y 'exclude_keyword': "extra".
+    - Si el admin dice "solo los activos" o "solo los no vencidos", pon 'only_active': true.
+    - Si el admin dice "cambia el mensaje a...", extrae el nuevo 'custom_message'.
 
     Reglas de 'action':
     - Si el mensaje pide "pasa la cuenta de X a todos los de Y", es "broadcast_credentials".
