@@ -116,7 +116,7 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
     try {
         const res = await gmail.users.messages.list({
             userId: 'me',
-            q: 'subject:"Detalle de tu venta por Bre-B"',
+            q: 'subject:"Detalle de tu venta por Bre-B" newer_than:1d',
             maxResults: 15
         });
 
@@ -133,8 +133,9 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
             const diffMinutes = (now - internalDate) / (1000 * 60);
 
             if (diffMinutes > toleranceMinutes) {
-                // Como los correos vienen ordenados por fecha, si este ya pasó la tolerancia, los siguientes también
-                // break; // Descomentar si se quiere optimizar, pero cuidado con el orden de list()
+                // Si el mensaje es más viejo que la tolerancia, lo ignoramos.
+                // Como vienen ordenados por fecha, podríamos usar break, pero continue es más seguro.
+                continue;
             }
 
             const snippet = fullMsg.data.snippet || '';
