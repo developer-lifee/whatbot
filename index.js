@@ -1676,6 +1676,7 @@ async function processIncomingMessage(messages) {
                               await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
                                              `Monto: $${check.amount}\n` +
                                              `Banco: ${check.bank || 'Bre-B'}\n` +
+                                             `Asunto: ${match.subject}\n` +
                                              `ID Gmail: ${match.id}\n\n` +
                                              `El bot ya entregó el servicio automáticamente.`);
                           }

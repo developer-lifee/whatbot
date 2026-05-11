@@ -138,8 +138,11 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
             }
 
             const snippet = fullMsg.data.snippet || '';
-            const bodyData = fullMsg.data.payload.body.data ? Buffer.from(fullMsg.data.payload.body.data, 'base64').toString() : '';
+            const bodyData = fullMsg.data.payload.body && fullMsg.data.payload.body.data ? Buffer.from(fullMsg.data.payload.body.data, 'base64').toString() : '';
             const body = snippet + ' ' + bodyData;
+
+            const subjectHeader = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'subject');
+            const subject = subjectHeader ? subjectHeader.value : 'Sin asunto';
 
             const isApproved = /Estado:\s*(?:Aprobada|Exitosa)/i.test(body) || /Venta exitosa/i.test(body);
             if (!isApproved) continue;
@@ -157,7 +160,8 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
                         id: msg.id,
                         amount: cleanValue,
                         date: internalDate,
-                        diffMinutes: Math.round(diffMinutes)
+                        diffMinutes: Math.round(diffMinutes),
+                        subject: subject
                     };
                 }
             }
