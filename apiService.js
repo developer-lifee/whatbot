@@ -82,8 +82,9 @@ async function getAccountsByPhone(phoneNumber) {
   try {
     const clientes = await fetchCustomersData();
     const userAccounts = clientes.filter(c => {
-      if (!c.numero) return false;
-      const normalizedJsonNumber = c.numero.toString().replace(/\D/g, '');
+      const rowNumber = c.numero || c.Numero;
+      if (!rowNumber) return false;
+      const normalizedJsonNumber = rowNumber.toString().replace(/\D/g, '');
       return normalizedJsonNumber === phoneNumber || (normalizedJsonNumber.length >= 10 && phoneNumber.endsWith(normalizedJsonNumber.slice(-10)));
     });
     return userAccounts;

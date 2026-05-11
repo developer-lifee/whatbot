@@ -156,8 +156,9 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
       'hboplatino': 'hbomax',
       'disney': 'disney+',
       'star': 'disney+',
-      'm365': 'microsoft 365',
-      'office': 'microsoft 365'
+      'm365': 'microsoft individual',
+      'office': 'microsoft individual',
+      'microsoft': 'microsoft individual'
     };
 
     if (userAccounts.length > 0) {

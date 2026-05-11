@@ -41,12 +41,14 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null) {
 function formatWhatsAppNumber(phone) {
     const digits = phone.replace(/\D/g, '');
     if (digits.startsWith('57') && digits.length === 12) {
-        return `57 ${digits.slice(2, 5)} ${digits.slice(5)}`;
+        // Precedemos con una comilla simple para forzar a Excel a tratarlo como texto
+        // Esto preserva los espacios sin romper la escritura de la celda
+        return `'57 ${digits.slice(2, 5)} ${digits.slice(5)}`;
     }
     if (digits.startsWith('57')) {
-        return `57 ${digits.slice(2)}`;
+        return `'57 ${digits.slice(2)}`;
     }
-    return digits;
+    return `'${digits}`;
 }
 
 /**
@@ -147,7 +149,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             
             if (!userState.isRenewal) {
                 const existingAccount = allRows.find(r => {
-                    const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
+                    const rowPhone = (r.numero || r.Numero || r.whatsapp || "").toString().replace(/\D/g, '');
                     const rowStreaming = (r.Streaming || "").toLowerCase();
                     return rowPhone.includes(phone.slice(-10)) && rowStreaming.includes(lowerName);
                 });

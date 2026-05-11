@@ -29,6 +29,17 @@ async function getPlatforms() {
                 }
                 return plan;
             });
+        } else if (p.name === 'Microsoft 365') {
+            p.name = "Microsoft Individual";
+            p.price = 12000;
+            const personalPlan = p.plans.find(plan => plan.name.toLowerCase().includes('personal') || plan.price === 12000);
+            if (personalPlan) {
+                p.plans = [personalPlan];
+                p.plans[0].name = "Individual (Cuenta Propia)";
+            }
+        } else if (p.name === 'Microsoft 365 Compartida') {
+            p.name = "Microsoft Compartida";
+            p.price = 5000;
         }
         return p;
     });
