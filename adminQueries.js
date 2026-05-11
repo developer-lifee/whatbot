@@ -432,7 +432,8 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                                 pin_perfil: m.pin_perfil,
                                 vencimiento: m.vencimiento,
                                 is_owner: m.is_owner,
-                                customer_mail: m.customer_mail
+                                customer_mail: m.customer_mail,
+                                streaming: m.streaming
                             }))
                         };
                     } else {

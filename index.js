@@ -1122,11 +1122,22 @@ async function processIncomingMessage(messages) {
                   const isPinOnly = !isPinPerfil && !r.is_owner && wantPin;
                   const isPerfilOnly = !isPinPerfil && !r.is_owner && wantPerfil;
 
+                   // --- NUEVO: OCULTAR CREDENCIALES A EXTRAS O VENCIDOS ---
+                   const isExtra = r.streaming && r.streaming.toLowerCase().includes('extra');
+                   const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
+                   const expDate = r.vencimiento ? getJsDateFromExcel(r.vencimiento) : null;
+                   const isExpired = expDate && expDate < getTodayInBogota();
+                   
+                   const shouldHide = isExtra || isExpired;
+                   const hideReason = isExtra ? "[Exclusivo Cuenta Principal]" : "[Oculto por falta de pago]";
 
-                  const pinPerfilLine = (r.pin_perfil && isPinPerfil) ? `\n📍 *Pin Perfil:* ${r.pin_perfil}` : "";
-                  const pinLine = (r.pin_perfil && isPinOnly) ? `\n📌 *Pin:* ${r.pin_perfil}` : "";
-                  const perfilLine = (r.pin_perfil && isPerfilOnly) ? `\n👤 *Perfil:* ${r.pin_perfil}` : "";
-                  const claveLine = isClave ? `\n🔑 *Clave:* ${payload.new_password}` : "";
+                   const finalClave = shouldHide ? hideReason : payload.new_password;
+                   const finalPin = shouldHide ? hideReason : r.pin_perfil;
+
+                  const pinPerfilLine = (r.pin_perfil && isPinPerfil) ? `\n📍 *Pin Perfil:* ${finalPin}` : "";
+                  const pinLine = (r.pin_perfil && isPinOnly) ? `\n📌 *Pin:* ${finalPin}` : "";
+                  const perfilLine = (r.pin_perfil && isPerfilOnly) ? `\n👤 *Perfil:* ${finalPin}` : "";
+                  const claveLine = isClave ? `\n🔑 *Clave:* ${finalClave}` : "";
 
                   let title = "ACTUALIZACIÓN DE CREDENCIALES";
                   if (!showAll && only.length === 1) {

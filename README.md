@@ -31,135 +31,51 @@ Comandos especiales para el administrador (definido en `OPERATOR_NUMBER`):
 - **Atención de Pendientes (NUEVO)**: `@bot contesta los que estan sin contestar` o `@bot atiende pendientes`. El bot escanea a los usuarios en espera de un humano y les responde automáticamente con ayuda de la IA para retomar el servicio.
 - **Confirmar Cobros**: `confirmar_cobros 3001234567` para registrar pagos manualmente.
 
-### 5. 🤖 Inteligencia Colaborativa Avanzada (NUEVO - Abril 2026)
-- **Interceptor Global de Pagos**: Uso de **Gemini Vision** para detectar comprobantes bancarios en cualquier momento de la charla, notificando al admin y confirmando al cliente automáticamente.
-- **Flujo Híbrido**: El bot detecta si un humano está negociando y "adopta" el estado actual (ej: si acuerdas un precio, el bot entra a ofrecer los medios de pago automáticamente).
-- **LID / Migration Fix**: Soporte para identificadores internos de WhatsApp (LIDs) resolviendo el número real del contacto para evitar errores de base de datos.
-- **Detección de Presencia Humana**: El bot se silencia inteligentemente si detecta que un admin está hablando manualmente, evitando interrupciones.
+### 5. 🤖 Inteligencia Colaborativa Avanzada (Actualizado - Mayo 2026)
+- **Interceptor Global de Pagos & Vision**: Uso de **Gemini Vision** para detectar comprobantes bancarios, notificando al admin y confirmando al cliente automáticamente.
+- **Validación Automática Gmail (Bre-B/QR)**: El bot monitorea en tiempo real la cuenta `jordimemes...` buscando correos de "Venta exitosa por Bre-B". Si el monto coincide con el comprobante enviado por el cliente en un margen de 60 min, el bot **valida y entrega el servicio automáticamente** sin intervención humana.
+- **Auditoría de Pagos**: Las notificaciones administrativas incluyen el **Asunto** del correo y el ID de Gmail para una verificación rápida.
+- **Deduplicación de Mensajes**: Sistema de caché global para evitar el procesamiento doble de mensajes en ráfagas (Race Conditions).
+
+### 6. 📊 Dashboard Administrativo & Masivos (NUEVO)
+- **Difusión Contextual Inteligente**: El bot recuerda de qué cuenta se está hablando. Puedes decir: *"Pasa esta cuenta a todos"* y luego refinar con *"Descarta los extra"* o *"Solo a los activos"*.
+- **Reglas de Envío Inteligente**:
+    - **Netflix Extra**: Se excluyen de recibir la clave principal por defecto (seguridad).
+    - **Filtro de Vencimiento**: No se envían credenciales a clientes con más de 3 días de vencimiento (evita spam a churns).
+    - **Enmascaramiento de Credenciales**: Los usuarios vencidos o "Extras" reciben la notificación pero con las claves ocultas (`[Oculto por falta de pago]`), incentivando la renovación.
+- **Detector de Fallos Prematuros**: Identifica frases como *"mira lo que sale"* o *"no funciona"* en reportes de fallas técnicas, alertando al grupo de soporte de inmediato si la cuenta aún tiene días vigentes.
 
 ## 📂 Estructura del Proyecto
 
-- `index.js`: **Cerebro Principal**. Maneja la conexión de WhatsApp, escucha eventos y orquesta los estados del usuario.
-- `aiService.js`: **Módulo de IA**. Contiene la lógica para Gemini (Vision, Clasificación, Fallbacks).
-- `adminService.js`: **Gestión de Operador**. Comandos para el grupo de administración.
-- `billingService.js`: Gestión de cobros, deudas y avisos automáticos.
-- `apiService.js`: Integración con Azure Functions para lectura/escritura de Excel.
-- `.wwebjs_auth/`: Almacena la sesión de WhatsApp.
+- `index.js`: **Cerebro Principal**. Maneja la conexión, orquesta estados y el sistema de deduplicación.
+- `aiService.js`: **Módulo de IA**. Lógica de Gemini (Vision, Clasificación de intención, Refinamiento de Masivos).
+- `adminQueries.js`: **Motor Analítico**. Procesa las consultas a la base de datos y aplica filtros de masivos.
+- `gmailService.js`: Integración con la API de Gmail para validación de pagos y códigos.
+- `apiService.js`: Integración con Azure Functions para el registro en Excel.
 
 ## 🚀 Comandos Administrativos (Desde el Grupo)
 
-Para el administrador principal en el grupo definido:
-- `@bot ayuda`: Muestra el **Manual Maestro** detallado de todas las funciones inteligentes.
-- `@bot funciones`: Muestra la lista rápida de comandos ejecutables.
-- `@bot medios 573...`: Envía los datos bancarios a un cliente específico.
-- `@bot atiende pendientes`: Activa el escáner de chats no leídos.
-- `confirmar 573...`: Valida un pago y registra la venta en el Excel.
+- `@bot confirmar [Número] [Plataforma]`: Valida un pago manualmente (rellena el carrito si estaba vacío).
+- `@bot notifica a los de [Cuenta] que [Mensaje]`: Inicia el flujo de envío masivo con pre-visualización.
+- `@bot descarta los [Palabra Clave]`: Filtra la lista de envío masivo actual.
+- `@bot solo los activos`: Filtra la lista para incluir solo cuentas no vencidas.
 
 ## 🚀 Cómo Iniciar
 
-1. **Instalar dependencias**:
-   ```bash
-   npm install
-   ```
-2. **Configurar entorno**:
-   - Asegúrate de tener el archivo `.env` con `GEMINI_API_KEY` y credenciales de BD.
-3. **Iniciar el bot**:
-   ```bash
-   npm start
-   ```
-   _Escanea el código QR si es la primera vez._
-
-## 🐛 Solución de Problemas Comunes
-
-- **El bot no responde**: Revisa si el proceso "zombie" de Node está corriendo (`ps aux | grep node`) o si hay logs de `auth_failure`.
-- **Error de Puppeteer/Chrome**: Verifica que no haya procesos de Chrome "colgados". El bot usa su propia versión de Chromium.
+1. **Instalar dependencias**: `npm install`
+2. **Configurar entorno**: Asegúrate de tener el archivo `.env` y las credenciales en `/tokens`.
+3. **Iniciar**: `npm start` o `pm2 start index.js --name whatbot`.
 
 ---
 
-# 🚀 Roadmap de Refactorización & Modernización - WhatBot
-
-Este documento sirve como guía técnica para la mejora continua del bot, priorizando la arquitectura basada en API sobre migraciones complejas de framework.
+# 🚀 Roadmap de Modernización
 
 ## 📌 Estado del Proyecto
-- [x] **Fase 1:** Mejoras de Uso y Optimización Básica (Completado)
-- [x] **Fase 2:** Optimización de Integración API (Completado)
-- [ ] **Fase 3:** Panel Web & Autenticación (Redis)
-- [ ] **Fase 4:** Integración Híbrida de IA
-- [~] *(Opcional)* Migración de Framework (BuilderBot) - *Postergado/Secundario*
+- [x] **Fase 1:** Estabilización y Deduplicación (Completado)
+- [x] **Fase 2:** Automatización de Pagos Gmail/Bre-B (Completado)
+- [x] **Fase 3:** Dashboard Administrativo Contextual (Completado)
+- [ ] **Fase 4:** Autenticación Web & Redis (OTP)
+- [ ] **Fase 5:** Panel Web de Gestión Directa
 
 ---
-
-## 🛠️ Fase 1: Mejoras de Uso y Optimización (Completado)
-*Objetivo: Mejorar la experiencia de uso actual, facilitar el control para operadores humanos y estabilizar la conexión.*
-
-- [x] **Mejoras de Operación y Control (Implementadas):**
-  - Se añadieron comandos directos en grupos (`@bot duermete`, `@bot despiertate`) para gestión humana ágil.
-  - Documentación en línea para el equipo (`@bot funciones`).
-- [x] **Seguridad de Variables de Entorno:**
-  - Sacar credenciales en código (`database.js`) y moverlas a `.env`. (Completado)
-- [x] **Optimización de Base de Datos:**
-  - Reemplazar `mysql.createConnection` por `mysql.createPool` para prevenir errores de límite de conexiones simultáneas. (Completado)
-
-## 🗄️ Fase 2: Optimización de Integración API (Completado)
-*Objetivo: Centralizar la inteligencia del negocio en la nube (Azure Functions). Esto reduce la necesidad de un framework complejo local, ya que el bot actúa principalmente como interfaz comunicativa.*
-
-- [x] **Desacoplar Lógica de Negocio:**
-  - Mover cálculos, formateos complejos y decisiones a las Azure Functions, aligerando el archivo `index.js`.
-- [x] **Gestión Ágil de Endpoints:**
-  - Centralizar los llamados a `/api/readexcelfunction` y futuros endpoints en un módulo de servicios dedicado (`apiService.js`).
-- [x] **Resiliencia (Manejo de Errores y Retries):**
-  - Implementar reconexiones automáticas si la API de Azure no responde para evitar caídas del flujo conversacional.
-
-## 🔐 Fase 3: Autenticación Web & Redis (OTP)
-*Objetivo: Permitir que los clientes se logueen en el panel web usando un código cifrado enviado a su WhatsApp.*
-
-- [ ] **Infraestructura Ágil de Caché (Redis):**
-  - Levantar instancia de BD en memoria (Redis vía Upstash, etc.).
-- [ ] **Flujo de Login por WhatsApp:**
-  1. Usuario ingresa teléfono en el portal Web.
-  2. Web genera un PIN temporal y lo guarda en Redis con TTL de 5 min (`SET auth:57300... "4591"`).
-  3. Web notifica internamente al Bot y este lo envía: *"Tu código de acceso es: 4591"*.
-  4. Usuario ingresa el código en la Web validando su identidad de forma segura.
-
-## 🤖 Fase 4: Inteligencia Artificial (Híbrido Avanzado)
-*Objetivo: Usar la IA solo donde brinda valor agregado o resolución de consultas complejas.*
-
-- [ ] **IA con Contexto Directo:**
-  - Si el bot detecta dudas de soporte (ej. "Pantalla incorrecta"), extraer contexto desde Azure e inyectarlo en el Prompt de Gemini para una respuesta resolutiva inmediata.
-- [ ] **Optimización de Costos:**
-  - Clasificar intenciones de mensajes con expresiones regulares rápidas para evitar llamados a Gemini cuando no es necesario.
-
----
-
-# 🛠️ Arquitectura de Comandos Administrativos (Knowledge Base para IA)
-
-Este bot utiliza un flujo de tres capas para procesar comandos del administrador:
-
-1.  **Capa de Intención (Gemini):** En `aiService.js`, la función `parseAdminQueryIntent` extrae la acción deseada (`record_sale`, `update_data`, `search_customer`, `broadcast`) y los filtros (nombre, plataforma, campo a cambiar).
-2.  **Capa de Lógica (adminQueries.js):** Procesa la intención usando la data de Azure.
-    *   **Búsqueda Fuzzy:** Busca en columnas `Nombre`, `apellido` y `whatsapp`.
-    *   **Registro de Venta:** Llama a `salesRegistryService.js` para buscar cupos libres.
-3.  **Capa de Ejecución (Servicios):**
-    *   `salesRegistryService.js`: Busca filas donde el campo `Streaming` coincida y la columna `deben` esté vacía o con fecha vencida. Actualiza `numero`, `Nombre`, `deben` y `Metodo de pago`.
-    *   `apiService.js`: Realiza los `POST` finales a Azure Functions.
-
-## 📌 Mapeo de Columnas Críticas (Exacto)
-Para evitar errores de escritura, el bot debe usar estos nombres exactos de columna:
-- `Nombre`: Nombre del cliente.
-- `numero`: Teléfono (formato 57...).
-- `deben`: Fecha del próximo cobro (formato DD/MM/YYYY).
-- `Metodo de pago`: Banco o medio usado.
-- `operador`: Ciudad/Municipio y proveedor de internet.
-- `contraseña`: Clave del servicio.
-
-## 🐛 Troubleshooting para la IA
-- **Si una venta no se refleja:** Verificar que el cupo encontrado (`findAvailableSlot`) realmente esté en una fila con el nombre de plataforma correcto y que la columna `deben` no tenga una fecha futura.
-- **Si un campo no se actualiza:** Confirmar que el nombre del campo en `adminQueries.js` (fieldMap) coincida con el encabezado del Excel.
-- **Si el bot no responde detalles:** Consultar el objeto `lastAction` guardado en el estado del admin.
-
-## 🏗️ *(Opcional)* Migración de Framework a BuilderBot
-*Nota: Este objetivo anterior queda pospuesto.*
-- [ ] Al trasladar la lógica pesada a las funciones de Azure, la estructura actual con `whatsapp-web.js` se vuelve suficiente. Solo migraremos a BuilderBot si el enrutamiento de menús estáticos se vuelve insostenible.
-
-## 🏗️ *pagos
-enlazar a jordimemes que es el correo de pagos y validar solo con qr es decir llave asi haciendo mas funciones automatizadas como la actualizaicon de pago etcetera
+*(Documentación actualizada al 11 de Mayo de 2026)*
