@@ -38,6 +38,10 @@ const { checkNewPayments, findMatchingPayment } = require('./gmailService');
 const USER_STATES_FILE = path.join(__dirname, 'user_states.json');
 let userStates = new Map();
 
+// Deduplicador de mensajes para evitar doble procesamiento (Batch vs PendingChats)
+const processedMessageIds = new Set();
+setInterval(() => processedMessageIds.clear(), 5 * 60 * 1000); // Limpiar cada 5 min
+
 // Cargar estados al iniciar
 try {
     if (fs.existsSync(USER_STATES_FILE)) {
@@ -788,6 +792,13 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
  */
 async function processIncomingMessage(messages) {
   if (messages.length === 0) return;
+
+  const batchId = messages.map(m => m.id ? m.id._serialized : '').join(',');
+  if (processedMessageIds.has(batchId)) {
+      console.log(`[Deduplicator] Ignorando lote ya procesado simultáneamente: ${batchId}`);
+      return;
+  }
+  processedMessageIds.add(batchId);
 
   const firstMsg = messages[0];
   let userId = firstMsg.from;
@@ -1934,7 +1945,8 @@ async function processIncomingMessage(messages) {
               });
                             // Guardado inmediato preventivo ("cortar") en caso de que el cliente no responda a la pregunta.
               const { updateExcelData } = require('./apiService');
-              updateExcelData(rowNumberToCancel, { "observaciones": "cortar" }).catch(e => console.error("[Churn] Error guardado preventivo:", e.message));
+              const dateStr = new Date().toLocaleDateString('es-CO');
+              updateExcelData(rowNumberToCancel, { "observaciones": `cortar (bot ${dateStr})` }).catch(e => console.error("[Churn] Error guardado preventivo:", e.message));
 
           } else {
               await message.reply("🤖 Entiendo. ¡Aquí tienes tu casa para cuando decidas volver! 👋");
@@ -2142,8 +2154,10 @@ async function processIncomingMessage(messages) {
       if (cState.rowNumber) {
           const { updateExcelData } = require('./apiService');
           try {
-              await updateExcelData(cState.rowNumber, { "observaciones": `cortar ${reason}` });
-              console.log(`[Churn] Razón guardada en fila ${cState.rowNumber}: cortar ${reason}`);
+              const dateStr = new Date().toLocaleDateString('es-CO');
+              const finalReason = `cortar ${reason} (bot ${dateStr})`;
+              await updateExcelData(cState.rowNumber, { "observaciones": finalReason });
+              console.log(`[Churn] Razón guardada en fila ${cState.rowNumber}: ${finalReason}`);
           } catch(e) {
               console.error("[Churn] Error guardando razón en Excel:", e.message);
           }
