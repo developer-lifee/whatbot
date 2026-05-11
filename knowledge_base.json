@@ -19,7 +19,7 @@
   "platform_rules": {
     "Disney+ Premium": "Incluye deportes en vivo (ESPN, Champions League, Copa Libertadores). Menciona esto si preguntan por deportes.",
     "Netflix": "Si el cliente tiene problemas de 'Hogar Netflix', debe solicitar el código de viaje al bot.",
-    "Spotify": "Si la cuenta vuelve a 'Free', debe reportarlo con una foto para enviarle una nueva invitación familiar."
+    "Spotify": "Si la cuenta vuelve a 'Free', debe reportarlo con una foto para enviarle una nueva invitación familiar. REGLA DE PRECIO: Solo los 'Owners' (dueños que proveen el plan familiar) pagan $8,000. Las cuentas normales (invitados) pagan el precio estándar de cuenta propia."
   },
   "general_policies": {
     "refunds": "No hay reembolsos en efectivo, pero se garantiza la reposición del servicio o el saldo a favor para otras plataformas en caso de fallas masivas.",

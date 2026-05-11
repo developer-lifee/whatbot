@@ -631,22 +631,23 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     
     Categorías para "intent":
     - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por precios de algo que NO tiene.
-    - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado (revisa la lista de cuentas del usuario).
+    - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado.
     - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
-    - "soporte": Problemas técnicos, fallas de pantalla, errores en el cobro, o si el usuario CUESTIONA un precio (ej: "no eran 12 mil?", "esta mal el precio"). También si pide hablar con una persona específica (ej: "pásame a Esteban").
-    - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale"). También incluye expresiones de cortesía inicial o relleno (ej: "hola", "que pena", "buenas") SIEMPRE Y CUANDO no vengan acompañadas de una petición clara en el mismo bloque.
-    - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio, que no va a continuar o pide la baja.
-    - "desconocido": Cualquier otro mensaje.
+    - "soporte": Problemas técnicos, fallas, errores en el cobro, o si pide hablar con una persona (ej: "pásame a Esteban").
+    - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale", "chao", "adiós").
+    - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio o pide la baja.
+    - "desconocido": Cualquier otro mensaje, incluyendo saludos iniciales (ej: "hola", "buenas noches", "buenos días") sin petición específica.
 
     Regla de Intents:
-    - "soporte": PRIORIDAD si el usuario dice que hay un error, que el precio no coincide, o si suena confundido con la factura.
-    - "comprar": PRIORIDAD si menciona plataforma nueva. Si el usuario ya tiene el servicio y pregunta "cuánto es", usa "renovar".
-    - "renovar": PRIORIZA este intent si el usuario pregunta "cuánto es", "puedo pagar", "mándame el nequi" o "cuánto te debo" y ves que tiene cuentas activas o vencidas en su lista.
-    - "credenciales": El usuario pide sus datos de acceso ("mi cuenta", "pásame el pin", "contraseña", "clave", "password"). PRIORIZA este intent si el usuario menciona palabras relacionadas con "llaves", "claves", "password" o "entrar".
-    - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
-    - "soporte": Problemas técnicos, fallas, errores en pantalla, etc.
-    - "cierre": El usuario indica que NO va a renovar, que quiere cancelar el servicio, que "deja así" o "ya no lo va a usar".
-    - "desconocido": Otros temas que no encajan en lo anterior.
+    - "soporte": PRIORIDAD si el usuario reporta errores, fallas o confusión con el precio/factura.
+    - "comprar": PRIORIDAD si menciona plataforma nueva. 
+    - "renovar": PRIORIZA si pregunta costos de servicios que YA TIENE o dice "cuánto te debo".
+    - "credenciales": Si pide datos de acceso (pin, contraseña, clave).
+    - "pagar": Si pregunta cómo pagar o envía comprobante.
+    - "cancelar": Si indica que NO va a renovar o quiere la baja.
+    - "cierre": El usuario indica fin de charla (ej: "ok", "listo", "gracias", "vale", "chao"). 
+      *IMPORTANTE*: Solo usa este intent si el mensaje NO viene acompañado de una nueva duda o petición. Si dice "Gracias, pero sigo sin poder entrar", el intent es "soporte". Si dice "Hola gracias", el intent es "desconocido" (saludo). El contexto del último mensaje es clave.
+    - "desconocido": Saludos o mensajes que no encajan.
 
     Lógica de recuperación ("recoveredState"):
     - "awaiting_payment_method": 

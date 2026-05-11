@@ -8,9 +8,32 @@ const path = require('path');
 async function getPlatforms() {
   const localPath = path.join(__dirname, 'platforms.json');
   try {
+    let platforms = [];
     const response = await fetch(PLATFORMS_URL);
     if (!response.ok) throw new Error('Failed to fetch platforms');
-    return await response.json();
+    platforms = await response.json();
+
+    // --- POST-PROCESAMIENTO: REGLAS DE NEGOCIO PERSONALIZADAS ---
+    platforms = platforms.map(p => {
+        if (p.name === 'Spotify') {
+            p.plans = p.plans.map(plan => {
+                // El plan de 8000 es el Owner (proporcionado por nosotros)
+                if (plan.price === 8000) {
+                    plan.name = "Spotify Owner (Proporcionado)";
+                    plan.detalles = "Plan familiar donde nosotros te entregamos el acceso de dueño. Ideal para revendedores.";
+                } 
+                // El plan de 10000 es el Individual (cuenta propia)
+                else if (plan.price === 10000) {
+                    plan.name = "Spotify Individual (Cuenta Propia)";
+                    plan.detalles = "Activamos el premium directamente en tu correo personal. Privacidad total.";
+                }
+                return plan;
+            });
+        }
+        return p;
+    });
+
+    return platforms;
   } catch (error) {
     console.warn('[Sales Service] No se pudo obtener plataformas remotas, intentando local...');
     try {
