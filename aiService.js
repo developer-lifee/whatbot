@@ -46,6 +46,56 @@ function summarizeWisdom(wisdom) {
     return summary;
 }
 
+/**
+ * Determina si una cuenta es de tipo "Familiar" o "Extra" según su nombre.
+ * Estas cuentas NUNCA deben mostrar el correo/clave principal del administrador.
+ */
+function isFamilyPlan(streamingName) {
+    if (!streamingName) return false;
+    const name = streamingName.toLowerCase();
+    const familyKeywords = [
+        'youtube', 'microsoft', 'office', 'apple', 'spotify', 
+        'apple one', 'extra', 'familiar', 'personal (tu correo)', 
+        'correo propio', 'tu correo', 'canje', 'invitacion', 'invitación'
+    ];
+    return familyKeywords.some(kw => name.includes(kw));
+}
+
+/**
+ * Obtiene los datos de acceso formateados para una cuenta, aplicando reglas de privacidad.
+ * @param {object} acc - El objeto de la cuenta del Excel.
+ * @returns {object} { streamingName, isFamily, correo, clave, customerMail }
+ */
+function getMaskedAccessData(acc) {
+    const streamingName = (acc.Streaming || acc.streaming || "Servicio").toUpperCase();
+    const isFamily = isFamilyPlan(streamingName);
+    
+    const correoOriginal = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
+    let clave = acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"] || "N/A";
+    const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").trim();
+
+    let displayCorreo = correoOriginal;
+    let displayClave = clave;
+
+    if (isFamily) {
+        displayClave = "(Acceso por invitación/perfil propio)";
+        if (customerMail) {
+            displayCorreo = customerMail;
+        } else {
+            // Si es familiar pero no tiene customer mail, probablemente sea una invitación pendiente
+            displayCorreo = "(Tu correo personal)";
+        }
+    }
+
+    return {
+        streamingName,
+        isFamily,
+        correo: displayCorreo,
+        clave: displayClave,
+        customerMail: customerMail
+    };
+}
+
 // List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
   "gemini-2.5-flash",
@@ -344,44 +394,38 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
      cuentasTexto = "El usuario no tiene cuentas activas en este momento o no encontramos registros asociados a su número.";
   } else {
      userAccounts.forEach(acc => {
-       const streamingName = (acc.Streaming || "Servicio").toUpperCase();
-       
-       // Excluir cuentas familiares y extras
-       const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'netflix extra'];
-       const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
-       // if (isFamily) return;
+        const { streamingName, correo, clave } = getMaskedAccessData(acc);
+        
+        const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
+        const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
+        const perfilCompleto = pin ? `${perfil} (PIN: ${pin})` : perfil;
+        
+        let fechaVencimiento = "Fecha desconocida";
+        let isExpired = false;
 
-       const correo = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
-       let clave = acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"] || "N/A";
-       const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
-       const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
-       const perfilCompleto = pin ? `${perfil} (PIN: ${pin})` : perfil;
-       
-       let fechaVencimiento = "Fecha desconocida";
-       let isExpired = false;
+        if (acc.deben && !isNaN(parseFloat(acc.deben))) {
+            const jsDate = getJsDateFromExcel(acc.deben);
+            fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
 
-       if (acc.deben && !isNaN(parseFloat(acc.deben))) {
-           const jsDate = getJsDateFromExcel(acc.deben);
-           fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+            const today = getTodayInBogota();
+            const compareDate = new Date(jsDate);
+            compareDate.setHours(0,0,0,0);
 
-           const today = getTodayInBogota();
-           const compareDate = new Date(jsDate);
-           compareDate.setHours(0,0,0,0);
+            // Si la fecha de vencimiento es HOY o anterior, se considera vencida
+            if (compareDate.getTime() <= today.getTime()) {
+                isExpired = true;
+            }
+        } else if (acc.vencimiento) {
+            fechaVencimiento = acc.vencimiento;
+        }
 
-           // Si la fecha de vencimiento es HOY o anterior, se considera vencida
-           if (compareDate.getTime() <= today.getTime()) {
-               isExpired = true;
-           }
-       } else if (acc.vencimiento) {
-           fechaVencimiento = acc.vencimiento;
-       }
+        let displayClave = clave;
+        if (isExpired) {
+            displayClave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
+        }
 
-       if (isExpired) {
-           clave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
-       }
-
-       cuentasTexto += `- Plataforma: ${streamingName}\n  Correo: ${correo}\n  Clave: ${clave}\n  Perfil/PIN: ${perfilCompleto}\n  Vencimiento: ${fechaVencimiento}\n\n`;
-     });
+        cuentasTexto += `- Plataforma: ${streamingName}\n  Correo: ${correo}\n  Clave: ${displayClave}\n  Perfil/PIN: ${perfilCompleto}\n  Vencimiento: ${fechaVencimiento}\n\n`;
+      });
 
      if (cuentasTexto === "") {
         cuentasTexto = "El usuario no tiene cuentas activas o mostradas en este momento.";
@@ -407,7 +451,7 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
   
   ⚠️ REGLAS CRÍTICAS:
   1. Muestra SIEMPRE el Correo, la Clave y el Perfil/PIN para CADA cuenta de la lista. NUNCA resumas u omitas esta información.
-  2. Si la Clave o el PIN están presentes en los datos, DEBEN aparecer en tu respuesta.
+  2. **IMPORTANTE (Cuentas Familiares/Extras)**: Si en los datos dice que la clave es "(Acceso por invitación/perfil propio)", explica amablemente al usuario que para ese servicio (ej. YouTube, Microsoft, Netflix Extra) no se usa una clave compartida, sino que él accede con su propio correo o mediante una invitación que le llegará.
   3. Si la cuenta está vencida, mantén el aviso de que la clave está oculta por seguridad.
   4. Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
   5. Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.
@@ -432,99 +476,86 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
  * @returns {string|null}
  */
 function formatDirectCredentials(userAccounts, requestedPlatform = null, options = {}) {
-  if (!userAccounts || userAccounts.length === 0) return null;
-  
-  let accountsToFormat = userAccounts;
-  if (requestedPlatform) {
-      const term = requestedPlatform.toLowerCase();
-      accountsToFormat = userAccounts.filter(acc => (acc.Streaming || "").toLowerCase().includes(term));
-  }
-  
-  if (accountsToFormat.length === 0) return null;
-  
-  const formattedAccounts = [];
-  accountsToFormat.forEach(acc => {
-    const streamingName = (acc.Streaming || "SERVICIO").toUpperCase();
-
-    const familyPlatforms = ['youtube', 'microsoft', 'apple', 'spotify', 'apple one', 'netflix extra'];
-    const isFamily = familyPlatforms.some(fp => streamingName.toLowerCase().includes(fp));
+    if (!userAccounts || userAccounts.length === 0) return null;
     
-    const correo = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
-    let clave = acc["contraseña"] || acc["clave"] || acc["Clave"] || acc["password"] || acc["Password"] || "N/A";
-    const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
-    const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
+    let accountsToFormat = userAccounts;
+    if (requestedPlatform) {
+        const term = requestedPlatform.toLowerCase();
+        accountsToFormat = userAccounts.filter(acc => (acc.Streaming || "").toLowerCase().includes(term));
+    }
     
-    const isSpotify = streamingName.toLowerCase().includes('spotify');
-    const isYoutube = streamingName.toLowerCase().includes('youtube');
-
-    // YouTube / Cuentas familiares: Priorizar el 'customer mail' si existe para no mostrar el correo del marcador/admin
-    let displayCorreo = correo;
-    const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").trim();
-    if ((isYoutube || isFamily) && customerMail) {
-        displayCorreo = customerMail;
-    }
-
-    const labelPin = isSpotify ? "DIRECCIÓN/LINK" : "PIN";
-    const perfilDisplay = pin ? `${perfil} - ${labelPin}: ${pin}` : perfil;
+    if (accountsToFormat.length === 0) return null;
     
-    let fechaVencimiento = "Fecha desconocida";
-    let isExpired = false;
-
-    // Procesar fecha de vencimiento (asumimos que existe lógica previa de deben/vencimiento)
-    // ... (reutilizamos la lógica de abajo) ...
-    if (acc.deben && !isNaN(parseFloat(acc.deben))) {
-        const jsDate = getJsDateFromExcel(acc.deben);
-        const day = jsDate.getDate();
-        const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
-        const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
-        const year = jsDate.getFullYear();
-        fechaVencimiento = `${day} de ${month} de ${year}`;
-
-        const today = getTodayInBogota();
-        const compareDate = new Date(jsDate);
-        compareDate.setHours(0,0,0,0);
-        if (compareDate.getTime() <= today.getTime()) {
-            isExpired = true;
-        }
-    } else if (acc.vencimiento) {
-        fechaVencimiento = acc.vencimiento;
-    }
-
-    const isConcise = options.concise || (requestedPlatform && (requestedPlatform.includes('solo pin') || requestedPlatform.includes('unicamente pin')));
-
-    if (isConcise) {
-        let conciseMsg = `🚨 *ACTUALIZACIÓN ${streamingName}*\n\n📧 Cuenta: ${displayCorreo}`;
-        if (pin) conciseMsg += `\n📍 ${labelPin}: ${pin}`;
-        conciseMsg += `\n\nSi tienes inconvenientes, escribe "ayuda". 🤖`;
-        formattedAccounts.push(conciseMsg);
-        return;
-    }
-
-    if (isFamily) {
-        const msgFamily = isExpired 
-            ? `⚠️ *SERVICIO VENCIDO*: Este servicio (${streamingName}) requiere renovación para seguir funcionando.`
-            : `ℹ️ *NOTA*: Para este servicio, recibirás una invitación por correo. La contraseña la configuras tú mismo con tu correo al aceptar la invitación. Un asesor te contactará en breve si necesitas ayuda.`;
+    const formattedAccounts = [];
+    accountsToFormat.forEach(acc => {
+        const { streamingName, isFamily, correo, clave, customerMail } = getMaskedAccessData(acc);
         
-        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${displayCorreo}\nPERFIL: ${perfilDisplay}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
-        return;
-    }
+        const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
+        const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
+        
+        const isSpotify = streamingName.toLowerCase().includes('spotify');
 
-    // LÓGICA YOPMAIL: Si el correo de cliente es yopmail, damos pasos de recuperación
-    if (customerMail.toLowerCase().includes("@yopmail.com")) {
-        clave = "(La configuras tú mismo siguiendo los pasos abajo)";
-        const yopInstructions = `\n\n🔑 *PASOS PARA CONFIGURAR TU CLAVE:*\n1. Ve a www.yopmail.com\n2. Ingresa el correo: *${customerMail}*\n3. En la app de ${streamingName}, pide 'Olvidé mi contraseña' a ese correo.\n4. Revisa el código en Yopmail y activa tu cuenta. 📝`;
-        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${displayCorreo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfilDisplay}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
-        return;
-    }
+        const labelPin = isSpotify ? "DIRECCIÓN/LINK" : "PIN";
+        const perfilDisplay = pin ? `${perfil} - ${labelPin}: ${pin}` : perfil;
+        
+        let fechaVencimiento = "Fecha desconocida";
+        let isExpired = false;
 
-    if (isExpired) {
-        clave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
-    }
+        if (acc.deben && !isNaN(parseFloat(acc.deben))) {
+            const jsDate = getJsDateFromExcel(acc.deben);
+            const day = jsDate.getDate();
+            const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
+            const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
+            const year = jsDate.getFullYear();
+            fechaVencimiento = `${day} de ${month} de ${year}`;
+
+            const today = getTodayInBogota();
+            const compareDate = new Date(jsDate);
+            compareDate.setHours(0,0,0,0);
+            if (compareDate.getTime() <= today.getTime()) {
+                isExpired = true;
+            }
+        } else if (acc.vencimiento) {
+            fechaVencimiento = acc.vencimiento;
+        }
+
+        const isConcise = options.concise || (requestedPlatform && (requestedPlatform.includes('solo pin') || requestedPlatform.includes('unicamente pin')));
+
+        if (isConcise) {
+            let conciseMsg = `🚨 *ACTUALIZACIÓN ${streamingName}*\n\n📧 Cuenta: ${correo}`;
+            if (!isFamily) conciseMsg += `\n🔑 Clave: ${isExpired ? '(Vencida)' : clave}`;
+            if (pin) conciseMsg += `\n📍 ${labelPin}: ${pin}`;
+            conciseMsg += `\n\nSi tienes inconvenientes, escribe "ayuda". 🤖`;
+            formattedAccounts.push(conciseMsg);
+            return;
+        }
+
+        if (isFamily) {
+            const msgFamily = isExpired 
+                ? `⚠️ *SERVICIO VENCIDO*: Este servicio (${streamingName}) requiere renovación para seguir funcionando.`
+                : `ℹ️ *NOTA*: Para este servicio, recibirás una invitación por correo o usarás tu perfil propio. La contraseña la manejas tú mismo. Un asesor te contactará si necesitas ayuda adicional.`;
+            
+            formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nPERFIL: ${perfilDisplay}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+            return;
+        }
+
+        let displayClave = clave;
+        // LÓGICA YOPMAIL: Si el correo de cliente es yopmail, damos pasos de recuperación
+        if (customerMail.toLowerCase().includes("@yopmail.com")) {
+            displayClave = "(La configuras tú mismo siguiendo los pasos abajo)";
+            const yopInstructions = `\n\n🔑 *PASOS PARA CONFIGURAR TU CLAVE:*\n1. Ve a www.yopmail.com\n2. Ingresa el correo: *${customerMail}*\n3. En la app de ${streamingName}, pide 'Olvidé mi contraseña' a ese correo.\n4. Revisa el código en Yopmail y activa tu cuenta. 📝`;
+            formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+            return;
+        }
+
+        if (isExpired) {
+            displayClave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
+        }
+        
+        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+    });
     
-    formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${displayCorreo}\nCONTRASEÑA: ${clave}\nPERFIL: ${perfilDisplay}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
-  });
-  
-  return formattedAccounts.join('\n\n-------------------\n\n');
+    return formattedAccounts.join('\n\n-------------------\n\n');
 }
 
 /**

@@ -333,17 +333,17 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
               await message.reply(`🤖 Entendido, aquí tienes los datos para *${preferredMethod.toUpperCase()}*:\n\n${details[foundKey]}\n\nUna vez realices la transferencia, por favor envíame el comprobante por aquí.`);
               userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation', paymentMethod: preferredMethod });
           } else {
-              await message.reply("\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n\n⭐QR Negocios (Recomendado ⚡)\n⭐Nequi\n⭐Transfiya\n⭐Llaves\n⭐Daviplata\n⭐Bancolombia\n\n*Nota:* Si pagas con QR, tu pago será validado por el bot haciendo la renovación inmediata. 🤖");
+              await message.reply("\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n\n⭐QR Negocios (Renovación inmediata validada por el bot sin humanos 🤖⚡)\n⭐Nequi\n⭐Transfiya\n⭐Llaves\n⭐Daviplata\n⭐Bancolombia");
           }
       } else {
-          replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n\n⭐QR Negocios (Recomendado ⚡)\n⭐Nequi\n⭐Transfiya\n⭐Llaves\n⭐Daviplata\n⭐Bancolombia\n\n*Nota:* Si pagas con QR, tu pago será validado por el bot haciendo la renovación inmediata. 🤖";
+          replyMessage += "\n\n¿Por cuál medio deseas hacer la transferencia para tu renovación?\n\n⭐QR Negocios (Renovación inmediata validada por el bot sin humanos 🤖⚡)\n⭐Nequi\n⭐Transfiya\n⭐Llaves\n⭐Daviplata\n⭐Bancolombia";
           await message.reply(replyMessage);
       }
     } else {
       const stateData = userStates.get(userId) || {};
       if (stateData.items && stateData.items.length > 0) {
           // Si está comprando algo nuevo, no mostramos error de "no hay cuentas", simplemente lo guiamos al pago.
-          await message.reply(`🤖 ¡Perfecto! Veo que estás por completar tu primera compra.\n\n¿Por cuál medio deseas hacer la transferencia?\n\n⭐QR Negocios (Recomendado ⚡)\n⭐Nequi\n⭐Transfiya\n⭐Llaves\n⭐Daviplata\n⭐Bancolombia\n\n*Nota:* Si pagas con QR, tu pago será validado por el bot haciendo la entrega inmediata. 🤖`);
+          await message.reply(`🤖 ¡Perfecto! Veo que estás por completar tu primera compra.\n\n¿Por cuál medio deseas hacer la transferencia?\n\n⭐QR Negocios (Entrega inmediata validada por el bot sin humanos 🤖⚡)\n⭐Nequi\n⭐Transfiya\n⭐Llaves\n⭐Daviplata\n⭐Bancolombia`);
           userStates.set(userId, { ...stateData, state: 'awaiting_payment_method' });
       } else {
           await message.reply(`🤖 No encontramos cuentas pendientes o asociadas al número ${phoneNumber}. Si crees que hay un error, contacta a un asesor. 😊`);

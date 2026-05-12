@@ -1645,10 +1645,10 @@ async function processIncomingMessage(messages) {
     return;
   }
 
+  let mediaData = [];
   if (isMedia) {
     // --- MANEJO DE MULTIMEDIA (LOTE) ---
     const history = await getChatHistoryText(message);
-    let mediaData = []; // Ahora es un arreglo para soportar múltiples imágenes
     
     try {
       for (const m of messages) {
@@ -1858,7 +1858,7 @@ async function processIncomingMessage(messages) {
   lastResponseTimestamps.set(userId, now);
 
   const timedHist = `[ESTE MENSAJE LLEGÓ HACE ${messageAgeMinutes} MINUTOS]\n${hist}`;
-  const detection = await detectInitialIntent(inputToUse, timedHist, null, userAccounts);
+  const detection = await detectInitialIntent(inputToUse, timedHist, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
 
   // 3. IDENTIDAD TERCERO: IA revisando historial o mensaje actual
   if ((!foundName || foundName === 'Cliente') && detection.userName) {
@@ -2070,7 +2070,7 @@ async function processIncomingMessage(messages) {
        } else if (detection.intent === 'soporte') {
            // Si el usuario pide soporte, le damos la bienvenida y le preguntamos el detalle (o lo escalamos si ya lo dio)
            const history = await getChatHistoryText(message);
-           const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, null, userAccounts);
+           const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
            if (fallback.replyMessage) {
                await safeReply(message, fallback.replyMessage, userId);
                if (fallback.needsEscalation) {
@@ -2088,7 +2088,7 @@ async function processIncomingMessage(messages) {
       userAccounts = [];
       try { userAccounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch(e){}
       
-      const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, null, userAccounts);
+      const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
       
       // Si la IA generó una respuesta útil (no es el mensaje de error por defecto)
       if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
