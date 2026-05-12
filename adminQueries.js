@@ -392,7 +392,8 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                             
                             // 2. Cálculo de vencimiento
                             const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
-                            const expDate = getJsDateFromExcel(row['vencimiento'] || row['deben']);
+                            // PRIORIDAD: 'deben' es el vencimiento del cliente. 'vencimiento' es el de la cuenta principal.
+                            const expDate = getJsDateFromExcel(row['deben'] || row['vencimiento']);
                             if (expDate && !isMassiveToPlatform) { 
                                 const diffDays = (getTodayInBogota() - expDate) / (1000 * 60 * 60 * 24);
                                 // Para broadcasts específicos, permitimos un margen mayor (30 días) para recuperar clientes recientes
@@ -425,7 +426,7 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                                     phone: numeroStr,
                                     customer_mail: row['customer mail'] || row['customer_mail'] || null,
                                     pin_perfil: row['pin perfil'] || row['pin_perfil'] || null,
-                                    vencimiento: row['vencimiento'] || row['deben'] || null,
+                                    vencimiento: row['deben'] || row['vencimiento'] || null,
                                     is_owner: isOwner,
                                     streaming: row['Streaming'] || row['streaming']
                                 };
@@ -470,7 +471,7 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                         const totalWithEmail = rawData.filter(row => cln(row['correo'] || row['Correo']) === cln(sourceEmail)).length;
                         const expiredCount = rawData.filter(row => {
                             if (cln(row['correo'] || row['Correo']) !== cln(sourceEmail)) return false;
-                            const expDate = getJsDateFromExcel(row['vencimiento'] || row['deben']);
+                            const expDate = getJsDateFromExcel(row['deben'] || row['vencimiento']);
                             return expDate && expDate < getTodayInBogota();
                         }).length;
                         const platformMismatch = platformFilter ? rawData.filter(row => {
