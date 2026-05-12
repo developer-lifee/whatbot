@@ -289,7 +289,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     consolidatedResponse += `\n\nNoté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
   }
 
-  consolidatedResponse += "\n\n¿Por cuál medio deseas hacer la transferencia?\n⭐Nequi | ⭐Daviplata | ⭐Bancolombia | ⭐QR Negocios";
+  consolidatedResponse += "\n\n¿Por cuál medio deseas hacer la transferencia?\n\n⭐QR Negocios (Recomendado ⚡)\n⭐Nequi\n⭐Transfiya\n⭐Llaves\n⭐Daviplata\n⭐Bancolombia\n\n*Nota:* Si pagas con QR, tu pago será validado por el bot haciendo la entrega o renovación inmediata. 🤖";
 
   await message.reply(consolidatedResponse);
 

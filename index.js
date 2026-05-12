@@ -2393,12 +2393,12 @@ async function processPaymentSelection(message, userId, text) {
   const paymentDetails = {
     'nequi': "🤖 *Nequi*\n3118587974",
     'daviplata': "🤖 *Daviplata*\n3107946794",
-    'bancolombia': "🤖 *Bancolombia - ahorros*\nNumero de cuenta: 46772753713\nCC1032936324",
-    'banco caja social': "🤖 *Banco Caja Social*\n24111572331\nESTEBAN AVILA\ncc: 1032936324",
-    'transfiya': "🤖 *Transfiya*\n*LLAVE*\n3118587974",
-    'llaves bre-v': "🤖 *LLAVE bre-v*\n3118587974",
-    'llave bre-b': "🤖 *LLAVE bre-b*\n3118587974",
-    'qr negocios': "🤖 *QR Negocios (RECOMENDADO)*\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** de tus servicios en pocos minutos. ⚡"
+    'bancolombia': "🤖 *Bancolombia - ahorros*\nNúmero de cuenta: 46772753713\nCC: 1032936324",
+    'banco caja social': "🤖 *Banco Caja Social*\n24111572331\nNombre: Esteban Avila\nCC: 1032936324",
+    'transfiya': "🤖 *Transfiya*\nNúmero: 3118587974",
+    'llaves bre-v': "🤖 *LLAVE bre-v*\nNúmero: 3118587974",
+    'llave bre-b': "🤖 *LLAVE bre-b*\nNúmero: 3118587974",
+    'qr negocios': "🤖 *QR Negocios (RECOMENDADO)*\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** inmediata de tus servicios. ⚡"
   };
   
   const lowerText = text.toLowerCase();
@@ -2410,7 +2410,7 @@ async function processPaymentSelection(message, userId, text) {
     if (fs.existsSync(qrPath)) {
         try {
             const media = MessageMedia.fromFilePath(qrPath);
-            await message.reply(media, undefined, { caption: "🤖 Aquí tienes nuestro *QR de Negocios* oficial. Úsalo para una validación automática y activación inmediata de tu servicio. 🎉" });
+            await message.reply(media, undefined, { caption: "🤖 Aquí tienes nuestro *QR de Negocios* oficial. Si pagas con este QR, tu pago será validado por el bot haciendo la entrega o renovación inmediata. ⚡" });
         } catch(e) {
             console.error("Error enviando QR:", e.message);
             await message.reply("🤖 No pude enviar la imagen del QR en este momento, pero puedes usar los datos de texto abajo.");
