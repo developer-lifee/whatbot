@@ -1182,10 +1182,8 @@ async function processIncomingMessage(messages) {
                } catch(e) { console.error('Error respondiendo acción pendiente:', e.message); }
            }
       } else if (data.status === 'success' || data.status === 'error' || data.status === 'warning') {
-          try {
-              const icon = data.status === 'success' ? '✅' : (data.status === 'warning' ? '⚠️' : '❌');
-              await client.sendMessage(userId, `${icon} ${data.message || 'Procesado correctamente.'}`);
-          } catch(e) { console.error('Error respondiendo status admin:', e.message); }
+          // Ya se envió un reporte detallado en processAdminQuery, no duplicamos.
+          return;
       } else {
           const { generateAdminReport } = require('./aiService');
           const report = await generateAdminReport(message.body, data);

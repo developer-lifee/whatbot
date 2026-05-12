@@ -27,7 +27,18 @@ function getTodayInBogota() {
  * Convierte un número serial de Excel a un objeto Date de JS normalizado a medianoche local.
  */
 function getJsDateFromExcel(excelDate) {
-  if (!excelDate || isNaN(parseFloat(excelDate))) return null;
+  if (!excelDate) return null;
+  
+  // Si ya es un formato de fecha string (YYYY-MM-DD o similar) que JS entienda
+  if (typeof excelDate === 'string' && excelDate.includes('-')) {
+      const parsed = new Date(excelDate + 'T12:00:00'); // Forzamos mediodía para evitar saltos de día por zona horaria
+      if (!isNaN(parsed.getTime())) {
+          return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+      }
+  }
+
+  if (isNaN(parseFloat(excelDate))) return null;
+
   // Ajuste de offset de 25569 es el estándar para fechas de Excel en Unix epoch
   const jsDate = new Date((parseFloat(excelDate) - 25569) * 86400 * 1000);
   // Usamos componentes UTC para evitar desplazamientos por la zona horaria del servidor
