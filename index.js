@@ -715,7 +715,7 @@ client.on('message_create', async (msg) => {
     // Si el mensaje NO contiene el emoji 🤖 ni @bot, asumimos que fue enviado manualmente.
     const body = msg.body.toLowerCase();
     const isTestCommand = body === 'pruebas' || body.includes('prueba de escritura');
-    const isBotCommand = body.startsWith('@bot');
+    const isBotCommand = body.includes('@bot');
     
     if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand) {
       let st = userStates.get(targetId);
@@ -835,7 +835,16 @@ async function processIncomingMessage(messages) {
           return;
       } else if (adminAI.intent === 'liberar_bot') {
           userStates.delete(userId);
-          await firstMsg.reply(`✅ Bot reactivado para ti, jefe.`);
+          const isAdminPrivate = userId.replace('@c.us', '') === ADMIN_RAW_PHONE;
+          if (isAdminPrivate) {
+              await firstMsg.reply(`✅ Bot reactivado para ti, jefe.`);
+          } else {
+              // Lectura prematura del chat para llegar ayudando
+              const { generateReactivationResponse } = require('./aiService');
+              const chatHistory = await getChatHistoryText(firstMsg, 10); // Leer últimos 10 mensajes
+              const reactivationMsg = await generateReactivationResponse(chatHistory);
+              await firstMsg.reply(reactivationMsg);
+          }
           return;
       }
   }

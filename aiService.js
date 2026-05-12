@@ -89,6 +89,38 @@ async function detectAdminIntent(messageContent) {
 }
 
 /**
+ * Genera un saludo de reactivación contextual ("Lectura Prematura").
+ * Analiza el historial para llegar ayudando de una vez.
+ */
+async function generateReactivationResponse(chatHistory) {
+  const prompt = `
+    Eres el Asistente Virtual de Sheerit Store. Acabas de ser RE-ACTIVADO por un administrador en este chat.
+    Tu objetivo es saludar al cliente amablemente y addressar (abordar) de inmediato lo último que estaba preguntando o reportando mientras tú estabas silenciado.
+
+    HISTORIAL RECIENTE:
+    ${chatHistory}
+
+    INSTRUCCIONES:
+    1. Saluda cordialmente (Ej: "¡Hola! He vuelto para ayudarte...").
+    2. Menciona que un asesor te pidió retomar la atención.
+    3. Analiza los mensajes del CLIENTE en el historial:
+       - Si preguntó por precios, dale una pincelada de lo que buscaba.
+       - Si reportó una falla, dile que ya estás revisando su caso.
+       - Si pidió credenciales, dile que ya puedes entregárselas (y recuérdale que use el número 2).
+    4. Sé conciso y empático. No repitas todo el historial, solo demuestra que lo "leíste" y estás listo para ayudar.
+    5. Usa emojis amigables 🤖.
+
+    Responde solo con el texto del mensaje para el cliente.
+  `;
+
+  try {
+    return await callGemini(prompt, "Eres un asistente de atención al cliente empático y eficiente.");
+  } catch (error) {
+    return "🤖 ¡Hola! He vuelto para ayudarte. Un asesor me ha pedido retomar la atención automática en este chat. ¿En qué puedo ayudarte hoy?";
+  }
+}
+
+/**
  * Convierte el JSON de plataformas (con planes y detalles) en un resumen de texto para el prompt.
  */
 function summarizePlatformKnowledge(platforms) {
@@ -929,5 +961,6 @@ module.exports = {
   parseAdminQueryIntent, 
   generateAdminReport,
   suggestAdminActions,
-  editBroadcastPayload
+  editBroadcastPayload,
+  generateReactivationResponse
 };
