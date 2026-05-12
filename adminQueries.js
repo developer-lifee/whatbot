@@ -395,8 +395,8 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                             const expDate = getJsDateFromExcel(row['vencimiento'] || row['deben']);
                             if (expDate && !isMassiveToPlatform) { 
                                 const diffDays = (getTodayInBogota() - expDate) / (1000 * 60 * 60 * 24);
-                                // Para broadcasts específicos, permitimos un margen mayor (7 días) por defecto
-                                const threshold = filters.include_expired ? 999 : 7;
+                                // Para broadcasts específicos, permitimos un margen mayor (30 días) para recuperar clientes recientes
+                                const threshold = filters.include_expired ? 999 : 30;
                                 if (diffDays > threshold) {
                                     return null; 
                                 }
@@ -465,7 +465,31 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                             }))
                         };
                     } else {
-                        filteredData = { status: "error", message: `No encontré destinatarios válidos para el broadcast de ${platformFilter || sourceQuery}.` };
+                        // Diagnóstico para el jefe si no hay nadie
+                        let diagnostic = "";
+                        const totalWithEmail = rawData.filter(row => cln(row['correo'] || row['Correo']) === cln(sourceEmail)).length;
+                        const expiredCount = rawData.filter(row => {
+                            if (cln(row['correo'] || row['Correo']) !== cln(sourceEmail)) return false;
+                            const expDate = getJsDateFromExcel(row['vencimiento'] || row['deben']);
+                            return expDate && expDate < getTodayInBogota();
+                        }).length;
+                        const platformMismatch = platformFilter ? rawData.filter(row => {
+                            if (cln(row['correo'] || row['Correo']) !== cln(sourceEmail)) return false;
+                            const platStr = (row['Streaming'] || row['streaming'] || '').toString().toLowerCase();
+                            return !cln(platStr).includes(cln(platformFilter));
+                        }).length : 0;
+
+                        if (totalWithEmail > 0) {
+                            diagnostic = `\n\n🔍 *Diagnóstico:* Encontré ${totalWithEmail} usuarios vinculados a ese correo, pero:\n`;
+                            if (expiredCount > 0) diagnostic += `- 🔴 ${expiredCount} están vencidos (y pediste solo vigentes o superan el margen).\n`;
+                            if (platformMismatch > 0) diagnostic += `- ⚠️ ${platformMismatch} son de otra plataforma (no ${platformFilter}).\n`;
+                            diagnostic += `\nRevisa si la plataforma es correcta o si necesitas incluir a los vencidos.`;
+                        }
+
+                        filteredData = { 
+                            status: "error", 
+                            message: `No encontré destinatarios válidos para el broadcast de ${platformFilter || sourceQuery}.${diagnostic}` 
+                        };
                     }
                 }
 

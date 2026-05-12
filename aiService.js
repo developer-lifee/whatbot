@@ -781,7 +781,7 @@ async function parseAdminQueryIntent(query, previousContext = "") {
         "target_field": string | null,
         "new_value": string | null,
         "exclude_keyword": string | null, // Si pide "descarta los extra", "quita los de disney", etc.
-        "only_active": boolean // Si pide "solo los que no estén vencidos", "solo activos", etc.
+        "only_active": boolean // Si pide "solo los que no estén vencidos", "solo activos", "vigentes", etc.
       }
     }
 
