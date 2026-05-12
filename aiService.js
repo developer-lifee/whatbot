@@ -65,7 +65,7 @@ async function detectAdminIntent(messageContent) {
     FACULTADES DEL JEFE:
     - "confirmar_pago": El jefe quiere validar el pago de un cliente. Busca si menciona un número de teléfono o nombre.
     - "confirm_action": El jefe confirma una acción pendiente (menciona "sí", "si", "dale", "proceder", "confirmar", "hazlo").
-    - "liberar_bot": El jefe quiere que el bot vuelva a atender a un cliente que estaba silenciado (menciona "liberar", "atiende", "vuelve", "contesta").
+    - "liberar_bot": El jefe quiere que el bot vuelva a atender a un cliente que estaba silenciado (menciona "liberar", "atiende", "vuelve", "contesta", "pide el código al @bot", "te ayuda el bot", "ayúdame a explicar", "explícale").
     - "dame_cuenta": El jefe quiere que le des las credenciales de una plataforma para él mismo (menciona "dame una de", "pásame", "pasa cuenta"). NO confundir con envíos masivos (broadcast).
     - "dormir_bot": El jefe quiere apagar las respuestas automáticas globales ("duérmete", "apágate").
     - "despertar_bot": El jefe quiere reactivar el bot globalmente ("despiértate", "actívate").
@@ -265,6 +265,9 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
     Reglas:
     - **REGLA DE ORO:** NO inventes productos. Si el usuario solo dice "Hola", "Buenas", o mensajes de saludo, "items" debe ser [].
     - **RELEVANCIA TEMPORAL:** Analiza las fechas y horas en el [Historial reciente]. Si hubo un pedido hace mucho tiempo (ej: más de 24 horas) y el usuario hoy solo envía un saludo inicial, usa el sentido común: lo más probable es que ese pedido ya no sea relevante. No lo incluyas en "items" a menos que el usuario lo mencione o confirme hoy.
+    - **Hogar Netflix**: Si el problema es de "Hogar", indica que el bot puede intentar obtener el **enlace de actualización** o código de viaje directamente si el usuario lo solicita. No lo inventes. 🔗
+    - **Precios**: Consulta siempre platforms.json. 🏷️
+    - **Protocolo**: Si no hay datos claros, solicita la foto del error. 📸
     - Solo agrega plataformas si el mensaje actual ("${messageContent}") las menciona explícitamente o si el historial reciente indica una continuación lógica inmediata.
     - Normaliza los nombres de planes y plataformas (ej. "Netflix - Básico" -> platform: "Netflix", plan: "Básico").
     - **REGLA CRÍTICA PARA MICROSOFT:** 
@@ -801,8 +804,8 @@ async function parseAdminQueryIntent(query, previousContext = "") {
     - Si pide "cuantas hay libre", "traeme una cuenta libre de...", "hay disponibles de...", es "get_available".
     - Si pide "historico", "que cuentas ha tenido...", es "check_history".
     - Si pide "cuantas hay en total", "resumen de...", "cuentas totales", es "summary_stats".
-    - Si pide "atiende a...", "libera a...", "atender el pendiente de...", "encárgate de...", es "liberate_user".
-    - Si pide "qué acabaste de hacer", "qué pasó", "explícame", "dame detalles de la última acción", es "explain_last_action".
+    - Si pide "atiende a...", "libera a...", "atender el pendiente de...", "encárgate de...", "ayúdame a explicar", "explícale", "contéstale", es "liberate_user".
+    - Si pide "qué acabaste de hacer", "qué pasó", "dame detalles de la última acción", "por qué se envió eso", es "explain_last_action". (NO usar para peticiones de ayuda con clientes).
     - Si no encaja, usa "general_query".
 
     Reglas de 'filters':

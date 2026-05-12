@@ -813,8 +813,14 @@ async function processIncomingMessage(messages) {
   // Reconocimiento blindado del jefe (por su número personal, incluso en grupos)
   const isFromAdmin = authorPhone.includes(ADMIN_RAW_PHONE) || authorPhone.includes('3133890800') || authorPhone.includes('573133890800') || firstMsg.fromMe;
   
+  // --- CORRECCIÓN DE CONTEXTO ---
+  // Si el mensaje es enviado por el jefe (fromMe), el ID de la conversación (userId) es el destinatario (to)
+  if (firstMsg.fromMe && firstMsg.to && firstMsg.to !== (client.info ? client.info.wid._serialized : '')) {
+      userId = firstMsg.to;
+  }
+
   // realPhone se mantiene como el ID del chat para búsqueda de cuentas etc.
-  let realPhone = chatPhone;
+  let realPhone = userId.replace('@c.us', '').replace(/\D/g, '');
 
   // --- PRIORIDAD JEFE (3133890800) ---
   if (isFromAdmin && !userId.includes('@g.us')) {
@@ -867,7 +873,7 @@ async function processIncomingMessage(messages) {
 
   let contact;
   try {
-      if (message && typeof message.getContact === 'function') {
+      if (message && typeof message.getContact === 'function' && message.id && message.id._serialized) {
           contact = await message.getContact();
           if (contact && contact.number) {
               const oldId = userId;
@@ -1853,6 +1859,7 @@ async function processIncomingMessage(messages) {
   }
   lastResponseTimestamps.set(userId, now);
 
+  const timedHist = `[ESTE MENSAJE LLEGÓ HACE ${messageAgeMinutes} MINUTOS]\n${hist}`;
   const detection = await detectInitialIntent(inputToUse, timedHist, null, userAccounts);
 
   // 3. IDENTIDAD TERCERO: IA revisando historial o mensaje actual
