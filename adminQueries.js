@@ -105,6 +105,29 @@ async function processAdminQuery(message, query, userStates, client, adminState 
             }
             filteredData = resultadosHistorico.length > 0 ? resultadosHistorico : { message: "No se encontraron coincidencias en el histórico." };
 
+        } else if (action === 'get_gmail_code') {
+            const { findRecentCodes } = require('./gmailService');
+            let email = filters.name || filters.generic_search;
+            if (!email) {
+                filteredData = { status: "error", message: "Por favor especifica el correo de Gmail para buscar el código (ej: @bot dame el codigo de sheerit102)." };
+            } else {
+                if (!email.includes('@')) email += '@gmail.com';
+                const results = await findRecentCodes(email);
+                if (results && results.length > 0) {
+                    let msg = `📬 *Últimos correos/códigos en ${email}:*\n\n`;
+                    results.forEach(r => {
+                        msg += `🔹 *Asunto:* ${r.subject}\n`;
+                        msg += `⏰ *Hace:* ${r.time} min\n`;
+                        if (r.code) msg += `🔢 *Código:* ${r.code}\n`;
+                        if (r.link) msg += `🔗 *Link Actualización:* ${r.link}\n`;
+                        msg += `📝 *Resumen:* ${r.snippet}...\n\n`;
+                    });
+                    filteredData = { status: "success", message: msg };
+                } else {
+                    filteredData = { status: "error", message: `No encontré códigos o links recientes (últimos 10 min) en *${email}*. Revisa que el correo esté bien vinculado.` };
+                }
+            }
+
         } else if (action === 'liberate_user') {
             const { searchContactByName } = require('./googleContactsService');
             let targetPhone = filters.phone;

@@ -193,7 +193,7 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
     try {
         const res = await gmail.users.messages.list({
             userId: 'me',
-            q: 'subject:(código OR code OR inició OR inicio OR login OR otp OR verification)',
+            q: 'subject:(código OR code OR inició OR inicio OR login OR otp OR verification OR hogar OR link OR actualiza)',
             maxResults: 5
         });
 
@@ -213,16 +213,26 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             if (diffMinutes > toleranceMinutes) continue;
 
             const snippet = fullMsg.data.snippet || '';
+            const bodyData = fullMsg.data.payload.body && fullMsg.data.payload.body.data 
+                ? Buffer.from(fullMsg.data.payload.body.data, 'base64').toString() 
+                : (fullMsg.data.payload.parts ? fullMsg.data.payload.parts.map(p => p.body.data ? Buffer.from(p.body.data, 'base64').toString() : '').join(' ') : '');
+            
+            const body = snippet + ' ' + bodyData;
             const subject = fullMsg.data.payload.headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';
             
             // Intentar extraer un número de 4 a 8 dígitos (típico de OTP)
             const codeMatch = snippet.match(/\b\d{4,8}\b/);
             const code = codeMatch ? codeMatch[0] : null;
 
+            // Intentar extraer un link de Netflix (Actualización de Hogar)
+            const linkMatch = body.match(/https:\/\/www\.netflix\.com\/[^\s<>"]+/);
+            const link = linkMatch ? linkMatch[0] : null;
+
             codesFound.push({
                 subject,
                 snippet: snippet.substring(0, 150),
                 code,
+                link,
                 time: Math.round(diffMinutes)
             });
         }

@@ -1164,10 +1164,15 @@ async function processIncomingMessage(messages) {
                    await client.sendMessage(userId, "❌ No tengo ninguna acción pendiente para confirmar.");
                } catch(e) { console.error('Error respondiendo acción pendiente:', e.message); }
            }
-      } else if (data.status === 'error') {
+      } else if (data.status === 'success' || data.status === 'error' || data.status === 'warning') {
           try {
-              await client.sendMessage(userId, `❌ ${data.message || 'Error procesando la consulta'}`);
-          } catch(e) { console.error('Error respondiendo error:', e.message); }
+              const icon = data.status === 'success' ? '✅' : (data.status === 'warning' ? '⚠️' : '❌');
+              await client.sendMessage(userId, `${icon} ${data.message || 'Procesado correctamente.'}`);
+          } catch(e) { console.error('Error respondiendo status admin:', e.message); }
+      } else {
+          const { generateAdminReport } = require('./aiService');
+          const report = await generateAdminReport(message.body, data);
+          await client.sendMessage(userId, report);
       }
   }
 

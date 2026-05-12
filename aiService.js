@@ -238,6 +238,12 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
     - **REGLA CRÍTICA PARA MICROSOFT:** 
         * Si el usuario dice "Microsoft" o "Office" a secas (sin la palabra "compartida"), el plan es "Personal".
         * Si el usuario dice explícitamente "Microsoft compartida" o "Microsoft 365 compartida", el plan es "Compartida".
+    - **REGLA CRÍTICA PARA GEMINI:** 
+        * Si el usuario dice "Gemini" o "Gemini Pro" a secas (sin la palabra "compartida"), el plan es "Correo Propio".
+        * Si el usuario dice explícitamente "Gemini compartida", el plan es "Compartida".
+    - **REGLA CRÍTICA PARA SPOTIFY:** 
+        * Si el usuario dice "Spotify" a secas o "cuenta de spotify", el plan es "Cuenta Nueva o Renovación".
+        * Si menciona "en mi correo", "personal", "mi cuenta" o "activación", el plan es "Personal (Tu Correo)".
     - Si no se especifica plan para otras plataformas, pon null en "plan".
     - Si detectas "ChatGPT", normalizalo como platform: "ChatGPT".
     - Revisa las fechas/horas en el contexto. Si ha pasado mucho tiempo (varias horas o 1 día) entre el último mensaje del usuario y la respuesta (Hora actual del sistema), genera un breve "empathyGreeting". Si no hay demora significativa, déjalo en null.
@@ -727,9 +733,9 @@ async function parseAdminQueryIntent(query, previousContext = "") {
 
     Salida esperada usando estricto JSON:
     {
-      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "auto_cobros" | "list_functions" | "update_data" | "record_sale" | "general_query",
+      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "auto_cobros" | "list_functions" | "update_data" | "record_sale" | "get_gmail_code" | "general_query",
       "filters": {
-        "name": string | null, // Nombre de la persona o nombre específico de la cuenta/correo
+        "name": string | null, // Nombre de la persona o nombre específico de la cuenta/correo (ej: "sheerit102")
         "platform": string | null,
         "status": "libre" | "ocupado" | "vencido" | null,
         "phone": string | null,
