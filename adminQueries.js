@@ -366,6 +366,10 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                 if (!sourceMatch && !filters.new_password) {
                     filteredData = { status: "error", message: `No encontré ninguna cuenta que coincida con "${sourceQuery}" para usar como fuente de las credenciales.` };
                 } else {
+                    // Extraer datos de la fuente de forma segura (soporta 'correo' o 'Correo', etc)
+                    const sourceEmail = sourceMatch ? (sourceMatch['correo'] || sourceMatch['Correo']) : null;
+                    const sourcePass = sourceMatch ? (sourceMatch['contraseña'] || sourceMatch['clave'] || sourceMatch['Clave']) : null;
+
                     // 2. BUSCAR LOS DESTINATARIOS
                     let recipients = [];
                     const filterRecipients = (rows) => {
@@ -376,25 +380,25 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                             const isLibre = nombreStr === 'libre' || nombreStr === '';
                             const isOwner = platStr.includes('owner');
                             
-                            const emailMatch = cln(row['correo'] || row['Correo']) === cln(sourceMatch.correo);
+                            const rowEmail = row['correo'] || row['Correo'];
+                            const emailMatch = sourceEmail ? cln(rowEmail) === cln(sourceEmail) : true;
                             const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
                             
                             // --- REGLAS PREDETERMINADAS (DEFAULTS) ---
                             
-                            // 1. Excluir 'Extra' en Netflix por defecto
+                            // 1. Detección de Netflix y Extras
                             const isNetflix = platformFilter && cln(platformFilter).includes('netflix');
                             const isExtra = cln(platStr).includes('extra');
-                            if (isNetflix && isExtra && !filters.include_extra) {
-                                return null;
-                            }
-
-                            // 2. Excluir vencidos hace más de 3 días por defecto
+                            
+                            // 2. Cálculo de vencimiento
                             const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
                             const expDate = getJsDateFromExcel(row['vencimiento'] || row['deben']);
-                            if (expDate) {
+                            if (expDate && !isMassiveToPlatform) { 
                                 const diffDays = (getTodayInBogota() - expDate) / (1000 * 60 * 60 * 24);
-                                if (diffDays > 3 && !filters.include_expired) {
-                                    return null; // Excluir si lleva más de 3 días vencido
+                                // Para broadcasts específicos, permitimos un margen mayor (7 días) por defecto
+                                const threshold = filters.include_expired ? 999 : 7;
+                                if (diffDays > threshold) {
+                                    return null; 
                                 }
                             }
 
@@ -422,7 +426,8 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                                     customer_mail: row['customer mail'] || row['customer_mail'] || null,
                                     pin_perfil: row['pin perfil'] || row['pin_perfil'] || null,
                                     vencimiento: row['vencimiento'] || row['deben'] || null,
-                                    is_owner: isOwner
+                                    is_owner: isOwner,
+                                    streaming: row['Streaming'] || row['streaming']
                                 };
                             }
                             return null;
@@ -432,13 +437,13 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                     if (isMassiveToPlatform && platformFilter) {
                         recipients = filterRecipients(rawData.filter(row => cln(row['Streaming'] || row['streaming']).includes(cln(platformFilter))));
                     } else {
-                        recipients = filterRecipients(rawData.filter(row => cln(row['correo'] || row['Correo']) === cln(sourceMatch.correo)));
+                        recipients = filterRecipients(rawData.filter(row => cln(row['correo'] || row['Correo']) === cln(sourceEmail)));
                     }
 
                     if (recipients.length > 0) {
-                        const uniqueAccount = sourceMatch ? (sourceMatch['correo'] || sourceMatch['Correo']) : "Nueva Cuenta";
+                        const uniqueAccount = sourceEmail || "Nueva Cuenta";
                         const platFound = platformFilter || (sourceMatch ? sourceMatch['Streaming'] : 'Streaming');
-                        const passToSend = filters.new_password || (sourceMatch ? (sourceMatch['contraseña'] || sourceMatch['clave'] || sourceMatch['Clave']) : 'La actual');
+                        const passToSend = filters.new_password || sourcePass || 'La actual';
                         
                         filteredData = {
                             status: "pending_confirmation",

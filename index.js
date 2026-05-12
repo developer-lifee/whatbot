@@ -88,7 +88,9 @@ const ADMIN_RAW_PHONE = OPERATOR_NUMBER.replace('@c.us', '');
 let globalBotSleep = false;
 let globalLastPaymentUserId = null; // Memoria del último usuario que envió un comprobante o pidió ayuda
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
-const BATCH_INTERVAL = 12000; // 12 segundos para agrupar mensajes (mejor unificación para gente que escribe lento)
+const lastResponseTimestamps = new Map(); // Para evitar múltiples respuestas seguidas
+const BATCH_INTERVAL = 12000; // 12 segundos para agrupar mensajes
+const RESPONSE_COOLDOWN = 15000; // 15 segundos entre respuestas automáticas (evita ráfagas separadas)
 global.supportQueue = []; // Cola global de soporte anti-spam
 const {
   startPurchaseProcess,
@@ -1833,8 +1835,15 @@ async function processIncomingMessage(messages) {
     : "";
 
   // Añadimos el contexto de antigüedad al historial para que la IA se disculpe si es necesario
-  const timedHist = `[AVISO: El mensaje actual fue enviado hace ${messageAgeMinutes} minutos]\n${batchContext}${hist}`;
-  
+  // --- COOLDOWN DE RESPUESTAS (Anti-Burst) ---
+  const now = Date.now();
+  const lastResp = lastResponseTimestamps.get(userId) || 0;
+  if (!isFromAdmin && (now - lastResp < RESPONSE_COOLDOWN)) {
+      console.log(`[Cooldown] Ignorando ráfaga para ${userId} (${now - lastResp}ms desde última respuesta)`);
+      return;
+  }
+  lastResponseTimestamps.set(userId, now);
+
   const detection = await detectInitialIntent(inputToUse, timedHist, null, userAccounts);
 
   // 3. IDENTIDAD TERCERO: IA revisando historial o mensaje actual
