@@ -1107,6 +1107,15 @@ async function processIncomingMessage(messages) {
       } else if (data.status === 'ready_to_confirm') {
           if (isAwaitingAdminConfirm && adminState.payload) {
               const payload = adminState.payload;
+              
+              // Si es un envío masivo de credenciales, reseteamos contadores de GPT
+              if (payload.action_type === 'broadcast') {
+                  try {
+                      const { resetAllUsage } = require('./totpService');
+                      resetAllUsage();
+                  } catch (e) { console.error("Error reseteando uso GPT:", e.message); }
+              }
+
               if (payload.count > 5) {
                   try {
                       await client.sendMessage(userId, `🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
@@ -1642,7 +1651,43 @@ async function processIncomingMessage(messages) {
       return;
   }
 
-  if (cleanBody.toLowerCase().startsWith("hola, estoy interesado en")) {
+    // --- INTERCEPTOR DE CÓDIGO GPT (TOTP) ---
+    const gptKeywords = ['código gpt', 'codigo gpt', 'authenticator gpt', 'token gpt', 'mi codigo gpt'];
+    if (gptKeywords.some(kw => cleanBody.toLowerCase().includes(kw))) {
+        try {
+            const { getAccountsByPhone } = require('./apiService');
+            const { generateGPTCode, checkAndIncrementUsage } = require('./totpService');
+            
+            const userAccounts = await getAccountsByPhone(realPhone);
+            const gptAcct = userAccounts.find(c => (c.Streaming || "").toLowerCase().includes('gpt'));
+
+            if (gptAcct) {
+                const accountEmail = (gptAcct.correo || "").trim().toLowerCase();
+                
+                // Verificar límite de uso (3 códigos)
+                const canRequest = checkAndIncrementUsage(realPhone, accountEmail);
+                
+                if (!canRequest) {
+                    await message.reply("🤖 Has alcanzado el límite de 3 códigos para este inicio de sesión. Por seguridad, si necesitas más ayuda, un asesor humano revisará tu caso.");
+                    return;
+                }
+
+                const code = generateGPTCode(accountEmail);
+                if (code) {
+                    await message.reply(`🤖 *Tu código de acceso GPT:* 🚀\n\n🔢 Código: *${code}*\n\n_Este código cambia cada 30 segundos. Úsalo pronto._`);
+                } else {
+                    await message.reply(`🤖 No encontré un configurador de Authenticator para la cuenta *${accountEmail}*. Por favor, solicita ayuda a un asesor para vincularla.`);
+                }
+            } else {
+                await message.reply("🤖 No encontré una cuenta de GPT activa vinculada a este número.");
+            }
+        } catch (e) {
+            console.error("Error en validación GPT intercept:", e);
+        }
+        return;
+    }
+
+    if (cleanBody.toLowerCase().startsWith("hola, estoy interesado en")) {
     message.body = cleanBody;
     await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
     return;
