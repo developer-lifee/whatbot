@@ -29,13 +29,22 @@ function getTodayInBogota() {
 function getJsDateFromExcel(excelDate) {
   if (!excelDate) return null;
   
-  // Si ya es un formato de fecha string (YYYY-MM-DD o similar) que JS entienda
-  if (typeof excelDate === 'string' && excelDate.includes('-')) {
-      const parsed = new Date(excelDate + 'T12:00:00'); // Forzamos mediodía para evitar saltos de día por zona horaria
-      if (!isNaN(parsed.getTime())) {
-          return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  // Si ya es un formato de fecha string (YYYY-MM-DD o DD/MM/YYYY)
+  if (typeof excelDate === 'string') {
+      if (excelDate.includes('-')) {
+          const parsed = new Date(excelDate + 'T12:00:00');
+          if (!isNaN(parsed.getTime())) {
+              return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+          }
+      } else if (excelDate.includes('/')) {
+          const parts = excelDate.split('/');
+          if (parts.length === 3) {
+              // Asumimos DD/MM/YYYY
+              return new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+          }
       }
   }
+
 
   if (isNaN(parseFloat(excelDate))) return null;
 

@@ -30,8 +30,8 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null) {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const year = now.getFullYear();
     
-    // El usuario prefiere MM-DD-YYYY (ej: 06-05-2026 para el 5 de junio)
-    return `${month}-${day}-${year}`;
+    // Usamos formato ISO YYYY-MM-DD para evitar ambigüedades entre DD/MM y MM/DD
+    return `${year}-${month}-${day}`;
 }
 
 /**

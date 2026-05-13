@@ -417,23 +417,35 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     const displayPhone = userId.replace('@c.us', '');
     const stateData = userStates.get(userId);
 
+    // Detectar si el admin especificó una plataforma en el comando (ej: "confirmar 57... netflix")
+    const platformWords = ['netflix', 'spotify', 'amazon', 'prime', 'hbo', 'max', 'disney', 'star', 'microsoft', 'crunchyroll', 'paramount', 'vix', 'apple', 'youtube', 'canva', 'magis', 'iptv', 'plex'];
+    const mentionedPlatform = platformWords.find(p => command.toLowerCase().includes(p));
+
     if (!stateData || !stateData.items || stateData.items.length === 0) {
-        // Intentar deducir la plataforma desde el comando del admin (ej: "@bot confirmar 57300 Netflix")
-        const platformWords = ['netflix', 'spotify', 'amazon', 'prime', 'hbo', 'max', 'disney', 'star', 'microsoft', 'crunchyroll', 'paramount', 'vix', 'apple', 'youtube', 'canva', 'magis', 'iptv', 'plex'];
-        const foundPlatform = platformWords.find(p => command.toLowerCase().includes(p));
-        
-        if (foundPlatform) {
+        if (mentionedPlatform) {
+            const newItem = { Streaming: mentionedPlatform, platform: { name: mentionedPlatform } };
             if (!stateData) {
-                userStates.set(userId, { state: 'awaiting_payment_confirmation', nombre: "Cliente", items: [{ Streaming: foundPlatform, platform: { name: foundPlatform } }] });
+                userStates.set(userId, { state: 'awaiting_payment_confirmation', nombre: "Cliente", items: [newItem] });
             } else {
-                stateData.items = [{ Streaming: foundPlatform, platform: { name: foundPlatform } }];
+                stateData.items = [newItem];
                 userStates.set(userId, stateData);
             }
         } else {
             await message.reply(`⚠️ El cliente ${displayPhone} no tiene un pedido activo y no indicaste qué plataforma pagó.\n\nPor favor, repite el comando incluyendo la plataforma. Ej: *@bot confirmar ${displayPhone} Netflix*`);
             return;
         }
+    } else if (mentionedPlatform) {
+        // Si el cliente tiene varios pendientes pero el admin solo menciona uno, filtramos
+        const filtered = stateData.items.filter(item => {
+            const name = (item.Streaming || item.name || "").toLowerCase();
+            return name.includes(mentionedPlatform);
+        });
+        if (filtered.length > 0) {
+            stateData.items = filtered;
+            console.log(`[Admin Service] Filtrando confirmación solo para: ${mentionedPlatform}`);
+        }
     }
+
 
     // Detectar meses si se especifican (ej: "2 meses", "3 mes")
     let overrideMonths = null;
