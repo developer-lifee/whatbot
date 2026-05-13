@@ -536,10 +536,12 @@ async function notifyProviderExpiringAccounts(client) {
 }
 
 async function handleAdminForceRetrieve(message, command, client, targetUser = null) {
-    const platformName = command.replace('dame una de', '').replace('@bot', '').trim().toLowerCase();
-    if (!platformName) {
-        await message.reply("🤖 Jefe, dime de qué plataforma quieres la cuenta. Ej: `@bot dame una de Netflix`.");
-        return;
+    // Regex para extraer la plataforma de forma más precisa
+    const platformMatch = command.match(/(?:dame una de|pásame|pasa cuenta de|pasa la de|cuenta de|dame la de)\s+([a-zA-Z0-9\s.]+)/i);
+    const platformName = platformMatch ? platformMatch[1].trim().toLowerCase() : command.replace('@bot', '').trim().toLowerCase();
+    
+    if (!platformName || platformName.length > 30) { // Si es muy largo, probablemente no es solo la plataforma
+        return; // Dejar que pase a processAdminQuery en index.js
     }
 
     await message.reply(`🤖 Buscando cualquier cuenta disponible de *${platformName}* para ${targetUser || 'ti'}, jefe...`);

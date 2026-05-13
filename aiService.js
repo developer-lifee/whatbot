@@ -124,10 +124,11 @@ async function detectAdminIntent(messageContent) {
     - "confirmar_pago": El jefe quiere validar el pago de un cliente. Busca si menciona un número de teléfono o nombre.
     - "confirm_action": El jefe confirma una acción pendiente (menciona "sí", "si", "dale", "proceder", "confirmar", "hazlo").
     - "liberar_bot": El jefe quiere que el bot vuelva a atender a un cliente que estaba silenciado (menciona "liberar", "atiende", "vuelve", "contesta", "pide el código al @bot", "te ayuda el bot", "ayúdame a explicar", "explícale").
-    - "dame_cuenta": El jefe quiere que le des las credenciales de una plataforma para él mismo (menciona "dame una de", "pásame", "pasa cuenta"). NO confundir con envíos masivos (broadcast).
+    - "dame_cuenta": El jefe quiere que le des las credenciales de una plataforma para él mismo (menciona "dame una de", "pásame", "pasa cuenta", "quiero entrar a"). 
+      *IMPORTANTE*: NO uses este intent si el mensaje menciona "envía", "manda", "pasa a todos", "notifica" o "a los de", ya que eso indica un broadcast (envío masivo).
     - "dormir_bot": El jefe quiere apagar las respuestas automáticas globales ("duérmete", "apágate").
     - "despertar_bot": El jefe quiere reactivar el bot globalmente ("despiértate", "actívate").
-    - "desconocido": Consultas de datos, reportes, envíos masivos (broadcast), o charla casual.
+    - "desconocido": Consultas de datos, reportes, envíos masivos (broadcast), refinamientos de mensajes, o charla casual.
  
     Salida esperada JSON:
     {
@@ -857,7 +858,7 @@ async function parseAdminQueryIntent(query, previousContext = "") {
     - 'new_value': El nuevo valor que se debe escribir (ej: "laura bonita", "juan@gmail.com").
     - 'generic_search': Si el admin busca por cuenta/correo pero no está claro si es nombre o correo, ponlo aquí, pero NUNCA incluyas el nombre de la plataforma en este campo. Extrae SOLO la palabra clave o prefijo del correo (ej: "los de sheerit08 de disney" -> extrae solo "sheerit08"). También usa este campo para el destinatario de un broadcast.
     - 'custom_message': Si el admin pide enviar un broadcast, extrae el MENSAJE EXACTO que el bot debe enviar. Si el admin pone el mensaje entre comillas ("" o ''), DEBES extraer únicamente el texto literal que está dentro de las comillas sin alterarlo.
-    - 'only_fields': Si el admin especifica qué partes de las credenciales enviar (ej: "solo la contraseña", "únicamente el pin", "no mandes el correo, solo clave y perfil"), llena este arreglo con las palabras clave ("clave", "contraseña", "pin", "pin perfil", "perfil"). Si debe enviar todo, déjalo null o vacío.
+    - 'only_fields': Si el admin especifica qué partes de las credenciales enviar (ej: "solo la contraseña", "únicamente el pin", "no mandes el correo, solo clave y perfil", "pasa solo el vencimiento"), llena este arreglo con las palabras clave ("clave", "contraseña", "pin", "pin perfil", "perfil", "vencimiento", "fecha", "deben"). Si debe enviar todo, déjalo null o vacío.
   `;
   try {
     const jsonString = await callGemini(prompt, "Eres un extractor de parámetros para consultas de base de datos JSON.", true);

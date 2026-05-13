@@ -1146,11 +1146,13 @@ async function processIncomingMessage(messages) {
                   const wantClave = only.some(f => f.includes('clave') || f.includes('password') || f.includes('contraseña'));
                   const wantPin = only.some(f => f.includes('pin'));
                   const wantPerfil = only.some(f => f.includes('perfil'));
+                  const wantVencimiento = only.some(f => f.includes('vencimiento') || f.includes('fecha') || f.includes('deben'));
 
                   const isClave = r.is_owner || (showAll && !isSharedPlatform) || wantClave;
                   const isPinPerfil = !r.is_owner && (showAll || (wantPin && wantPerfil) || only.some(f => f.includes('pin perfil') || f.includes('pin de perfil')));
                   const isPinOnly = !isPinPerfil && !r.is_owner && wantPin;
                   const isPerfilOnly = !isPinPerfil && !r.is_owner && wantPerfil;
+                  const isVencimiento = showAll || wantVencimiento;
 
                    // --- NUEVO: OCULTAR CREDENCIALES A EXTRAS O VENCIDOS ---
                    const isExtra = r.streaming && r.streaming.toLowerCase().includes('extra');
@@ -1167,7 +1169,21 @@ async function processIncomingMessage(messages) {
                   const pinPerfilLine = (r.pin_perfil && isPinPerfil) ? `\n📍 *Pin Perfil:* ${finalPin}` : "";
                   const pinLine = (r.pin_perfil && isPinOnly) ? `\n📌 *Pin:* ${finalPin}` : "";
                   const perfilLine = (r.pin_perfil && isPerfilOnly) ? `\n👤 *Perfil:* ${finalPin}` : "";
-                  const claveLine = isClave ? `\n🔑 *Clave:* ${finalClave}` : "";
+                  const claveLine = (finalClave && isClave) ? `\n🔑 *Clave:* ${finalClave}` : "";
+
+                  let vencimientoLine = "";
+                  if (isVencimiento && r.vencimiento) {
+                      try {
+                          const { getJsDateFromExcel } = require('./apiService');
+                          const jsDate = getJsDateFromExcel(r.vencimiento);
+                          const day = jsDate.getDate();
+                          const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
+                          const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
+                          vencimientoLine = `\n📅 *Vence:* ${day} de ${month}`;
+                      } catch(e) {
+                          vencimientoLine = `\n📅 *Vence:* ${r.vencimiento}`;
+                      }
+                  }
 
                   let title = "ACTUALIZACIÓN DE CREDENCIALES";
                   if (!showAll && only.length === 1) {
@@ -1175,9 +1191,11 @@ async function processIncomingMessage(messages) {
                       if (isClave) title = "ACTUALIZACIÓN DE CLAVE";
                   }
 
+                  const displayEmail = isSharedPlatform ? (r.customer_mail || payload.target_account) : (payload.target_account || r.customer_mail);
+
                   let msg = payload.custom_message 
-                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${r.customer_mail || payload.target_account}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}`
-                    : `🚨 *${title}*\n\nHola 👋, te contactamos de Sheerit para informarte que los datos de acceso de tu cuenta de *${payload.platform}* han sido actualizados.\n\n📧 *Cuenta:* ${r.customer_mail || payload.target_account}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}`
+                    : `🚨 *${title}*\n\nHola 👋, te contactamos de Sheerit para informarte que los datos de acceso de tu cuenta de *${payload.platform}* han sido actualizados.\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
                   try {
                       await client.sendMessage(targetUser, msg);
                       exitosos++;
