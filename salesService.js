@@ -262,7 +262,11 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
       await message.reply(clarificationMsg);
       
       // Mantenemos el estado de búsqueda pero sin pasar a pago aún
-      userStates.set(userId, { ...userStates.get(userId), state: 'awaiting_purchase_platforms' });
+      userStates.set(userId, { 
+          ...userStates.get(userId), 
+          state: 'awaiting_purchase_platforms',
+          lastClarifiedPlatforms: plansToClarify.map(p => p.name)
+      });
       return;
   }
 
@@ -329,6 +333,9 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
   let selectedItems = [];
   let invalidElements = [];
 
+  const existing = userStates.get(userId) || {};
+  const lastPlats = existing.lastClarifiedPlatforms || [];
+
   items.forEach(item => {
     if (!item || !item.platform) return;
     const targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -341,6 +348,14 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
         const targetPlan = item.plan.toLowerCase().replace(/[^a-z0-9]/g, '');
         chosenPlan = platform.plans.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlan));
       }
+
+      // --- MEJORA: Si la IA no detectó plan pero el usuario respondió a una aclaración ---
+      if (!chosenPlan && lastPlats.some(lp => lp.toLowerCase().includes(platform.name.toLowerCase()))) {
+          const lowerBody = mensaje.toLowerCase().trim();
+          // Intentamos buscar si alguna palabra del mensaje coincide con un plan de esta plataforma
+          chosenPlan = platform.plans.find(p => lowerBody.includes(p.name.toLowerCase().trim()));
+      }
+
       selectedItems.push({ platform, chosenPlan });
     } else {
       invalidElements.push(item.platform);
@@ -366,10 +381,17 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
     await message.reply(`🤖 Sigamos adelante con las plataformas que sí tenemos disponibles.`);
   }
 
-  const existing = userStates.get(userId);
-  const stateData = typeof existing === 'object'
-    ? { ...existing, state: 'selecting_plans', selected: selectedItems, currentIndex: 0, subscriptionType: subscriptionType || 'mensual' }
-    : { state: 'selecting_plans', selected: selectedItems, currentIndex: 0, subscriptionType: subscriptionType || 'mensual' };
+  const stateData = { 
+    ...existing, 
+    state: 'selecting_plans', 
+    selected: selectedItems, 
+    currentIndex: 0, 
+    subscriptionType: subscriptionType || 'mensual' 
+  };
+  
+  // Limpiamos el contexto de aclaración ya que lo estamos procesando
+  delete stateData.lastClarifiedPlatforms;
+  
   userStates.set(userId, stateData);
   await showPlanSelection(message, userId, userStates);
 }
