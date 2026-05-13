@@ -335,6 +335,9 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
     - **REGLA CRÍTICA PARA GEMINI:** 
         * Si el usuario dice "Gemini" o "Gemini Pro" a secas (sin la palabra "compartida"), el plan es "Correo Propio".
         * Si el usuario dice explícitamente "Gemini compartida", el plan es "Compartida".
+    - **REGLA CRÍTICA PARA APPLE:** 
+        * Si el usuario dice "Apple one", el plan es "Apple One (345GB)".
+        * Si el usuario dice "Apple tv", el plan es "Apple TV+".
     - **REGLA CRÍTICA PARA SPOTIFY:** 
         * Si el usuario dice "Spotify" a secas o "cuenta de spotify", el plan es "Cuenta Nueva o Renovación".
         * Si menciona "en mi correo", "personal", "mi cuenta" o "activación", el plan es "Personal (Tu Correo)".

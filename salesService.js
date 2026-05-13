@@ -265,6 +265,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
       userStates.set(userId, { 
           ...userStates.get(userId), 
           state: 'awaiting_purchase_platforms',
+          selected: selectedItems, // Guardamos lo que ya identificamos (aunque falte el plan)
           lastClarifiedPlatforms: plansToClarify.map(p => p.name)
       });
       return;
@@ -330,10 +331,10 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
   }
 
   const platforms = await getPlatforms();
-  let selectedItems = [];
+  const existing = userStates.get(userId) || {};
+  let selectedItems = existing.selected || []; // Recuperamos lo que ya teníamos
   let invalidElements = [];
 
-  const existing = userStates.get(userId) || {};
   const lastPlats = existing.lastClarifiedPlatforms || [];
 
   items.forEach(item => {
@@ -353,10 +354,20 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
       if (!chosenPlan && lastPlats.some(lp => lp.toLowerCase().includes(platform.name.toLowerCase()))) {
           const lowerBody = mensaje.toLowerCase().trim();
           // Intentamos buscar si alguna palabra del mensaje coincide con un plan de esta plataforma
-          chosenPlan = platform.plans.find(p => lowerBody.includes(p.name.toLowerCase().trim()));
+          // O si el nombre del plan contiene el mensaje del usuario (ej: "Apple One" contenido en "Apple One (345GB)")
+          chosenPlan = platform.plans.find(p => 
+              lowerBody.includes(p.name.toLowerCase().trim()) || 
+              p.name.toLowerCase().includes(lowerBody)
+          );
       }
 
-      selectedItems.push({ platform, chosenPlan });
+      // Si la plataforma ya estaba en el estado anterior, la actualizamos en lugar de duplicarla
+      const existingIdx = selectedItems.findIndex(si => si.platform.name === platform.name);
+      if (existingIdx !== -1) {
+          selectedItems[existingIdx].chosenPlan = chosenPlan || selectedItems[existingIdx].chosenPlan;
+      } else {
+          selectedItems.push({ platform, chosenPlan });
+      }
     } else {
       invalidElements.push(item.platform);
     }
