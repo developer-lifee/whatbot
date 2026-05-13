@@ -226,12 +226,16 @@ async function executePaymentValidation(userId, userState, client, userStates, a
         report += `- *${res.name}*: ${res.status === 'success' ? 'Asignada ✅' : 'Manual ⚠️'}\n`;
     });
     
-    if (adminMessage) await adminMessage.reply(report);
-    else {
-        const successMsg = "🤖 ¡Pago confirmado! Tus servicios han sido activados. 🎉\n\n" +
-                           "Ya puedes revisar tus credenciales actualizadas escribiendo *2*. ¿Todo funciona bien con tus cuentas o hay alguna que quieras que refresquemos y te pasemos de nuevo? 🤔\n\n" +
-                           "📅 Te avisaremos un día antes de que venza tu cuenta. Apreciamos mucho que en ese momento nos confirmes si seguirás con nosotros; esto nos ayuda a organizar los cupos y seguir ofreciendo el mejor servicio a todos. ¡Gracias por preferirnos! 🙏";
+    if (adminMessage) {
+        await adminMessage.reply(report);
+    } else {
+        const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
+                           "Aquí tienes tus credenciales actualizadas:";
         await client.sendMessage(userId, successMsg);
+        
+        // --- ENTREGA AUTOMÁTICA ---
+        const { processCheckCredentials } = require('./billingService');
+        await processCheckCredentials(userId, client, "Entrega automática tras pago", "");
     }
     
     userStates.set(userId, { state: 'main_menu', nombre: userState.nombre });
@@ -475,9 +479,12 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! 🎉\n\nSin embargo, para uno de tus servicios estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊");
         } else {
             const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
-                               "Ya puedes revisar tus credenciales actualizadas escribiendo *2*. ¿Todo funciona bien con tus cuentas o hay alguna que quieras que refresquemos y te pasemos de nuevo? 🤔\n\n" +
-                               "📅 Te avisaremos un día antes de que venza tu cuenta. Apreciamos mucho que en ese momento nos confirmes si seguirás con nosotros; esto nos ayuda a mantener cupos estables para todos. 🙏";
+                               "Aquí tienes tus credenciales actualizadas:";
             await client.sendMessage(userId, successMsg);
+            
+            // --- ENTREGA AUTOMÁTICA ---
+            const { processCheckCredentials } = require('./billingService');
+            await processCheckCredentials(userId, client, "Entrega automática tras confirmación manual", "");
         }
         
         // Limpiar estado

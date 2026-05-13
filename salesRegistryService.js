@@ -11,12 +11,27 @@ const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify', '
  * Calcula la fecha del próximo pago sumando los meses correspondientes.
  * @param {string} subscriptionType - 'mensual', 'semestral', 'anual'
  * @param {number} overrideMonths - Opcional, cantidad de meses a sumar
- * @returns {string} Fecha en formato DD/MM/YYYY
+ * @param {string|Date} baseDate - Opcional, fecha base desde la cual sumar (ej: vencimiento anterior)
+ * @returns {string} Fecha en formato YYYY-MM-DD
  */
-function calculateNextPaymentDate(subscriptionType, overrideMonths = null) {
-    const now = new Date();
-    let monthsToAdd = 1;
+function calculateNextPaymentDate(subscriptionType, overrideMonths = null, baseDate = null) {
+    let now = new Date();
     
+    if (baseDate) {
+        const { getJsDateFromExcel } = require('./apiService');
+        const parsedBase = (baseDate instanceof Date) ? baseDate : getJsDateFromExcel(baseDate);
+        
+        if (parsedBase && !isNaN(parsedBase.getTime())) {
+            // Regla: Si la fecha base es mayor a 15 días en el pasado, usamos hoy para no "renovar en el pasado"
+            // Pero si es solo un retraso normal (ej: 1-5 días), mantenemos el ciclo original.
+            const diffDays = (new Date() - parsedBase) / (1000 * 60 * 60 * 24);
+            if (diffDays < 15) {
+                now = new Date(parsedBase.getTime());
+            }
+        }
+    }
+
+    let monthsToAdd = 1;
     if (overrideMonths) {
         monthsToAdd = overrideMonths;
     } else {
@@ -30,7 +45,6 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null) {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const year = now.getFullYear();
     
-    // Usamos formato ISO YYYY-MM-DD para evitar ambigüedades entre DD/MM y MM/DD
     return `${year}-${month}-${day}`;
 }
 
@@ -103,7 +117,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
     try {
         const items = userState.items || [];
         const subscriptionType = userState.subscriptionType || 'mensual';
-        const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths);
         
         // Intentar obtener el nombre real si el estado tiene el genérico
         let name = userState.nombre;
@@ -132,9 +145,14 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             // 1. CASO RENOVACIÓN: Ya tenemos la fila
             if (userState.isRenewal && (item._rowNumber || item.index)) {
                 const targetRow = item._rowNumber || item.index;
-                console.log(`[Sales Registry] RENOVACIÓN detectada para ${platformName} en fila ${targetRow}`);
+                const baseDate = item.deben || null;
+                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths, baseDate);
+                
+                console.log(`[Sales Registry] RENOVACIÓN detectada para ${platformName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
                 const updates = {
                     "numero": formattedPhone,
+                    "Numero": formattedPhone,
+                    "whatsapp": formattedPhone,
                     "deben": nextPaymentDate,
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
                 };
@@ -145,6 +163,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
             // 2. CASO INTELIGENTE: Si no viene marcado como renovación, BUSCAR si el usuario YA TIENE esta plataforma
             let finalRow = null;
+            let matchedRow = null;
             let isAutoRenewal = false;
             
             if (!userState.isRenewal) {
@@ -156,14 +175,20 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 
                 if (existingAccount) {
                     finalRow = existingAccount._rowNumber || allRows.indexOf(existingAccount) + 2;
+                    matchedRow = existingAccount;
                     isAutoRenewal = true;
                     console.log(`[Sales Registry] Auto-detección: El cliente ya tiene ${platformName}. Procesando como RENOVACIÓN en fila ${finalRow}`);
                 }
             }
 
             if (finalRow) {
+                const baseDate = matchedRow ? (matchedRow.deben || matchedRow.Deben) : null;
+                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths, baseDate);
+                
                 const updates = {
                     "numero": formattedPhone,
+                    "Numero": formattedPhone,
+                    "whatsapp": formattedPhone,
                     "deben": nextPaymentDate,
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
                 };
@@ -185,6 +210,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             const slot = findAvailableSlot(platformName, allRows);
             
             if (slot) {
+                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths);
                 console.log(`[Sales Registry] Cupo encontrado para ${platformName} en fila ${slot.index}`);
                 
                 // Lógica de separación de nombres
@@ -196,7 +222,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "Nombre": firstName,
                     "apellido": lastName,
                     "Nombre Completo": name,
-                    "whatsapp": name, 
+                    "whatsapp": formattedPhone, 
                     "numero": formattedPhone,
                     "Numero": formattedPhone, 
                     "deben": nextPaymentDate,

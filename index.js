@@ -33,6 +33,7 @@ const { getAccountsByPhone } = require('./apiService');
 const { searchContactByPhone, addNewContact } = require('./googleContactsService');
 const { getChatHistoryText } = require('./salesService');
 const { checkNewPayments, findMatchingPayment } = require('./gmailService');
+const { processCheckCredentials } = require('./billingService');
 
 // --- CONSTANTES Y ESTADOS GLOBALES ---
 const USER_STATES_FILE = path.join(__dirname, 'user_states.json');
@@ -2105,7 +2106,8 @@ async function processIncomingMessage(messages) {
               userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
               return;
           }
-          await processCheckCredentials(message, userId);
+          const { processCheckCredentials } = require('./billingService');
+          await processCheckCredentials(userId, client, message.body, "");
           return;
        } else if (detection.intent === 'catalogo') {
             await message.reply("🤖 ¡Claro! Puedes ver nuestro catálogo actualizado con todos los precios y realizar tu compra directamente en nuestra página web: https://sheerit.com.co/ 🌐\n\nSi tienes alguna duda específica sobre un servicio, ¡cuéntame!");
@@ -2141,22 +2143,14 @@ async function processIncomingMessage(messages) {
       
       const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
       
-      // Si la IA generó una respuesta útil (no es el mensaje de error por defecto)
-      if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
-          await safeReply(message, fallback.replyMessage, userId);
-          // Si el usuario parece estar perdido después de la respuesta, podemos sugerir el menú sutilmente después.
-          const currentData = userStates.get(userId) || {};
-          userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
-          return;
-      }
-
       // Si la respuesta es genérica o es un saludo, ahí sí mandamos el menú
       const currentData = userStates.get(userId) || {};
       if (foundName) {
         userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
         await safeReply(message, `🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*' }! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`, userId);
       } else {
-        await safeReply(message, "🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nEscoge una opción para ayudarte:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)", userId);
+        const welcomeMsg = "🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nPara poder ayudarte mejor, ¿cómo te llamas? O si lo prefieres, escoge una opción del menú:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)";
+        await safeReply(message, welcomeMsg, userId);
         userStates.set(userId, { ...currentData, state: 'main_menu' });
       }
       break;
@@ -2556,26 +2550,9 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
 
 
 
-async function processCheckCredentials(message, userId) {
-  try {
-    const history = await getChatHistoryText(message);
-    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); 
-    let userAccounts = await getAccountsByPhone(phoneNumber);
-
-    if (userAccounts.length === 0) {
-        await message.reply("🤖 No encontré servicios activos vinculados a este número. Si compraste desde otro número, por favor dímelo para ayudarte a buscar o contacta a un asesor.");
-        userStates.delete(userId);
-        return;
-    }
-
-    const aiResponse = await generateCredentialsResponse(userAccounts, message.body, history);
-    await message.reply(aiResponse);
-
-  } catch (error) {
-    console.error('Error al buscar en la base de datos de Azure:', error);
-    await message.reply("🤖 Hubo un error al procesar tu solicitud. Por favor, inténtalo de nuevo más tarde.");
-  }
-  userStates.delete(userId);
+async function processCheckCredentialsLegacy(message, userId) {
+    await processCheckCredentials(userId, client, message.body, "");
+    userStates.delete(userId);
 }
 
 
