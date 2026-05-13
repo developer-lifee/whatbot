@@ -11,7 +11,10 @@ const { fetchRawData, fetchHistoricoData, getTodayInBogota, getJsDateFromExcel }
  */
 async function processAdminQuery(message, query, userStates, client, adminState = null) {
     try {
-        await message.reply("🤖 *Analizando datos...* Dame un momento mientras busco la información.");
+        const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(query.toLowerCase().trim());
+        if (!isAffirmative) {
+            await message.reply("🤖 *Analizando datos...* Dame un momento mientras busco la información.");
+        }
 
         // 1. Extraer intención
         

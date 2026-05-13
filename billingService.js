@@ -3,6 +3,7 @@ const path = require('path');
 const { getAccountsByPhone, getTodayInBogota, getJsDateFromExcel } = require('./apiService');
 
 const { getPlatforms } = require('./salesService');
+const { isFamilyPlan } = require('./aiService');
 
 async function handleCobrosParser(message, userId, userStates, pendingConfirmations) {
   const payload = message.body.split(':')[1] || '';
@@ -230,38 +231,38 @@ async function processCheckPrices(message, userId, userStates, preferredMethod =
           // Intentar encontrar el plan específico que coincida con lo que dice el Excel
           const specificPlan = catalogPlatform.plans.find(pl => {
               const normPlanName = pl.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-              // Match con el nombre completo original (ej: "platino" en "hboplatino")
               return normalizedFullName.includes(normPlanName) || normPlanName.includes(normalizedFullName);
           });
           
-          // Si es Netflix y el Excel dice Extra, pero no encontramos plan específico, 
-          // evitamos asignar el precio base de 13000 si podemos encontrar el de 17000
           let catalogPrice = 0;
           if (specificPlan) {
               catalogPrice = specificPlan.price;
           } else if (searchName.includes('extra')) {
               const extraPlan = catalogPlatform.plans.find(pl => pl.name.toLowerCase().includes('extra'));
               if (extraPlan) catalogPrice = extraPlan.price;
+          } else if (isFamilyPlan(rawStreamingName)) {
+              // REGLA DE PRIVACIDAD: Si es familiar/invitación/personal, buscar el plan de mayor nivel/individual
+              const highTierPlan = catalogPlatform.plans.find(pl => 
+                  pl.name.toLowerCase().includes('personal') || 
+                  pl.name.toLowerCase().includes('individual') ||
+                  pl.name.toLowerCase().includes('cuenta propia')
+              );
+              if (highTierPlan) catalogPrice = highTierPlan.price;
           }
           
           // Fallback al primer plan (base) si no encontramos uno específico
           if (catalogPrice === 0) {
-              // REGLA INTELIGENTE: Si el precio del Excel ya coincide con alguno de los precios del catálogo,
-              // respetamos ese precio en lugar de forzar el primer plan.
               const matchesAnyPlanPrice = catalogPlatform.plans.some(pl => pl.price === price);
-              
               if (matchesAnyPlanPrice && price > 0) {
                   catalogPrice = price;
               } else if (!searchName.includes('extra')) {
-                  // Solo si no coincide con nada y no es un "Extra" (que tiene lógica propia), 
-                  // tomamos el primer plan como base.
                   catalogPrice = catalogPlatform.plans[0].price;
               }
           }
 
           // REGLA ESPECIAL SPOTIFY: Respetar precio del Excel si es mayor al del catálogo (ej: 9000 vs 8000)
           if (searchName.includes('spotify') && !normalizedFullName.includes('owner') && price > catalogPrice) {
-              // Mantener el precio del Excel
+              // Mantener el precio del Excel si ya es superior (personalizado)
           } else if (catalogPrice > 0) {
             price = catalogPrice;
           }

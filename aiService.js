@@ -58,7 +58,15 @@ function isFamilyPlan(streamingName) {
         'apple one', 'extra', 'familiar', 'personal (tu correo)', 
         'correo propio', 'tu correo', 'canje', 'invitacion', 'invitación'
     ];
-    return familyKeywords.some(kw => name.includes(kw));
+    
+    const isMatched = familyKeywords.some(kw => name.includes(kw));
+    
+    // Si contiene "owner" o "dueño", NO es un plan tipo invitación para el cliente final, sino administrativo
+    if (name.includes('owner') || name.includes('dueño')) {
+        return false;
+    }
+
+    return isMatched;
 }
 
 /**
@@ -719,6 +727,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     - "cancelar": Si indica que NO va a renovar o quiere la baja.
     - "cierre": El usuario indica fin de charla (ej: "ok", "listo", "gracias", "vale", "chao"). 
       *IMPORTANTE*: Solo usa este intent si el mensaje NO viene acompañado de una nueva duda o petición. Si dice "Gracias, pero sigo sin poder entrar", el intent es "soporte". Si dice "Hola gracias", el intent es "desconocido" (saludo). El contexto del último mensaje es clave.
+    - "catalogo": El usuario pide el catálogo, lista de precios, qué plataformas venden o pregunta "qué tienen".
     - "desconocido": Saludos o mensajes que no encajan.
 
     Lógica de recuperación ("recoveredState"):
@@ -749,7 +758,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     
     Salida esperada JSON:
     {
-        "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "desconocido",
+        "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "catalogo" | "desconocido",
         "recoveredState": string | null,
         "frustrationLevel": number, // 0 a 10
         "userName": string | null,
@@ -883,7 +892,7 @@ async function generateAdminReport(query, dataContext) {
     
     Reglas:
     - Sé directo, profesional, pero amigable. Usa formato de WhatsApp (*negrita*, emojis).
-    - **IMPORTANTE (Confirmación)**: Si el JSON tiene status "pending_confirmation", informa al administrador que se han encontrado coincidencias (especifica cuántas y para qué cuenta) y pregúntale explícitamente si desea proceder con el envío de las credenciales (debe decir "Sí" o similar). Lista los perfiles involucrados. Usa la terminología exacta del JSON para referirte a los campos (ej: si el campo es "pin perfil", llámalo así, no "pin y el perfil").
+    - **IMPORTANTE (Confirmación)**: Si el JSON tiene status "pending_confirmation", informa al administrador que se han encontrado coincidencias (especifica cuántas y para qué cuenta). Pregúntale explícitamente si desea proceder con el envío. **Debes aclarar si el envío incluye la actualización de credenciales (correo/clave) o si es solo un mensaje personalizado.** Lista los perfiles involucrados. Usa la terminología exacta del JSON para referirte a los campos.
     - **IMPORTANTE (Sugerencia)**: Si el JSON tiene status "suggestion", explica amistosamente que no encontraste el correo en la plataforma pedida, pero sí en otras, y pregúntale si se refiere a alguna de esas.
     - Si te pide los datos de una o más cuentas libres, dáselos de forma organizada (correo, clave, pin perfil si aplica).
     - Si te pide un resumen ("cuántas hay libres"), dáselo de forma contada e inteligible agrupado por plataforma.
@@ -999,5 +1008,7 @@ module.exports = {
   generateAdminReport,
   suggestAdminActions,
   editBroadcastPayload,
-  generateReactivationResponse
+  generateReactivationResponse,
+  isFamilyPlan,
+  getMaskedAccessData
 };

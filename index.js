@@ -1041,7 +1041,7 @@ async function processIncomingMessage(messages) {
           const detection = await detectInitialIntent(message.body, hist, mediaData);
           
           const cleanBody = (message.body || "").trim();
-          const solvableIntents = ["comprar", "pagar", "credenciales"];
+          const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
           const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
 
           if (solvableIntents.includes(detection.intent) || isMenuSelection) {
@@ -1107,9 +1107,11 @@ async function processIncomingMessage(messages) {
       } else if (data.status === 'ready_to_confirm') {
           if (isAwaitingAdminConfirm && adminState.payload) {
               const payload = adminState.payload;
-              try {
-                  await client.sendMessage(userId, `🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
-              } catch(e) { console.error('Error enviando mensaje inicio masivo:', e.message); }
+              if (payload.count > 5) {
+                  try {
+                      await client.sendMessage(userId, `🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
+                  } catch(e) { console.error('Error enviando mensaje inicio masivo:', e.message); }
+              }
               
               let exitosos = 0;
               for (const r of payload.recipients) {
@@ -1127,14 +1129,15 @@ async function processIncomingMessage(messages) {
 
                   const only = (payload.only_fields || []).map(f => f.toLowerCase()); 
                   const showAll = only.length === 0;
-                  const isSpotify = (payload.platform || "").toLowerCase().includes('spotify');
+                  const platformLower = (payload.platform || "").toLowerCase();
+                  const isSharedPlatform = platformLower.includes('spotify') || platformLower.includes('youtube');
                   
                   // Detección flexible de campos
                   const wantClave = only.some(f => f.includes('clave') || f.includes('password') || f.includes('contraseña'));
                   const wantPin = only.some(f => f.includes('pin'));
                   const wantPerfil = only.some(f => f.includes('perfil'));
 
-                  const isClave = r.is_owner || (showAll && !isSpotify) || wantClave;
+                  const isClave = r.is_owner || (showAll && !isSharedPlatform) || wantClave;
                   const isPinPerfil = !r.is_owner && (showAll || (wantPin && wantPerfil) || only.some(f => f.includes('pin perfil') || f.includes('pin de perfil')));
                   const isPinOnly = !isPinPerfil && !r.is_owner && wantPin;
                   const isPerfilOnly = !isPinPerfil && !r.is_owner && wantPerfil;
@@ -1948,7 +1951,7 @@ async function processIncomingMessage(messages) {
       const frustration = detection.frustrationLevel || 0;
       const unreads = message._unreadCount || 0;
       
-      const solvableIntents = ["comprar", "pagar", "credenciales"];
+      const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
       if ((frustration >= 7 || unreads >= 10) && !solvableIntents.includes(detection.intent)) {
           console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
           
@@ -2059,6 +2062,9 @@ async function processIncomingMessage(messages) {
           }
           await processCheckCredentials(message, userId);
           return;
+       } else if (detection.intent === 'catalogo') {
+            await message.reply("🤖 ¡Claro! Puedes ver nuestro catálogo actualizado con todos los precios y realizar tu compra directamente en nuestra página web: https://sheerit.com.co/ 🌐\n\nSi tienes alguna duda específica sobre un servicio, ¡cuéntame!");
+            return;
        } else if (detection.intent === 'pagar') {
            const stateData = userStates.get(userId) || {};
            if (userAccounts.length === 0 && stateData.items && stateData.items.length > 0) {
@@ -2511,30 +2517,8 @@ async function processCheckCredentials(message, userId) {
     const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); 
     let userAccounts = await getAccountsByPhone(phoneNumber);
 
-    // BÚSQUEDA CRUZADA: Si no hay por teléfono, buscamos por nombre
     if (userAccounts.length === 0) {
-        const state = userStates.get(userId);
-        const nameToSearch = state ? state.nombre : null;
-        
-        if (nameToSearch) {
-            console.log(`[Cross-Lookup] Buscando cuentas por nombre para "${nameToSearch}"...`);
-            const { fetchCustomersData } = require('./apiService');
-            const allClients = await fetchCustomersData();
-            userAccounts = allClients.filter(c => {
-               const normalizedExcelName = (c.Nombre || "").toLowerCase().trim();
-               const normalizedSearchName = nameToSearch.toLowerCase().trim();
-               return normalizedExcelName.includes(normalizedSearchName) || normalizedSearchName.includes(normalizedExcelName);
-            });
-
-            if (userAccounts.length > 0) {
-               const targetNum = userAccounts[0].numero || "otro número";
-               await message.reply(`🤖 No encontré servicios vinculados a este número, pero veo que tienes cuentas registradas bajo el nombre de *${userAccounts[0].Nombre}* (asociadas al número ${targetNum}). Aquí tienes el detalle:`);
-            }
-        }
-    }
-
-    if (userAccounts.length === 0) {
-        await message.reply("🤖 No encontré servicios activos vinculados a este número ni al nombre que tengo registrado. Si compraste desde otro número, por favor dímelo para ayudarte a buscar.");
+        await message.reply("🤖 No encontré servicios activos vinculados a este número. Si compraste desde otro número, por favor dímelo para ayudarte a buscar o contacta a un asesor.");
         userStates.delete(userId);
         return;
     }

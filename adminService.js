@@ -260,24 +260,60 @@ async function executeTestMode(message, client) {
 async function getUpcomingExpirationsReport() {
     const { fetchCustomersData, getTodayInBogota, getJsDateFromExcel } = require('./apiService');
     const today = getTodayInBogota();
-    const next3Days = new Date(today);
-    next3Days.setDate(today.getDate() + 3);
+    
+    // Ventana: Desde hace 2 días (ayer y antier) hasta dentro de 3 días
+    const startDate = new Date(today);
+    startDate.setDate(today.getDate() - 2);
+    
+    const endDate = new Date(today);
+    endDate.setDate(today.getDate() + 3);
     
     try {
         const data = await fetchCustomersData();
+        
+        // 1. Filtrar por fecha y por la regla de Netflix (solo 'net' en método de pago)
         const upcoming = data.filter(c => {
             const expDate = getJsDateFromExcel(c.vencimiento);
-            return expDate && expDate >= today && expDate <= next3Days;
+            const isWithinWindow = expDate && expDate >= startDate && expDate <= endDate;
+            if (!isWithinWindow) return false;
+
+            const streaming = (c.Streaming || "").toString().toUpperCase();
+            const paymentMethod = (c['Metodo de pago'] || "").toString().toLowerCase().trim();
+
+            // Regla Netflix: Solo reportar si el método de pago es "net"
+            if (streaming.includes("NETFLIX") && !streaming.includes("EXTRA")) {
+                return paymentMethod === "net";
+            }
+            
+            return true;
         });
         
-        if (upcoming.length === 0) return "No hay vencimientos programados para los próximos 3 días. ✅";
+        if (upcoming.length === 0) return "No hay vencimientos programados para el periodo reportado. ✅";
         
-        let report = `📅 *VENCIMIENTOS PRÓXIMOS (3 DÍAS)*\n\n`;
+        // 2. Agrupar por correo para evitar duplicados y mostrar el correo en lugar del nombre
+        const uniqueAccounts = new Map();
         upcoming.forEach(c => {
-            report += `- *${c.Nombre}* (${c.Streaming}): ${c.vencimiento}\n`;
+            const email = (c.correo || "Sin Correo").trim();
+            const streaming = (c.Streaming || "Servicio").toUpperCase();
+            const key = `${email}|${streaming}`;
+            
+            if (!uniqueAccounts.has(key)) {
+                uniqueAccounts.set(key, {
+                    email,
+                    streaming,
+                    vencimiento: c.vencimiento
+                });
+            }
         });
+        
+        let report = `📅 *VENCIMIENTOS PRÓXIMOS (Ventana extendida)*\n\n`;
+        uniqueAccounts.forEach(acc => {
+            report += `• ${acc.email} (${acc.streaming}): ${acc.vencimiento}\n`;
+        });
+        
         return report;
     } catch (e) {
+        console.error("Error generating expiration report:", e);
         return "Error generando reporte de vencimientos.";
     }
 }
