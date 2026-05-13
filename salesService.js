@@ -85,12 +85,12 @@ async function startPurchaseProcess(message, userId, userStates) {
     userStates.delete(userId);
     return;
   }
-  let reply = "Plataformas disponibles para compra:\n";
+  let reply = "🌟 *¡Claro que sí! Tenemos disponibilidad inmediata para la mayoría de nuestras plataformas.* 🚀\n\nAquí tienes nuestra lista de precios actualizada:\n\n";
   platforms.forEach((p) => {
-    reply += `• ${p.name} - Precio base: $${p.plans[0].price}\n`;
+    reply += `• *${p.name}* - Desde $${p.plans[0].price}\n`;
   });
 
-  reply += '\n🤖 Responde con los nombres de las plataformas que deseas, separados por coma (ej. Netflix, Disney+).';
+  reply += '\n🤖 *¿Qué te gustaría activar hoy?* Escribe los nombres de las plataformas (ej. Netflix, Disney+).\n\n💡 *Dato Pro:* Si pagas usando nuestro **QR de Negocios**, yo mismo valido tu pago y te entrego la cuenta en segundos. 🤖⚡';
   await message.reply(reply);
   const existing = userStates.get(userId);
   const stateData = typeof existing === 'object' ? { ...existing, state: 'awaiting_purchase_platforms' } : { state: 'awaiting_purchase_platforms' };
@@ -287,13 +287,13 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   }
 
   calculatedTotal = Math.round(calculatedTotal);
-  consolidatedResponse += `\nTotal calculado: $${calculatedTotal}${periodText}`;
+  consolidatedResponse += `\n\n💰 *Total a transferir:* $${calculatedTotal}${periodText}`;
 
   if (statedPrice !== null && Math.abs(statedPrice - calculatedTotal) > 2000) {
-    consolidatedResponse += `\n\nNoté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
+    consolidatedResponse += `\n\n⚠️ Noté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
   }
 
-  consolidatedResponse += "\n\n¿Por cuál medio deseas hacer la transferencia?\n\n⭐QR Negocios (Entrega inmediata validada por el bot sin humanos 🤖⚡)\n⭐Nequi\n⭐Transfiya\n⭐Llaves\n⭐Daviplata\n⭐Bancolombia";
+  consolidatedResponse += "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **QR Negocios (RECOMENDADO)**\n_(Entrega inmediata: yo mismo valido el pago y el stock disponible sin humanos 🤖⚡)_\n\n⭐ Nequi / Daviplata / Bancolombia / Transfiya / Llaves";
 
   await message.reply(consolidatedResponse);
 
@@ -607,7 +607,7 @@ async function calculateAndShowPrice(message, userId, userStates) {
 
   await message.reply('🤖 ' + responseText);
 
-  let paymentOptions = "🤖 ⭐Nequi\n⭐Llave Bre-B\n⭐Daviplata\n⭐Banco caja social\n⭐Bancolombia\n\n¿Por cuál medio deseas hacer la transferencia?\n\n💡 *Tip:* Si deseas pagar por *QR*, dímelo y te enviaré la imagen o los datos para que sea más fácil.";
+  let paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?\n\n⭐ *QR Negocios (RECOMENDADO ⚡)*\n⭐ *Llave Bre-V (Nueva)*\n⭐ *Llave Bre-B*\n⭐ *Nequi*\n⭐ *Daviplata / Transfiya*\n⭐ *Bancolombia / Banco Caja Social*\n\n💡 *Tip:* Si pagas por *QR* o *Llave Bre-V*, el bot valida tu pago automáticamente y entrega el servicio de inmediato. 🤖";
   await message.reply(paymentOptions);
   const existing = userStates.get(userId);
   const stateData = typeof existing === 'object'

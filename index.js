@@ -2473,8 +2473,7 @@ async function processPaymentSelection(message, userId, text) {
     'bancolombia': "🤖 *Bancolombia - ahorros*\nNúmero de cuenta: 46772753713\nCC: 1032936324",
     'banco caja social': "🤖 *Banco Caja Social*\n24111572331\nNombre: Esteban Avila\nCC: 1032936324",
     'transfiya': "🤖 *Transfiya*\nNúmero: 3118587974",
-    'llaves bre-v': "🤖 *LLAVE bre-v*\nNúmero: 3118587974",
-    'llave bre-b': "🤖 *LLAVE bre-b*\nNúmero: 3118587974",
+    'llave': "🤖 *LLAVES (Bre-V / Bre-B)*\n\n1. *LLAVE Bre-V (Recomendada - QR):*\n0087387259 ⚡\n\n2. *LLAVE Bre-B (Alternativa):*\n3118587974\n\nCualquiera de las dos sirve para tu transferencia.",
     'qr negocios': "🤖 *QR Negocios (RECOMENDADO)*\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** inmediata de tus servicios. ⚡"
   };
   
@@ -2497,13 +2496,17 @@ async function processPaymentSelection(message, userId, text) {
     }
   }
 
-  if (method && paymentDetails[method]) {
-    await message.reply(paymentDetails[method]);
+  // Mapeo dinámico para manejar 'llave' o 'llaves'
+  let methodToUse = method;
+  if (!methodToUse && lowerText.includes('llave')) methodToUse = 'llave';
+
+  if (methodToUse && paymentDetails[methodToUse]) {
+    await message.reply(paymentDetails[methodToUse]);
     const state = userStates.get(userId);
     userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
   } else {
     // Fallback manual check
-    let foundKey = Object.keys(paymentDetails).find(key => text.toLowerCase().includes(key));
+    let foundKey = Object.keys(paymentDetails).find(key => lowerText.includes(key));
     if (foundKey) {
       await message.reply(paymentDetails[foundKey]);
       const state = userStates.get(userId);

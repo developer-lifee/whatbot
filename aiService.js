@@ -318,7 +318,7 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
       ],
       "statedPrice": number | null, // Si el usuario menciona un precio total, inclúyelo (solo números).
       "subscriptionType": "mensual" | "semestral" | "anual", // "mensual" por defecto.
-      "empathyGreeting": string | null // Un saludo empático si hubo mucha demora en responder.
+      "empathyGreeting": string | null // Un saludo empático y MUY PERSUASIVO. Si el cliente pregunta por disponibilidad inmediata, dile que "Sí, tengo stock para entrega inmediata y yo mismo (el bot) puedo validar tu pago en segundos si usas el QR".
     }
     
     Reglas:
@@ -360,7 +360,7 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
 async function detectPaymentMethod(messageContent) {
   const prompt = `
     Identifica el método de pago mencionado en: "${messageContent}".
-    Opciones válidas: "nequi", "daviplata", "bancolombia", "banco caja social", "transfiya", "llaves bre-v", "llave bre-b", "qr negocios".
+    Opciones válidas: "nequi", "daviplata", "bancolombia", "banco caja social", "transfiya", "llave", "qr negocios".
     
     Salida esperada JSON:
     {
@@ -711,7 +711,8 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     Mensaje actual: "${messageContent}"
     
     Categorías para "intent":
-    - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por precios de algo que NO tiene.
+    - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene. 
+      *IMPORTANTE*: Si el usuario pregunta "¿tienes disponible?", "¿entregas ya?", "¿qué tienes para entrega inmediata?", clasifícalo como "comprar" con frustración 0 y genera un mensaje que invite a la venta con total confianza.
     - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado.
     - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
     - "soporte": Problemas técnicos, fallas, errores en el cobro, o si pide hablar con una persona (ej: "pásame a Esteban").
@@ -719,17 +720,12 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio o pide la baja.
     - "desconocido": Cualquier otro mensaje, incluyendo saludos iniciales (ej: "hola", "buenas noches", "buenos días") sin petición específica.
 
-    Regla de Intents:
-    - "soporte": PRIORIDAD si el usuario reporta errores, fallas o confusión con el precio/factura.
-    - "comprar": PRIORIDAD si menciona plataforma nueva. 
-    - "renovar": PRIORIZA si pregunta costos de servicios que YA TIENE o dice "cuánto te debo".
-    - "credenciales": Si pide datos de acceso (pin, contraseña, clave).
-    - "pagar": Si pregunta cómo pagar o envía comprobante.
-    - "cancelar": Si indica que NO va a renovar o quiere la baja.
-    - "cierre": El usuario indica fin de charla (ej: "ok", "listo", "gracias", "vale", "chao"). 
-      *IMPORTANTE*: Solo usa este intent si el mensaje NO viene acompañado de una nueva duda o petición. Si dice "Gracias, pero sigo sin poder entrar", el intent es "soporte". Si dice "Hola gracias", el intent es "desconocido" (saludo). El contexto del último mensaje es clave.
-    - "catalogo": El usuario pide el catálogo, lista de precios, qué plataformas venden o pregunta "qué tienen".
-    - "desconocido": Saludos o mensajes que no encajan.
+    Regla de Intents (MÁXIMA PRIORIDAD):
+    1. **MENÚ NUMÉRICO:** Si el mensaje es exactamente "1", "2", "3", "4" o "5", clasifícalo según el menú: "1"->comprar, "2"->credenciales, "3"->renovar, "4"->soporte, "5"->soporte.
+    2. **CONTINUIDAD:** Si es una respuesta corta ("sí", "nequi") a una pregunta previa, usa el intent de esa charla.
+    3. **STOCK:** Si pregunta por "disponibilidad", "stock", "entrega ya", el intent es "comprar".
+    4. **SOPORTE:** PRIORIDAD si hay errores o fallas.
+    5. **PAGAR:** Si pregunta cómo pagar o envía comprobante.
 
     Lógica de recuperación ("recoveredState"):
     - "awaiting_payment_method": 
