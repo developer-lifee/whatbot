@@ -105,8 +105,17 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             return;
         }
 
-        if (total > 0 && itemsForRenewal.length > 1) {
-            const discount = (itemsForRenewal.length - 1) * 1000;
+        // Lógica de descuento por combo: solo aplica si se renuevan varios servicios que vencen pronto (imminent)
+        const imminentRenewals = itemsForRenewal.filter(item => {
+            const expDate = getJsDateFromExcel(item.deben || item.vencimiento);
+            if (!expDate) return false;
+            // Consideramos inminente si vence hoy, mañana o ya venció
+            const diffDays = Math.floor((expDate - today) / (1000 * 60 * 60 * 24));
+            return diffDays <= 1; 
+        });
+
+        if (total > 0 && imminentRenewals.length > 1) {
+            const discount = (imminentRenewals.length - 1) * 1000;
             total -= discount;
             response += `✨ *Descuento por combo:* -$${discount}\n`;
         }

@@ -1007,7 +1007,7 @@ async function processIncomingMessage(messages) {
   if (currentState === 'waiting_human') {
       // Reactivación rápida
       const cleanInput = (message.body || '').trim().toLowerCase();
-      if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot')) {
+      if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot') || ['1','2','3'].includes(cleanInput)) {
           console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por intención explícita: ${cleanInput}`);
           userStates.delete(userId);
           currentState = undefined;
@@ -1017,9 +1017,9 @@ async function processIncomingMessage(messages) {
           const lastHumanMsg = sData.lastHumanInteraction || 0;
           const timeSinceLastHuman = Date.now() - lastHumanMsg;
           
-          // Si el asesor (humano) envió un mensaje en la última hora, asumimos que
+          // Si el asesor (humano) envió un mensaje en los últimos 30 min, asumimos que
           // están en una conversación activa. El bot guarda SILENCIO ABSOLUTO.
-          if (timeSinceLastHuman < 1000 * 60 * 60 * 1) {
+          if (timeSinceLastHuman < 1000 * 60 * 30) {
               console.log(`[DEBUG] Mute activo para @${userId.replace('@c.us', '')} - Conversación humana reciente.`);
               return;
           }

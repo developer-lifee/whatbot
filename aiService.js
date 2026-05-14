@@ -106,8 +106,9 @@ function getMaskedAccessData(acc) {
 
 // List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
-  "gemini-2.0-flash",
   "gemini-1.5-flash",
+  "gemini-1.5-flash-8b",
+  "gemini-2.0-flash",
   "gemini-1.5-pro",
   "gemini-pro"
 ];
@@ -250,10 +251,10 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   }
 
   for (const modelName of MODELS) {
-    const startTime = Date.now();
     try {
-      // console.log(`Attempting with model: ${modelName}...`);
-      const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+      // Usamos v1 para mayor estabilidad, v1beta para modelos experimentales
+      const version = modelName.includes('2.0') ? 'v1beta' : 'v1';
+      const API_URL = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent`;
 
       const response = await fetch(`${API_URL}?key=${GEMINI_API_KEY}`, {
         method: 'POST',
@@ -770,22 +771,44 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     Si el mensaje actual es una imagen o el texto menciona un pago, revisa si es un comprobante. Si lo es, pon intent: "pagar".
   `;
 
+  // --- FALLBACK BASADO EN PALABRAS CLAVE (Ante fallos de IA) ---
+  const txt = (messageContent || "").toLowerCase();
+  let keywordIntent = null;
+  
+  if (txt.includes("comprobante") || txt.includes("pagué") || txt.includes("pagado") || txt.includes("captura") || txt.includes("transferencia")) {
+    keywordIntent = "pagar";
+  } else if (txt.includes("vence") || txt.includes("cuanto") || txt.includes("cuánto") || txt.includes("debo") || txt.includes("valor")) {
+    keywordIntent = "pagar"; // En este bot pagar/cobros es la opción 3
+  } else if (txt.includes("clave") || txt.includes("correo") || txt.includes("entrar") || txt.includes("funciona") || txt.includes("fallando")) {
+    keywordIntent = "credenciales";
+  } else if (txt.includes("precio") || txt.includes("catalogo") || txt.includes("catálogo") || txt.includes("planes")) {
+    keywordIntent = "catalogo";
+  } else if (txt === "1") keywordIntent = "comprar";
+  else if (txt === "2") keywordIntent = "credenciales";
+  else if (txt === "3") keywordIntent = "pagar";
+
   try {
     const jsonString = await callGemini(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true, mediaData);
     const parsed = JSON.parse(jsonString);
     
+    // Si la IA devuelve desconocido pero tenemos un keywordIntent, lo usamos
+    if (parsed.intent === "desconocido" && keywordIntent) {
+        parsed.intent = keywordIntent;
+    }
+
     // Log debug explícito para afinar el prompt:
     console.log('\n--- [AI INTENT DEBUG] ---');
     console.log('Mensaje actual:', messageContent);
-    console.log('Historial leído:', chatHistory ? chatHistory.substring(0, 500) + '...' : 'Ninguno');
     console.log('Resultado IA:', JSON.stringify(parsed, null, 2));
     console.log('-------------------------\n');
 
     return parsed;
   } catch (error) {
-    console.error("Error detecting initial intent:", error);
+    console.error("Error detecting initial intent (Gemini fail):", error.message);
+    
+    // Devolvemos el intent detectado por palabras clave si la IA falló
     return { 
-        intent: "desconocido",
+        intent: keywordIntent || "desconocido",
         recoveredState: null,
         frustrationLevel: 0,
         userName: null,
