@@ -849,6 +849,7 @@ async function parseAdminQueryIntent(query, previousContext = "") {
     - Si pide "cuantas hay en total", "resumen de...", "cuentas totales", es "summary_stats".
     - Si pide "atiende a...", "libera a...", "atender el pendiente de...", "encárgate de...", "ayúdame a explicar", "explícale", "contéstale", es "liberate_user".
     - Si pide "qué acabaste de hacer", "qué pasó", "dame detalles de la última acción", "por qué se envió eso", es "explain_last_action". (NO usar para peticiones de ayuda con clientes).
+    - Si pide "dame el código de...", "llegó correo de...", "busca el link de...", "que dice el gmail de...", es "get_gmail_code".
     - Si no encaja, usa "general_query".
 
     Reglas de 'filters':

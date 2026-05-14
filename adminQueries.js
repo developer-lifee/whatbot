@@ -110,7 +110,20 @@ async function processAdminQuery(message, query, userStates, client, adminState 
 
         } else if (action === 'get_gmail_code') {
             const { findRecentCodes } = require('./gmailService');
-            let email = filters.name || filters.generic_search;
+            let email = filters.name || filters.generic_search || filters.platform;
+            
+            // Mapeo de alias comunes
+            const emailAliases = {
+                'jordimemes': 'jordimemesmomazosdick@gmail.com',
+                'jordi': 'jordimemesmomazosdick@gmail.com',
+                'momazos': 'jordimemesmomazosdick@gmail.com',
+                'sheerit102': 'sheerit102@gmail.com'
+            };
+
+            if (email && emailAliases[email.toLowerCase().trim()]) {
+                email = emailAliases[email.toLowerCase().trim()];
+            }
+
             if (!email) {
                 filteredData = { status: "error", message: "Por favor especifica el correo de Gmail para buscar el código (ej: @bot dame el codigo de sheerit102)." };
             } else {

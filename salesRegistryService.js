@@ -150,9 +150,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 
                 console.log(`[Sales Registry] RENOVACIÓN detectada para ${platformName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
                 const updates = {
-                    "numero": formattedPhone,
-                    "Numero": formattedPhone,
-                    "whatsapp": formattedPhone,
                     "deben": nextPaymentDate,
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
                 };
@@ -186,9 +183,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths, baseDate);
                 
                 const updates = {
-                    "numero": formattedPhone,
-                    "Numero": formattedPhone,
-                    "whatsapp": formattedPhone,
                     "deben": nextPaymentDate,
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
                 };
@@ -222,7 +216,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "Nombre": firstName,
                     "apellido": lastName,
                     "Nombre Completo": name,
-                    "whatsapp": formattedPhone, 
+                    "whatsapp": name, 
                     "numero": formattedPhone,
                     "Numero": formattedPhone, 
                     "deben": nextPaymentDate,
