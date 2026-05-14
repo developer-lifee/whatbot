@@ -62,12 +62,18 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             // Si el Excel tiene un valor en 'Ingreso Mensual2' o similar, podríamos usarlo, 
             // pero por ahora usamos el catálogo oficial para consistencia.
             
-            const isExpired = vencimientoDate && vencimientoDate <= today;
-            const status = isExpired ? "⚠️ VENCIDO" : "✅ Vigente";
+            const isExpired = vencimientoDate && vencimientoDate < today;
+            const isToday = vencimientoDate && vencimientoDate.getTime() === today.getTime();
+            
+            let status = "✅ Vigente";
+            if (isExpired) status = "⚠️ VENCIDO";
+            else if (isToday) status = "⚠️ VENCE HOY";
+
+            const dateStr = vencimientoDate ? vencimientoDate.toLocaleDateString('es-CO') : 'N/A';
 
             response += `📺 *${streaming}*\n`;
             response += `📧 ${acc.correo || 'Sin correo'}\n`;
-            response += `📅 Vence: ${vencimientoDate ? vencimientoDate.toLocaleDateString() : 'N/A'} (${status})\n`;
+            response += `📅 Vence: ${dateStr} (${status})\n`;
             response += `💵 Valor: $${price}\n\n`;
             
             total += price;
@@ -142,7 +148,16 @@ async function handleAutoCobros(message, groupId, userStates, pendingConfirmatio
         let sentCount = 0;
         for (const [phone, data] of Object.entries(groupedByPhone)) {
             const userId = phone + '@c.us';
-            const msg = `🤖 *Aviso de Cobro*\n\nHola *${data.nombre}*, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que tus servicios están próximos a vencer o ya vencieron.\n\nServicio(s): ${data.servicios.join(', ')}\n\nEscribe *3* en este chat para conocer el valor exacto a pagar y ver los medios de transferencia. ¡Gracias por preferirnos! 😊`;
+            const expDate = getJsDateFromExcel(data.vencimiento);
+            const diffDays = expDate ? Math.floor((today - expDate) / (1000 * 60 * 60 * 24)) : 99;
+            
+            let dateContext = "está próximo a vencer o ya venció";
+            if (diffDays === -1) dateContext = "vence el día de mañana";
+            else if (diffDays === 0) dateContext = "vence el día de HOY";
+            else if (diffDays === 1) dateContext = "se venció el día de ayer";
+            else if (diffDays > 1) dateContext = `se venció el pasado ${expDate.toLocaleDateString('es-CO')}`;
+
+            const msg = `🤖 *Aviso de Cobro*\n\nHola *${data.nombre}*, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que tu servicio ${dateContext}.\n\nServicio(s): ${data.servicios.join(', ')}\n\nEscribe *3* en este chat para conocer el valor exacto a pagar y ver los medios de transferencia. ¡Gracias por preferirnos! 😊`;
             
             try {
                 await client.sendMessage(userId, msg);

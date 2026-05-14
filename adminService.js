@@ -225,21 +225,27 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     results.forEach(res => {
         report += `- *${res.name}*: ${res.status === 'success' ? 'Asignada ✅' : 'Manual ⚠️'}\n`;
     });
-    
-    if (adminMessage) {
-        await adminMessage.reply(report);
-    } else {
-        const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
-                           "Aquí tienes tus credenciales actualizadas:";
-        await client.sendMessage(userId, successMsg);
-        
-        // --- ENTREGA AUTOMÁTICA ---
-        const { processCheckCredentials } = require('./billingService');
-        await processCheckCredentials(userId, client, "Entrega automática tras pago", "");
-    }
-    
-    userStates.set(userId, { state: 'main_menu', nombre: userState.nombre });
-    return { success: true };
+    console.log(`[Payment Auto-Validate] ✅ Registro en Excel completado para ${userId}`);
+     
+     if (adminMessage) {
+         await adminMessage.reply(report);
+     } else {
+         try {
+             const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
+                                "Aquí tienes tus credenciales actualizadas:";
+             await client.sendMessage(userId, successMsg);
+             
+             // --- ENTREGA AUTOMÁTICA ---
+             const { processCheckCredentials } = require('./billingService');
+             await processCheckCredentials(userId, client, "Entrega automática tras pago", "");
+         } catch (deliveryErr) {
+             console.error(`[Payment Auto-Validate] ❌ Error entregando credenciales a ${userId}:`, deliveryErr.message);
+             await client.sendMessage(userId, "🤖 Tu pago fue validado con éxito, pero tuve un problema al enviarte las credenciales automáticamente. Por favor escribe *credenciales* en unos minutos o espera a que un asesor te ayude. 😊");
+         }
+     }
+     
+     userStates.set(userId, { state: 'main_menu', nombre: userState.nombre });
+     return { success: true };
 }
 
 /**

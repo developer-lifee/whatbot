@@ -1748,33 +1748,40 @@ async function processIncomingMessage(messages) {
               if (check.inferredPlatform) {
                   console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}`);
                   stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
+                  if (check.amount) stateData.total = check.amount;
+                  stateData.isAutoFilled = true;
+                  userStates.set(userId, stateData); // Persistir el auto-llenado
               }
           }
           
           // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---
           if (check.amount && check.amount > 0) {
-              const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min
-              if (match) {
-                  console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
-                  
-                  // Ejecutar validación automática
-                  const validationResult = await executePaymentValidation(userId, { ...stateData, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null);
-                  
-                  if (validationResult.success) {
-                      // Notificar al grupo administrativo del éxito automático
-                      try {
-                          const groupChat = await client.getChatById(GROUP_ID);
-                          if (groupChat) {
-                              await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
-                                             `Monto: $${check.amount}\n` +
-                                             `Banco: ${check.bank || 'Bre-B'}\n` +
-                                             `Asunto: ${match.subject}\n` +
-                                             `ID Gmail: ${match.id}\n\n` +
-                                             `El bot ya entregó el servicio automáticamente.`);
-                          }
-                      } catch(e) {}
-                      return;
+              try {
+                  const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min
+                  if (match) {
+                      console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
+                      
+                      // Ejecutar validación automática
+                      const validationResult = await executePaymentValidation(userId, { ...stateData, total: check.amount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null);
+                      
+                      if (validationResult.success) {
+                          // Notificar al grupo administrativo del éxito automático
+                          try {
+                              const groupChat = await client.getChatById(GROUP_ID);
+                              if (groupChat) {
+                                  await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
+                                                 `Monto: $${check.amount}\n` +
+                                                 `Banco: ${check.bank || 'Bre-B'}\n` +
+                                                 `Asunto: ${match.subject}\n` +
+                                                 `ID Gmail: ${match.id}\n\n` +
+                                                 `El bot ya entregó el servicio automáticamente.`);
+                              }
+                          } catch(e) {}
+                          return;
+                      }
                   }
+              } catch (autoErr) {
+                  console.error(`[PAYMENT AUTO-VALIDATE] ❌ Error crítico durante validación automática para ${userId}:`, autoErr.message);
               }
           }
 
