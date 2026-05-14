@@ -45,22 +45,40 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
         let total = 0;
         let itemsForRenewal = [];
 
+        let hasZeroPrice = false;
         userAccounts.forEach(acc => {
             const streaming = (acc.Streaming || "").toUpperCase();
             const vencimientoRaw = acc.deben || acc.vencimiento;
             const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
             
-            // Buscar precio base en platforms.json
+            // Buscar precio estrictamente en el catálogo de la página (platforms.json)
+            // Lógica de matching agresiva (quitando caracteres especiales)
             let price = 0;
-            const platInfo = platforms.find(p => streaming.includes(p.name.toUpperCase()));
-            if (platInfo && platInfo.plans && platInfo.plans.length > 0) {
-                // Intentamos buscar el plan que coincida con el nombre en el Excel (si existe esa columna)
-                // O usamos el primer plan por defecto
-                price = platInfo.plans[0].price;
+            const cleanExcel = streaming.replace(/[^A-Z0-9]/g, '');
+            
+            const platInfo = platforms.find(p => {
+                const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                return cleanExcel.includes(cleanPlat) || cleanPlat.includes(cleanExcel);
+            });
+
+            if (platInfo) {
+                price = platInfo.price || 0; 
+                
+                if (platInfo.plans && platInfo.plans.length > 0) {
+                    const specificPlan = platInfo.plans.find(plan => {
+                        const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                        return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
+                    });
+                    
+                    if (specificPlan) {
+                        price = specificPlan.price;
+                    } else if (price === 0) {
+                        price = platInfo.plans[0].price;
+                    }
+                }
             }
 
-            // Si el Excel tiene un valor en 'Ingreso Mensual2' o similar, podríamos usarlo, 
-            // pero por ahora usamos el catálogo oficial para consistencia.
+            if (price === 0) hasZeroPrice = true;
             
             const isExpired = vencimientoDate && vencimientoDate < today;
             const isToday = vencimientoDate && vencimientoDate.getTime() === today.getTime();
@@ -79,6 +97,13 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             total += price;
             itemsForRenewal.push({ ...acc, price, platform: { name: (acc.Streaming || 'Servicio') } });
         });
+
+        // FALLBACK: Si algún precio es cero o el total es cero, no enviar resumen automático
+        if (hasZeroPrice || total === 0) {
+            console.log(`[Billing Service] Fallback activado: Precio cero detectado para el usuario ${userId}`);
+            await message.reply("🤖 No pude calcular automáticamente el valor total de tu renovación debido a una discrepancia en los nombres de los servicios registrados. \n\nPor favor, espera un momento a que un asesor humano revise tu caso y te envíe el valor correcto manualmente. ¡Gracias por tu paciencia! 😊");
+            return;
+        }
 
         if (total > 0 && itemsForRenewal.length > 1) {
             const discount = (itemsForRenewal.length - 1) * 1000;

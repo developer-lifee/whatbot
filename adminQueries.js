@@ -117,6 +117,7 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                 'jordimemes': 'jordimemesmomazosdick@gmail.com',
                 'jordi': 'jordimemesmomazosdick@gmail.com',
                 'momazos': 'jordimemesmomazosdick@gmail.com',
+                'sheerit6': 'sheerit6@gmail.com',
                 'sheerit102': 'sheerit102@gmail.com'
             };
 
@@ -361,9 +362,19 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                     filteredData = { resumen_estadisticas: filteredSummary };
                 } else filteredData = { resumen_estadisticas: summary };
             } else if (action === 'broadcast_credentials') {
-                const sourceQuery = filters.name ? filters.name.toLowerCase().trim() : (filters.generic_search ? filters.generic_search.toLowerCase().trim() : "");
+                const sourceQueryRaw = filters.name ? filters.name.toLowerCase().trim() : (filters.generic_search ? filters.generic_search.toLowerCase().trim() : "");
                 const platformFilter = filters.platform ? filters.platform.toLowerCase().trim() : null;
                 const isMassiveToPlatform = filters.generic_search && (filters.generic_search.toLowerCase().includes('todos') || filters.generic_search.toLowerCase().includes('usuarios'));
+
+                // Mapeo de alias comunes para envíos
+                const emailAliases = {
+                    'jordimemes': 'jordimemesmomazosdick@gmail.com',
+                    'jordi': 'jordimemesmomazosdick@gmail.com',
+                    'momazos': 'jordimemesmomazosdick@gmail.com',
+                    'sheerit6': 'sheerit6@gmail.com',
+                    'sheerit102': 'sheerit102@gmail.com'
+                };
+                const sourceQuery = emailAliases[sourceQueryRaw] || sourceQueryRaw;
 
                 // Función de normalización para matches "gordos"
                 const cln = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');

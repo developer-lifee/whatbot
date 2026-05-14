@@ -106,10 +106,10 @@ function getMaskedAccessData(acc) {
 
 // List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
-  "gemini-2.5-flash",
   "gemini-2.0-flash",
-  "gemini-flash-latest",
-  "gemini-2.5-pro"
+  "gemini-1.5-flash",
+  "gemini-1.5-pro",
+  "gemini-pro"
 ];
 
 /**
