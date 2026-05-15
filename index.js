@@ -1288,11 +1288,18 @@ async function processIncomingMessage(messages) {
             return;
         }
 
-        await message.reply(`🧪 Iniciando test de escritura en fila ${targetRow} con el valor: ${testNum}...`);
+        await message.reply(`🧪 Iniciando test de escritura múltiple en fila ${targetRow}...`);
         try {
             const { updateExcelData } = require('./apiService');
-            const res = await updateExcelData(parseInt(targetRow), { "numero": testNum, "observaciones": "TEST ESCRITURA " + new Date().toLocaleTimeString() });
-            await message.reply(`✅ Respuesta de API: ${JSON.stringify(res)}`);
+            // Intentamos con todas las variaciones posibles para ver cuál "pega"
+            const res = await updateExcelData(parseInt(targetRow), { 
+                "numero": testNum, 
+                "Numero": testNum,
+                "whatsapp": testNum,
+                "whatsapp ": testNum, // Con espacio por si acaso
+                "observaciones": "TEST MULTI " + new Date().toLocaleTimeString() 
+            });
+            await message.reply(`✅ Respuesta de API: ${JSON.stringify(res, null, 2)}`);
         } catch (err) {
             await message.reply(`❌ Error en el test: ${err.message}`);
         }

@@ -68,7 +68,8 @@ async function fetchRawData(retries = 3, delay = 2000) {
       const json = await response.json();
       const data = json.data || [];
       if (data.length > 0) {
-          console.log(`[API Service] Columnas detectadas en el Excel:`, Object.keys(data[0]).join(', '));
+          const rawKeys = Object.keys(data[0]);
+          console.log(`[API Service] 🔍 HEADERS REALES (RAW):`, rawKeys.map(k => `[${k}]`).join(', '));
       }
       return data;
       
