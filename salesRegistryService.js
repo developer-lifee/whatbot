@@ -211,11 +211,30 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "";
 
                 const updates = {
+                    // Por Nombre de Columna
                     "Nombre": firstName,
+                    "nombre": firstName,
                     "apellido": lastName,
                     "Nombre Completo": name,
-                    "whatsapp": name,
+                    "whatsapp": formattedPhone,
                     "numero": formattedPhone,
+                    "Numero": formattedPhone,
+                    "numero ": formattedPhone,
+                    
+                    // Por Letra de Columna (D=whatsapp, E=numero, F=correo, etc.)
+                    "B": firstName,
+                    "C": lastName,
+                    "D": formattedPhone,
+                    "E": formattedPhone,
+                    "F": userState.correo || "",
+                    
+                    // Por Índice de Columna (basado en lo que vemos en el array de Azure)
+                    "1": firstName,
+                    "2": lastName,
+                    "3": formattedPhone,
+                    "4": formattedPhone,
+                    "5": userState.correo || "",
+
                     "deben": nextPaymentDate,
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
                 };
