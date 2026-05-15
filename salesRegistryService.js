@@ -16,11 +16,11 @@ const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify', '
  */
 function calculateNextPaymentDate(subscriptionType, overrideMonths = null, baseDate = null) {
     let now = new Date();
-    
+
     if (baseDate) {
         const { getJsDateFromExcel } = require('./apiService');
         const parsedBase = (baseDate instanceof Date) ? baseDate : getJsDateFromExcel(baseDate);
-        
+
         if (parsedBase && !isNaN(parsedBase.getTime())) {
             // Regla: Si la fecha base es mayor a 15 días en el pasado, usamos hoy para no "renovar en el pasado"
             // Pero si es solo un retraso normal (ej: 1-5 días), mantenemos el ciclo original.
@@ -38,13 +38,13 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null, baseD
         if (subscriptionType === 'semestral') monthsToAdd = 6;
         else if (subscriptionType === 'anual') monthsToAdd = 12;
     }
-    
+
     now.setMonth(now.getMonth() + monthsToAdd);
-    
+
     const day = String(now.getDate()).padStart(2, '0');
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const year = now.getFullYear();
-    
+
     return `${year}-${month}-${day}`;
 }
 
@@ -53,16 +53,8 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null, baseD
  * Asegura un espacio después del indicativo 57 para evitar formatos feos en Excel.
  */
 function formatWhatsAppNumber(phone) {
-    const digits = phone.replace(/\D/g, '');
-    if (digits.startsWith('57') && digits.length === 12) {
-        // Precedemos con una comilla simple para forzar a Excel a tratarlo como texto
-        // Esto preserva los espacios sin romper la escritura de la celda
-        return `'57 ${digits.slice(2, 5)} ${digits.slice(5)}`;
-    }
-    if (digits.startsWith('57')) {
-        return `'57 ${digits.slice(2)}`;
-    }
-    return `'${digits}`;
+    // Devolvemos solo dígitos como String puro para evitar conflictos de formato en Excel
+    return phone.replace(/\D/g, '');
 }
 
 /**
@@ -92,16 +84,16 @@ function findAvailableSlot(platformName, allRows) {
     for (let i = 0; i < allRows.length; i++) {
         const row = allRows[i];
         const rowStreaming = (row.Streaming || row.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
-        
+
         // Si la plataforma coincide
         if (rowStreaming.includes(targetPlatform) || targetPlatform.includes(rowStreaming)) {
             const whatsapp = (row.whatsapp || row.whatsapp || "").toString().trim();
             const nombre = (row.Nombre || row.nombre || "").toString().trim();
             const debenStr = row.deben || row.Deben || "";
-            
+
             // Solo usamos filas que están vacías o marcadas como 'libre' (STOCK real)
             if (!whatsapp && (!nombre || nombre.toLowerCase() === 'libre')) {
-                return { rowData: row, index: i + 2 }; 
+                return { rowData: row, index: i + 2 };
             }
         }
     }
@@ -113,11 +105,11 @@ function findAvailableSlot(platformName, allRows) {
  */
 async function recordNewSale(userId, userState, paymentMethod, overrideMonths = null) {
     console.log(`[Sales Registry] Procesando registro inteligente para ${userId} (${overrideMonths || 'auto'} meses)...`);
-    
+
     try {
         const items = userState.items || [];
         const subscriptionType = userState.subscriptionType || 'mensual';
-        
+
         // Intentar obtener el nombre real si el estado tiene el genérico
         let name = userState.nombre;
         if (!name || name === "Cliente WhatsApp") {
@@ -136,18 +128,18 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
         // Obtener todos los datos crudos para buscar cupos (solo si no es renovación)
         const allRows = !userState.isRenewal ? await fetchRawData() : [];
-        
+
         const results = [];
         for (const item of items) {
             const platformName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
             const lowerName = platformName.toLowerCase();
-            
+
             // 1. CASO RENOVACIÓN: Ya tenemos la fila
             if (userState.isRenewal && (item._rowNumber || item.index)) {
                 const targetRow = item._rowNumber || item.index;
                 const baseDate = item.deben || null;
                 const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths, baseDate);
-                
+
                 console.log(`[Sales Registry] RENOVACIÓN detectada para ${platformName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
                 const updates = {
                     "deben": nextPaymentDate,
@@ -162,14 +154,14 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             let finalRow = null;
             let matchedRow = null;
             let isAutoRenewal = false;
-            
+
             if (!userState.isRenewal) {
                 const existingAccount = allRows.find(r => {
                     const rowPhone = (r.numero || r.Numero || r.whatsapp || "").toString().replace(/\D/g, '');
                     const rowStreaming = (r.Streaming || "").toLowerCase();
                     return rowPhone.includes(phone.slice(-10)) && rowStreaming.includes(lowerName);
                 });
-                
+
                 if (existingAccount) {
                     finalRow = existingAccount._rowNumber || allRows.indexOf(existingAccount) + 2;
                     matchedRow = existingAccount;
@@ -181,7 +173,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             if (finalRow) {
                 const baseDate = matchedRow ? (matchedRow.deben || matchedRow.Deben) : null;
                 const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths, baseDate);
-                
+
                 const updates = {
                     "deben": nextPaymentDate,
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
@@ -194,7 +186,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             // 3. CASO VENTA NUEVA: Buscar cupo
             // Verificamos si es un PLAN FAMILIAR (Saltar si es venta nueva, pero NO si es renovación)
             const isFamilyPlan = FAMILY_KEYWORDS.some(key => lowerName.includes(key));
-            
+
             if (isFamilyPlan) {
                 console.log(`[Sales Registry] ${platformName} es un plan FAMILIAR. Saltando registro automático.`);
                 results.push({ name: platformName, status: 'manual_invitation_required' });
@@ -202,26 +194,27 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             }
 
             const slot = findAvailableSlot(platformName, allRows);
-            
+
             if (slot) {
                 const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths);
                 console.log(`[Sales Registry] Cupo encontrado para ${platformName} en fila ${slot.index}`);
-                
+
                 // Lógica de separación de nombres
                 const nameParts = name.trim().split(/\s+/);
                 const firstName = nameParts[0] || "";
                 const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "";
-                
+
                 const updates = {
                     "Nombre": firstName,
                     "apellido": lastName,
                     "Nombre Completo": name,
-                    "whatsapp": name, 
+                    "whatsapp": name,
                     "numero": formattedPhone,
-                    "Numero": formattedPhone, 
                     "deben": nextPaymentDate,
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
                 };
+
+                console.log(`[Sales Registry] Enviando actualización a Azure:`, JSON.stringify(updates, null, 2));
 
                 // Si es Netflix o Disney y tenemos operador en el estado, lo llenamos
                 if (lowerName.includes('netflix') || lowerName.includes('disney')) {
@@ -234,7 +227,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 if (userState.correo) {
                     updates["customer mail"] = userState.correo;
                 }
-                
+
                 await updateExcelData(slot.index, updates);
                 // Marcar el row en nuestro array local como usado para evitar colisiones
                 if (allRows[slot.index - 2]) {
@@ -248,7 +241,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             }
         }
         return results;
-        
+
     } catch (error) {
         console.error("[Sales Registry] Error en proceso inteligente:", error.message);
     }
