@@ -126,7 +126,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 name = "Cliente WhatsApp";
             }
         }
-        
+
         console.log(`[Sales Registry] Nombre resuelto para el registro: ${name}`);
         // Limpiar el ID de WhatsApp para obtener solo el número (eliminar sufijos de multi-dispositivo como :12)
         const phone = userId.split('@')[0].split(':')[0].replace(/\D/g, '');
@@ -211,25 +211,23 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "";
 
                 const numericPhone = parseInt(formattedPhone.replace(/\D/g, '')) || 0;
-                
+
                 const updates = {
                     // Por Nombre
-                    "whatsapp": formattedPhone,
-                    "numero": formattedPhone,
-                    "Numero": formattedPhone,
-                    "numero": numericPhone, // Intento como número puro (sin comillas)
-                    "Numero": numericPhone,
-                    
+
+                    "numero": name, // Intento como número puro (sin comillas)
+
+
                     // Con el truco de la comilla simple de Excel
-                    "numero ": `'${formattedPhone}`, 
-                    
+                    "numero ": `'${formattedPhone}`,
+
                     // Por Letra
-                    "E": formattedPhone,
-                    "E": numericPhone,
-                    
+                    "E": name,
+                    "E": name,
+
                     // Por Índice
-                    "4": formattedPhone,
-                    "4": numericPhone,
+                    "4": name,
+                    "4": name,
 
                     "Nombre": firstName,
                     "nombre": firstName,
