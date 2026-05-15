@@ -1307,21 +1307,29 @@ async function processIncomingMessage(messages) {
                 console.log(`[TEST DEBUG] Encabezados detectados en este momento:`, Object.keys(rawData[0]).map(k => `[${k}]`).join(', '));
             }
 
+            const alphabet = "ABCDEFGHIJKLMNOPQRST".split("");
+            const bombUpdates = {};
             const numericTest = parseInt(testNum.replace(/\D/g, '')) || 0;
-            const res = await updateExcelData(parseInt(targetRow), { 
-                // ATAQUE DE METRALLETA: Probamos todas las combinaciones
-                "numero": testNum,
-                "numero": numericTest, // Sin comillas
-                "Numero": numericTest,
-                "E": numericTest,
-                "4": numericTest,
-                "E": testNum,
-                "4": testNum,
-                "numero ": `'${testNum}`, // Con comilla simple
-                "whatsapp": testNum,
-                "observaciones": "TEST METRALLETA " + new Date().toLocaleTimeString() 
+            
+            alphabet.forEach((letter, index) => {
+                // Por defecto texto
+                bombUpdates[letter] = `TEST_${letter}_${index}`;
             });
-            await message.reply(`✅ Test de metralleta completado. Revisa el resultado: ${JSON.stringify(res, null, 2)}`);
+
+            // CASOS ESPECIALES DE TIPO DE DATO
+            bombUpdates["E"] = numericTest;           // Columna E como NÚMERO puro
+            bombUpdates["F"] = `'${testNum}`;         // Columna F con COMILLA (Texto)
+            bombUpdates["G"] = parseFloat(testNum);   // Columna G como FLOAT
+            
+            bombUpdates["numero"] = testNum;          // Como texto
+            bombUpdates["Numero"] = numericTest;      // Como número
+            bombUpdates["whatsapp"] = testNum;
+            bombUpdates["observaciones"] = "BOMBARDEO TIPOS " + new Date().toLocaleTimeString();
+
+            await message.reply(`💣 Iniciando bombardeo de tipos de datos en fila ${targetRow}...`);
+            
+            const res = await updateExcelData(parseInt(targetRow), bombUpdates);
+            await message.reply(`✅ Bombardeo de tipos completado. Revisa el resultado: ${JSON.stringify(res, null, 2)}`);
         } catch (err) {
             await message.reply(`❌ Error en el diagnóstico: ${err.message}`);
         }
