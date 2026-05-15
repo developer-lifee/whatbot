@@ -109,7 +109,8 @@ const MODELS = [
   "gemini-2.5-flash",
   "gemini-2.0-flash",
   "gemini-flash-latest",
-  "gemini-2.5-pro"
+  "gemini-2.5-pro",
+  "gemini-1.5-flash" // Red de seguridad indispensable
 ];
 
 /**
@@ -251,9 +252,8 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
   for (const modelName of MODELS) {
     try {
-      // Usamos v1 para mayor estabilidad, v1beta para modelos experimentales
-      const version = modelName.includes('2.0') ? 'v1beta' : 'v1';
-      const API_URL = `https://generativelanguage.googleapis.com/${version}/models/${modelName}:generateContent`;
+      // Forzamos v1beta para todos para evitar el error 400 de "Unknown name systemInstruction"
+      const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
 
       const response = await fetch(`${API_URL}?key=${GEMINI_API_KEY}`, {
         method: 'POST',
