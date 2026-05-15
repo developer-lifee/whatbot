@@ -226,8 +226,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "E": name,
 
                     // Por Índice
-                    "4": name,
-                    "4": name,
+                    "5": name,
+                    "5": name,
 
                     "Nombre": firstName,
                     "nombre": firstName,
