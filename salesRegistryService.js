@@ -110,18 +110,24 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
         const items = userState.items || [];
         const subscriptionType = userState.subscriptionType || 'mensual';
 
-        // Intentar obtener el nombre real si el estado tiene el genérico
+        // Intentar obtener el nombre real
         let name = userState.nombre;
         if (!name || name === "Cliente WhatsApp") {
             try {
                 const { getContactNameByPhone } = require('./googleContactsService');
                 const contactName = await getContactNameByPhone(userId.replace(/\D/g, ''));
-                if (contactName) name = contactName;
-                else name = "Cliente WhatsApp";
+                if (contactName) {
+                    name = contactName;
+                } else {
+                    // Si no hay contacto, intentamos usar el pushname si está disponible en el estado
+                    name = userState.pushname || "Cliente WhatsApp";
+                }
             } catch (e) {
                 name = "Cliente WhatsApp";
             }
         }
+        
+        console.log(`[Sales Registry] Nombre resuelto para el registro: ${name}`);
         // Limpiar el ID de WhatsApp para obtener solo el número (eliminar sufijos de multi-dispositivo como :12)
         const phone = userId.split('@')[0].split(':')[0].replace(/\D/g, '');
         const formattedPhone = formatWhatsAppNumber(phone);

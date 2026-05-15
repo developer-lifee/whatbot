@@ -258,9 +258,10 @@ async function updateExcelData(rowNumber, updates) {
     }
     
     const result = await response.json();
+    console.log(`[API Service] ✅ Respuesta exitosa de Azure:`, JSON.stringify(result, null, 2));
     return result;
   } catch (error) {
-    console.error("[API Service] Error crítico al escribir en Excel:", error.message);
+    console.error("[API Service] ❌ Error crítico al escribir en Excel:", error.message);
     throw error;
   }
 }

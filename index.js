@@ -1277,6 +1277,28 @@ async function processIncomingMessage(messages) {
         return;
     }
 
+    // COMANDO DE PRUEBA DE ESCRITURA
+    if (bodyLower.startsWith('@bot test de numero')) {
+        const parts = message.body.split(' ');
+        const targetRow = parts[4];
+        const testNum = parts[5] || "123456789";
+        
+        if (!targetRow) {
+            await message.reply("❌ Uso: @bot test de numero [fila] [numero]");
+            return;
+        }
+
+        await message.reply(`🧪 Iniciando test de escritura en fila ${targetRow} con el valor: ${testNum}...`);
+        try {
+            const { updateExcelData } = require('./apiService');
+            const res = await updateExcelData(parseInt(targetRow), { "numero": testNum, "observaciones": "TEST ESCRITURA " + new Date().toLocaleTimeString() });
+            await message.reply(`✅ Respuesta de API: ${JSON.stringify(res)}`);
+        } catch (err) {
+            await message.reply(`❌ Error en el test: ${err.message}`);
+        }
+        return;
+    }
+
     // Interceptor de Simulación
     if (adminState.state === 'simulating_client' && message.from === OPERATOR_NUMBER) {
         if (bodyLower.includes('@bot detener')) {
