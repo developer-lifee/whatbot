@@ -1298,7 +1298,7 @@ async function processIncomingMessage(messages) {
                 console.log(`[TEST DEBUG] Encabezados detectados en este momento:`, Object.keys(rawData[0]).map(k => `[${k}]`).join(', '));
             }
 
-            // Intentamos con TODAS las variaciones posibles
+            // Intentamos con TODAS las variaciones posibles: nombres, letras e índices
             const res = await updateExcelData(parseInt(targetRow), { 
                 "numero": testNum, 
                 "Numero": testNum,
@@ -1306,9 +1306,24 @@ async function processIncomingMessage(messages) {
                 "Numero ": testNum,
                 "whatsapp": testNum,
                 "whatsapp ": testNum,
-                "observaciones": "TEST DIAGNOSTICO " + new Date().toLocaleTimeString() 
+                
+                // PRUEBA POR LETRA (D=whatsapp, E=numero)
+                "B": "TEST_NOMBRE",
+                "C": "TEST_APELLIDO",
+                "D": testNum,
+                "E": testNum,
+                "F": "test@correo.com",
+
+                // PRUEBA POR ÍNDICE
+                "1": "TEST_1",
+                "2": "TEST_2",
+                "3": testNum,
+                "4": testNum,
+                "5": "test5@correo.com",
+
+                "observaciones": "TEST LETRAS " + new Date().toLocaleTimeString() 
             });
-            await message.reply(`✅ Test completado. Revisa la consola para ver los encabezados reales y el resultado: ${JSON.stringify(res, null, 2)}`);
+            await message.reply(`✅ Test con letras e índices completado. Revisa el resultado: ${JSON.stringify(res, null, 2)}`);
         } catch (err) {
             await message.reply(`❌ Error en el diagnóstico: ${err.message}`);
         }
