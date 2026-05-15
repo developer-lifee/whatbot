@@ -286,10 +286,19 @@ app.post('/api/bold/webhook', async (req, res) => {
                 
                 // Usando recordNewSale de whatbot
                 const { recordNewSale } = require('./salesRegistryService');
+                
+                const formattedPhone = customerData.whatsapp.replace(/\D/g, '');
+                const numericPhone = parseInt(formattedPhone) || 0;
+                
                 const userState = {
                     items: [{ platform: { name: customerData.platformName } }],
-                    subscriptionType: 'mensual', // Podemos obtenerla de la vista si se pasó
-                    nombre: `${customerData.firstName} ${customerData.lastName}`
+                    subscriptionType: 'mensual', 
+                    nombre: `${customerData.firstName} ${customerData.lastName}`,
+                    phoneData: {
+                        raw: formattedPhone,
+                        numeric: numericPhone,
+                        excelFormatted: `'${formattedPhone}`
+                    }
                 };
 
                 const phoneId = customerData.whatsapp.includes('@') ? customerData.whatsapp : `${customerData.whatsapp}@c.us`;
@@ -1298,32 +1307,21 @@ async function processIncomingMessage(messages) {
                 console.log(`[TEST DEBUG] Encabezados detectados en este momento:`, Object.keys(rawData[0]).map(k => `[${k}]`).join(', '));
             }
 
-            // Intentamos con TODAS las variaciones posibles: nombres, letras e índices
+            const numericTest = parseInt(testNum.replace(/\D/g, '')) || 0;
             const res = await updateExcelData(parseInt(targetRow), { 
-                "numero": testNum, 
-                "Numero": testNum,
-                "numero ": testNum,
-                "Numero ": testNum,
-                "whatsapp": testNum,
-                "whatsapp ": testNum,
-                
-                // PRUEBA POR LETRA (D=whatsapp, E=numero)
-                "B": "TEST_NOMBRE",
-                "C": "TEST_APELLIDO",
-                "D": testNum,
+                // ATAQUE DE METRALLETA: Probamos todas las combinaciones
+                "numero": testNum,
+                "numero": numericTest, // Sin comillas
+                "Numero": numericTest,
+                "E": numericTest,
+                "4": numericTest,
                 "E": testNum,
-                "F": "test@correo.com",
-
-                // PRUEBA POR ÍNDICE
-                "1": "TEST_1",
-                "2": "TEST_2",
-                "3": testNum,
                 "4": testNum,
-                "5": "test5@correo.com",
-
-                "observaciones": "TEST LETRAS " + new Date().toLocaleTimeString() 
+                "numero ": `'${testNum}`, // Con comilla simple
+                "whatsapp": testNum,
+                "observaciones": "TEST METRALLETA " + new Date().toLocaleTimeString() 
             });
-            await message.reply(`✅ Test con letras e índices completado. Revisa el resultado: ${JSON.stringify(res, null, 2)}`);
+            await message.reply(`✅ Test de metralleta completado. Revisa el resultado: ${JSON.stringify(res, null, 2)}`);
         } catch (err) {
             await message.reply(`❌ Error en el diagnóstico: ${err.message}`);
         }

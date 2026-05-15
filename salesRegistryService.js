@@ -210,31 +210,30 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const firstName = nameParts[0] || "";
                 const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "";
 
+                const numericPhone = parseInt(formattedPhone.replace(/\D/g, '')) || 0;
+                
                 const updates = {
-                    // Por Nombre de Columna
-                    "Nombre": firstName,
-                    "nombre": firstName,
-                    "apellido": lastName,
-                    "Nombre Completo": name,
+                    // Por Nombre
                     "whatsapp": formattedPhone,
                     "numero": formattedPhone,
                     "Numero": formattedPhone,
-                    "numero ": formattedPhone,
+                    "numero": numericPhone, // Intento como número puro (sin comillas)
+                    "Numero": numericPhone,
                     
-                    // Por Letra de Columna (D=whatsapp, E=numero, F=correo, etc.)
-                    "B": firstName,
-                    "C": lastName,
-                    "D": formattedPhone,
+                    // Con el truco de la comilla simple de Excel
+                    "numero ": `'${formattedPhone}`, 
+                    
+                    // Por Letra
                     "E": formattedPhone,
-                    "F": userState.correo || "",
+                    "E": numericPhone,
                     
-                    // Por Índice de Columna (basado en lo que vemos en el array de Azure)
-                    "1": firstName,
-                    "2": lastName,
-                    "3": formattedPhone,
+                    // Por Índice
                     "4": formattedPhone,
-                    "5": userState.correo || "",
+                    "4": numericPhone,
 
+                    "Nombre": firstName,
+                    "nombre": firstName,
+                    "apellido": lastName,
                     "deben": nextPaymentDate,
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
                 };
