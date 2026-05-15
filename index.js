@@ -1288,20 +1288,29 @@ async function processIncomingMessage(messages) {
             return;
         }
 
-        await message.reply(`🧪 Iniciando test de escritura múltiple en fila ${targetRow}...`);
+        await message.reply(`🧪 Iniciando diagnóstico profundo en fila ${targetRow}...`);
         try {
-            const { updateExcelData } = require('./apiService');
-            // Intentamos con todas las variaciones posibles para ver cuál "pega"
+            const { updateExcelData, fetchRawData } = require('./apiService');
+            
+            // Forzamos lectura para ver encabezados reales en consola
+            const rawData = await fetchRawData();
+            if (rawData && rawData.length > 0) {
+                console.log(`[TEST DEBUG] Encabezados detectados en este momento:`, Object.keys(rawData[0]).map(k => `[${k}]`).join(', '));
+            }
+
+            // Intentamos con TODAS las variaciones posibles
             const res = await updateExcelData(parseInt(targetRow), { 
                 "numero": testNum, 
                 "Numero": testNum,
+                "numero ": testNum,
+                "Numero ": testNum,
                 "whatsapp": testNum,
-                "whatsapp ": testNum, // Con espacio por si acaso
-                "observaciones": "TEST MULTI " + new Date().toLocaleTimeString() 
+                "whatsapp ": testNum,
+                "observaciones": "TEST DIAGNOSTICO " + new Date().toLocaleTimeString() 
             });
-            await message.reply(`✅ Respuesta de API: ${JSON.stringify(res, null, 2)}`);
+            await message.reply(`✅ Test completado. Revisa la consola para ver los encabezados reales y el resultado: ${JSON.stringify(res, null, 2)}`);
         } catch (err) {
-            await message.reply(`❌ Error en el test: ${err.message}`);
+            await message.reply(`❌ Error en el diagnóstico: ${err.message}`);
         }
         return;
     }
