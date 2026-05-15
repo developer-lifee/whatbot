@@ -8,42 +8,42 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
  * Convierte el JSON de sabiduría en un texto legible para el prompt de la IA.
  */
 function summarizeWisdom(wisdom) {
-    if (!wisdom) return "";
-    let summary = "";
-    
-    if (wisdom.company_info) {
-        summary += `EMPRESA: ${wisdom.company_info.name}\nMISIÓN: ${wisdom.company_info.mission}\n\n`;
-    }
+  if (!wisdom) return "";
+  let summary = "";
 
-    if (wisdom.human_support_schedule) {
-        summary += "HORARIOS DE ATENCIÓN HUMANA:\n";
-        wisdom.human_support_schedule.forEach(s => {
-            summary += `- ${s.days} (${s.staff}): ${s.details}\n`;
-        });
-        summary += "\n";
-    }
+  if (wisdom.company_info) {
+    summary += `EMPRESA: ${wisdom.company_info.name}\nMISIÓN: ${wisdom.company_info.mission}\n\n`;
+  }
 
-    if (wisdom.platform_rules) {
-        summary += "REGLAS ESPECÍFICAS DE PLATAFORMAS:\n";
-        for (const [plat, rule] of Object.entries(wisdom.platform_rules)) {
-            summary += `- ${plat}: ${rule}\n`;
-        }
-        summary += "\n";
-    }
+  if (wisdom.human_support_schedule) {
+    summary += "HORARIOS DE ATENCIÓN HUMANA:\n";
+    wisdom.human_support_schedule.forEach(s => {
+      summary += `- ${s.days} (${s.staff}): ${s.details}\n`;
+    });
+    summary += "\n";
+  }
 
-    if (wisdom.general_policies) {
-        summary += "POLÍTICAS GENERALES:\n";
-        for (const [key, val] of Object.entries(wisdom.general_policies)) {
-            summary += `- ${key.toUpperCase()}: ${val}\n`;
-        }
-        summary += "\n";
+  if (wisdom.platform_rules) {
+    summary += "REGLAS ESPECÍFICAS DE PLATAFORMAS:\n";
+    for (const [plat, rule] of Object.entries(wisdom.platform_rules)) {
+      summary += `- ${plat}: ${rule}\n`;
     }
+    summary += "\n";
+  }
 
-    if (wisdom.support_protocol) {
-        summary += `PROTOCOLO DE SOPORTE: ${wisdom.support_protocol.first_step} (${wisdom.support_protocol.rationale})\n`;
+  if (wisdom.general_policies) {
+    summary += "POLÍTICAS GENERALES:\n";
+    for (const [key, val] of Object.entries(wisdom.general_policies)) {
+      summary += `- ${key.toUpperCase()}: ${val}\n`;
     }
+    summary += "\n";
+  }
 
-    return summary;
+  if (wisdom.support_protocol) {
+    summary += `PROTOCOLO DE SOPORTE: ${wisdom.support_protocol.first_step} (${wisdom.support_protocol.rationale})\n`;
+  }
+
+  return summary;
 }
 
 /**
@@ -51,22 +51,22 @@ function summarizeWisdom(wisdom) {
  * Estas cuentas NUNCA deben mostrar el correo/clave principal del administrador.
  */
 function isFamilyPlan(streamingName) {
-    if (!streamingName) return false;
-    const name = streamingName.toLowerCase();
-    const familyKeywords = [
-        'youtube', 'microsoft', 'office', 'apple', 'spotify', 
-        'apple one', 'extra', 'familiar', 'personal (tu correo)', 
-        'correo propio', 'tu correo', 'canje', 'invitacion', 'invitación'
-    ];
-    
-    const isMatched = familyKeywords.some(kw => name.includes(kw));
-    
-    // Si contiene "owner" o "dueño", NO es un plan tipo invitación para el cliente final, sino administrativo
-    if (name.includes('owner') || name.includes('dueño')) {
-        return false;
-    }
+  if (!streamingName) return false;
+  const name = streamingName.toLowerCase();
+  const familyKeywords = [
+    'youtube', 'microsoft', 'office', 'apple', 'spotify',
+    'apple one', 'extra', 'familiar', 'personal (tu correo)',
+    'correo propio', 'tu correo', 'canje', 'invitacion', 'invitación'
+  ];
 
-    return isMatched;
+  const isMatched = familyKeywords.some(kw => name.includes(kw));
+
+  // Si contiene "owner" o "dueño", NO es un plan tipo invitación para el cliente final, sino administrativo
+  if (name.includes('owner') || name.includes('dueño')) {
+    return false;
+  }
+
+  return isMatched;
 }
 
 /**
@@ -75,42 +75,41 @@ function isFamilyPlan(streamingName) {
  * @returns {object} { streamingName, isFamily, correo, clave, customerMail }
  */
 function getMaskedAccessData(acc) {
-    const streamingName = (acc.Streaming || acc.streaming || "Servicio").toUpperCase();
-    const isFamily = isFamilyPlan(streamingName);
-    
-    const correoOriginal = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
-    let clave = acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"] || "N/A";
-    const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").trim();
+  const streamingName = (acc.Streaming || acc.streaming || "Servicio").toUpperCase();
+  const isFamily = isFamilyPlan(streamingName);
 
-    let displayCorreo = correoOriginal;
-    let displayClave = clave;
+  const correoOriginal = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
+  let clave = acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"] || "N/A";
+  const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").trim();
 
-    if (isFamily) {
-        displayClave = "(Acceso por invitación/perfil propio)";
-        if (customerMail) {
-            displayCorreo = customerMail;
-        } else {
-            // Si es familiar pero no tiene customer mail, probablemente sea una invitación pendiente
-            displayCorreo = "(Tu correo personal)";
-        }
+  let displayCorreo = correoOriginal;
+  let displayClave = clave;
+
+  if (isFamily) {
+    displayClave = "(Acceso por invitación/perfil propio)";
+    if (customerMail) {
+      displayCorreo = customerMail;
+    } else {
+      // Si es familiar pero no tiene customer mail, probablemente sea una invitación pendiente
+      displayCorreo = "(Tu correo personal)";
     }
+  }
 
-    return {
-        streamingName,
-        isFamily,
-        correo: displayCorreo,
-        clave: displayClave,
-        customerMail: customerMail
-    };
+  return {
+    streamingName,
+    isFamily,
+    correo: displayCorreo,
+    clave: displayClave,
+    customerMail: customerMail
+  };
 }
 
 // List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
+  "gemini-2.5-flash",
   "gemini-2.0-flash",
-  "gemini-1.5-pro",
-  "gemini-pro"
+  "gemini-flash-latest",
+  "gemini-2.5-pro"
 ];
 
 /**
@@ -219,7 +218,7 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   }
 
   const parts = [{ text: prompt }];
-  
+
   if (mediaData) {
     const mediaArray = Array.isArray(mediaData) ? mediaData : [mediaData];
     mediaArray.forEach(m => {
@@ -392,7 +391,7 @@ async function detectPaymentMethod(messageContent) {
  */
 function summarizeAccounts(userAccounts) {
   if (!userAccounts || userAccounts.length === 0) return "El usuario NO tiene servicios activos registrados.";
-  
+
   return userAccounts.map(acc => {
     const streaming = (acc.Streaming || "Servicio").toUpperCase();
     const correo = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
@@ -404,45 +403,45 @@ function summarizeAccounts(userAccounts) {
 async function generateCredentialsResponse(userAccounts, userMessage = "", chatHistory = "") {
   let cuentasTexto = "";
   if (!userAccounts || userAccounts.length === 0) {
-     cuentasTexto = "El usuario no tiene cuentas activas en este momento o no encontramos registros asociados a su número.";
+    cuentasTexto = "El usuario no tiene cuentas activas en este momento o no encontramos registros asociados a su número.";
   } else {
-     userAccounts.forEach(acc => {
-        const { streamingName, correo, clave } = getMaskedAccessData(acc);
-        
-        const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
-        const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
-        const perfilCompleto = pin ? `${perfil} (PIN: ${pin})` : perfil;
-        
-        let fechaVencimiento = "Fecha desconocida";
-        let isExpired = false;
+    userAccounts.forEach(acc => {
+      const { streamingName, correo, clave } = getMaskedAccessData(acc);
 
-        if (acc.deben && !isNaN(parseFloat(acc.deben))) {
-            const jsDate = getJsDateFromExcel(acc.deben);
-            fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+      const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
+      const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
+      const perfilCompleto = pin ? `${perfil} (PIN: ${pin})` : perfil;
 
-            const today = getTodayInBogota();
-            const compareDate = new Date(jsDate);
-            compareDate.setHours(0,0,0,0);
+      let fechaVencimiento = "Fecha desconocida";
+      let isExpired = false;
 
-            // Si la fecha de vencimiento es HOY o anterior, se considera vencida
-            if (compareDate.getTime() <= today.getTime()) {
-                isExpired = true;
-            }
-        } else if (acc.vencimiento) {
-            fechaVencimiento = acc.vencimiento;
+      if (acc.deben && !isNaN(parseFloat(acc.deben))) {
+        const jsDate = getJsDateFromExcel(acc.deben);
+        fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
+
+        const today = getTodayInBogota();
+        const compareDate = new Date(jsDate);
+        compareDate.setHours(0, 0, 0, 0);
+
+        // Si la fecha de vencimiento es HOY o anterior, se considera vencida
+        if (compareDate.getTime() <= today.getTime()) {
+          isExpired = true;
         }
+      } else if (acc.vencimiento) {
+        fechaVencimiento = acc.vencimiento;
+      }
 
-        let displayClave = clave;
-        if (isExpired) {
-            displayClave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
-        }
+      let displayClave = clave;
+      if (isExpired) {
+        displayClave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
+      }
 
-        cuentasTexto += `- Plataforma: ${streamingName}\n  Correo: ${correo}\n  Clave: ${displayClave}\n  Perfil/PIN: ${perfilCompleto}\n  Vencimiento: ${fechaVencimiento}\n\n`;
-      });
+      cuentasTexto += `- Plataforma: ${streamingName}\n  Correo: ${correo}\n  Clave: ${displayClave}\n  Perfil/PIN: ${perfilCompleto}\n  Vencimiento: ${fechaVencimiento}\n\n`;
+    });
 
-     if (cuentasTexto === "") {
-        cuentasTexto = "El usuario no tiene cuentas activas o mostradas en este momento.";
-     }
+    if (cuentasTexto === "") {
+      cuentasTexto = "El usuario no tiene cuentas activas o mostradas en este momento.";
+    }
   }
 
   const prompt = `
@@ -489,86 +488,86 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
  * @returns {string|null}
  */
 function formatDirectCredentials(userAccounts, requestedPlatform = null, options = {}) {
-    if (!userAccounts || userAccounts.length === 0) return null;
-    
-    let accountsToFormat = userAccounts;
-    if (requestedPlatform) {
-        const term = requestedPlatform.toLowerCase();
-        accountsToFormat = userAccounts.filter(acc => (acc.Streaming || "").toLowerCase().includes(term));
+  if (!userAccounts || userAccounts.length === 0) return null;
+
+  let accountsToFormat = userAccounts;
+  if (requestedPlatform) {
+    const term = requestedPlatform.toLowerCase();
+    accountsToFormat = userAccounts.filter(acc => (acc.Streaming || "").toLowerCase().includes(term));
+  }
+
+  if (accountsToFormat.length === 0) return null;
+
+  const formattedAccounts = [];
+  accountsToFormat.forEach(acc => {
+    const { streamingName, isFamily, correo, clave, customerMail } = getMaskedAccessData(acc);
+
+    const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
+    const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
+
+    const isSpotify = streamingName.toLowerCase().includes('spotify');
+
+    const labelPin = isSpotify ? "DIRECCIÓN/LINK" : "PIN";
+    const perfilDisplay = pin ? `${perfil} - ${labelPin}: ${pin}` : perfil;
+
+    let fechaVencimiento = "Fecha desconocida";
+    let isExpired = false;
+
+    if (acc.deben && !isNaN(parseFloat(acc.deben))) {
+      const jsDate = getJsDateFromExcel(acc.deben);
+      const day = jsDate.getDate();
+      const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
+      const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
+      const year = jsDate.getFullYear();
+      fechaVencimiento = `${day} de ${month} de ${year}`;
+
+      const today = getTodayInBogota();
+      const compareDate = new Date(jsDate);
+      compareDate.setHours(0, 0, 0, 0);
+      if (compareDate.getTime() <= today.getTime()) {
+        isExpired = true;
+      }
+    } else if (acc.vencimiento) {
+      fechaVencimiento = acc.vencimiento;
     }
-    
-    if (accountsToFormat.length === 0) return null;
-    
-    const formattedAccounts = [];
-    accountsToFormat.forEach(acc => {
-        const { streamingName, isFamily, correo, clave, customerMail } = getMaskedAccessData(acc);
-        
-        const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
-        const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
-        
-        const isSpotify = streamingName.toLowerCase().includes('spotify');
 
-        const labelPin = isSpotify ? "DIRECCIÓN/LINK" : "PIN";
-        const perfilDisplay = pin ? `${perfil} - ${labelPin}: ${pin}` : perfil;
-        
-        let fechaVencimiento = "Fecha desconocida";
-        let isExpired = false;
+    const isConcise = options.concise || (requestedPlatform && (requestedPlatform.includes('solo pin') || requestedPlatform.includes('unicamente pin')));
 
-        if (acc.deben && !isNaN(parseFloat(acc.deben))) {
-            const jsDate = getJsDateFromExcel(acc.deben);
-            const day = jsDate.getDate();
-            const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
-            const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
-            const year = jsDate.getFullYear();
-            fechaVencimiento = `${day} de ${month} de ${year}`;
+    if (isConcise) {
+      let conciseMsg = `🚨 *ACTUALIZACIÓN ${streamingName}*\n\n📧 Cuenta: ${correo}`;
+      if (!isFamily) conciseMsg += `\n🔑 Clave: ${isExpired ? '(Vencida)' : clave}`;
+      if (pin) conciseMsg += `\n📍 ${labelPin}: ${pin}`;
+      conciseMsg += `\n\nSi tienes inconvenientes, escribe "ayuda". 🤖`;
+      formattedAccounts.push(conciseMsg);
+      return;
+    }
 
-            const today = getTodayInBogota();
-            const compareDate = new Date(jsDate);
-            compareDate.setHours(0,0,0,0);
-            if (compareDate.getTime() <= today.getTime()) {
-                isExpired = true;
-            }
-        } else if (acc.vencimiento) {
-            fechaVencimiento = acc.vencimiento;
-        }
+    if (isFamily) {
+      const msgFamily = isExpired
+        ? `⚠️ *SERVICIO VENCIDO*: Este servicio (${streamingName}) requiere renovación para seguir funcionando.`
+        : `ℹ️ *NOTA*: Para este servicio, recibirás una invitación por correo o usarás tu perfil propio. La contraseña la manejas tú mismo. Un asesor te contactará si necesitas ayuda adicional.`;
 
-        const isConcise = options.concise || (requestedPlatform && (requestedPlatform.includes('solo pin') || requestedPlatform.includes('unicamente pin')));
+      formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nPERFIL: ${perfilDisplay}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+      return;
+    }
 
-        if (isConcise) {
-            let conciseMsg = `🚨 *ACTUALIZACIÓN ${streamingName}*\n\n📧 Cuenta: ${correo}`;
-            if (!isFamily) conciseMsg += `\n🔑 Clave: ${isExpired ? '(Vencida)' : clave}`;
-            if (pin) conciseMsg += `\n📍 ${labelPin}: ${pin}`;
-            conciseMsg += `\n\nSi tienes inconvenientes, escribe "ayuda". 🤖`;
-            formattedAccounts.push(conciseMsg);
-            return;
-        }
+    let displayClave = clave;
+    // LÓGICA YOPMAIL: Si el correo de cliente es yopmail, damos pasos de recuperación
+    if (customerMail.toLowerCase().includes("@yopmail.com")) {
+      displayClave = "(La configuras tú mismo siguiendo los pasos abajo)";
+      const yopInstructions = `\n\n🔑 *PASOS PARA CONFIGURAR TU CLAVE:*\n1. Ve a www.yopmail.com\n2. Ingresa el correo: *${customerMail}*\n3. En la app de ${streamingName}, pide 'Olvidé mi contraseña' a ese correo.\n4. Revisa el código en Yopmail y activa tu cuenta. 📝`;
+      formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+      return;
+    }
 
-        if (isFamily) {
-            const msgFamily = isExpired 
-                ? `⚠️ *SERVICIO VENCIDO*: Este servicio (${streamingName}) requiere renovación para seguir funcionando.`
-                : `ℹ️ *NOTA*: Para este servicio, recibirás una invitación por correo o usarás tu perfil propio. La contraseña la manejas tú mismo. Un asesor te contactará si necesitas ayuda adicional.`;
-            
-            formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nPERFIL: ${perfilDisplay}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
-            return;
-        }
+    if (isExpired) {
+      displayClave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
+    }
 
-        let displayClave = clave;
-        // LÓGICA YOPMAIL: Si el correo de cliente es yopmail, damos pasos de recuperación
-        if (customerMail.toLowerCase().includes("@yopmail.com")) {
-            displayClave = "(La configuras tú mismo siguiendo los pasos abajo)";
-            const yopInstructions = `\n\n🔑 *PASOS PARA CONFIGURAR TU CLAVE:*\n1. Ve a www.yopmail.com\n2. Ingresa el correo: *${customerMail}*\n3. En la app de ${streamingName}, pide 'Olvidé mi contraseña' a ese correo.\n4. Revisa el código en Yopmail y activa tu cuenta. 📝`;
-            formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
-            return;
-        }
+    formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+  });
 
-        if (isExpired) {
-            displayClave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
-        }
-        
-        formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
-    });
-    
-    return formattedAccounts.join('\n\n-------------------\n\n');
+  return formattedAccounts.join('\n\n-------------------\n\n');
 }
 
 /**
@@ -652,45 +651,45 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
   const accountSummary = summarizeAccounts(userAccounts);
   const platformDocs = await getPlatformKnowledge();
   const wisdomData = await getWisdomKnowledge();
-  
+
   const platformContext = summarizePlatformKnowledge(platformDocs);
   const wisdomContext = summarizeWisdom(wisdomData);
 
   let template = "";
   try {
-      const templatePath = path.join(__dirname, 'prompts', 'fallback_template.txt');
-      template = fs.readFileSync(templatePath, 'utf8');
+    const templatePath = path.join(__dirname, 'prompts', 'fallback_template.txt');
+    template = fs.readFileSync(templatePath, 'utf8');
   } catch (e) {
-      console.warn("No se pudo cargar la plantilla de prompt, usando fallback básico.");
-      template = "Responde de forma amable a: {{MESSAGE_CONTENT}}";
+    console.warn("No se pudo cargar la plantilla de prompt, usando fallback básico.");
+    template = "Responde de forma amable a: {{MESSAGE_CONTENT}}";
   }
 
   const prompt = template
-      .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
-      .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
-      .replace('{{WISDOM_CONTEXT}}', wisdomContext)
-      .replace('{{PLATFORM_CONTEXT}}', platformContext)
-      .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
-      .replace('{{CHAT_HISTORY}}', chatHistory)
-      .replace('{{MESSAGE_CONTENT}}', messageContent)
-      .replace('{{MEDIA_STATUS}}', isMedia ? "[El usuario envió una imagen/archivo]" : "");
+    .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
+    .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
+    .replace('{{WISDOM_CONTEXT}}', wisdomContext)
+    .replace('{{PLATFORM_CONTEXT}}', platformContext)
+    .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
+    .replace('{{CHAT_HISTORY}}', chatHistory)
+    .replace('{{MESSAGE_CONTENT}}', messageContent)
+    .replace('{{MEDIA_STATUS}}', isMedia ? "[El usuario envió una imagen/archivo]" : "");
 
   try {
     const response = await callGemini(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false, mediaData);
     const replyText = response.trim();
-    
-    const needsEscalation = replyText.toLowerCase().includes('asesor') || 
-                            replyText.toLowerCase().includes('humano') || 
-                            replyText.toLowerCase().includes('soporte técnico') ||
-                            replyText.toLowerCase().includes('revisar tu caso');
 
-    return { 
-      replyMessage: replyText, 
-      needsEscalation: needsEscalation 
+    const needsEscalation = replyText.toLowerCase().includes('asesor') ||
+      replyText.toLowerCase().includes('humano') ||
+      replyText.toLowerCase().includes('soporte técnico') ||
+      replyText.toLowerCase().includes('revisar tu caso');
+
+    return {
+      replyMessage: replyText,
+      needsEscalation: needsEscalation
     };
   } catch (error) {
     console.error("Error in generateEmpatheticFallback:", error);
-    return { 
+    return {
       replyMessage: "¡Hola! He notificado a tu asesor para que te ayude con este caso específico. Dame unos minutos. 🤖",
       needsEscalation: true
     };
@@ -698,11 +697,11 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
 }
 
 async function detectInitialIntent(messageContent, chatHistory = "", mediaData = null, userAccounts = []) {
-    const accountSummary = summarizeAccounts(userAccounts);
-    const platformDocs = await getPlatformKnowledge();
-    const platformContext = summarizePlatformKnowledge(platformDocs);
+  const accountSummary = summarizeAccounts(userAccounts);
+  const platformDocs = await getPlatformKnowledge();
+  const platformContext = summarizePlatformKnowledge(platformDocs);
 
-    const prompt = `
+  const prompt = `
     Analiza el primer mensaje del usuario para identificar qué desea hacer.
     
     GUÍA DE FUNCIONAMIENTO DE PLATAFORMAS:
@@ -774,7 +773,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
   // --- FALLBACK BASADO EN PALABRAS CLAVE (Ante fallos de IA) ---
   const txt = (messageContent || "").toLowerCase();
   let keywordIntent = null;
-  
+
   if (txt.includes("comprobante") || txt.includes("pagué") || txt.includes("pagado") || txt.includes("captura") || txt.includes("transferencia")) {
     keywordIntent = "pagar";
   } else if (txt.includes("vence") || txt.includes("cuanto") || txt.includes("cuánto") || txt.includes("debo") || txt.includes("valor")) {
@@ -790,10 +789,10 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
   try {
     const jsonString = await callGemini(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true, mediaData);
     const parsed = JSON.parse(jsonString);
-    
+
     // Si la IA devuelve desconocido pero tenemos un keywordIntent, lo usamos
     if (parsed.intent === "desconocido" && keywordIntent) {
-        parsed.intent = keywordIntent;
+      parsed.intent = keywordIntent;
     }
 
     // Log debug explícito para afinar el prompt:
@@ -805,16 +804,16 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     return parsed;
   } catch (error) {
     console.error("Error detecting initial intent (Gemini fail):", error.message);
-    
+
     // Devolvemos el intent detectado por palabras clave si la IA falló
-    return { 
-        intent: keywordIntent || "desconocido",
-        recoveredState: null,
-        frustrationLevel: 0,
-        userName: null,
-        isNameComplete: false,
-        detectedPlatform: null,
-        metadata: null
+    return {
+      intent: keywordIntent || "desconocido",
+      recoveredState: null,
+      frustrationLevel: 0,
+      userName: null,
+      isNameComplete: false,
+      detectedPlatform: null,
+      metadata: null
     };
   }
 }
@@ -902,7 +901,7 @@ async function generateAdminReport(query, dataContext) {
   // Try to limit the size to avoid overloading the context, although Gemini flash can handle large contexts.
   let jsonContext = JSON.stringify(dataContext);
   if (jsonContext.length > 50000) {
-      jsonContext = jsonContext.substring(0, 50000) + '... (Datos truncados por límite de tamaño)';
+    jsonContext = jsonContext.substring(0, 50000) + '... (Datos truncados por límite de tamaño)';
   }
 
   const prompt = `
@@ -983,11 +982,11 @@ async function editBroadcastPayload(query, currentPayload) {
     
     PAYLOAD ACTUAL (Borrador):
     ${JSON.stringify({
-        custom_message: currentPayload.custom_message,
-        only_fields: currentPayload.only_fields,
-        platform: currentPayload.platform,
-        target_account: currentPayload.target_account
-    }, null, 2)}
+    custom_message: currentPayload.custom_message,
+    only_fields: currentPayload.only_fields,
+    platform: currentPayload.platform,
+    target_account: currentPayload.target_account
+  }, null, 2)}
     
     INSTRUCCIÓN DEL ADMINISTRADOR: "${query}"
     
@@ -1006,11 +1005,11 @@ async function editBroadcastPayload(query, currentPayload) {
   try {
     const jsonString = await callGemini(prompt, "Eres un editor JSON experto.", true);
     const result = JSON.parse(jsonString);
-    
+
     return {
-        ...currentPayload,
-        custom_message: result.custom_message !== undefined ? result.custom_message : currentPayload.custom_message,
-        only_fields: result.only_fields !== undefined ? result.only_fields : currentPayload.only_fields
+      ...currentPayload,
+      custom_message: result.custom_message !== undefined ? result.custom_message : currentPayload.custom_message,
+      only_fields: result.only_fields !== undefined ? result.only_fields : currentPayload.only_fields
     };
   } catch (error) {
     console.error("Error in editBroadcastPayload:", error);
@@ -1018,17 +1017,17 @@ async function editBroadcastPayload(query, currentPayload) {
   }
 }
 
-module.exports = { 
-  parsePurchaseIntent, 
-  detectPaymentMethod, 
-  generateCredentialsResponse, 
-  parsePlanSelection, 
-  generateEmpatheticFallback, 
+module.exports = {
+  parsePurchaseIntent,
+  detectPaymentMethod,
+  generateCredentialsResponse,
+  parsePlanSelection,
+  generateEmpatheticFallback,
   detectInitialIntent,
-  detectAdminIntent, 
-  formatDirectCredentials, 
-  isPaymentReceipt, 
-  parseAdminQueryIntent, 
+  detectAdminIntent,
+  formatDirectCredentials,
+  isPaymentReceipt,
+  parseAdminQueryIntent,
   generateAdminReport,
   suggestAdminActions,
   editBroadcastPayload,
