@@ -220,12 +220,28 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             const body = snippet + ' ' + bodyData;
             const subject = fullMsg.data.payload.headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';
             
-            // Intentar extraer un número de 4 a 8 dígitos (típico de OTP)
-            const codeMatch = snippet.match(/\b\d{4,8}\b/);
-            const code = codeMatch ? codeMatch[0] : null;
+            // Limpiar body de HTML para buscar códigos más fácilmente
+            const cleanBody = body.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');
+            
+            // Intentar extraer código: primero buscamos la palabra "código" o "pin" cerca de números
+            let code = null;
+            const specificCodeMatch = cleanBody.match(/(?:c[oó]digo|pin|code)[^\d]{0,40}?\b([0-9]{4,8})\b/i);
+            if (specificCodeMatch) {
+                code = specificCodeMatch[1];
+            } else {
+                // Si no, buscamos código alfanumérico típico (ej. Disney, Max)
+                const alphaNumMatch = cleanBody.match(/\b([A-Z0-9]{6,8})\b/);
+                if (alphaNumMatch && /[A-Z]/.test(alphaNumMatch[1]) && /[0-9]/.test(alphaNumMatch[1])) {
+                    code = alphaNumMatch[1];
+                } else {
+                    // Fallback: buscamos cualquier número de 4 a 8 dígitos en el body limpio o en el snippet
+                    const fallbackMatch = cleanBody.match(/\b\d{4,8}\b/) || snippet.match(/\b\d{4,8}\b/);
+                    code = fallbackMatch ? fallbackMatch[0] : null;
+                }
+            }
 
-            // Intentar extraer un link de Netflix (Actualización de Hogar)
-            const linkMatch = body.match(/https:\/\/www\.netflix\.com\/[^\s<>"]+/);
+            // Intentar extraer links importantes de plataformas (Netflix, Disney+, Max, Star+, etc) o botones de acceso
+            const linkMatch = body.match(/https:\/\/(?:www\.)?(?:netflix\.com|disneyplus\.com|starplus\.com|max\.com|hbomax\.com|primevideo\.com|amazon\.com|auth\.max\.com)[^\s<>"']+/i);
             const link = linkMatch ? linkMatch[0] : null;
 
             codesFound.push({
