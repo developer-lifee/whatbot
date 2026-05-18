@@ -1,4 +1,5 @@
-const { getAccountsByPhone, generateCredentialsResponse, fetchCustomersData, getJsDateFromExcel, getTodayInBogota } = require('./apiService');
+const { getAccountsByPhone, fetchCustomersData, getJsDateFromExcel, getTodayInBogota } = require('./apiService');
+const { generateCredentialsResponse } = require('./aiService');
 const { getPlatformKnowledge } = require('./apiService');
 const path = require('path');
 const fs = require('fs');

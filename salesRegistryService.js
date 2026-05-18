@@ -214,8 +214,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
                 const updates = {
                     // Por Nombre
-
-                    "numero": name, // Intento como número puro (sin comillas)
+                    "whatsapp": formattedPhone,
+                    "numero": name, 
 
 
                     // Con el truco de la comilla simple de Excel

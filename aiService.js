@@ -1,4 +1,4 @@
-const { getJsDateFromExcel, getTodayInBogota, getPlatformKnowledge, getWisdomKnowledge } = require('./apiService');
+const { getJsDateFromExcel, getTodayInBogota, getPlatformKnowledge, getWisdomKnowledge, getSupportKnowledge } = require('./apiService');
 const fs = require('fs');
 const path = require('path');
 
@@ -199,6 +199,24 @@ function summarizePlatformKnowledge(platforms) {
     } else {
       text += `- Precio base: $${p.price}\n`;
     }
+    return text;
+  }).join('\n---\n');
+}
+
+/**
+ * Resume la base de conocimientos de soporte técnico.
+ */
+function summarizeSupportKnowledge(supportData) {
+  if (!supportData || supportData.length === 0) return "No hay guías de soporte técnico disponibles.";
+  return supportData.map(plat => {
+    let text = `PROBLEMAS CON ${plat.name.toUpperCase()}:\n`;
+    plat.issues.forEach(issue => {
+      text += `- Título: ${issue.title}\n`;
+      text += `  Pasos de solución:\n`;
+      issue.steps.forEach((step, i) => {
+        text += `    ${i + 1}. ${step.text}\n`;
+      });
+    });
     return text;
   }).join('\n---\n');
 }
@@ -651,9 +669,11 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
   const accountSummary = summarizeAccounts(userAccounts);
   const platformDocs = await getPlatformKnowledge();
   const wisdomData = await getWisdomKnowledge();
+  const supportDocs = await getSupportKnowledge();
 
   const platformContext = summarizePlatformKnowledge(platformDocs);
   const wisdomContext = summarizeWisdom(wisdomData);
+  const supportContext = summarizeSupportKnowledge(supportDocs);
 
   let template = "";
   try {
@@ -669,6 +689,7 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
     .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
     .replace('{{WISDOM_CONTEXT}}', wisdomContext)
     .replace('{{PLATFORM_CONTEXT}}', platformContext)
+    .replace('{{SUPPORT_CONTEXT}}', supportContext)
     .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
     .replace('{{CHAT_HISTORY}}', chatHistory)
     .replace('{{MESSAGE_CONTENT}}', messageContent)
