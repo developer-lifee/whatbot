@@ -222,21 +222,31 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             
             // Limpiar body de HTML para buscar códigos más fácilmente
             const cleanBody = body.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');
+            // Filtrar colores hexadecimales basura generados por el HTML (Disney usa F9F9F9)
+            const superCleanBody = cleanBody.replace(/\b(?:F9F9F9|FFFFFF|000000|E5E5E5|CCCCCC|DEDEDE)\b/gi, ' ');
             
-            // Intentar extraer código: primero buscamos la palabra "código" o "pin" cerca de números
             let code = null;
-            const specificCodeMatch = cleanBody.match(/(?:c[oó]digo|pin|code)[^\d]{0,40}?\b([0-9]{4,8})\b/i);
-            if (specificCodeMatch) {
-                code = specificCodeMatch[1];
+            // Buscar la palabra "código" o "pin" y capturar el primer número de 4-8 dígitos o alfanumérico que aparezca cerca (hasta 250 caracteres de distancia).
+            // Usamos [\s\S] para incluir cualquier salto de línea residual.
+            const specificCodeMatch = superCleanBody.match(/(?:c[oó]digo|pin|code)[\s\S]{0,250}?\b([0-9]{4,8}|[A-Z0-9]{6,8})\b/i);
+            
+            if (specificCodeMatch && /[0-9]/.test(specificCodeMatch[1])) {
+                code = specificCodeMatch[1].toUpperCase();
             } else {
-                // Si no, buscamos código alfanumérico típico (ej. Disney, Max)
-                const alphaNumMatch = cleanBody.match(/\b([A-Z0-9]{6,8})\b/);
-                if (alphaNumMatch && /[A-Z]/.test(alphaNumMatch[1]) && /[0-9]/.test(alphaNumMatch[1])) {
-                    code = alphaNumMatch[1];
+                // Fallback 1: Buscar explícitamente 6 dígitos (típico en Disney+ y Netflix)
+                const sixDigitMatch = superCleanBody.match(/\b([0-9]{6})\b/);
+                if (sixDigitMatch) {
+                    code = sixDigitMatch[1];
                 } else {
-                    // Fallback: buscamos cualquier número de 4 a 8 dígitos en el body limpio o en el snippet
-                    const fallbackMatch = cleanBody.match(/\b\d{4,8}\b/) || snippet.match(/\b\d{4,8}\b/);
-                    code = fallbackMatch ? fallbackMatch[0] : null;
+                    // Fallback 2: Código alfanumérico mixto (Max)
+                    const alphaNumMatch = superCleanBody.match(/\b([A-Z0-9]{6,8})\b/i);
+                    if (alphaNumMatch && /[A-Z]/i.test(alphaNumMatch[1]) && /[0-9]/.test(alphaNumMatch[1])) {
+                        code = alphaNumMatch[1].toUpperCase();
+                    } else {
+                        // Fallback 3: Cualquier número de 4 a 8 dígitos suelto
+                        const fallbackMatch = superCleanBody.match(/\b\d{4,8}\b/) || snippet.match(/\b\d{4,8}\b/);
+                        code = fallbackMatch ? fallbackMatch[0] : null;
+                    }
                 }
             }
 
