@@ -53,7 +53,8 @@ async function getOAuth2Client(serviceName = 'contacts', code = null, email = nu
         // Determinar ruta del token
         let tokenPath;
         if (email) {
-            tokenPath = path.resolve(__dirname, 'tokens', `token_${email}.json`);
+            const safeEmail = email.toLowerCase().trim();
+            tokenPath = path.resolve(__dirname, 'tokens', `token_${safeEmail}.json`);
         } else {
             tokenPath = path.resolve(__dirname, `token_${serviceName}.json`);
         }

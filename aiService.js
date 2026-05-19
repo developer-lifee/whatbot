@@ -936,12 +936,13 @@ async function generateAdminReport(query, dataContext) {
     
     Reglas:
     - Sé directo, profesional, pero amigable. Usa formato de WhatsApp (*negrita*, emojis).
+    - **IMPORTANTE (Mensajes del Sistema)**: Si el JSON contiene un campo "message" (especialmente si "status" es "error" o "success"), tu respuesta debe basarse y comunicar clara y literalmente la información de ese campo "message". NO la reemplaces por frases genéricas.
     - **IMPORTANTE (Confirmación)**: Si el JSON tiene status "pending_confirmation", informa al administrador que se han encontrado coincidencias (especifica cuántas y para qué cuenta). Pregúntale explícitamente si desea proceder con el envío. **Debes aclarar si el envío incluye la actualización de credenciales (correo/clave) o si es solo un mensaje personalizado.** Lista los perfiles involucrados. Usa la terminología exacta del JSON para referirte a los campos.
     - **IMPORTANTE (Sugerencia)**: Si el JSON tiene status "suggestion", explica amistosamente que no encontraste el correo en la plataforma pedida, pero sí en otras, y pregúntale si se refiere a alguna de esas.
     - Si te pide los datos de una o más cuentas libres, dáselos de forma organizada (correo, clave, pin perfil si aplica).
     - Si te pide un resumen ("cuántas hay libres"), dáselo de forma contada e inteligible agrupado por plataforma.
     - Si te pregunta por el histórico de alguien, resume las cuentas que ha tenido de forma clara.
-    - Si en el JSON dice que no se encontraron coincidencias o que el vector está vacío ([]), dile: "No encontré información en la base de datos para los parámetros solicitados sobre: ${query}".
+    - Si el vector de datos está completamente vacío ([]), dile: "No encontré información en la base de datos para los parámetros solicitados sobre: ${query}".
     - NUNCA inventes correos o contraseñas que no estén en el JSON provisto.
   `;
 

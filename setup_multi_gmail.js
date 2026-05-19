@@ -42,7 +42,8 @@ rl.question('📧 Ingresa el correo electrónico que deseas vincular: ', (email)
     const redirectUri = redirect_uris ? redirect_uris[0] : 'urn:ietf:wg:oauth:2.0:oob';
     const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
 
-    const tokenPath = path.join(TOKENS_DIR, `token_${email}.json`);
+    const safeEmail = email.toLowerCase().trim();
+    const tokenPath = path.join(TOKENS_DIR, `token_${safeEmail}.json`);
 
     if (fs.existsSync(tokenPath)) {
         console.log(`⚠️ Ya existe un token para ${email}.`);
