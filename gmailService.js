@@ -220,9 +220,12 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             const body = snippet + ' ' + bodyData;
             const subject = fullMsg.data.payload.headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';
             
-            // Limpiar body de HTML para buscar códigos más fácilmente
-            const cleanBody = body.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');
-            // Filtrar colores hexadecimales basura generados por el HTML (Disney usa F9F9F9)
+            // 1. Limpiar Quoted-Printable (saltos de línea raros y tildes como =C3=B3) y eliminar bloques <style> enteros
+            const unquotedBody = body.replace(/=\r?\n/g, '').replace(/=C3=B3/g, 'ó').replace(/=C3=AD/g, 'í').replace(/=C3=A1/g, 'á').replace(/=C3=A9/g, 'é').replace(/=C3=BA/g, 'ú');
+            const noStyleBody = unquotedBody.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
+            
+            // 2. Limpiar etiquetas HTML y colores hexadecimales basura residuales
+            const cleanBody = noStyleBody.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');
             const superCleanBody = cleanBody.replace(/\b(?:F9F9F9|FFFFFF|000000|E5E5E5|CCCCCC|DEDEDE)\b/gi, ' ');
             
             let code = null;
