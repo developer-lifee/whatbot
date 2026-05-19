@@ -2041,7 +2041,7 @@ async function processIncomingMessage(messages) {
       const cleanInput = inputToUse.trim();
       if (['1', '2', '3', '4', '5'].includes(cleanInput)) {
          userStates.set(userId, { state: 'main_menu' });
-         await handleMainMenuSelection(message, userId, detection);
+         await handleMainMenuSelection(message, userId, detection, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
          return;
       }
 
@@ -2240,7 +2240,7 @@ async function processIncomingMessage(messages) {
       }
       break;
     case 'main_menu':
-      await handleMainMenuSelection(message, userId, detection);
+      await handleMainMenuSelection(message, userId, detection, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
       break;
     case 'awaiting_netflix_operator_post_payment':
       const ispInfo = (message.body || "").trim();
@@ -2275,13 +2275,13 @@ async function processIncomingMessage(messages) {
       }
       break;
     case 'awaiting_payment_method':
-      await handleAwaitingPaymentMethod(message, userId);
+      await handleAwaitingPaymentMethod(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
       break;
     case 'awaiting_cobros_confirmation':
       await handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client);
       break;
     case 'awaiting_payment_confirmation':
-      await handleAwaitingPaymentConfirmation(message, userId);
+      await handleAwaitingPaymentConfirmation(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
       break;
     case 'waiting_human':
       console.log(`[DEBUG] Usuario ${userId} en modo waiting_human.`);
@@ -2433,7 +2433,7 @@ client.on('message', async (message) => {
 
 
 // Funciones de manejo de estados
-async function handleMainMenuSelection(message, userId, detection) {
+async function handleMainMenuSelection(message, userId, detection, isMedia = false, singleMediaData = null) {
   const userSelection = message.body.trim();
   switch (userSelection) {
     case '1':
@@ -2499,7 +2499,7 @@ async function handleMainMenuSelection(message, userId, detection) {
       let accounts = [];
       try { accounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch(e){}
       
-      const fallback = await generateEmpatheticFallback(message.body, false, history, null, accounts);
+      const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
       
       if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
           await message.reply(fallback.replyMessage);
@@ -2526,11 +2526,11 @@ async function handleMainMenuSelection(message, userId, detection) {
 }
 
 
-async function handleAwaitingPaymentMethod(message, userId) {
-  await processPaymentSelection(message, userId, message.body);
+async function handleAwaitingPaymentMethod(message, userId, isMedia = false, singleMediaData = null) {
+  await processPaymentSelection(message, userId, message.body, isMedia, singleMediaData);
 }
 
-async function processPaymentSelection(message, userId, text) {
+async function processPaymentSelection(message, userId, text, isMedia = false, singleMediaData = null) {
   // Usar AI para detectar método de pago
   const method = await detectPaymentMethod(text);
 
@@ -2581,12 +2581,12 @@ async function processPaymentSelection(message, userId, text) {
     } else {
       // Usar la IA en vez del mensaje genérico terco (esto responde precios exactos gracias a aiService)
       const historyTextForFallback = await getChatHistoryText(message);
-      await processFallbackWithEscalation(message, userId, false, null, historyTextForFallback);
+      await processFallbackWithEscalation(message, userId, isMedia, singleMediaData, historyTextForFallback);
     }
   }
 }
 
-async function handleAwaitingPaymentConfirmation(message, userId) {
+async function handleAwaitingPaymentConfirmation(message, userId, isMedia = false, singleMediaData = null) {
   const body = (message.body || '').toLowerCase().trim();
 
   // Check if user is trying to switch payment method
@@ -2595,7 +2595,7 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
 
   if (newMethodCheck) {
     await message.reply("🤖 Entendido, cambiamos el método de pago.");
-    await processPaymentSelection(message, userId, message.body);
+    await processPaymentSelection(message, userId, message.body, isMedia, singleMediaData);
     return;
   }
 
@@ -2632,7 +2632,7 @@ async function handleAwaitingPaymentConfirmation(message, userId) {
     // En vez de repetir robóticamente, usamos IA para responder dudas si el usuario pregunta algo
     const { getChatHistoryText } = require('./salesService');
     const historyText = await getChatHistoryText(message);
-    await processFallbackWithEscalation(message, userId, false, null, historyText);
+    await processFallbackWithEscalation(message, userId, isMedia, singleMediaData, historyText);
   }
 }
 
