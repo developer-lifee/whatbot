@@ -2026,7 +2026,7 @@ async function processIncomingMessage(messages) {
       
       if (isVeryFrustrated) {
           userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1 });
-          await message.reply("🤖 Entiendo tu frustración y lamento si no he sido claro. He avisado a un asesor humano para que te ayude personalmente ahora mismo. ¡Gracias por tu paciencia! 😊");
+          await message.reply("🤖 He detectado que como bot no puedo solucionar tus problemas, ya que lo único que puedo hacer automáticamente es **vender cuentas, revisar tus credenciales, registrar pagos y validar códigos de acceso de algunos correos o GPT**. Le dejaré un recordatorio a un asesor humano para que revise tu caso personalmente. En caso de que lleves esperando bastante, es porque nuestros asesores están muy ocupados, así que tener paciencia es lo que sirve mejor en estos casos. ¡Gracias por comprender! 😊");
           return;
       }
       
@@ -2092,7 +2092,7 @@ async function processIncomingMessage(messages) {
               nombre: foundName, 
               waitingCount: 1 
           });
-          await message.reply("🤖 Hola, he visto tus mensajes. Noté que has estado esperando un momento; nuestros asesores están con alta demanda pero ya tienen tu caso en cola para atenderte manualmente a la brevedad. ¡Gracias por tu paciencia! 😊");
+          await message.reply("🤖 He detectado que como bot no puedo solucionar tus problemas, ya que lo único que puedo hacer automáticamente es **vender cuentas, revisar tus credenciales, registrar pagos y validar códigos de acceso de algunos correos o GPT**. Le dejaré un recordatorio a un asesor humano para que revise tu caso personalmente. En caso de que lleves esperando bastante, es porque nuestros asesores están muy ocupados, así que tener paciencia es lo que sirve mejor en estos casos. ¡Gracias por comprender! 😊");
           return;
       }
 
