@@ -145,6 +145,36 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                 }
             }
 
+        } else if (action === 'get_totp_code') {
+            const { generateGPTCode } = require('./totpService');
+            let email = filters.name || filters.generic_search || filters.platform;
+            
+            const emailAliases = {
+                'jordimemes': 'jordimemesmomazosdick@gmail.com',
+                'jordi': 'jordimemesmomazosdick@gmail.com',
+                'momazos': 'jordimemesmomazosdick@gmail.com',
+                'sheerit6': 'sheerit6@gmail.com',
+                'sheerit102': 'sheerit102@gmail.com',
+                'gpt': 'epickfost@gmail.com',
+                'epickfost': 'epickfost@gmail.com'
+            };
+
+            if (email && emailAliases[email.toLowerCase().trim()]) {
+                email = emailAliases[email.toLowerCase().trim()];
+            }
+
+            if (!email) {
+                filteredData = { status: "error", message: "Por favor especifica el correo para buscar el código 2FA/Authenticator (ej: @bot dame el codigo de gpt de epickfost)." };
+            } else {
+                if (!email.includes('@')) email += '@gmail.com';
+                const code = generateGPTCode(email);
+                if (code) {
+                    filteredData = { status: "success", message: `🔐 *Código Authenticator (TOTP) para ${email}:*\n\n🔢 *${code}*\n\n_Válido por aprox. 30 segundos._` };
+                } else {
+                    filteredData = { status: "error", message: `No encontré una clave secreta (TOTP seed) configurada para *${email}*. Por favor, agrégala ejecutando 'node setup_gpt.js' en el servidor o verifica el nombre de la cuenta.` };
+                }
+            }
+
         } else if (action === 'liberate_user') {
             const { searchContactByName } = require('./googleContactsService');
             let targetPhone = filters.phone;

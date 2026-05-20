@@ -1,5 +1,6 @@
 const readline = require('readline');
 const { saveSecret, loadSecrets } = require('./totpService');
+const { authenticator } = require('@otplib/preset-default');
 const fs = require('fs');
 const path = require('path');
 
@@ -17,7 +18,8 @@ function mainMenu() {
     console.log('1. Agregar/Actualizar secreto de cuenta');
     console.log('2. Listar cuentas configuradas');
     console.log('3. Eliminar cuenta');
-    console.log('4. Salir');
+    console.log('4. Monitor de Códigos en Vivo');
+    console.log('5. Salir');
     
     rl.question('\n👉 Elige una opción: ', (opt) => {
         switch(opt) {
@@ -31,6 +33,9 @@ function mainMenu() {
                 deleteSecret();
                 break;
             case '4':
+                startMonitor();
+                break;
+            case '5':
                 rl.close();
                 break;
             default:
@@ -80,6 +85,42 @@ function deleteSecret() {
         }
         mainMenu();
     });
+}
+
+function startMonitor() {
+    const secrets = loadSecrets();
+    const emails = Object.keys(secrets);
+
+    if (emails.length === 0) {
+        console.log('\n📭 No hay cuentas configuradas para monitorear.');
+        return mainMenu();
+    }
+
+    const renderCodes = () => {
+        process.stdout.write('\x1Bc'); // Clear console
+        console.log('=============================================');
+        console.log('👁️  MONITOR DE CÓDIGOS TOTP EN VIVO');
+        console.log('Presiona Ctrl+C para salir del monitor.');
+        console.log('=============================================\n');
+        
+        const now = new Date();
+        console.log(`⏱️ Última actualización: ${now.toLocaleTimeString('es-CO')}\n`);
+
+        emails.forEach(email => {
+            const secret = secrets[email];
+            try {
+                const code = authenticator.generate(secret);
+                const timeRemaining = authenticator.timeRemaining();
+                console.log(`📧 Cuenta: ${email}`);
+                console.log(`🔢 Código: \x1b[32m${code}\x1b[0m (Válido por ${timeRemaining}s)\n`);
+            } catch (error) {
+                console.log(`📧 Cuenta: ${email} - Error generando código.\n`);
+            }
+        });
+    };
+
+    renderCodes();
+    setInterval(renderCodes, 2000);
 }
 
 mainMenu();

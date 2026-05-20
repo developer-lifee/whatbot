@@ -790,6 +790,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     }
 
     Si el mensaje actual es una imagen o el texto menciona un pago, revisa si es un comprobante. Si lo es, pon intent: "pagar".
+    Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VERIFICACIÓN (2FA, código enviado al correo/teléfono), pon intent: "soporte" (para que el bot asista con el código o lo derive al humano).
   `;
 
   // --- FALLBACK BASADO EN PALABRAS CLAVE (Ante fallos de IA) ---
@@ -855,7 +856,7 @@ async function parseAdminQueryIntent(query, previousContext = "") {
 
     Salida esperada usando estricto JSON:
     {
-      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "auto_cobros" | "list_functions" | "update_data" | "record_sale" | "get_gmail_code" | "general_query",
+      "action": "search_customer" | "get_available" | "check_history" | "summary_stats" | "liberate_user" | "broadcast_credentials" | "confirm_action" | "auto_cobros" | "list_functions" | "update_data" | "record_sale" | "get_gmail_code" | "get_totp_code" | "general_query",
       "filters": {
         "name": string | null, // Nombre de la persona o nombre específico de la cuenta/correo (ej: "sheerit102")
         "platform": string | null,
@@ -894,6 +895,7 @@ async function parseAdminQueryIntent(query, previousContext = "") {
     - Si pide "atiende a...", "libera a...", "atender el pendiente de...", "encárgate de...", "ayúdame a explicar", "explícale", "contéstale", es "liberate_user".
     - Si pide "qué acabaste de hacer", "qué pasó", "dame detalles de la última acción", "por qué se envió eso", es "explain_last_action". (NO usar para peticiones de ayuda con clientes).
     - Si pide "dame el código de...", "llegó correo de...", "busca el link de...", "que dice el gmail de...", es "get_gmail_code".
+    - Si pide "dame el código 2fa de...", "dame el authenticator de...", "codigo de gpt de...", "codigo totp de...", es "get_totp_code".
     - Si no encaja, usa "general_query".
 
     Reglas de 'filters':
