@@ -2034,7 +2034,7 @@ async function processIncomingMessage(messages) {
       }
   }
 
-  const isChangingTopic = detection.intent && !['desconocido', 'comprar', 'pagar', 'cierre'].includes(detection.intent);
+  const isChangingTopic = detection.intent && !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar'].includes(detection.intent);
   const isVeryFrustrated = detection.frustrationLevel >= 7;
 
   if (flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform)) {
@@ -2085,7 +2085,7 @@ async function processIncomingMessage(messages) {
           }
 
           if (detection.recoveredState === 'awaiting_payment_method') {
-              if (detection.intent === 'pagar' || detection.intent === 'comprar') {
+              if (['pagar', 'comprar', 'renovar'].includes(detection.intent) || (detection.metadata && detection.metadata.paymentMethod)) {
                   await handleAwaitingPaymentMethod(message, userId);
               } else {
                   await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)`);
@@ -2581,7 +2581,7 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
 
   // Mapeo dinámico para manejar 'llave' o 'llaves'
   let methodToUse = method;
-  if (!methodToUse && lowerText.includes('llave')) methodToUse = 'llave';
+  if (!methodToUse && (lowerText.includes('llave') || lowerText.includes('bre-v') || lowerText.includes('brev') || lowerText.includes('bre-b') || lowerText.includes('breb'))) methodToUse = 'llave';
 
   if (methodToUse && paymentDetails[methodToUse]) {
     await message.reply(paymentDetails[methodToUse]);
