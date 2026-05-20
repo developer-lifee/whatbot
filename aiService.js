@@ -737,12 +737,13 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     Categorías para "intent":
     - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene. 
       *IMPORTANTE*: Si el usuario pregunta "¿tienes disponible?", "¿entregas ya?", "¿qué tienes para entrega inmediata?", clasifícalo como "comprar" con frustración 0 y genera un mensaje que invite a la venta con total confianza.
+    - "credenciales": El usuario solicita las credenciales (correo/contraseña) de su cuenta actual, reporta explícitamente "la contraseña no corresponde", "clave incorrecta", o pide recordar su pin de acceso.
     - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado.
     - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
-    - "soporte": Problemas técnicos, fallas, errores en el cobro, o si pide hablar con una persona (ej: "pásame a Esteban").
+    - "soporte": Problemas técnicos, fallas de conexión, errores en el cobro, perfiles caídos, o si pide explícitamente hablar con un humano/asesor. (NO usar si es explícitamente un error de clave).
     - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale", "chao", "adiós").
     - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio o pide la baja.
-    - "desconocido": Cualquier otro mensaje, incluyendo saludos iniciales (ej: "hola", "buenas noches", "buenos días") sin petición específica.
+    - "desconocido": Cualquier otro mensaje, incluyendo saludos iniciales sin petición específica.
 
     Regla de Intents (MÁXIMA PRIORIDAD):
     1. **MENÚ NUMÉRICO:** Si el mensaje es exactamente "1", "2", "3", "4" o "5", clasifícalo según el menú: "1"->comprar, "2"->credenciales, "3"->renovar, "4"->soporte, "5"->soporte.

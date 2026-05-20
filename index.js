@@ -1051,11 +1051,12 @@ async function processIncomingMessage(messages) {
           const detection = await detectInitialIntent(message.body, hist, mediaData);
           
           const cleanBody = (message.body || "").trim();
-          const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
+          // Añadimos 'soporte' para que el bot no ignore al cliente si el asesor se fue hace más de 30 min.
+          const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "soporte"];
           const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
 
           if (solvableIntents.includes(detection.intent) || isMenuSelection) {
-              console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA o selección de menú.`);
+              console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA o selección de menú. Intent: ${detection.intent}`);
               userStates.delete(userId);
               currentState = undefined;
               // Continúa el flujo

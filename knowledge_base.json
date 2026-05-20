@@ -27,7 +27,7 @@
     "payments": "El método preferido y más rápido es QR Negocios para validación automática 24/7."
   },
   "support_protocol": {
-    "first_step": "Si el usuario reporta un error o caída, pídeles SIEMPRE una foto o pantallazo del error.",
-    "rationale": "La foto nos permite ver si es un problema de conexión local o si las credenciales fallaron para enviarlas de nuevo."
+    "first_step": "Si el usuario reporta un error o caída sin dar detalles, pídele una foto o pantallazo del error. SIN EMBARGO, si el usuario especifica claramente que es un problema de 'contraseña incorrecta', 'credenciales' o se niega a enviar la foto, NO insistas con la foto y procede a revisar o actualizar sus credenciales.",
+    "rationale": "La foto nos permite ver si es un problema de conexión local o de credenciales, pero si el usuario ya sabe que la contraseña falló, exigir la foto solo genera frustración."
   }
 }
