@@ -1897,6 +1897,21 @@ async function processIncomingMessage(messages) {
                   const mediaToForward = await message.downloadMedia();
                   await groupChat.sendMessage(mediaToForward);
               }
+
+              if (stateData.isRenewal && stateData.items && stateData.items.length > 0) {
+                  const { updateExcelData } = require('./apiService');
+                  for (const item of stateData.items) {
+                      if (item._rowNumber) {
+                          try {
+                              await updateExcelData(item._rowNumber, { observaciones: "⚠️ REVISAR COMPROBANTE EN CHAT" });
+                              console.log(`[PAYMENT] Excel actualizado con nota de revisión para la fila ${item._rowNumber}`);
+                          } catch(err) {
+                              console.error("Error actualizando observaciones en Excel para comprobante:", err.message);
+                          }
+                      }
+                  }
+              }
+
           } catch (adminErr) {
               console.error("Error notificando al grupo sobre pago interceptado:", adminErr.message);
           }

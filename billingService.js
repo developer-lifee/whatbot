@@ -55,7 +55,26 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             // Buscar precio estrictamente en el catálogo de la página (platforms.json)
             // Lógica de matching agresiva (quitando caracteres especiales)
             let price = 0;
-            const cleanExcel = streaming.replace(/[^A-Z0-9]/g, '');
+            
+            let mappedStreaming = streaming.toUpperCase();
+            const aliasMap = {
+                'AMAZON': 'PRIME VIDEO',
+                'PRIME': 'PRIME VIDEO',
+                'APPLE TV': 'APPLE',
+                'HBO': 'HBOMAX',
+                'MAX': 'HBOMAX',
+                'DISNEY': 'DISNEY+ PREMIUM',
+                'STAR': 'DISNEY+ PREMIUM',
+                'YOUTUBE': 'YOUTUBE PREMIUM'
+            };
+            for (const [alias, real] of Object.entries(aliasMap)) {
+                if (mappedStreaming.includes(alias)) {
+                    mappedStreaming = real;
+                    break;
+                }
+            }
+            
+            const cleanExcel = mappedStreaming.replace(/[^A-Z0-9]/g, '');
             
             const platInfo = platforms.find(p => {
                 const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -157,6 +176,9 @@ async function handleAutoCobros(message, groupId, userStates, pendingConfirmatio
         const expiredOrSoon = customers.filter(c => {
             const expDate = getJsDateFromExcel(c.deben || c.vencimiento);
             if (!expDate) return false;
+            
+            const observaciones = (c.observaciones || "").toUpperCase();
+            if (observaciones.includes("COMPROBANTE") || observaciones.includes("REVISAR")) return false;
             
             // Avisar si vence hoy o ya venció hace poco (ej: hasta 2 días atrás)
             const diffDays = Math.floor((today - expDate) / (1000 * 60 * 60 * 24));
