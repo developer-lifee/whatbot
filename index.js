@@ -2122,7 +2122,7 @@ async function processIncomingMessage(messages) {
 
           if (detection.recoveredState === 'awaiting_payment_method') {
               if (['pagar', 'comprar', 'renovar'].includes(detection.intent) || (detection.metadata && detection.metadata.paymentMethod)) {
-                  await handleAwaitingPaymentMethod(message, userId);
+                  await handleAwaitingPaymentMethod(message, userId, false, null, inputToUse);
               } else {
                   await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)`);
               }
@@ -2252,7 +2252,7 @@ async function processIncomingMessage(messages) {
        } else if (detection.intent === 'pagar') {
            const stateData = userStates.get(userId) || {};
            if (userAccounts.length === 0 && stateData.items && stateData.items.length > 0) {
-               await handleAwaitingPaymentMethod(message, userId);
+               await handleAwaitingPaymentMethod(message, userId, false, null, inputToUse);
            } else {
                await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform);
            }
@@ -2327,7 +2327,7 @@ async function processIncomingMessage(messages) {
       }
       break;
     case 'awaiting_payment_method':
-      await handleAwaitingPaymentMethod(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
+      await handleAwaitingPaymentMethod(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null, inputToUse);
       break;
     case 'awaiting_cobros_confirmation':
       await handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client);
@@ -2578,8 +2578,9 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
 }
 
 
-async function handleAwaitingPaymentMethod(message, userId, isMedia = false, singleMediaData = null) {
-  await processPaymentSelection(message, userId, message.body, isMedia, singleMediaData);
+async function handleAwaitingPaymentMethod(message, userId, isMedia = false, singleMediaData = null, text = null) {
+  const textToUse = text || message.body || '';
+  await processPaymentSelection(message, userId, textToUse, isMedia, singleMediaData);
 }
 
 async function processPaymentSelection(message, userId, text, isMedia = false, singleMediaData = null) {

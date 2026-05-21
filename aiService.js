@@ -684,10 +684,25 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
     template = "Responde de forma amable a: {{MESSAGE_CONTENT}}";
   }
 
+  const paymentContext = `
+MÉTODOS DE PAGO DE LA EMPRESA (Reales y Oficiales):
+- Nequi: 3118587974
+- Daviplata: 3107946794
+- Bancolombia (Ahorros): Cuenta 46772753713, CC 1032936324
+- Banco Caja Social: Cuenta 24111572331, Nombre Esteban Avila, CC 1032936324
+- Transfiya: 3118587974
+- Llaves Bre-V: 0087387259
+- Llaves Bre-B: 3118587974
+- QR de Negocios (Enviar imagen de QR si la solicitan)
+
+INSTRUCCIÓN DE SEGURIDAD ABSOLUTA:
+NUNCA inventes o uses marcadores de posición (placeholders) como "[NÚMERO_NEQUI]" o "[NÚMERO_NEQUI_SHEERIT_STORE]". Si el usuario te pide la cuenta o número de Nequi, Daviplata, Bancolombia, etc., debes responder usando los datos reales listados arriba. Queda estrictamente prohibido usar corchetes.
+`;
+
   const prompt = template
     .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
     .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
-    .replace('{{WISDOM_CONTEXT}}', wisdomContext)
+    .replace('{{WISDOM_CONTEXT}}', wisdomContext + "\n" + paymentContext)
     .replace('{{PLATFORM_CONTEXT}}', platformContext)
     .replace('{{SUPPORT_CONTEXT}}', supportContext)
     .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
