@@ -92,14 +92,30 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
                     if (personalPlan) {
                         price = personalPlan.price;
                     }
+                } else if (platInfo.name.toUpperCase().includes('GEMINI') && !cleanExcel.includes('COMPARTIDA')) {
+                    const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('CORREO') || p.name.toUpperCase().includes('PROPIO'));
+                    if (personalPlan) {
+                        price = personalPlan.price;
+                    }
                 } else if (platInfo.plans && platInfo.plans.length > 0) {
                     const specificPlan = platInfo.plans.find(plan => {
                         const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
                         
-                        const keywords = ['PERSONAL', 'EXTRA', 'COMPARTIDA', 'ESTANDAR', 'PLATINO', 'MENSUAL', 'ANUAL', 'PLUS', 'PRO', 'CORREOPROPIO', 'NUEVA', 'RENOVACION', 'PROPORCIONADO', 'OWNER'];
+                        const keywords = ['PERSONAL', 'EXTRA', 'COMPARTIDA', 'ESTANDAR', 'PLATINO', 'MENSUAL', 'ANUAL', 'PLUS', 'PRO', 'CORREOPROPIO', 'NUEVA', 'RENOVACION', 'PROPORCIONADO', 'OWNER', 'INDIVIDUAL', 'PROPIO', 'CORREO'];
+                        const synonyms = {
+                            'INDIVIDUAL': ['PERSONAL', 'CORREOPROPIO', 'PROPIO', 'CORREO'],
+                            'PERSONAL': ['INDIVIDUAL', 'CORREOPROPIO', 'PROPIO', 'CORREO'],
+                            'PROPIO': ['PERSONAL', 'INDIVIDUAL', 'CORREOPROPIO', 'CORREO'],
+                            'CORREOPROPIO': ['PERSONAL', 'INDIVIDUAL', 'PROPIO', 'CORREO'],
+                            'CORREO': ['PERSONAL', 'INDIVIDUAL', 'PROPIO', 'CORREOPROPIO']
+                        };
+
                         for (const kw of keywords) {
-                            if (cleanExcel.includes(kw) && cleanPlan.includes(kw)) {
-                                return true;
+                            if (cleanExcel.includes(kw)) {
+                                if (cleanPlan.includes(kw)) return true;
+                                if (synonyms[kw] && synonyms[kw].some(syn => cleanPlan.includes(syn))) {
+                                    return true;
+                                }
                             }
                         }
                         
