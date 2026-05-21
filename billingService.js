@@ -84,9 +84,25 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             if (platInfo) {
                 price = platInfo.price || 0; 
                 
-                if (platInfo.plans && platInfo.plans.length > 0) {
+                // Regla especial para Spotify:
+                // Si la plataforma es Spotify y el Excel NO contiene palabras de "proporcionado" u "owner",
+                // por defecto asumimos que es el plan "Personal (Tu Correo)" de 10,000.
+                if (platInfo.name.toUpperCase() === 'SPOTIFY' && !cleanExcel.includes('PROPORCIONADO') && !cleanExcel.includes('OWNER')) {
+                    const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL'));
+                    if (personalPlan) {
+                        price = personalPlan.price;
+                    }
+                } else if (platInfo.plans && platInfo.plans.length > 0) {
                     const specificPlan = platInfo.plans.find(plan => {
                         const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                        
+                        const keywords = ['PERSONAL', 'EXTRA', 'COMPARTIDA', 'ESTANDAR', 'PLATINO', 'MENSUAL', 'ANUAL', 'PLUS', 'PRO', 'CORREOPROPIO', 'NUEVA', 'RENOVACION', 'PROPORCIONADO', 'OWNER'];
+                        for (const kw of keywords) {
+                            if (cleanExcel.includes(kw) && cleanPlan.includes(kw)) {
+                                return true;
+                            }
+                        }
+                        
                         return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
                     });
                     

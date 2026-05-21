@@ -1684,88 +1684,124 @@ async function processIncomingMessage(messages) {
     cleanBody = cleanBody.slice(1, -1).trim();
   }
 
-  const netflixKeywords = ['código de netflix', 'codigo de netflix', 'actualizar hogar', 'mi codigo', 'mi código'];
-  if (netflixKeywords.some(kw => cleanBody.toLowerCase().includes(kw))) {
+  // --- GENERAL CODE INTERCEPTOR (Netflix, Disney+, Max, Amazon, GPT, etc.) ---
+  const lowerBody = cleanBody.toLowerCase();
+  
+  const wantsCodeKeywords = [
+      'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código', 
+      'enviar código', 'enviar codigo', 'el código', 'el codigo', 
+      'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
+  ];
+  const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify'];
+  const hasCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw));
+  const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
+  const isQuestionOrCode = lowerBody === '?' || lowerBody.includes('enviar') || wantsCodeKeywords.some(kw => lowerBody === kw);
+  
+  if (hasCodeKeyword || (isQuestionOrCode && hasPlatformKeyword) || isQuestionOrCode) {
       try {
           const { getAccountsByPhone } = require('./apiService');
           const userAccounts = await getAccountsByPhone(realPhone);
-          const netflixAcct = userAccounts.find(c => {
-              const streamingName = (c.Streaming || "").toLowerCase();
-              return streamingName.includes('netflix') && !streamingName.includes('extra');
-          });
-          if (netflixAcct) {
-              const accountEmail = (netflixAcct.correo || "").trim().toLowerCase();
-              console.log(`[Netflix Code] Intentando buscar código para ${accountEmail}...`);
+          
+          if (userAccounts.length > 0) {
+              let targetAccount = null;
               
-              const fs = require('fs');
-              const path = require('path');
-              const tokenExists = fs.existsSync(path.join(__dirname, 'tokens', `token_${accountEmail}.json`));
-
-              if (accountEmail && tokenExists) {
-                  await message.reply(`🔍 *Buscando código en la cuenta:* ${accountEmail}...\nPor favor espera un momento.`);
-                  
-                  const { findRecentCodes } = require('./gmailService');
-                  const codes = await findRecentCodes(accountEmail, 10);
-
-                  if (codes && codes.length > 0) {
-                      const latest = codes[0];
-                      let response = `🤖 *Código de Netflix Encontrado* 🚀\n\n`;
-                      if (latest.code) {
-                          response += `🔢 Código: *${latest.code}*\n`;
+              // 1. Intentar buscar coincidencia directa por plataforma
+              const matchedPlatform = platformsSupported.find(p => lowerBody.includes(p));
+              if (matchedPlatform) {
+                  targetAccount = userAccounts.find(c => {
+                      const streamingName = (c.Streaming || "").toLowerCase();
+                      if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
+                          return streamingName.includes('hbo') || streamingName.includes('max');
                       }
-                      response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código vence pronto._`;
-                      await message.reply(response);
-                  } else {
-                      await message.reply(`🤖 No encontré códigos recientes en ${accountEmail}. Por favor, asegúrate de haber solicitado el código en tu televisor hace menos de 10 minutos y vuelve a intentarlo.`);
-                  }
-              } else {
-                  // Fallback al enlace si no tenemos el correo o el token
-                  await message.reply(`🤖 ¡Hola! Para generar tu código de hogar, ingresa a este enlace:\n\n👉 https://sheerit.com.co/verificar?tel=${realPhone}`);
+                      if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
+                          return streamingName.includes('amazon') || streamingName.includes('prime');
+                      }
+                      return streamingName.includes(matchedPlatform);
+                  });
               }
-          } else {
-              await message.reply(`🤖 No encontré una cuenta de Netflix principal activa a este número para asociar el hogar.`);
+              
+              // 2. Si no hay coincidencia directa, pero solo tiene 1 cuenta, usar esa
+              if (!targetAccount && userAccounts.length === 1) {
+                  targetAccount = userAccounts[0];
+              }
+              
+              // 3. Si tiene varias, usar la que venza pronto o ya venció
+              if (!targetAccount && userAccounts.length > 1) {
+                  const { getJsDateFromExcel } = require('./apiService');
+                  const today = new Date();
+                  userAccounts.sort((a, b) => {
+                      const dA = getJsDateFromExcel(a.deben || a.vencimiento) || new Date(0);
+                      const dB = getJsDateFromExcel(b.deben || b.vencimiento) || new Date(0);
+                      return dA - dB;
+                  });
+                  targetAccount = userAccounts[0];
+              }
+
+              if (targetAccount) {
+                  const accountEmail = (targetAccount.correo || "").trim().toLowerCase();
+                  const streamingName = (targetAccount.Streaming || "").toUpperCase();
+                  const isNetflixExtra = streamingName.includes('NETFLIX') && streamingName.includes('EXTRA');
+
+                  if (accountEmail && !isNetflixExtra) {
+                      const fs = require('fs');
+                      const path = require('path');
+                      
+                      // A. Es una cuenta GPT o Amazon con TOTP offline
+                      const gptSecrets = fs.existsSync(path.join(__dirname, 'tokens', 'gpt_secrets.json')) 
+                          ? JSON.parse(fs.readFileSync(path.join(__dirname, 'tokens', 'gpt_secrets.json'), 'utf8'))
+                          : {};
+                      const hasTotpSecret = gptSecrets[accountEmail];
+
+                      if (hasTotpSecret) {
+                          const { generateGPTCode, checkAndIncrementUsage } = require('./totpService');
+                          const canRequest = checkAndIncrementUsage(realPhone, accountEmail);
+                          if (!canRequest) {
+                              await message.reply("🤖 Has alcanzado el límite de 3 códigos para este inicio de sesión. Por seguridad, si necesitas más ayuda, un asesor humano revisará tu caso.");
+                              return;
+                          }
+                          const code = generateGPTCode(accountEmail);
+                          if (code) {
+                              await message.reply(`🔐 *Tu código de acceso (2FA) para ${streamingName}:* 🚀\n\n🔢 Código: *${code}*\n\n_Este código cambia cada 30 segundos. Úsalo pronto._`);
+                              return;
+                          }
+                      }
+                      
+                      // B. Cuenta con token de Gmail configurado (Disney+, Max, Netflix 4K, YouTube, etc.)
+                      const tokenExists = fs.existsSync(path.join(__dirname, 'tokens', `token_${accountEmail}.json`));
+                      
+                      if (tokenExists) {
+                          await message.reply(`🔍 *Buscando código para tu cuenta de ${streamingName}:* ${accountEmail}...\nPor favor espera un momento.`);
+                          
+                          const { findRecentCodes } = require('./gmailService');
+                          const codes = await findRecentCodes(accountEmail, 10);
+
+                          if (codes && codes.length > 0) {
+                              const latest = codes[0];
+                              let response = `🤖 *Código de ${streamingName} Encontrado* 🚀\n\n`;
+                              if (latest.code) {
+                                  response += `🔢 Código: *${latest.code}*\n`;
+                              }
+                              response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código vence pronto._`;
+                              await message.reply(response);
+                              return;
+                          } else {
+                              await message.reply(`🤖 No encontré códigos recientes en ${accountEmail} para ${streamingName}. Por favor, asegúrate de haber seleccionado la opción de enviar el código en tu pantalla hace menos de 10 minutos y vuelve a escribir *código*.`);
+                              return;
+                          }
+                      }
+                      
+                      // C. Es Netflix pero no tiene token (dar el verificador web)
+                      if (streamingName.includes('NETFLIX')) {
+                          await message.reply(`🤖 ¡Hola! Para generar tu código de hogar, ingresa a este enlace:\n\n👉 https://sheerit.com.co/verificar?tel=${realPhone}`);
+                          return;
+                      }
+                  }
+              }
           }
-      } catch(e) {
-          console.error("Error en validación netflix intercept:", e);
+      } catch (e) {
+          console.error("Error en interceptor general de códigos:", e);
       }
-      return;
   }
-
-    // --- INTERCEPTOR DE CÓDIGO GPT (TOTP) ---
-    const gptKeywords = ['código gpt', 'codigo gpt', 'authenticator gpt', 'token gpt', 'mi codigo gpt'];
-    if (gptKeywords.some(kw => cleanBody.toLowerCase().includes(kw))) {
-        try {
-            const { getAccountsByPhone } = require('./apiService');
-            const { generateGPTCode, checkAndIncrementUsage } = require('./totpService');
-            
-            const userAccounts = await getAccountsByPhone(realPhone);
-            const gptAcct = userAccounts.find(c => (c.Streaming || "").toLowerCase().includes('gpt'));
-
-            if (gptAcct) {
-                const accountEmail = (gptAcct.correo || "").trim().toLowerCase();
-                
-                // Verificar límite de uso (3 códigos)
-                const canRequest = checkAndIncrementUsage(realPhone, accountEmail);
-                
-                if (!canRequest) {
-                    await message.reply("🤖 Has alcanzado el límite de 3 códigos para este inicio de sesión. Por seguridad, si necesitas más ayuda, un asesor humano revisará tu caso.");
-                    return;
-                }
-
-                const code = generateGPTCode(accountEmail);
-                if (code) {
-                    await message.reply(`🤖 *Tu código de acceso GPT:* 🚀\n\n🔢 Código: *${code}*\n\n_Este código cambia cada 30 segundos. Úsalo pronto._`);
-                } else {
-                    await message.reply(`🤖 No encontré un configurador de Authenticator para la cuenta *${accountEmail}*. Por favor, solicita ayuda a un asesor para vincularla.`);
-                }
-            } else {
-                await message.reply("🤖 No encontré una cuenta de GPT activa vinculada a este número.");
-            }
-        } catch (e) {
-            console.error("Error en validación GPT intercept:", e);
-        }
-        return;
-    }
 
     if (cleanBody.toLowerCase().startsWith("hola, estoy interesado en")) {
     message.body = cleanBody;
@@ -2042,7 +2078,7 @@ async function processIncomingMessage(messages) {
       
       if (isVeryFrustrated) {
           userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1 });
-          await message.reply("🤖 He detectado que como bot no puedo solucionar tus problemas, ya que lo único que puedo hacer automáticamente es **vender cuentas, revisar tus credenciales, registrar pagos y validar códigos de acceso de algunos correos o GPT**. Le dejaré un recordatorio a un asesor humano para que revise tu caso personalmente. En caso de que lleves esperando bastante, es porque nuestros asesores están muy ocupados, así que tener paciencia es lo que sirve mejor en estos casos. ¡Gracias por comprender! 😊");
+          await message.reply("🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊");
           return;
       }
       
@@ -2108,7 +2144,7 @@ async function processIncomingMessage(messages) {
               nombre: foundName, 
               waitingCount: 1 
           });
-          await message.reply("🤖 He detectado que como bot no puedo solucionar tus problemas, ya que lo único que puedo hacer automáticamente es **vender cuentas, revisar tus credenciales, registrar pagos y validar códigos de acceso de algunos correos o GPT**. Le dejaré un recordatorio a un asesor humano para que revise tu caso personalmente. En caso de que lleves esperando bastante, es porque nuestros asesores están muy ocupados, así que tener paciencia es lo que sirve mejor en estos casos. ¡Gracias por comprender! 😊");
+          await message.reply("🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊");
           return;
       }
 
@@ -2581,7 +2617,7 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
 
   // Mapeo dinámico para manejar 'llave' o 'llaves'
   let methodToUse = method;
-  if (!methodToUse && (lowerText.includes('llave') || lowerText.includes('bre-v') || lowerText.includes('brev') || lowerText.includes('bre-b') || lowerText.includes('breb'))) methodToUse = 'llave';
+  if (!methodToUse && (lowerText.includes('llave') || lowerText.includes('bre-v') || lowerText.includes('brev') || lowerText.includes('bre v') || lowerText.includes('bre-b') || lowerText.includes('breb') || lowerText.includes('bre b'))) methodToUse = 'llave';
 
   if (methodToUse && paymentDetails[methodToUse]) {
     await message.reply(paymentDetails[methodToUse]);
