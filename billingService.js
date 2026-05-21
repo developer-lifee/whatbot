@@ -177,7 +177,7 @@ async function handleAutoCobros(message, groupId, userStates, pendingConfirmatio
             const expDate = getJsDateFromExcel(c.deben || c.vencimiento);
             if (!expDate) return false;
             
-            const observaciones = (c.observaciones || "").toUpperCase();
+            const observaciones = String(c.observaciones || "").toUpperCase();
             if (observaciones.includes("COMPROBANTE") || observaciones.includes("REVISAR")) return false;
             
             // Avisar si vence hoy o ya venció hace poco (ej: hasta 2 días atrás)
