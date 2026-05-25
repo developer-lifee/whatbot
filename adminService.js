@@ -7,7 +7,9 @@ function isCriticalBrowserError(err) {
     return msg.includes('detached frame') || 
            msg.includes('execution context was destroyed') || 
            msg.includes('navigation failed') ||
-           msg.includes('connection closed');
+           msg.includes('connection closed') ||
+           msg.includes('cannot read properties of undefined') ||
+           msg.includes('getchats');
 }
 
 /**

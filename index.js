@@ -24,7 +24,9 @@ function isCriticalBrowserError(err) {
     return msg.includes('detached frame') || 
            msg.includes('execution context was destroyed') || 
            msg.includes('navigation failed') ||
-           msg.includes('connection closed');
+           msg.includes('connection closed') ||
+           msg.includes('cannot read properties of undefined') ||
+           msg.includes('getchats');
 }
 const { pool } = require('./database');
 const { initDailyAutomation } = require('./scheduledTasks');
@@ -762,6 +764,68 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
     let userAccounts = [];
     try { userAccounts = await getAccountsByPhone(phoneNumber); } catch(e){}
     
+    // --- NUEVO: DETECTAR PROMESA DE PAGO Y DEPOSITAR OBSERVACIÓN EN EXCEL ---
+    try {
+        const { detectPaymentPromise } = require('./aiService');
+        const promiseResult = await detectPaymentPromise(message.body || "", historyText);
+        if (promiseResult && promiseResult.isPromise && userAccounts.length > 0) {
+            let targetAccount = null;
+            if (userAccounts.length === 1) {
+                targetAccount = userAccounts[0];
+            } else if (userAccounts.length > 1) {
+                if (promiseResult.platform) {
+                    const term = promiseResult.platform.toLowerCase();
+                    targetAccount = userAccounts.find(acc => (acc.Streaming || "").toLowerCase().includes(term));
+                }
+                if (!targetAccount) {
+                    const { getJsDateFromExcel } = require('./apiService');
+                    const sortedAccounts = [...userAccounts].sort((a, b) => {
+                        const dA = getJsDateFromExcel(a.deben || a.vencimiento) || new Date(0);
+                        const dB = getJsDateFromExcel(b.deben || b.vencimiento) || new Date(0);
+                        return dA - dB;
+                    });
+                    targetAccount = sortedAccounts[0];
+                }
+            }
+
+            if (targetAccount && targetAccount._rowNumber && promiseResult.dateStr) {
+                const { updateExcelData } = require('./apiService');
+                
+                // Validar límite máximo de 14 días
+                let withinLimit = true;
+                let formattedNoteDate = promiseResult.dateStr;
+                try {
+                    const promiseDate = new Date(promiseResult.dateStr + 'T12:00:00');
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    
+                    const diffTime = promiseDate - today;
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    if (diffDays > 14 || diffDays < 0) {
+                        withinLimit = false;
+                        console.log(`[Promesa de Pago] Ignorada para fila ${targetAccount._rowNumber} por superar el límite de 14 días: ${diffDays} días.`);
+                    } else {
+                        // Formatear a DD/MM para que sea más legible y estético en el Excel
+                        const day = String(promiseDate.getDate()).padStart(2, '0');
+                        const month = String(promiseDate.getMonth() + 1).padStart(2, '0');
+                        formattedNoteDate = `${day}/${month}`;
+                    }
+                } catch(parseErr) {
+                    console.error("Error al calcular diferencia de fecha para promesa de pago:", parseErr.message);
+                }
+
+                if (withinLimit) {
+                    const finalObservation = `paga el ${formattedNoteDate} (bot)`;
+                    await updateExcelData(targetAccount._rowNumber, { "observaciones": finalObservation });
+                    console.log(`[Promesa de Pago] Auto-guardada en Excel fila ${targetAccount._rowNumber}: ${finalObservation}`);
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Error en interceptor de promesa de pago:", err.message);
+    }
+    
     // Si isMedia y no hay texto, body podría estar vacío, igual se pasa.
     const fallbackResult = await generateEmpatheticFallback(message.body || "", isMedia, historyText, mediaData, userAccounts);
     
@@ -838,7 +902,7 @@ async function processIncomingMessage(messages) {
       const combinedAdminBody = messages.map(m => m.body).join(' ');
       const adminAI = await detectAdminIntent(combinedAdminBody);
       
-      console.log(`[Chief Mode] Intención detectada: ${adminAI.intent} para ${adminAI.target}`);
+      console.log(`[Chief Mode] Intención detectada: ${adminAI.intent} para ${adminAI.target_user || adminAI.target}`);
 
       if (adminAI.intent === 'dame_cuenta' && (adminAI.target_platform || adminAI.target_user)) {
           const { handleAdminForceRetrieve } = require('./adminService');
@@ -1425,7 +1489,7 @@ async function processIncomingMessage(messages) {
   if (isBotCommand || isReplyConfirmation) {
       const { detectAdminIntent } = require('./aiService');
       const adminAI = await detectAdminIntent(message.body);
-      console.log(`[Admin AI] Intención detectada: ${adminAI.intent} para ${adminAI.target}`);
+      console.log(`[Admin AI] Intención detectada: ${adminAI.intent} para ${adminAI.target_user || adminAI.target}`);
 
       if (adminAI.intent === 'dormir_bot') {
           globalBotSleep = true;
@@ -1441,7 +1505,7 @@ async function processIncomingMessage(messages) {
               await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
           } else {
               // Liberar a uno solo
-              let targetPhone = adminAI.target ? adminAI.target.replace(/\D/g, '') : null;
+              let targetPhone = (adminAI.target_user || adminAI.target) ? (adminAI.target_user || adminAI.target).replace(/\D/g, '') : null;
               let targetId = targetPhone ? targetPhone + '@c.us' : (isFromAdmin && !message.from.includes('@g.us') ? message.to : null);
               
               if (targetId) {
@@ -1770,7 +1834,7 @@ async function processIncomingMessage(messages) {
                       const tokenExists = fs.existsSync(path.join(__dirname, 'tokens', `token_${accountEmail}.json`));
                       
                       if (tokenExists) {
-                          await message.reply(`🔍 *Buscando código para tu cuenta de ${streamingName}:* ${accountEmail}...\nPor favor espera un momento.`);
+                          await message.reply(`🤖 🔍 *Buscando código para tu cuenta de ${streamingName}:* ${accountEmail}...\nPor favor espera un momento.`);
                           
                           const { findRecentCodes } = require('./gmailService');
                           const codes = await findRecentCodes(accountEmail, 10);
@@ -1795,6 +1859,26 @@ async function processIncomingMessage(messages) {
                           await message.reply(`🤖 ¡Hola! Para generar tu código de hogar, ingresa a este enlace:\n\n👉 https://sheerit.com.co/verificar?tel=${realPhone}`);
                           return;
                       }
+
+                      // D. No tiene token y no es Netflix (explicar amablemente y alertar al grupo admin)
+                      await message.reply(`🤖 ¡Hola! Encontré tu cuenta de *${streamingName}* (${accountEmail}), pero aún no está vinculada a nuestro sistema de códigos automáticos 2FA.\n\nHe notificado a tu asesor para que te entregue tu código manualmente en un momento. Además, vincularemos tu cuenta para que en futuras ocasiones puedas obtener tus códigos en segundos de forma automática. ¡Gracias por tu paciencia!`);
+                      
+                      // Silenciar bot para este cliente y poner en cola de espera humana
+                      userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
+                      if (!global.supportQueue) global.supportQueue = [];
+                      const qIdx = global.supportQueue.indexOf(userId);
+                      if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
+                      global.supportQueue.push(userId);
+
+                      try {
+                          const groupChat = await client.getChatById(GROUP_ID);
+                          if (groupChat) {
+                              await groupChat.sendMessage(`🚨 *CÓDIGO MANUAL REQUERIDO* de @${realPhone}\n📺 Plataforma: *${streamingName}*\n📧 Cuenta: *${accountEmail}*\n\n_Por favor entrega el código manualmente y vincula su token de Gmail si aplica._`);
+                          }
+                      } catch (err) {
+                          console.error("Error notificando al grupo sobre código manual:", err.message);
+                      }
+                      return;
                   }
               }
           }

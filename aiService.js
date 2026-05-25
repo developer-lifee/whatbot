@@ -124,12 +124,12 @@ async function detectAdminIntent(messageContent) {
     FACULTADES DEL JEFE:
     - "confirmar_pago": El jefe quiere validar el pago de un cliente. Busca si menciona un número de teléfono o nombre.
     - "confirm_action": El jefe confirma una acción pendiente (menciona "sí", "si", "dale", "proceder", "confirmar", "hazlo").
-    - "liberar_bot": El jefe quiere que el bot vuelva a atender a un cliente que estaba silenciado (menciona "liberar", "atiende", "vuelve", "contesta", "pide el código al @bot", "te ayuda el bot", "ayúdame a explicar", "explícale").
+    - "liberar_bot": El jefe quiere que el bot vuelva a atender a un cliente que estaba silenciado (menciona "liberar", "atiende", "vuelve", "contesta", "te ayuda el bot", "ayúdame a explicar", "explícale").
     - "dame_cuenta": El jefe quiere que le des las credenciales de una plataforma para él mismo (menciona "dame una de", "pásame", "pasa cuenta", "quiero entrar a"). 
-      *IMPORTANTE*: NO uses este intent si el mensaje menciona "envía", "manda", "pasa a todos", "notifica" o "a los de", ya que eso indica un broadcast (envío masivo).
+      *IMPORTANTE*: NO uses este intent si el mensaje menciona "envía", "manda", "pasa a todos", "notifica", "a los de", "código", "gmail", "correo" o "verificación", ya que eso indica un broadcast o la búsqueda de un código de acceso temporal.
     - "dormir_bot": El jefe quiere apagar las respuestas automáticas globales ("duérmete", "apágate").
     - "despertar_bot": El jefe quiere reactivar el bot globalmente ("despiértate", "actívate").
-    - "desconocido": Consultas de datos, reportes, envíos masivos (broadcast), refinamientos de mensajes, o charla casual.
+    - "desconocido": Consultas de códigos (menciona "código", "gmail", "correo", "2fa", "authenticator", "totp", "verificación"), consultas de datos, reportes, envíos masivos (broadcast), refinamientos de mensajes, o charla casual.
  
     Salida esperada JSON:
     {
@@ -1057,6 +1057,36 @@ async function editBroadcastPayload(query, currentPayload) {
   }
 }
 
+/**
+ * Detecta si el mensaje del usuario expresa una promesa o fecha de pago futuro.
+ */
+async function detectPaymentPromise(messageContent, chatHistory = "") {
+  const prompt = `
+    Analiza el siguiente mensaje del usuario e identifica si expresa un compromiso, promesa o fecha de pago futuro (ej: "mañana pago", "consigno el 25", "el viernes pago", "más tarde transfiero").
+    
+    MENSAJE DEL USUARIO: "${messageContent}"
+    CONTEXTO PREVIO:
+    ${chatHistory}
+
+    FECHA DE REFERENCIA DEL SISTEMA: ${new Date().toLocaleDateString('es-CO')} (Bogotá, Colombia)
+
+    Salida esperada usando estricto JSON:
+    {
+      "isPromise": boolean, // true si promete pagar en el futuro
+      "dateStr": string | null, // Ejemplo: "2026-05-25" (SIEMPRE en formato YYYY-MM-DD. Si dice "mañana" y la referencia es 24/5/2026, debe ser "2026-05-25". Calcula el día, mes y año correspondientes)
+      "platform": string | null // Si se menciona o se infiere de qué servicio habla (ej: "HBO", "Netflix"), de lo contrario null.
+    }
+  `;
+
+  try {
+    const jsonString = await callGemini(prompt, "Eres un analista de intenciones de pago. Responde solo con JSON.", true);
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error("Error en detectPaymentPromise:", error);
+    return { isPromise: false, dateStr: null, platform: null };
+  }
+}
+
 module.exports = {
   parsePurchaseIntent,
   detectPaymentMethod,
@@ -1073,5 +1103,6 @@ module.exports = {
   editBroadcastPayload,
   generateReactivationResponse,
   isFamilyPlan,
-  getMaskedAccessData
+  getMaskedAccessData,
+  detectPaymentPromise
 };

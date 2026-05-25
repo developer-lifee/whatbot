@@ -213,24 +213,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const numericPhone = parseInt(formattedPhone.replace(/\D/g, '')) || 0;
 
                 const updates = {
-                    // Por Nombre
-                    "whatsapp": formattedPhone,
-                    "numero": name, 
-
-
-                    // Con el truco de la comilla simple de Excel
-                    "numero ": `'${formattedPhone}`,
-
-                    // Por Letra
-                    "E": name,
-                    "E": name,
-
-                    // Por Índice
-                    "5": name,
-                    "5": name,
-
+                    "whatsapp": name,
+                    "numero": `'${formattedPhone}`,
                     "Nombre": firstName,
-                    "nombre": firstName,
                     "apellido": lastName,
                     "deben": nextPaymentDate,
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
