@@ -193,7 +193,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
         }
 
         response += `*TOTAL A PAGAR: $${total}*\n\n`;
-        response += "🤖 ¿Por cuál medio deseas realizar la transferencia?\n\n⭐ *QR Negocios (RECOMENDADO ⚡)*\n⭐ *Llaves (Bre-V / Bre-B)*\n⭐ *Nequi / Daviplata / Transfiya*\n⭐ *Bancolombia / Banco Caja Social*\n\n💡 *Tip:* Si pagas por *QR* o *Llave Bre-V*, el bot valida tu pago automáticamente y entrega el servicio de inmediato. 🤖";
+        response += "🤖 ¿Por cuál medio deseas realizar la transferencia?\n\n⭐ *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n⭐ *Llaves Bre-V / Bre-B (ENTREGA INMEDIATA ⚡)*\n⭐ *Bancolombia (Abono Directo - VALIDACIÓN EN SEGUNDOS ⚡)*\n⭐ *Banco Caja Social (VALIDACIÓN EN SEGUNDOS ⚡)*\n\n💡 *Tip:* ¡Todos estos métodos se validan automáticamente por el bot para entregarte tu cuenta de inmediato! 🤖";
 
         await message.reply(response);
         

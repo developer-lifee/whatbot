@@ -1993,9 +1993,13 @@ async function processIncomingMessage(messages) {
           
           globalLastPaymentUserId = userId; // Guardamos en memoria para que el admin solo diga "@bot confirmar"
 
-          const replyText = stateData.isRenewal 
-              ? "🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\nUn asesor validará tu pago en un momento y renovará tus servicios activos. ¡Gracias por tu paciencia! 😊"
-              : "🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\nUn asesor lo validará manualmente en un momento para entregarte tu cuenta. ¡Gracias por tu paciencia! 😊";
+          const replyText = `🤖 He recibido tu comprobante de pago. ¡Muchas gracias! 🎉
+
+⚠️ *Nota:* Como enviaste el comprobante por un medio manual (Nequi/Daviplata tradicional), nuestro equipo humano tendrá que verificarlo de forma manual. Esto puede demorar un poco más. ⏳
+
+💡 *Recomendación para la próxima:* Si realizas tus transferencias utilizando nuestro *QR Negocios* o la *Llave Bre-V / Bre-B*, el bot validará tu pago automáticamente y te entregará el servicio en segundos sin esperar por humanos. ⚡🤖
+
+Un asesor ya está notificado y revisará tu transferencia lo más pronto posible. ¡Gracias por tu paciencia! 😊`;
           
           await message.reply(replyText);
 
@@ -2693,13 +2697,13 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
   const method = await detectPaymentMethod(text);
 
   const paymentDetails = {
-    'nequi': "🤖 *Nequi*\n3118587974",
-    'daviplata': "🤖 *Daviplata*\n3107946794",
-    'bancolombia': "🤖 *Bancolombia - ahorros*\nNúmero de cuenta: 46772753713\nCC: 1032936324",
-    'banco caja social': "🤖 *Banco Caja Social*\n24111572331\nNombre: Esteban Avila\nCC: 1032936324",
-    'transfiya': "🤖 *Transfiya*\nNúmero: 3118587974",
-    'llave': "🤖 *LLAVES (Bre-V / Bre-B)*\n\n1. *LLAVE Bre-V (Recomendada - QR):*\n0087387259 ⚡\n\n2. *LLAVE Bre-B (Alternativa):*\n3118587974\n\nCualquiera de las dos sirve para tu transferencia.",
-    'qr negocios': "🤖 *QR Negocios (RECOMENDADO)*\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** inmediata de tus servicios. ⚡"
+    'nequi': "🤖 *Nequi (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Nequi, por favor utiliza nuestra *Llave Bre-V / Bre-B* o el *QR de Negocios*. De esta forma, el bot validará tu pago automáticamente y te entregará el servicio en segundos sin esperar por humanos. ⚡\n\n🔑 *Llave Bre-V (Recomendada):* 0087387259\n🔑 *Llave Bre-B (Alternativa):* 3118587974",
+    'daviplata': "🤖 *Daviplata (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Daviplata, por favor utiliza nuestra *Llave Bre-V / Bre-B* o el *QR de Negocios*. De esta forma, el bot validará tu pago automáticamente y te entregará el servicio en segundos sin esperar por humanos. ⚡\n\n🔑 *Llave Bre-V (Recomendada):* 0087387259\n🔑 *Llave Bre-B (Alternativa):* 3118587974",
+    'transfiya': "🤖 *Transfiya (ENTREGA INMEDIATA ⚡)*\n\nPara enviar por Transfiya, por favor utiliza nuestra *Llave Bre-V / Bre-B* o el *QR de Negocios*. De esta forma, el bot validará tu pago automáticamente y te entregará el servicio en segundos sin esperar por humanos. ⚡\n\n🔑 *Llave Bre-V (Recomendada):* 0087387259\n🔑 *Llave Bre-B (Alternativa):* 3118587974",
+    'bancolombia': "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos sin esperar por humanos.",
+    'banco caja social': "🤖 *Banco Caja Social (VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 24111572331\nNombre: Esteban Avila\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos sin esperar por humanos.",
+    'llave': "🤖 *LLAVES (Bre-V / Bre-B) (ENTREGA INMEDIATA ⚡)*\n\n1. *LLAVE Bre-V (Recomendada - Nequi/Daviplata/Ahorro a la mano):*\n0087387259\n\n2. *LLAVE Bre-B (Alternativa):*\n3118587974\n\n💡 *Tip:* Al usar cualquiera de estas llaves, tu pago se verifica en segundos automáticamente.",
+    'qr negocios': "🤖 *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** inmediata de tus servicios sin esperar por humanos. ⚡"
   };
   
   const lowerText = text.toLowerCase();

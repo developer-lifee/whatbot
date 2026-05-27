@@ -100,15 +100,8 @@ async function checkNewPayments() {
     }
 }
 
-/**
- * Busca un pago específico por monto en los correos recientes de Gmail.
- * @param {number} targetAmount 
- * @param {number} toleranceMinutes 
- * @returns {Promise<Object|null>}
- */
-async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
-    console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min...`);
-    const auth = await getOAuth2Client('gmail', null, PAYMENT_EMAIL);
+async function findMatchingPaymentInAccount(email, query, targetAmount, toleranceMinutes, isBancolombia = false) {
+    const auth = await getOAuth2Client('gmail', null, email);
     if (!auth) return null;
 
     const gmail = google.gmail({ version: 'v1', auth });
@@ -116,7 +109,7 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
     try {
         const res = await gmail.users.messages.list({
             userId: 'me',
-            q: 'subject:"Detalle de tu venta por Bre-B" newer_than:1d',
+            q: query,
             maxResults: 15
         });
 
@@ -133,8 +126,6 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
             const diffMinutes = (now - internalDate) / (1000 * 60);
 
             if (diffMinutes > toleranceMinutes) {
-                // Si el mensaje es más viejo que la tolerancia, lo ignoramos.
-                // Como vienen ordenados por fecha, podríamos usar break, pero continue es más seguro.
                 continue;
             }
 
@@ -145,33 +136,90 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
             const subjectHeader = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'subject');
             const subject = subjectHeader ? subjectHeader.value : 'Sin asunto';
 
-            const isApproved = /Estado:\s*(?:Aprobada|Exitosa)/i.test(body) || /Venta exitosa/i.test(body);
-            if (!isApproved) continue;
+            if (isBancolombia) {
+                const isTransfer = /transferencia/i.test(body) || /recibida/i.test(body) || /abono/i.test(body) || /transferencia/i.test(subject);
+                if (!isTransfer) continue;
 
-            const amountRegex = /Monto:\s*(?:\$)?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i;
-            const amountMatches = body.match(amountRegex);
+                const amountRegex = /(?:por valor de|por|monto|valor)\s*(?:\$)?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i;
+                const amountMatches = body.match(amountRegex);
 
-            if (amountMatches) {
-                const rawValue = amountMatches[1];
-                const cleanValue = parseInt(rawValue.replace(/\./g, '').split(',')[0]);
+                if (amountMatches) {
+                    const rawValue = amountMatches[1];
+                    const cleanValue = parseInt(rawValue.replace(/\./g, '').split(',')[0]);
 
-                if (cleanValue === targetAmount) {
-                    console.log(`[GMAIL MATCH] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
-                    return {
-                        id: msg.id,
-                        amount: cleanValue,
-                        date: internalDate,
-                        diffMinutes: Math.round(diffMinutes),
-                        subject: subject
-                    };
+                    if (cleanValue === targetAmount) {
+                        console.log(`[GMAIL MATCH BANCOLOMBIA] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
+                        return {
+                            id: msg.id,
+                            amount: cleanValue,
+                            date: internalDate,
+                            diffMinutes: Math.round(diffMinutes),
+                            subject: subject,
+                            bank: "Bancolombia"
+                        };
+                    }
+                }
+            } else {
+                const isApproved = /Estado:\s*(?:Aprobada|Exitosa)/i.test(body) || /Venta exitosa/i.test(body);
+                if (!isApproved) continue;
+
+                const amountRegex = /Monto:\s*(?:\$)?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i;
+                const amountMatches = body.match(amountRegex);
+
+                if (amountMatches) {
+                    const rawValue = amountMatches[1];
+                    const cleanValue = parseInt(rawValue.replace(/\./g, '').split(',')[0]);
+
+                    if (cleanValue === targetAmount) {
+                        console.log(`[GMAIL MATCH BRE-B] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
+                        return {
+                            id: msg.id,
+                            amount: cleanValue,
+                            date: internalDate,
+                            diffMinutes: Math.round(diffMinutes),
+                            subject: subject,
+                            bank: "Bre-B"
+                        };
+                    }
                 }
             }
         }
-        return null;
-    } catch (error) {
-        console.error('❌ Error en findMatchingPayment:', error.message);
-        return null;
+    } catch (e) {
+        console.error(`Error en findMatchingPaymentInAccount para ${email}:`, e.message);
     }
+    return null;
+}
+
+/**
+ * Busca un pago específico por monto en los correos recientes de Gmail (Bre-B y Bancolombia).
+ * @param {number} targetAmount 
+ * @param {number} toleranceMinutes 
+ * @returns {Promise<Object|null>}
+ */
+async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
+    console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min...`);
+    
+    // 1. Buscar en Jordi (Bre-B)
+    const matchJordi = await findMatchingPaymentInAccount(
+        PAYMENT_EMAIL,
+        'subject:"Detalle de tu venta por Bre-B" newer_than:1d',
+        targetAmount,
+        toleranceMinutes,
+        false
+    );
+    if (matchJordi) return matchJordi;
+
+    // 2. Buscar en Esteban (Bancolombia)
+    const matchEsteban = await findMatchingPaymentInAccount(
+        'estebanavila6324@gmail.com',
+        'subject:("Transferencia recibida" OR "Le informamos" OR "Bancolombia te informa") newer_than:1d',
+        targetAmount,
+        toleranceMinutes,
+        true
+    );
+    if (matchEsteban) return matchEsteban;
+
+    return null;
 }
 
 /**

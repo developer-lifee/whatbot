@@ -685,18 +685,15 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
   }
 
   const paymentContext = `
-MÉTODOS DE PAGO DE LA EMPRESA (Reales y Oficiales):
-- Nequi: 3118587974
-- Daviplata: 3107946794
+MÉTODOS DE PAGO DE LA EMPRESA (Reales y Oficiales - AUTOMÁTICOS ⚡):
+- QR de Negocios (Enviar imagen de QR si la solicitan)
+- Llaves Bre-V: 0087387259 (Para Nequi/Daviplata/Ahorro a la mano)
+- Llaves Bre-B: 3118587974 (Para Nequi/Daviplata)
 - Bancolombia (Ahorros): Cuenta 46772753713, CC 1032936324
 - Banco Caja Social: Cuenta 24111572331, Nombre Esteban Avila, CC 1032936324
-- Transfiya: 3118587974
-- Llaves Bre-V: 0087387259
-- Llaves Bre-B: 3118587974
-- QR de Negocios (Enviar imagen de QR si la solicitan)
 
 INSTRUCCIÓN DE SEGURIDAD ABSOLUTA:
-NUNCA inventes o uses marcadores de posición (placeholders) como "[NÚMERO_NEQUI]" o "[NÚMERO_NEQUI_SHEERIT_STORE]". Si el usuario te pide la cuenta o número de Nequi, Daviplata, Bancolombia, etc., debes responder usando los datos reales listados arriba. Queda estrictamente prohibido usar corchetes.
+NUNCA menciones números de Nequi o Daviplata manuales tradicionales (como el 3118587974 o el 3107946794 de forma directa). Promociona ÚNICAMENTE las Llaves Bre-V, Bre-B, el QR de Negocios y la cuenta de Bancolombia/Caja Social, ya que son los únicos métodos de validación automática inmediata del bot. Queda estrictamente prohibido usar corchetes o inventar números.
 `;
 
   const prompt = template
