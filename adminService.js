@@ -237,7 +237,8 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                                 "Aquí tienes tus credenciales actualizadas:";
              await client.sendMessage(userId, successMsg);
              
-             // --- ENTREGA AUTOMÁTICA ---
+             // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
+             await new Promise(r => setTimeout(r, 6000));
              const { processCheckCredentials } = require('./billingService');
              await processCheckCredentials(userId, client, "Entrega automática tras pago", "");
          } catch (deliveryErr) {
@@ -490,7 +491,8 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
                                "Aquí tienes tus credenciales actualizadas:";
             await client.sendMessage(userId, successMsg);
             
-            // --- ENTREGA AUTOMÁTICA ---
+            // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
+            await new Promise(r => setTimeout(r, 6000));
             const { processCheckCredentials } = require('./billingService');
             await processCheckCredentials(userId, client, "Entrega automática tras confirmación manual", "");
         }

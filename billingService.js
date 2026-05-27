@@ -29,7 +29,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
 /**
  * Procesa la solicitud de precios/deudas de un usuario (Opción 3 del menú).
  */
-async function processCheckPrices(message, userId, userStates, inputToUse = "", detectedPlatform = null) {
+async function processCheckPrices(message, userId, userStates, inputToUse = "", detectedPlatform = null, durationMonths = 1) {
     try {
         const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
         const userAccounts = await getAccountsByPhone(phoneNumber);
@@ -42,12 +42,25 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
         const platforms = await getPlatformKnowledge();
         const today = getTodayInBogota();
         
-        let response = "💰 *TU RESUMEN DE PAGO*\n\n";
+        let response = `💰 *TU RESUMEN DE PAGO${durationMonths > 1 ? ` (${durationMonths} MESES)` : ''}*\n\n`;
         let total = 0;
         let itemsForRenewal = [];
 
         let hasZeroPrice = false;
-        userAccounts.forEach(acc => {
+        
+        let accountsToProcess = userAccounts;
+        if (detectedPlatform) {
+            const search = detectedPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const filtered = userAccounts.filter(acc => {
+                const current = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                return current.includes(search) || search.includes(current);
+            });
+            if (filtered.length > 0) {
+                accountsToProcess = filtered;
+            }
+        }
+
+        accountsToProcess.forEach(acc => {
             const streaming = (acc.Streaming || "").toUpperCase();
             const vencimientoRaw = acc.deben || acc.vencimiento;
             const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
@@ -144,10 +157,16 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             response += `📺 *${streaming}*\n`;
             response += `📧 ${acc.correo || 'Sin correo'}\n`;
             response += `📅 Vence: ${dateStr} (${status})\n`;
-            response += `💵 Valor: $${price}\n\n`;
-            
-            total += price;
-            itemsForRenewal.push({ ...acc, price, platform: { name: (acc.Streaming || 'Servicio') } });
+            if (durationMonths > 1) {
+                const multiPrice = price * durationMonths;
+                response += `💵 Valor: $${price}/mes x ${durationMonths} meses = *$${multiPrice}*\n\n`;
+                total += multiPrice;
+                itemsForRenewal.push({ ...acc, price: multiPrice, platform: { name: (acc.Streaming || 'Servicio') } });
+            } else {
+                response += `💵 Valor: $${price}\n\n`;
+                total += price;
+                itemsForRenewal.push({ ...acc, price, platform: { name: (acc.Streaming || 'Servicio') } });
+            }
         });
 
         // FALLBACK: Si algún precio es cero o el total es cero, no enviar resumen automático
@@ -158,6 +177,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
         }
 
         // Lógica de descuento por combo: solo aplica si se renuevan varios servicios que vencen pronto (imminent)
+        // Multiplicamos el descuento base de 1000 por la cantidad de meses para que sea proporcional
         const imminentRenewals = itemsForRenewal.filter(item => {
             const expDate = getJsDateFromExcel(item.deben || item.vencimiento);
             if (!expDate) return false;
@@ -167,7 +187,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
         });
 
         if (total > 0 && imminentRenewals.length > 1) {
-            const discount = (imminentRenewals.length - 1) * 1000;
+            const discount = (imminentRenewals.length - 1) * 1000 * durationMonths;
             total -= discount;
             response += `✨ *Descuento por combo:* -$${discount}\n`;
         }
@@ -182,7 +202,8 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             state: 'awaiting_payment_method', 
             total: total, 
             items: itemsForRenewal, 
-            isRenewal: true 
+            isRenewal: true,
+            durationMonths: durationMonths
         });
 
     } catch (error) {

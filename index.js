@@ -709,18 +709,12 @@ client.on('message_create', async (msg) => {
        // Manejo de liberar
        if (command.includes('libera')) {
            userStates.delete(targetId);
-           console.log(`[BOT UNMUTE] Reactivado por comando liberar en el chat ${targetId}.`);
-           client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
+           console.log(`[BOT UNMUTE] Reactivado por comando liberar en el chat ${targetId} de forma silenciosa.`);
            return;
        }
 
        userStates.delete(targetId);
-       console.log(`[BOT UNMUTE] Reactivado por mención en el chat ${targetId}.`);
-       
-       // Suministramos el mensaje al procesador para que la IA lea el contexto y responda
-       setTimeout(() => {
-           processIncomingMessage([msg]).catch(err => console.error('Error en reactivación por mención:', err));
-       }, 1000);
+       console.log(`[BOT UNMUTE] Reactivado silenciosamente por mención en el chat ${targetId}.`);
        return;
     }
 
@@ -728,8 +722,9 @@ client.on('message_create', async (msg) => {
     const body = msg.body.toLowerCase();
     const isTestCommand = body === 'pruebas' || body.includes('prueba de escritura');
     const isBotCommand = body.includes('@bot');
+    const isSystemResponse = body.includes('¡he despertado, jefe!') || body.includes('modo dormido activado, jefe') || body.includes('bot reactivado');
     
-    if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand) {
+    if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand && !isSystemResponse) {
       let st = userStates.get(targetId);
       if (typeof st === 'object' && st.state === 'waiting_human') {
           // Ya estaba silenciado, renovamos el temporizador de mute absoluto (30 min extra)
@@ -2157,13 +2152,35 @@ async function processIncomingMessage(messages) {
   const isChangingTopic = detection.intent && !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar'].includes(detection.intent);
   const isVeryFrustrated = detection.frustrationLevel >= 7;
 
-  if (flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform)) {
-      console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema ('+detection.intent+')' : 'Alta frustración')}`);
+  // NUEVO breakout específico para awaiting_churn_reason cuando el usuario no quiere cancelar
+  let isChurnRefusal = false;
+  if (currentState === 'awaiting_churn_reason') {
+      const lowerBody = inputToUse.toLowerCase();
+      const hasRefusalText = lowerBody.includes('no quiero cancelar') || lowerBody.includes('no cancel') || lowerBody.includes('no voy a cancelar') || lowerBody.includes('error') || lowerBody.includes('solo preguntaba') || lowerBody.includes('solo estoy preguntando') || lowerBody.includes('cuanto me saldria') || lowerBody.includes('cuánto me saldría');
+      const isRefusalIntent = ['renovar', 'pagar', 'comprar'].includes(detection.intent);
+      if (hasRefusalText || isRefusalIntent) {
+          isChurnRefusal = true;
+          console.log(`[Churn Breakout] El cliente rechaza la cancelación. Intent: ${detection.intent}, Texto: "${inputToUse}"`);
+      }
+  }
+
+  if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform)) || isChurnRefusal) {
+      console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema ('+detection.intent+')' : 'Alta frustración'))}`);
       
       if (isVeryFrustrated) {
           userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1 });
           await message.reply("🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊");
           return;
+      }
+
+      if (isChurnRefusal && currentStateData.rowNumber) {
+          // Limpiar el preventivo "cortar (bot ...)" que escribimos en Excel
+          const { updateExcelData } = require('./apiService');
+          updateExcelData(currentStateData.rowNumber, { "observaciones": "" })
+              .then(() => console.log(`[Churn Breakout] Observaciones limpiadas en fila ${currentStateData.rowNumber} (Rechazo de cancelación)`))
+              .catch(e => console.error("[Churn Breakout] Error al limpiar observaciones:", e.message));
+          
+          await message.reply("🤖 ¡Ah, entiendo perfectamente! Qué alegría que quieras continuar con nosotros. Permíteme ayudarte con eso...");
       }
       
       // Si el usuario simplemente cambió de tema o plataforma
@@ -2280,7 +2297,8 @@ async function processIncomingMessage(messages) {
            const isExplicitPurchase = inputToUse.toLowerCase().includes('comprar') || inputToUse.toLowerCase().includes('nueva');
            
            if (userAccounts.length > 0 && !detection.detectedPlatform && !isExplicitPurchase) {
-               await processCheckPrices(message, userId, userStates, null, detection.detectedPlatform);
+               const durationMonths = getDurationMonths(detection, inputToUse);
+               await processCheckPrices(message, userId, userStates, null, detection.detectedPlatform, durationMonths);
                return;
            }
 
@@ -2318,7 +2336,8 @@ async function processIncomingMessage(messages) {
            await startPurchaseProcess(message, userId, userStates);
            return;
        } else if (detection.intent === 'renovar') {
-           await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform);
+           const durationMonths = getDurationMonths(detection, inputToUse);
+           await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
            return;
        } else if (detection.intent === 'credenciales') {
           if (!foundName) {
@@ -2338,7 +2357,8 @@ async function processIncomingMessage(messages) {
            if (userAccounts.length === 0 && stateData.items && stateData.items.length > 0) {
                await handleAwaitingPaymentMethod(message, userId, false, null, inputToUse);
            } else {
-               await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform);
+               const durationMonths = getDurationMonths(detection, inputToUse);
+               await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
            }
            return;
        } else if (detection.intent === 'soporte') {
@@ -2583,7 +2603,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
       }
       break;
     case '2':
-      await processCheckCredentials(message, userId);
+      await processCheckCredentials(userId, client, message.body, "");
       break;
     case '3':
       await processCheckPrices(message, userId, userStates);
@@ -2620,11 +2640,12 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
               userStates.set(userId, { state: 'awaiting_purchase_platforms' });
               await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
               return;
-          } else if (detection.intent === 'pagar') {
-              await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform);
+          } else if (detection.intent === 'pagar' || detection.intent === 'renovar') {
+              const durationMonths = getDurationMonths(detection, inputToUse);
+              await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
               return;
           } else if (detection.intent === 'credenciales') {
-              await processCheckCredentials(message, userId);
+              await processCheckCredentials(userId, client, message.body, "");
               return;
           }
       }
@@ -2781,6 +2802,23 @@ async function processCheckCredentialsLegacy(message, userId) {
 }
 
 
+
+function getDurationMonths(detection, inputToUse) {
+    let durationMonths = 1;
+    if (detection && detection.metadata) {
+        if (detection.metadata.duration_months) {
+            durationMonths = parseInt(detection.metadata.duration_months) || 1;
+        } else if (detection.metadata.duration) {
+            const match = String(detection.metadata.duration).match(/\d+/);
+            if (match) durationMonths = parseInt(match[0]) || 1;
+        }
+    }
+    const monthsMatch = (inputToUse || "").match(/(\d+)\s*(mes|month)/i);
+    if (monthsMatch && durationMonths === 1) {
+        durationMonths = parseInt(monthsMatch[1]) || 1;
+    }
+    return durationMonths;
+}
 
 // --- AL FINAL DEL ARCHIVO index.js ---
 
