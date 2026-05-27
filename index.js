@@ -999,6 +999,14 @@ async function processIncomingMessage(messages) {
     currentState = currentStateData.state;
   }
 
+  // --- ANTI-AUTO-CONTESTAR (Loop Protection) ---
+  // Si el mensaje contiene el emoji del bot (🤖), es una respuesta automática.
+  // Ignoramos COMPLETAMENTE para no entrar en bucles de autocontestación.
+  if (message.body && message.body.includes('🤖')) {
+      console.log(`[Auto] Ignorando mensaje automático (🤖) para @${userId.replace('@c.us', '')}`);
+      return;
+  }
+
   // --- FILTRO DE MENSAJES PROPIOS (ADMIN) ---
   const cleanBodyText = message.body ? message.body.trim() : "";
   const isAdminCommand = cleanBodyText.toLowerCase().startsWith("@bot ");
@@ -1023,14 +1031,6 @@ async function processIncomingMessage(messages) {
           userStates.set(userId, { ...existingData, state: 'waiting_human', nombre: foundName, waitingCount: 0, lastHumanInteraction: Date.now() });
           return;
       }
-  }
-
-  // --- ANTI-AUTO-CONTESTAR (Loop Protection) ---
-  // Si el mensaje contiene el emoji del bot (🤖), es una respuesta automática.
-  // Ignoramos COMPLETAMENTE para no entrar en bucles de autocontestación.
-  if (message.body && message.body.includes('🤖')) {
-      console.log(`[Auto] Ignorando mensaje automático (🤖) para @${userId.replace('@c.us', '')}`);
-      return;
   }
 
   console.log(`[DEBUG] Procesando mensaje de: ${userId} Contenido: ${message.body || "[Sin texto]"}`);

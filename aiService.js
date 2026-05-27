@@ -709,7 +709,10 @@ NUNCA menciones números de Nequi o Daviplata manuales tradicionales (como el 31
 
   try {
     const response = await callGemini(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false, mediaData);
-    const replyText = response.trim();
+    let replyText = response.trim();
+    if (!replyText.includes('🤖')) {
+      replyText += ' 🤖';
+    }
 
     const needsEscalation = replyText.toLowerCase().includes('asesor') ||
       replyText.toLowerCase().includes('humano') ||

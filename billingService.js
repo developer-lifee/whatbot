@@ -17,7 +17,10 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             return;
         }
 
-        const aiResponse = await generateCredentialsResponse(userAccounts, triggerMessage, history);
+        let aiResponse = await generateCredentialsResponse(userAccounts, triggerMessage, history);
+        if (aiResponse && !aiResponse.includes('🤖')) {
+            aiResponse += '\n\n🤖';
+        }
         await client.sendMessage(userId, aiResponse);
 
     } catch (error) {

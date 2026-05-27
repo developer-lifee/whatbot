@@ -232,19 +232,32 @@ async function executePaymentValidation(userId, userState, client, userStates, a
      if (adminMessage) {
          await adminMessage.reply(report);
      } else {
-         try {
-             const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
-                                "Aquí tienes tus credenciales actualizadas:";
-             await client.sendMessage(userId, successMsg);
-             
-             // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
-             await new Promise(r => setTimeout(r, 6000));
-             const { processCheckCredentials } = require('./billingService');
-             await processCheckCredentials(userId, client, "Entrega automática tras pago", "");
-         } catch (deliveryErr) {
-             console.error(`[Payment Auto-Validate] ❌ Error entregando credenciales a ${userId}:`, deliveryErr.message);
-             await client.sendMessage(userId, "🤖 Tu pago fue validado con éxito, pero tuve un problema al enviarte las credenciales automáticamente. Por favor escribe *credenciales* en unos minutos o espera a que un asesor te ayude. 😊");
-         }
+          try {
+              let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nAquí tienes tus credenciales:\n\n";
+              let hasAnyCredentials = false;
+              results.forEach(res => {
+                  if (res.status === 'success' && res.correo) {
+                      hasAnyCredentials = true;
+                      credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n\n`;
+                  }
+              });
+
+              if (hasAnyCredentials) {
+                  await client.sendMessage(userId, credentialsMsg);
+              } else {
+                  const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
+                                     "Aquí tienes tus credenciales actualizadas:";
+                  await client.sendMessage(userId, successMsg);
+                  
+                  // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
+                  await new Promise(r => setTimeout(r, 6000));
+                  const { processCheckCredentials } = require('./billingService');
+                  await processCheckCredentials(userId, client, "Entrega automática tras pago", "");
+              }
+          } catch (deliveryErr) {
+              console.error(`[Payment Auto-Validate] ❌ Error entregando credenciales a ${userId}:`, deliveryErr.message);
+              await client.sendMessage(userId, "🤖 Tu pago fue validado con éxito, pero tuve un problema al enviarte las credenciales automáticamente. Por favor escribe *credenciales* en unos minutos o espera a que un asesor te ayude. 😊");
+          }
      }
      
      userStates.set(userId, { state: 'main_menu', nombre: userState.nombre });
@@ -487,14 +500,27 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         if (someFailed) {
             await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! 🎉\n\nSin embargo, para uno de tus servicios estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊");
         } else {
-            const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
-                               "Aquí tienes tus credenciales actualizadas:";
-            await client.sendMessage(userId, successMsg);
-            
-            // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
-            await new Promise(r => setTimeout(r, 6000));
-            const { processCheckCredentials } = require('./billingService');
-            await processCheckCredentials(userId, client, "Entrega automática tras confirmación manual", "");
+            let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nAquí tienes tus credenciales:\n\n";
+            let hasAnyCredentials = false;
+            results.forEach(res => {
+                if (res.status === 'success' && res.correo) {
+                    hasAnyCredentials = true;
+                    credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n\n`;
+                }
+            });
+
+            if (hasAnyCredentials) {
+                await client.sendMessage(userId, credentialsMsg);
+            } else {
+                const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
+                                   "Aquí tienes tus credenciales actualizadas:";
+                await client.sendMessage(userId, successMsg);
+                
+                // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
+                await new Promise(r => setTimeout(r, 6000));
+                const { processCheckCredentials } = require('./billingService');
+                await processCheckCredentials(userId, client, "Entrega automática tras confirmación manual", "");
+            }
         }
         
         // Limpiar estado

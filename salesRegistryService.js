@@ -152,7 +152,15 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
                 };
                 await updateExcelData(targetRow, updates);
-                results.push({ name: platformName, status: 'success', rowNumber: targetRow, type: 'renewal' });
+                results.push({ 
+                    name: platformName, 
+                    status: 'success', 
+                    rowNumber: targetRow, 
+                    type: 'renewal',
+                    correo: item.correo || item.Correo || "",
+                    contraseña: item.contraseña || item.Contraseña || item.password || "",
+                    pin: item["pin perfil"] || item.pin || ""
+                });
                 continue;
             }
 
@@ -185,7 +193,15 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
                 };
                 await updateExcelData(finalRow, updates);
-                results.push({ name: platformName, status: 'success', rowNumber: finalRow, type: 'renewal' });
+                results.push({ 
+                    name: platformName, 
+                    status: 'success', 
+                    rowNumber: finalRow, 
+                    type: 'renewal',
+                    correo: matchedRow.correo || matchedRow.Correo || "",
+                    contraseña: matchedRow.contraseña || matchedRow.Contraseña || matchedRow.password || "",
+                    pin: matchedRow["pin perfil"] || matchedRow.pin || ""
+                });
                 continue;
             }
 
@@ -241,7 +257,15 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     allRows[slot.index - 2].whatsapp = phone;
                     allRows[slot.index - 2].deben = "RESERVADO";
                 }
-                results.push({ name: platformName, status: 'success', rowNumber: slot.index, type: 'new_sale' });
+                results.push({ 
+                    name: platformName, 
+                    status: 'success', 
+                    rowNumber: slot.index, 
+                    type: 'new_sale',
+                    correo: slot.rowData.correo || slot.rowData.Correo || "",
+                    contraseña: slot.rowData.contraseña || slot.rowData.Contraseña || slot.rowData.password || "",
+                    pin: slot.rowData["pin perfil"] || slot.rowData.pin || ""
+                });
             } else {
                 console.log(`[Sales Registry] NO se encontró cupo disponible para ${platformName}.`);
                 results.push({ name: platformName, status: 'no_slots_found' });
