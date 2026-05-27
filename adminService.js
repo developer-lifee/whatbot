@@ -518,7 +518,7 @@ async function handleSendManualPaymentMethods(message, command, client, userStat
     const phone = matches[0].replace(/\s+/g, '');
     const dest = (phone.startsWith('57') ? phone : '57' + phone) + '@c.us';
 
-    const msg = `🤖 Hola, aquí tienes nuestros métodos de pago:\n\n⭐ *Nequi / Daviplata / Transfiya:* 3118587974\n⭐ *Bancolombia:* Ahorros 46772753713\n⭐ *Banco Caja Social:* 24111572331\n\nPor favor envía el comprobante por aquí una vez realices la transferencia.`;
+    const msg = `🤖 Hola, aquí tienes nuestros métodos de pago oficiales:\n\n⚡ *METODOS DE VALIDACIÓN AUTOMÁTICA (Entrega Inmediata):*\n⭐ *QR de Negocios (RECOMENDADO)*\n⭐ *Llave Bre-V (Recomendada - Nequi/Daviplata/Ahorro):* *0087387259*\n⭐ *Bancolombia (Abono Directo):* Ahorros *46772753713* (CC: *1032936324*)\n\n⏳ *OTRAS OPCIONES (Verificación Manual por Asesor):*\n⭐ *Llave Bre-B alternativa:* *3118587974*\n⭐ *Banco Caja Social:* Ahorros *24111572331* (CC: *1032936324*)\n\n💡 *Tip:* Si pagas por los métodos automáticos, ¡el bot validará tu transferencia en segundos y te entregará la cuenta al instante! 🤖`;
     await client.sendMessage(dest, msg);
     await message.reply(`✅ Métodos de pago enviados a ${phone}.`);
 }

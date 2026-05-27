@@ -2697,12 +2697,12 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
   const method = await detectPaymentMethod(text);
 
   const paymentDetails = {
-    'nequi': "🤖 *Nequi (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Nequi, por favor utiliza nuestra *Llave Bre-V / Bre-B* o el *QR de Negocios*. De esta forma, el bot validará tu pago automáticamente y te entregará el servicio en segundos sin esperar por humanos. ⚡\n\n🔑 *Llave Bre-V (Recomendada):* 0087387259\n🔑 *Llave Bre-B (Alternativa):* 3118587974",
-    'daviplata': "🤖 *Daviplata (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Daviplata, por favor utiliza nuestra *Llave Bre-V / Bre-B* o el *QR de Negocios*. De esta forma, el bot validará tu pago automáticamente y te entregará el servicio en segundos sin esperar por humanos. ⚡\n\n🔑 *Llave Bre-V (Recomendada):* 0087387259\n🔑 *Llave Bre-B (Alternativa):* 3118587974",
-    'transfiya': "🤖 *Transfiya (ENTREGA INMEDIATA ⚡)*\n\nPara enviar por Transfiya, por favor utiliza nuestra *Llave Bre-V / Bre-B* o el *QR de Negocios*. De esta forma, el bot validará tu pago automáticamente y te entregará el servicio en segundos sin esperar por humanos. ⚡\n\n🔑 *Llave Bre-V (Recomendada):* 0087387259\n🔑 *Llave Bre-B (Alternativa):* 3118587974",
+    'nequi': "🤖 *Nequi (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Nequi con entrega inmediata, por favor utiliza nuestra *Llave Bre-V (Recomendada)* o el *QR de Negocios*. De esta forma, el bot validará tu pago en segundos. ⚡\n\n🔑 *Llave Bre-V (Recomendada - AUTOMÁTICA ⚡):* 0087387259\n\n📌 *Nota:* Si usas nuestra Llave Bre-B alternativa (*3118587974*), el pago tendrá que ser verificado manualmente por un asesor. ⏳",
+    'daviplata': "🤖 *Daviplata (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Daviplata con entrega inmediata, por favor utiliza nuestra *Llave Bre-V (Recomendada)* o el *QR de Negocios*. De esta forma, el bot validará tu pago en segundos. ⚡\n\n🔑 *Llave Bre-V (Recomendada - AUTOMÁTICA ⚡):* 0087387259\n\n📌 *Nota:* Si usas nuestra Llave Bre-B alternativa (*3118587974*), el pago tendrá que ser verificado manualmente por un asesor. ⏳",
+    'transfiya': "🤖 *Transfiya (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Transfiya con entrega inmediata, por favor utiliza nuestra *Llave Bre-V (Recomendada)* o el *QR de Negocios*. De esta forma, el bot validará tu pago en segundos. ⚡\n\n🔑 *Llave Bre-V (Recomendada - AUTOMÁTICA ⚡):* 0087387259\n\n📌 *Nota:* Si usas nuestra Llave Bre-B alternativa (*3118587974*), el pago tendrá que ser verificado manualmente por un asesor. ⏳",
     'bancolombia': "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos sin esperar por humanos.",
-    'banco caja social': "🤖 *Banco Caja Social (VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 24111572331\nNombre: Esteban Avila\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos sin esperar por humanos.",
-    'llave': "🤖 *LLAVES (Bre-V / Bre-B) (ENTREGA INMEDIATA ⚡)*\n\n1. *LLAVE Bre-V (Recomendada - Nequi/Daviplata/Ahorro a la mano):*\n0087387259\n\n2. *LLAVE Bre-B (Alternativa):*\n3118587974\n\n💡 *Tip:* Al usar cualquiera de estas llaves, tu pago se verifica en segundos automáticamente.",
+    'banco caja social': "🤖 *Banco Caja Social (VALIDACIÓN MANUAL ⏳)*\n\nNúmero de cuenta: 24111572331\nNombre: Esteban Avila\nCC: 1032936324\n\n📌 *Nota:* Este método requiere verificación manual por parte de un asesor, lo cual puede demorar un poco más.",
+    'llave': "🤖 *LLAVES (Bre-V / Bre-B)*\n\n1. *LLAVE Bre-V (Recomendada - VALIDACIÓN AUTOMÁTICA ⚡):*\n0087387259 (Verificación al instante)\n\n2. *LLAVE Bre-B (Alternativa - VALIDACIÓN MANUAL ⏳):*\n3118587974 (Requiere verificación humana)",
     'qr negocios': "🤖 *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** inmediata de tus servicios sin esperar por humanos. ⚡"
   };
   
@@ -2730,15 +2730,23 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
   if (!methodToUse && (lowerText.includes('llave') || lowerText.includes('bre-v') || lowerText.includes('brev') || lowerText.includes('bre v') || lowerText.includes('bre-b') || lowerText.includes('breb') || lowerText.includes('bre b'))) methodToUse = 'llave';
 
   if (methodToUse && paymentDetails[methodToUse]) {
-    await message.reply(paymentDetails[methodToUse]);
-    const state = userStates.get(userId);
+    const state = userStates.get(userId) || {};
+    let finalMsg = paymentDetails[methodToUse];
+    if (state.isRenewal) {
+        finalMsg += "\n\n💡 *Tip de Renovación:* Si pagas con un método automático (como el QR, la Llave Bre-V o Bancolombia), tu renovación se procesará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ni un solo día más, ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
+    }
+    await message.reply(finalMsg);
     userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
   } else {
     // Fallback manual check
     let foundKey = Object.keys(paymentDetails).find(key => lowerText.includes(key));
     if (foundKey) {
-      await message.reply(paymentDetails[foundKey]);
-      const state = userStates.get(userId);
+      const state = userStates.get(userId) || {};
+      let finalMsg = paymentDetails[foundKey];
+      if (state.isRenewal) {
+          finalMsg += "\n\n💡 *Tip de Renovación:* Si pagas con un método automático (como el QR, la Llave Bre-V o Bancolombia), tu renovación se procesará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ni un solo día más, ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
+      }
+      await message.reply(finalMsg);
       userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
     } else {
       // Usar la IA en vez del mensaje genérico terco (esto responde precios exactos gracias a aiService)
