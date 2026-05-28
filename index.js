@@ -1923,8 +1923,35 @@ async function processIncomingMessage(messages) {
           if (!stateData.items || stateData.items.length === 0) {
               if (check.inferredPlatform) {
                   console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}`);
+                  
+                  // Intentar obtener el precio real de la plataforma en el catálogo
+                  let catalogPrice = 0;
+                  try {
+                      const { getPlatforms } = require('./salesService');
+                      const platforms = await getPlatforms();
+                      const lowerInferred = check.inferredPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
+                      const matchedPlatform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(lowerInferred)) ||
+                                               platforms.find(p => lowerInferred.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
+                      if (matchedPlatform) {
+                          if (matchedPlatform.name.toLowerCase().includes('spotify')) {
+                              // Spotify tiene planes de 10000 (Individual) y 8000 (Owner)
+                              const matchedPlan = matchedPlatform.plans.find(p => p.price === check.amount);
+                              if (matchedPlan) {
+                                  catalogPrice = matchedPlan.price;
+                              } else {
+                                  const individualPlan = matchedPlatform.plans.find(p => p.name.toLowerCase().includes('individual'));
+                                  catalogPrice = individualPlan ? individualPlan.price : 10000;
+                              }
+                          } else if (matchedPlatform.plans && matchedPlatform.plans.length > 0) {
+                              catalogPrice = matchedPlatform.plans[0].price;
+                          }
+                      }
+                  } catch (platErr) {
+                      console.error("[PAYMENT INTERCEPTOR] Error buscando precio de plataforma en catálogo:", platErr.message);
+                  }
+
                   stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
-                  if (check.amount) stateData.total = check.amount;
+                  stateData.total = catalogPrice || check.amount;
                   stateData.isAutoFilled = true;
                   userStates.set(userId, stateData); // Persistir el auto-llenado
               }
@@ -1933,27 +1960,32 @@ async function processIncomingMessage(messages) {
           // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---
           if (check.amount && check.amount > 0) {
               try {
-                  const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min
-                  if (match) {
-                      console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
-                      
-                      // Ejecutar validación automática
-                      const validationResult = await executePaymentValidation(userId, { ...stateData, total: check.amount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null);
-                      
-                      if (validationResult.success) {
-                          // Notificar al grupo administrativo del éxito automático
-                          try {
-                              const groupChat = await client.getChatById(GROUP_ID);
-                              if (groupChat) {
-                                  await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
-                                                 `Monto: $${check.amount}\n` +
-                                                 `Banco: ${check.bank || 'Bre-B'}\n` +
-                                                 `Asunto: ${match.subject}\n` +
-                                                 `ID Gmail: ${match.id}\n\n` +
-                                                 `El bot ya entregó el servicio automáticamente.`);
-                              }
-                          } catch(e) {}
-                          return;
+                  const expectedTotal = stateData.total || 0;
+                  if (expectedTotal > 0 && check.amount !== expectedTotal) {
+                      console.log(`[PAYMENT AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) no coincide con el total esperado ($${expectedTotal}) para @${userId}. No se auto-validará.`);
+                  } else {
+                      const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min
+                      if (match) {
+                          console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
+                          
+                          // Ejecutar validación automática
+                          const validationResult = await executePaymentValidation(userId, { ...stateData, total: check.amount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null);
+                          
+                          if (validationResult.success) {
+                              // Notificar al grupo administrativo del éxito automático
+                              try {
+                                  const groupChat = await client.getChatById(GROUP_ID);
+                                  if (groupChat) {
+                                      await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
+                                                     `Monto: $${check.amount}\n` +
+                                                     `Banco: ${check.bank || 'Bre-B'}\n` +
+                                                     `Asunto: ${match.subject}\n` +
+                                                     `ID Gmail: ${match.id}\n\n` +
+                                                     `El bot ya entregó el servicio automáticamente.`);
+                                  }
+                              } catch(e) {}
+                              return;
+                          }
                       }
                   }
               } catch (autoErr) {
