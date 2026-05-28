@@ -146,8 +146,8 @@ async function processAdminQuery(message, query, userStates, client, adminState 
             }
 
         } else if (action === 'get_totp_code') {
-            const { generateGPTCode } = require('./totpService');
-            let email = filters.name || filters.generic_search || filters.platform;
+            const { generateGPTCode, loadSecrets } = require('./totpService');
+            let searchTerm = filters.name || filters.generic_search || filters.platform;
             
             const emailAliases = {
                 'jordimemes': 'jordimemesmomazosdick@gmail.com',
@@ -159,19 +159,69 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                 'epickfost': 'epickfost@gmail.com'
             };
 
-            if (email && emailAliases[email.toLowerCase().trim()]) {
-                email = emailAliases[email.toLowerCase().trim()];
+            if (searchTerm && emailAliases[searchTerm.toLowerCase().trim()]) {
+                searchTerm = emailAliases[searchTerm.toLowerCase().trim()];
             }
 
-            if (!email) {
+            if (!searchTerm) {
                 filteredData = { status: "error", message: "Por favor especifica el correo para buscar el código 2FA/Authenticator (ej: @bot dame el codigo de gpt de epickfost)." };
             } else {
-                if (!email.includes('@')) email += '@gmail.com';
-                const code = generateGPTCode(email);
+                let email = searchTerm;
+                let code = null;
+                if (email.includes('@')) {
+                    code = generateGPTCode(email);
+                }
+
                 if (code) {
                     filteredData = { status: "success", message: `🔐 *Código Authenticator (TOTP) para ${email}:*\n\n🔢 *${code}*\n\n_Válido por aprox. 30 segundos._` };
                 } else {
-                    filteredData = { status: "error", message: `No encontré una clave secreta (TOTP seed) configurada para *${email}*. Por favor, agrégala ejecutando 'node setup_gpt.js' en el servidor o verifica el nombre de la cuenta.` };
+                    const rawData = await fetchRawData();
+                    const cleanTerm = searchTerm.toLowerCase().trim();
+                    
+                    // Buscar filas de GPT que coincidan con el término de búsqueda
+                    const matchingRows = rawData.filter(row => {
+                        const plat = (row['Streaming'] || '').toString().toLowerCase();
+                        if (!plat.includes('gpt')) return false;
+                        
+                        const rowStr = JSON.stringify(row).toLowerCase();
+                        return rowStr.includes(cleanTerm);
+                    });
+
+                    // Extraer correos únicos
+                    const foundEmails = [...new Set(matchingRows.map(row => (row['correo'] || row['Correo'] || '').toString().trim()).filter(Boolean))];
+
+                    // Buscar en secretos configurados
+                    const secrets = loadSecrets() || {};
+                    const secretEmails = Object.keys(secrets).filter(secEmail => secEmail.toLowerCase().includes(cleanTerm));
+                    
+                    const allCandidates = [...new Set([...foundEmails, ...secretEmails])];
+
+                    if (allCandidates.length === 0) {
+                        const configuredList = Object.keys(secrets);
+                        let msg = `No encontré ninguna cuenta de GPT asociada a *"${searchTerm}"* en el Excel ni en el Authenticator.\n\n`;
+                        if (configuredList.length > 0) {
+                            msg += `Las cuentas configuradas actualmente con Authenticator (2FA) son:\n` + configuredList.map(e => `- ${e}`).join('\n');
+                        } else {
+                            msg += `No hay ninguna cuenta de GPT configurada en el Authenticator actualmente.`;
+                        }
+                        filteredData = { status: "error", message: msg };
+                    } else if (allCandidates.length === 1) {
+                        const singleEmail = allCandidates[0];
+                        const codeForSingle = generateGPTCode(singleEmail);
+                        if (codeForSingle) {
+                            filteredData = { status: "success", message: `🔐 *Código Authenticator (TOTP) para ${singleEmail}:*\n\n🔢 *${codeForSingle}*\n\n_Válido por aprox. 30 segundos._` };
+                        } else {
+                            filteredData = { status: "error", message: `Encontré la cuenta *${singleEmail}* registrada en Excel, pero aún no tiene una clave secreta (TOTP seed) configurada en el Authenticator.\n\nPor favor, agrégala ejecutando 'node setup_gpt.js' en el servidor.` };
+                        }
+                    } else {
+                        let msg = `🤔 Encontré varias cuentas de GPT que coinciden con *"${searchTerm}"*:\n\n`;
+                        allCandidates.forEach((cand, idx) => {
+                            const hasSecret = !!secrets[cand.toLowerCase()];
+                            msg += `${idx + 1}. *${cand}* ${hasSecret ? '✅ (2FA listo)' : '❌ (Sin 2FA configurado)'}\n`;
+                        });
+                        msg += `\nPor favor, repite la consulta especificando el correo exacto (ej: *@bot codigo de gpt de ${allCandidates[0]}*).`;
+                        filteredData = { status: "warning", message: msg };
+                    }
                 }
             }
 
