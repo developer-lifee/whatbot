@@ -2900,11 +2900,25 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
 async function handleAwaitingPaymentConfirmation(message, userId, isMedia = false, singleMediaData = null) {
   const body = (message.body || '').toLowerCase().trim();
 
+  // --- EVITAR DUPLICADO SI SE ACABA DE VALIDAR EL PAGO ---
+  const stateData = userStates.get(userId) || {};
+  const lastValidated = stateData.lastPaymentValidated || 0;
+  const timeSinceValidation = Date.now() - lastValidated;
+
+  if (timeSinceValidation < 1000 * 60 * 5) { // 5 minutos de gracia
+      await message.reply("🤖 ¡Así es! Ya registré tu pago al instante y te entregué tu cuenta. ¡Es un hecho! A disfrutar de tus pantallas. 😎🎬");
+      userStates.set(userId, { ...stateData, state: 'main_menu' });
+      return;
+  }
+
   // Check if user is trying to switch payment method
   const newMethodCheck = await detectPaymentMethod(message.body);
   console.log(`[DEBUG] Payment switch check for '${message.body}': ${newMethodCheck}`);
 
-  if (newMethodCheck) {
+  // Evitar falsos positivos en preguntas o frases largas (más de 2 palabras)
+  const isQuestionOrLongPhrase = body.split(/\s+/).length > 2;
+
+  if (newMethodCheck && !isQuestionOrLongPhrase) {
     await message.reply("🤖 Entendido, cambiamos el método de pago.");
     await processPaymentSelection(message, userId, message.body, isMedia, singleMediaData);
     return;

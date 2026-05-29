@@ -7,13 +7,13 @@
   "human_support_schedule": [
     {
       "days": "Lunes a Viernes",
-      "staff": "Esteban",
-      "details": "Atención directa de 4:00 PM a 10:00 PM. (De 1 PM a 4 PM está en desarrollo interno del bot)."
+      "staff": "Katherine (10:00 AM a 6:00 PM) y Camilo (6:00 PM a 10:00 PM)",
+      "details": "Atención directa de Lunes a Viernes por Katherine y Camilo."
     },
     {
       "days": "Sábado y Domingo",
-      "staff": "Brayan",
-      "details": "Atención de 10:00 AM a 9:00 PM (Hora de almuerzo de 4 PM a 5 PM)."
+      "staff": "Esteban",
+      "details": "Atención directa de 4:00 PM a 10:00 PM."
     }
   ],
   "platform_rules": {

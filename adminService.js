@@ -209,6 +209,43 @@ async function handleSendBulkCredentials(message, command, client, getAccountsBy
     await message.reply(`✅ Envío finalizado. Se entregaron ${success} de ${phones.length} credenciales.`);
 }
 
+function getDynamicSupportExpectationMessage() {
+    const { getTodayInBogota } = require('./apiService');
+    const now = getTodayInBogota();
+    const day = now.getDay(); // 0 is Sunday, 6 is Saturday
+    const hours = now.getHours();
+    const mins = now.getMinutes();
+    const timeValue = hours + mins / 60;
+
+    let isWorking = false;
+    let nextShift = "";
+
+    if (day >= 1 && day <= 5) { // Weekdays (Lunes a Viernes)
+        // Katherine de 10 a 6 (10 a 18), Camilo de 6 a 10 (18 a 22) -> total de 10 a 22
+        if (timeValue >= 10 && timeValue < 22) {
+            isWorking = true;
+        } else {
+            nextShift = "mañana a partir de las 10:00 AM";
+        }
+    } else { // Weekend (Sat & Sun)
+        // Esteban de 4 a 10 (16 a 22)
+        if (timeValue >= 16 && timeValue < 22) {
+            isWorking = true;
+        } else {
+            nextShift = day === 6 ? "hoy a partir de las 4:00 PM" : "mañana a partir de las 4:00 PM";
+            if (day === 0 && timeValue >= 22) {
+                nextShift = "el Lunes a partir de las 10:00 AM";
+            }
+        }
+    }
+
+    if (isWorking) {
+        return "Un asesor está activo en este momento y te enviará la invitación por este chat en unos minutos. ¡Gracias por tu paciencia! 😊";
+    } else {
+        return `Ten en cuenta que nuestro horario de soporte es de Lunes a Viernes de 10:00 AM a 10:00 PM, y Sábados y Domingos de 4:00 PM a 10:00 PM. Un asesor te enviará la invitación ${nextShift}. ¡Muchas gracias por tu comprensión! 😊`;
+    }
+}
+
 /**
  * Valida un pago comparándolo con Gmail y registrando la venta.
  */
@@ -254,7 +291,8 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                    
                    if (manualItems.length > 0) {
                        const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
-                       credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. Un asesor te la enviará por aquí en breve. 😊`;
+                       const expectation = getDynamicSupportExpectationMessage();
+                       credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. ${expectation}`;
                        // Notificar al grupo de administración de la parte manual
                        try {
                            const groupChat = await client.getChatById(GROUP_ID);
@@ -268,16 +306,17 @@ async function executePaymentValidation(userId, userState, client, userStates, a
 
                    await client.sendMessage(targetJid, credentialsMsg);
 
-                   if (manualItems.length > 0) {
-                       userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid });
-                       return { success: true };
-                   }
+                    if (manualItems.length > 0) {
+                        userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                        return { success: true };
+                    }
               } else {
                    if (manualItems.length > 0) {
                        let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
                        const platformsStr = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                       const expectation = getDynamicSupportExpectationMessage();
                        manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
-                                    `Un asesor de soporte técnico ya está al tanto y te enviará el acceso/invitación por este chat en un momento. ¡Gracias por tu paciencia! 😊`;
+                                    `${expectation}`;
                        await client.sendMessage(targetJid, manualMsg);
                        
                        // Notificar al grupo de administración de la venta manual
@@ -291,7 +330,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                            }
                        } catch(e) {}
                        
-                       userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid });
+                       userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                        return { success: true };
                    }
 
@@ -310,7 +349,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
           }
      }
      
-     userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: userState.chatJid });
+     userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: userState.chatJid, lastPaymentValidated: Date.now() });
      return { success: true };
 }
 

@@ -85,11 +85,24 @@ function parseExcelDate(dateStr) {
  * Un cupo es "disponible" si la plataforma coincide y el campo 'whatsapp' o 'Nombre' está vacío.
  */
 function findAvailableSlot(platformName, allRows) {
-    const targetPlatform = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    let targetPlatform = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    // Normalizar marcas de HBO/Max para evitar cruces
+    if (targetPlatform.includes('hbomax')) {
+        targetPlatform = targetPlatform.replace('hbomax', 'hbo');
+    } else if (targetPlatform.includes('max') && !targetPlatform.includes('hbo')) {
+        targetPlatform = targetPlatform.replace('max', 'hbo');
+    }
 
     for (let i = 0; i < allRows.length; i++) {
         const row = allRows[i];
-        const rowStreaming = (row.Streaming || row.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+        let rowStreaming = (row.Streaming || row.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        if (rowStreaming.includes('hbomax')) {
+            rowStreaming = rowStreaming.replace('hbomax', 'hbo');
+        } else if (rowStreaming.includes('max') && !rowStreaming.includes('hbo')) {
+            rowStreaming = rowStreaming.replace('max', 'hbo');
+        }
 
         // Si la plataforma coincide
         if (rowStreaming.includes(targetPlatform) || targetPlatform.includes(rowStreaming)) {
@@ -143,7 +156,13 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
         const results = [];
         for (const item of items) {
-            const platformName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
+            const planName = (item.chosenPlan ? item.chosenPlan.name : (item.plan ? (item.plan.name || item.plan) : "")) || "";
+            let platformName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
+            
+            // Si el plan es específico (como Platino o Extra), lo concatenamos para la búsqueda en Excel
+            if (planName && (planName.toLowerCase().includes('platino') || planName.toLowerCase().includes('platinum') || planName.toLowerCase().includes('extra'))) {
+                platformName = `${platformName} ${planName}`;
+            }
             const lowerName = platformName.toLowerCase();
 
             // 1. CASO RENOVACIÓN: Ya tenemos la fila
