@@ -299,7 +299,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     consolidatedResponse += `\n\n⚠️ Noté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
   }
 
-  consolidatedResponse += "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **QR Negocios (RECOMENDADO)**\n_(Entrega inmediata: yo mismo valido el pago y el stock disponible sin humanos 🤖⚡)_\n\n⭐ Nequi / Daviplata / Bancolombia / Transfiya / Llaves";
+  consolidatedResponse += "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **QR Negocios** (RECOMENDADO: entrega inmediata ⚡)\n⭐ **Llave Bre-V** (entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Nequi, Daviplata o Banco Caja Social directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊";
 
   await message.reply(consolidatedResponse);
 
@@ -623,7 +623,7 @@ async function calculateAndShowPrice(message, userId, userStates) {
 
   await message.reply('🤖 ' + responseText);
 
-  let paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?\n\n⭐ *QR Negocios (RECOMENDADO ⚡)*\n⭐ *Llave Bre-V (Nueva)*\n⭐ *Llave Bre-B*\n⭐ *Nequi*\n⭐ *Daviplata / Transfiya*\n⭐ *Bancolombia / Banco Caja Social*\n\n💡 *Tip:* Si pagas por *QR* o *Llave Bre-V*, el bot valida tu pago automáticamente y entrega el servicio de inmediato. 🤖";
+  let paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?\n\n⭐ **QR Negocios** (RECOMENDADO: entrega inmediata ⚡)\n⭐ **Llave Bre-V** (entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Nequi, Daviplata o Banco Caja Social directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊";
   await message.reply(paymentOptions);
   const existing = userStates.get(userId);
   const stateData = typeof existing === 'object'
