@@ -244,8 +244,11 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                   }
               });
 
-              if (hasAnyCredentials) {
-                  await client.sendMessage(targetJid, credentialsMsg);
+               if (hasAnyCredentials) {
+                   const customerName = userState.nombre ? userState.nombre.split(' ')[0] : "";
+                   const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
+                   credentialsMsg += profileTip;
+                   await client.sendMessage(targetJid, credentialsMsg);
               } else {
                   const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
                                      "Aquí tienes tus credenciales actualizadas:";

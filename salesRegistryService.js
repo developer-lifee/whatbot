@@ -53,8 +53,14 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null, baseD
  * Asegura un espacio después del indicativo 57 para evitar formatos feos en Excel.
  */
 function formatWhatsAppNumber(phone) {
-    // Devolvemos solo dígitos como String puro para evitar conflictos de formato en Excel
-    return phone.replace(/\D/g, '');
+    const clean = phone.replace(/\D/g, '');
+    if (clean.startsWith('57') && clean.length === 12) {
+        return `57 ${clean.slice(2, 5)} ${clean.slice(5)}`;
+    }
+    if (clean.length === 10 && clean.startsWith('3')) {
+        return `57 ${clean.slice(0, 3)} ${clean.slice(3)}`;
+    }
+    return clean;
 }
 
 /**
@@ -114,8 +120,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
         let name = userState.nombre;
         if (!name || name === "Cliente WhatsApp") {
             try {
-                const { getContactNameByPhone } = require('./googleContactsService');
-                const contactName = await getContactNameByPhone(userId.replace(/\D/g, ''));
+                const { searchContactByPhone } = require('./googleContactsService');
+                const contactName = await searchContactByPhone(userId.replace(/\D/g, ''));
                 if (contactName) {
                     name = contactName;
                 } else {
@@ -230,7 +236,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
                 const updates = {
                     "whatsapp": name,
-                    "numero": `'${formattedPhone}`,
+                    "numero": formattedPhone,
                     "Nombre": firstName,
                     "apellido": lastName,
                     "deben": nextPaymentDate,
