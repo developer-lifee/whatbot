@@ -1,0 +1,568 @@
+[
+  {
+    "id": 1,
+    "name": "Netflix",
+    "image": "https://th.bing.com/th/id/R.64d5f8b96325d2be917f9ab402e92b99?rik=1BawFvPFPBGxrg&pid=ImgRaw&r=0",
+    "price": 13000,
+    "characteristics": [
+      "Cuenta estable y renovable",
+      "Alta definición 4K + HDR con su lista exclusiva",
+      "Entrega en tiempo real"
+    ],
+    "plans": [
+      {
+        "id": 101,
+        "name": "Netflix 4K",
+        "price": 13000,
+        "characteristics": [
+          "Cuenta estable y renovable",
+          "Alta definición 4K + HDR con su lista exclusiva",
+          "Entrega en tiempo real"
+        ],
+        "detalles": "Perfil en una cuenta compartida de Sheerit. Sujeto a restricciones de hogar de Netflix si se usa en TV."
+      },
+      {
+        "id": 102,
+        "name": "Extra",
+        "price": 17000,
+        "characteristics": [
+          "Cuenta completa con un perfil",
+          "Alta definición 4K + HDR con su lista exclusiva",
+          "Correo personalizado, ideal para diferentes locaciones"
+        ],
+        "detalles": "Perfil individual con tu propio correo y clave. Ideal para evitar el bloqueo de 'Hogar Netflix' en cualquier ciudad u operador."
+      }
+    ]
+  },
+  {
+    "id": 6,
+    "name": "ChatGPT",
+    "image": "https://th.bing.com/th/id/OIP.PcgoreK_H_utzQX-eTNbrQHaHa?rs=1&pid=ImgDetMain",
+    "price": 20000,
+    "characteristics": [
+      "Cuenta compartida",
+      "IA actualizada y límites amplios",
+      "Entrega en tiempo real"
+    ],
+    "plans": [
+      {
+        "id": 601,
+        "name": "Compartida",
+        "price": 20000,
+        "characteristics": [
+          "Cuenta compartida",
+          "IA actualizada y límites amplios",
+          "Entrega en tiempo real"
+        ],
+        "detalles": "Te entregamos correo y clave. Cuenta compartida. Se recomienda desactivar la 'Memoria' en ajustes para privacidad."
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "name": "Microsoft 365",
+    "image": "https://th.bing.com/th/id/OIP.9vkItxSZEt6JEXNQy_sVcQHaEJ?cb=iwc2&rs=1&pid=ImgDetMain",
+    "price": 5000,
+    "characteristics": [
+      "Cuenta compartida con nuestro correo",
+      "Ideal para tener Office original a menor costo",
+      "Almacenamiento en OneDrive"
+    ],
+    "plans": [
+      {
+        "id": 1501,
+        "name": "Compartida",
+        "price": 5000,
+        "characteristics": [
+          "Cuenta compartida con nuestro correo",
+          "Ideal para tener Office original a menor costo",
+          "Almacenamiento en OneDrive"
+        ],
+        "detalles": "Acceso mediante un correo de Sheerit. Recomendado solo para uso básico de Office."
+      },
+      {
+        "id": 1502,
+        "name": "Personal",
+        "price": 12000,
+        "characteristics": [
+          "1 TB de almacenamiento",
+          "Suite de Office (Word, Excel, PowerPoint)",
+          "Usa tu propio correo de Microsoft"
+        ],
+        "detalles": "Se activa en tu propio correo personal. Incluye 1TB de OneDrive y suite completa con privacidad total."
+      }
+    ]
+  },
+  {
+    "id": 5,
+    "name": "Disney+ Premium",
+    "image": "https://mdcthereporter.com/wp-content/uploads/2019/09/Disney-Logo.jpeg",
+    "price": 14000,
+    "characteristics": [
+      "Cuenta estable, con ESPN",
+      "Clasificación de cine: 18+/R21/TV-MA",
+      "Entrega en tiempo real"
+    ],
+    "plans": [
+      {
+        "id": 501,
+        "name": "Suscripción",
+        "price": 14000,
+        "characteristics": [
+          "Cuenta estable, con ESPN (champions y conmebol libertadores)",
+          "Clasificación de cine: 18+/R21/TV-MA",
+          "Entrega en tiempo real"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 3,
+    "name": "HBOMax",
+    "image": "https://filmhounds.co.uk/wp-content/uploads/2023/05/max-logo.jpg",
+    "price": 8000,
+    "characteristics": [
+      "Renueva la misma suscripción",
+      "Mantén todos tus favoritos y listas",
+      "Calidad desde HD hasta 4K"
+    ],
+    "plans": [
+      {
+        "id": 301,
+        "name": "Estándar",
+        "price": 8000,
+        "characteristics": [
+          "Calidad HD",
+          "Precio económico",
+          "Probables indisponibilidades ocasionales",
+          "Entrega en tiempo real"
+        ]
+      },
+      {
+        "id": 302,
+        "name": "Platino",
+        "price": 11000,
+        "characteristics": [
+          "Calidad 4K UHD",
+          "Máxima estabilidad (Sin caídas)",
+          "Contenido HDR y Dolby Atmos",
+          "Entrega en tiempo real"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 4,
+    "name": "Prime Video",
+    "image": "https://th.bing.com/th/id/OIP.hOyeETmfMNoeV9ThyQMNBQHaHa?cb=iwc2&rs=1&pid=ImgDetMain",
+    "price": 10000,
+    "characteristics": [],
+    "plans": [
+      {
+        "id": 401,
+        "name": "Suscripción",
+        "price": 10000,
+        "characteristics": []
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "name": "Vix Premium",
+    "image": "https://th.bing.com/th/id/OIP.fpsYx-rEZwqdPUUznf2I8QHaD4?cb=iwc2&rs=1&pid=ImgDetMain",
+    "price": 7000,
+    "characteristics": [],
+    "plans": [
+      {
+        "id": 1301,
+        "name": "Suscripción",
+        "price": 7000,
+        "characteristics": []
+      }
+    ]
+  },
+  {
+    "id": 14,
+    "name": "Apple",
+    "image": "https://static.iphoneitalia.com/wp-content/uploads/2020/09/apple-one.png",
+    "price": 8000,
+    "characteristics": [
+      "Contenido original exclusivo",
+      "Con tu mismo Apple ID",
+      "Calidad 4K HDR"
+    ],
+    "plans": [
+      {
+        "id": 1401,
+        "name": "Apple One (345GB)",
+        "price": 22000,
+        "characteristics": [
+          "345 GB en iCloud",
+          "Con tu mismo Apple ID",
+          "Incluye TV, Music, Fitness y Arcade",
+          "Acceso Familiar"
+        ],
+        "detalles": "Se activa en tu propio Apple ID vía invitación familiar. Incluye Music, TV+, Arcade, Fitness+ y 345GB de iCloud."
+      },
+      {
+        "id": 1402,
+        "name": "Apple TV+",
+        "price": 8000,
+        "characteristics": [
+          "Acceso exclusivo a Películas y Series",
+          "4K HDR y Dolby Atmos",
+          "acceso garantizado por nosotros",
+          "Producciones originales"
+        ],
+        "detalles": "Acceso a una cuenta con el servicio de streaming Apple TV+. Calidad 4K y producciones originales."
+      }
+    ]
+  },
+
+  {
+    "id": 17,
+    "name": "Coworking Alquiler",
+    "image": "https://scratchup.com.co/images/design-mode/logo.png",
+    "price": 10000,
+    "characteristics": [
+      "Espacio agradable y acogedor",
+      "Una Hora de Barra libre",
+      "Internet y herramientas para trabajar"
+    ],
+    "plans": [
+      {
+        "id": 1701,
+        "name": "Espacio / Hora",
+        "price": 10000,
+        "characteristics": [
+          "Espacio agradable y acogedor",
+          "Una Hora de Barra libre",
+          "Internet alta velocidad"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 8,
+    "name": "YouTube Premium",
+    "image": "https://cdn.pixabay.com/photo/2021/09/11/18/21/youtube-6616310_1280.png",
+    "price": 12000,
+    "characteristics": [
+      "Usa tu cuenta personal",
+      "Reproducción segundo plano",
+      "Incluye YouTube Music"
+    ],
+    "plans": [
+      {
+        "id": 801,
+        "name": "Premium",
+        "price": 12000,
+        "characteristics": [
+          "Usa tu cuenta personal",
+          "Reproducción segundo plano",
+          "Incluye YouTube Music"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "name": "Paramount+",
+    "image": "https://th.bing.com/th/id/R.b80c8814890d78ad63b43c0bc2f4b401?rik=M95rQ%2fqeKRSHPQ&pid=ImgRaw&r=0",
+    "price": 6000,
+    "characteristics": [
+      "Video HDR 4K",
+      "Sin publicidad",
+      "Entrega en tiempo real"
+    ],
+    "plans": [
+      {
+        "id": 901,
+        "name": "Suscripción",
+        "price": 6000,
+        "characteristics": [
+          "Video HDR 4K",
+          "Sin publicidad",
+          "Entrega en tiempo real"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "name": "Spotify",
+    "image": "https://upload.wikimedia.org/wikipedia/commons/7/74/Spotify_App_Logo.svg",
+    "price": 8000,
+    "characteristics": [
+      "Ninguna cuenta es compartida",
+      "Uso 100% personal",
+      "Música sin anuncios y a la carta"
+    ],
+    "plans": [
+      {
+        "id": 1001,
+        "name": "Cuenta Nueva o Renovación",
+        "price": 8000,
+        "characteristics": [
+          "Cuenta proporcionada por nosotros",
+          "Uso personal, no compartida",
+          "Cuenta estable"
+        ],
+        "detalles": "Se entrega una cuenta nueva o se renueva una cuenta que ya te hayamos proporcionado antes."
+      },
+      {
+        "id": 1002,
+        "name": "Personal (Tu Correo)",
+        "price": 10000,
+        "characteristics": [
+          "Se activa en tu cuenta personal",
+          "Uso personal, no compartida",
+          "Mantén tus listas y favoritos"
+        ],
+        "detalles": "Activamos el premium en tu propia cuenta de Spotify con tu mismo correo. Privacidad total."
+      }
+    ]
+  },
+  {
+    "id": 11,
+    "name": "Crunchyroll",
+    "image": "https://i.pinimg.com/originals/d3/af/7d/d3af7d3ac568b0890b42370d2be192c8.png",
+    "price": 7000,
+    "characteristics": [
+      "Cuenta estable 12 meses",
+      "Clasificación 18+/R21/TV-MA",
+      "Todo el anime disponible"
+    ],
+    "plans": [
+      {
+        "id": 1101,
+        "name": "Suscripción",
+        "price": 7000,
+        "characteristics": [
+          "Cuenta estable 12 meses",
+          "Clasificación 18+/R21/TV-MA",
+          "Todo el anime disponible"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "name": "Xbox Game Pass Ultimate",
+    "image": "https://th.bing.com/th/id/R.6b6125b82e9694dae2125c36b7d917c3?rik=aFR3QZK9HRmLIw&pid=ImgRaw&r=0",
+    "price": 15000,
+    "characteristics": [
+      "Acceso a todo el catálogo Ultimate",
+      "Cuenta compartida por horarios (1/7 del mes)",
+      "Incluye EA Play, PC y Consola"
+    ],
+    "plans": [
+      {
+        "id": 1201,
+        "name": "Compartida por horarios",
+        "price": 15000,
+        "characteristics": [
+          "Elige tus franjas horarias (pico y valle)",
+          "Juega 1/7 parte del mes",
+          "Cuenta administrada por nosotros, sin cortes"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "name": "Platzi Expert",
+    "image": "https://latamlist.com/wp-content/uploads/2018/05/platzi-logo-huge.png",
+    "price": 20000,
+    "characteristics": [
+      "Acceso a 1200+ cursos",
+      "Rutas de aprendizaje",
+      "Certificados profesionales",
+      "Comunidad y eventos"
+    ],
+    "plans": [
+      {
+        "id": 1601,
+        "name": "Compartida",
+        "price": 20000,
+        "characteristics": [
+          "Acceso a 1200+ cursos",
+          "Rutas de aprendizaje",
+          "Certificados profesionales",
+          "Comunidad y eventos"
+        ]
+      },
+      {
+        "id": 1602,
+        "name": "Trimestral Personal",
+        "price": 150000,
+        "characteristics": [
+          "Compra mínima 3 meses",
+          "Precio total $150.000",
+          "Certificados a tu nombre",
+          "Acceso Expert completo"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 18,
+    "name": "IPTV",
+    "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSR_3LgQH4bN0fLG2u4f8twZWR8ASq6-P_XIg&s",
+    "price": 10000,
+    "characteristics": [
+      "10,000+ canales",
+      "VOD actualizado",
+      "HD/FHD/4K",
+      "Multi dispositivo"
+    ],
+    "plans": [
+      {
+        "id": 1801,
+        "name": "Suscripción",
+        "price": 10000,
+        "characteristics": [
+          "10,000+ canales",
+          "VOD actualizado",
+          "HD/FHD/4K",
+          "Multi dispositivo"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "name": "Gemini Pro",
+    "image": "https://meta-q.cdn.bubble.io/f1724422026295x667563819270324800/GeminiStreamingPro2.svg",
+    "price": 10000,
+    "characteristics": [
+      "Modelo 3.1 Pro (Última versión)",
+      "1,000 créditos de IA mensuales",
+      "5 TB de almacenamiento total",
+      "Gemini en Gmail, Docs y más",
+      "Acceso a Veo 3.1 y Whisk"
+    ],
+    "plans": [
+      {
+        "id": 1901,
+        "name": "Compartida",
+        "price": 10000,
+        "characteristics": [
+          "Cuenta compartida (Login compartido)",
+          "Sin almacenamiento personal",
+          "Créditos de IA compartidos con otros usuarios",
+          "Modelo 3.1 Pro (Uso básico)",
+          "La opción más económica"
+        ],
+        "detalles": "Cuenta compartida (Login de Sheerit). Créditos de IA y uso de modelos avanzados compartidos con otros."
+      },
+      {
+        "id": 1902,
+        "name": "Correo Propio",
+        "price": 22000,
+        "characteristics": [
+          "En tu propio correo (Plan Familiar)",
+          "1 TB de almacenamiento personal",
+          "200 créditos de IA mensuales propios",
+          "Privacidad total (Nadie ve tus archivos/chats)",
+          "Gemini en Workspace (Gmail, Docs, etc.)"
+        ],
+        "detalles": "Se activa en tu propio correo personal. 1TB de espacio, 200 créditos de IA propios al mes y privacidad total."
+      }
+    ]
+  },
+  {
+    "id": 21,
+    "name": "Canva Pro",
+    "image": "https://www.nintenderos.com/wp-content/uploads/2024/10/Canva.jpg.webp",
+    "price": 7000,
+    "characteristics": [
+      "Especialistas en creación de contenido",
+      "Más de 3.6 millones de plantillas (incluidas las premium)",
+      "Más de 141 millones de fotos, videos y elementos premium",
+      "Acceso sin límites a más de 25 herramientas con IA",
+      "100GB de almacenamiento"
+    ],
+    "plans": [
+      {
+        "id": 2101,
+        "name": "Mensual",
+        "price": 7000,
+        "characteristics": [
+          "Acceso completo a Canva Pro",
+          "Todas las herramientas premium",
+          "100GB de almacenamiento"
+        ]
+      },
+      {
+        "id": 2102,
+        "name": "Anual",
+        "price": 55000,
+        "characteristics": [
+          "Acceso completo a Canva Pro",
+          "Todas las herramientas premium",
+          "Ahorro frente al plan mensual"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 22,
+    "name": "Gamma App",
+    "image": "https://cdn.mos.cms.futurecdn.net/cfo9wrPuw9H2NXugivFUJh-1200-80.jpg.webp",
+    "price": 10000,
+    "characteristics": [
+      "Presentaciones con IA en minutos",
+      "Interfaz intuitiva y moderna",
+      "Exportación a PDF y PPT"
+    ],
+    "plans": [
+      {
+        "id": 2201,
+        "name": "Plan Plus",
+        "price": 10000,
+        "characteristics": [
+          "Créditos de IA mensuales",
+          "Sin marca de agua",
+          "Exportación completa"
+        ]
+      },
+      {
+        "id": 2202,
+        "name": "Plan Pro",
+        "price": 20000,
+        "characteristics": [
+          "Uso ilimitado de IA",
+          "Analíticas avanzadas",
+          "Fuentes personalizadas",
+          "Soporte prioritario"
+        ]
+      }
+    ]
+  },
+  {
+    "id": 23,
+    "name": "Claude Pro",
+    "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Claude_AI_logo.svg/1024px-Claude_AI_logo.svg.png",
+    "price": 20000,
+    "characteristics": [
+      "Cuenta compartida",
+      "Acceso a Claude 3.5 Sonnet y Opus",
+      "Ideal para código e investigación"
+    ],
+    "plans": [
+      {
+        "id": 2301,
+        "name": "Compartida",
+        "price": 20000,
+        "characteristics": [
+          "Acceso a los mejores modelos de Claude",
+          "Cuenta compartida estable",
+          "Proyectos ilimitados para organizar chats",
+          "Límites de uso mucho más amplios",
+          "Entrega en tiempo real"
+        ]
+      }
+    ]
+  }
+]

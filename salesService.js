@@ -13,6 +13,11 @@ async function getPlatforms() {
     if (!response.ok) throw new Error('Failed to fetch platforms');
     platforms = await response.json();
 
+    // Guardar copia local de respaldo actualizada asíncronamente
+    fs.writeFile(localPath, JSON.stringify(platforms, null, 2), (err) => {
+        if (err) console.error('[Sales Service] Error guardando respaldo de platforms.json:', err.message);
+    });
+
     // --- POST-PROCESAMIENTO: REGLAS DE NEGOCIO PERSONALIZADAS ---
     platforms = platforms.map(p => {
         if (p.name === 'Spotify') {

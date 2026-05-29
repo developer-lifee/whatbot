@@ -229,6 +229,8 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     });
     console.log(`[Payment Auto-Validate] ✅ Registro en Excel completado para ${userId}`);
      
+    const targetJid = userState.chatJid || userId;
+
      if (adminMessage) {
          await adminMessage.reply(report);
      } else {
@@ -243,24 +245,24 @@ async function executePaymentValidation(userId, userState, client, userStates, a
               });
 
               if (hasAnyCredentials) {
-                  await client.sendMessage(userId, credentialsMsg);
+                  await client.sendMessage(targetJid, credentialsMsg);
               } else {
                   const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
                                      "Aquí tienes tus credenciales actualizadas:";
-                  await client.sendMessage(userId, successMsg);
+                  await client.sendMessage(targetJid, successMsg);
                   
                   // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
                   await new Promise(r => setTimeout(r, 6000));
                   const { processCheckCredentials } = require('./billingService');
-                  await processCheckCredentials(userId, client, "Entrega automática tras pago", "");
+                  await processCheckCredentials(targetJid, client, "Entrega automática tras pago", "");
               }
           } catch (deliveryErr) {
-              console.error(`[Payment Auto-Validate] ❌ Error entregando credenciales a ${userId}:`, deliveryErr.message);
-              await client.sendMessage(userId, "🤖 Tu pago fue validado con éxito, pero tuve un problema al enviarte las credenciales automáticamente. Por favor escribe *credenciales* en unos minutos o espera a que un asesor te ayude. 😊");
+              console.error(`[Payment Auto-Validate] ❌ Error entregando credenciales a ${targetJid}:`, deliveryErr.message);
+              await client.sendMessage(targetJid, "🤖 Tu pago fue validado con éxito, pero tuve un problema al enviarte las credenciales automáticamente. Por favor escribe *credenciales* en unos minutos o espera a que un asesor te ayude. 😊");
           }
      }
      
-     userStates.set(userId, { state: 'main_menu', nombre: userState.nombre });
+     userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: userState.chatJid });
      return { success: true };
 }
 

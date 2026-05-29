@@ -1058,6 +1058,16 @@ async function processIncomingMessage(messages) {
       console.warn("No se pudo obtener contacto del mensaje:", err.message);
   }
 
+  // Asegurar que el estado tenga guardado el chatJid original para envíos directos sin LID mismatch
+  const originalChatJid = firstMsg.fromMe && firstMsg.to ? firstMsg.to : firstMsg.from;
+  let rawState = userStates.get(userId);
+  if (rawState && typeof rawState === 'object') {
+      rawState.chatJid = originalChatJid;
+      userStates.set(userId, rawState);
+  } else if (!rawState) {
+      userStates.set(userId, { chatJid: originalChatJid });
+  }
+
   // --- MUTE ABSOLUTO PROVEEDORES ---
   if (realPhone.includes('3027892534')) {
       console.log(`[Mute] Chat con proveedor @${realPhone} ignorado.`);
@@ -1942,8 +1952,12 @@ async function processIncomingMessage(messages) {
           const existing = userStates.get(userId);
           const stateData = typeof existing === 'object' ? { ...existing } : { nombre: foundName };
           
-          // Si el carrito está vacío y la IA dedujo qué estaba pagando, auto-rellenar el carrito
+          // Si el carrito está vacío, intentar auto-rellenarlo
           if (!stateData.items || stateData.items.length === 0) {
+              const { getAccountsByPhone } = require('./apiService');
+              let userAccounts = [];
+              try { userAccounts = await getAccountsByPhone(realPhone); } catch(e) {}
+
               if (check.inferredPlatform) {
                   console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}`);
                   
@@ -1977,6 +1991,13 @@ async function processIncomingMessage(messages) {
                   stateData.total = catalogPrice || check.amount;
                   stateData.isAutoFilled = true;
                   userStates.set(userId, stateData); // Persistir el auto-llenado
+              } else if (userAccounts.length === 1) {
+                  const singleAcc = userAccounts[0];
+                  stateData.items = [singleAcc];
+                  stateData.total = check.amount;
+                  stateData.isAutoFilled = true;
+                  stateData.isImplicitFallback = true; // Flag para confirmación de precisión
+                  userStates.set(userId, stateData); // Persistir el auto-llenado
               }
           }
           
@@ -1991,7 +2012,29 @@ async function processIncomingMessage(messages) {
                       if (match) {
                           console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
                           
-                          // Ejecutar validación automática
+                          // SI LA PLATAFORMA FUE AUTO-RELLENADA DE FORMA IMPLÍCITA (PORQUE EL RECIBO NO TENÍA LA PLATAFORMA), PEDIR CONFIRMACIÓN
+                          if (stateData.isImplicitFallback && stateData.items && stateData.items.length > 0) {
+                              const targetPlat = (stateData.items[0].Streaming || "Servicio").toUpperCase();
+                              let msg = `🤖 ¡Hola! He recibido tu comprobante de Nequi/Abono de *$${check.amount}*.\n\n` +
+                                        `Veo que tienes una cuenta activa de *${targetPlat}*. ¿Este pago es para renovar tu servicio de *${targetPlat}* por un valor de *${check.amount}*? ¿Esta información es correcta para poder proceder? 😊\n\n` +
+                                        `1 - Sí, renovar ${targetPlat} ✅\n` +
+                                        `2 - No, es para un servicio nuevo u otro motivo ❌`;
+                              await message.reply(msg);
+                              
+                              userStates.set(userId, {
+                                  state: 'awaiting_payment_renewal_confirmation',
+                                  matchedAccount: stateData.items[0],
+                                  amount: check.amount,
+                                  bank: check.bank,
+                                  matchId: match.id,
+                                  subject: match.subject,
+                                  chatJid: originalChatJid,
+                                  nombre: foundName
+                              });
+                              return;
+                          }
+
+                          // Ejecutar validación automática directa si todo coincide perfectamente
                           const validationResult = await executePaymentValidation(userId, { ...stateData, total: check.amount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null);
                           
                           if (validationResult.success) {
@@ -2452,6 +2495,39 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         const welcomeMsg = "🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nPara poder ayudarte mejor, ¿cómo te llamas? O si lo prefieres, escoge una opción del menú:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)";
         await safeReply(message, welcomeMsg, userId);
         userStates.set(userId, { ...currentData, state: 'main_menu' });
+      }
+      break;
+    case 'awaiting_payment_renewal_confirmation':
+      const responseOption = (message.body || "").trim();
+      if (responseOption === '1') {
+          const stateInfo = currentStateData;
+          await message.reply("🤖 ¡Excelente! Estoy registrando tu renovación en el Excel y generando tus credenciales. Dame un momento... ⏳");
+          const tempState = {
+              nombre: stateInfo.nombre,
+              items: [stateInfo.matchedAccount],
+              total: stateInfo.amount,
+              chatJid: stateInfo.chatJid || userId
+          };
+          const valResult = await executePaymentValidation(userId, tempState, client, userStates, null);
+          if (!valResult.success) {
+              await message.reply("🤖 Hubo un problema al renovar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
+              userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+          }
+      } else if (responseOption === '2') {
+          await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
+          userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+          try {
+              const groupChat = await client.getChatById(GROUP_ID);
+              if (groupChat) {
+                  await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${userId.replace('@c.us', '')}\n` +
+                                 `Monto: $${currentStateData.amount}\n` +
+                                 `Banco: ${currentStateData.bank || 'Nequi'}\n` +
+                                 `Asunto: ${currentStateData.subject}\n` +
+                                 `El cliente indicó que el pago NO es para renovar su cuenta actual de ${(currentStateData.matchedAccount.Streaming || "Servicio").toUpperCase()}.`);
+              }
+          } catch(e) {}
+      } else {
+          await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, renovar) o *2* (No, servicio nuevo).");
       }
       break;
     case 'awaiting_code_account_selection':
