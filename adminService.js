@@ -1,5 +1,6 @@
 const { fetchRawData, updateExcelData } = require('./apiService');
 const { recordNewSale } = require('./salesRegistryService');
+const GROUP_ID = process.env.GROUP_ID || '120363102144405222@g.us';
 
 function isCriticalBrowserError(err) {
     if (!err || !err.message) return false;
@@ -244,20 +245,64 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                   }
               });
 
-               if (hasAnyCredentials) {
+              const manualItems = results.filter(res => res.status !== 'success');
+
+              if (hasAnyCredentials) {
                    const customerName = userState.nombre ? userState.nombre.split(' ')[0] : "";
                    const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
                    credentialsMsg += profileTip;
+                   
+                   if (manualItems.length > 0) {
+                       const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                       credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. Un asesor te la enviará por aquí en breve. 😊`;
+                       // Notificar al grupo de administración de la parte manual
+                       try {
+                           const groupChat = await client.getChatById(GROUP_ID);
+                           if (groupChat) {
+                               await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL PARCIAL REQUERIDA* (@${userId.replace('@c.us', '')})\n` +
+                                                           `Servicios manuales: ${manualPlats}\n` +
+                                                           `Por favor, envíale la invitación manualmente.`);
+                           }
+                       } catch(e) {}
+                   }
+
                    await client.sendMessage(targetJid, credentialsMsg);
+
+                   if (manualItems.length > 0) {
+                       userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid });
+                       return { success: true };
+                   }
               } else {
-                  const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
-                                     "Aquí tienes tus credenciales actualizadas:";
-                  await client.sendMessage(targetJid, successMsg);
-                  
-                  // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
-                  await new Promise(r => setTimeout(r, 6000));
-                  const { processCheckCredentials } = require('./billingService');
-                  await processCheckCredentials(targetJid, client, "Entrega automática tras pago", "");
+                   if (manualItems.length > 0) {
+                       let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
+                       const platformsStr = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                       manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
+                                    `Un asesor de soporte técnico ya está al tanto y te enviará el acceso/invitación por este chat en un momento. ¡Gracias por tu paciencia! 😊`;
+                       await client.sendMessage(targetJid, manualMsg);
+                       
+                       // Notificar al grupo de administración de la venta manual
+                       try {
+                           const groupChat = await client.getChatById(GROUP_ID);
+                           if (groupChat) {
+                               await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA* (@${userId.replace('@c.us', '')})\n` +
+                                                           `Servicios: ${platformsStr}\n` +
+                                                           `Monto: $${amount}\n` +
+                                                           `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
+                           }
+                       } catch(e) {}
+                       
+                       userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid });
+                       return { success: true };
+                   }
+
+                   const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
+                                      "Aquí tienes tus credenciales actualizadas:";
+                   await client.sendMessage(targetJid, successMsg);
+                   
+                   // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
+                   await new Promise(r => setTimeout(r, 6000));
+                   const { processCheckCredentials } = require('./billingService');
+                   await processCheckCredentials(targetJid, client, "Entrega automática tras pago", "");
               }
           } catch (deliveryErr) {
               console.error(`[Payment Auto-Validate] ❌ Error entregando credenciales a ${targetJid}:`, deliveryErr.message);
