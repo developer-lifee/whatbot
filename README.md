@@ -45,20 +45,34 @@ Comandos especiales para el administrador (definido en `OPERATOR_NUMBER`):
     - **Enmascaramiento de Credenciales**: Los usuarios vencidos o "Extras" reciben la notificación pero con las claves ocultas (`[Oculto por falta de pago]`), incentivando la renovación.
 - **Detector de Fallos Prematuros**: Identifica frases como *"mira lo que sale"* o *"no funciona"* en reportes de fallas técnicas, alertando al grupo de soporte de inmediato si la cuenta aún tiene días vigentes.
 
+### 7. 📅 Programación Inteligente de Mensajes (NUEVO - Mayo 2026)
+Permite al administrador programar envíos de mensajes de forma natural a cualquier cliente:
+- **Lógica Natural (Español)**: Soporta formatos de tiempo cotidianos como:
+    - `"en 10 minutos"`, `"en 2 horas"`, `"en 15 mins"`
+    - `"a las 8 am"`, `"a las 15:30"`, `"a las 3:15 pm"`
+    - `"mañana"`, `"mañana a las 10 am"`, `"mañana a las 8:30 pm"`
+- **Persistencia Anticaídas**: Los mensajes programados se guardan localmente en `scheduled_messages.json`. Si el servidor se apaga o reinicia, las tareas se vuelven a cargar y programar automáticamente en `node-schedule` en el arranque.
+- **Flexibilidad de Entrada**:
+    - Si se especifica una hora/tiempo, el bot lo agenda y envía una confirmación estructurada al administrador con la hora exacta en zona Bogotá.
+    - Si **no** se especifica tiempo, se asume envío inmediato (enviándolo de una vez y confirmando el éxito).
+
 ## 📂 Estructura del Proyecto
 
-- `index.js`: **Cerebro Principal**. Maneja la conexión, orquesta estados y el sistema de deduplicación.
+- `index.js`: **Cerebro Principal**. Maneja la conexión, orquesta estados y el sistema de de-duplicación.
 - `aiService.js`: **Módulo de IA**. Lógica de Gemini (Vision, Clasificación de intención, Refinamiento de Masivos).
 - `adminQueries.js`: **Motor Analítico**. Procesa las consultas a la base de datos y aplica filtros de masivos.
+- `scheduledMessageService.js`: **Gestor de Mensajería Programada**. Maneja la persistencia y la calendarización en tiempo real.
 - `gmailService.js`: Integración con la API de Gmail para validación de pagos y códigos.
 - `apiService.js`: Integración con Azure Functions para el registro en Excel.
 
-## 🚀 Comandos Administrativos (Desde el Grupo)
+## 🚀 Comandos Administrativos (Desde el Grupo o Directos)
 
 - `@bot confirmar [Número] [Plataforma]`: Valida un pago manualmente (rellena el carrito si estaba vacío).
 - `@bot notifica a los de [Cuenta] que [Mensaje]`: Inicia el flujo de envío masivo con pre-visualización.
 - `@bot descarta los [Palabra Clave]`: Filtra la lista de envío masivo actual.
 - `@bot solo los activos`: Filtra la lista para incluir solo cuentas no vencidas.
+- `@bot dile a [Nombre/Número] [Mensaje] [Tiempo]`: Agenda un mensaje para el cliente (ej: `@bot dile a Juan Perez hola cómo estás en 10 minutos`). Si no especificas el tiempo, se envía inmediatamente.
+- `@bot dile [Mensaje] [Tiempo]`: En un chat individual de cliente, agenda un mensaje para ese cliente (ej: `@bot dile hola en 15 minutos`).
 
 ## 🚀 Cómo Iniciar
 
@@ -74,8 +88,10 @@ Comandos especiales para el administrador (definido en `OPERATOR_NUMBER`):
 - [x] **Fase 1:** Estabilización y Deduplicación (Completado)
 - [x] **Fase 2:** Automatización de Pagos Gmail/Bre-B (Completado)
 - [x] **Fase 3:** Dashboard Administrativo Contextual (Completado)
-- [ ] **Fase 4:** Autenticación Web & Redis (OTP)
-- [ ] **Fase 5:** Panel Web de Gestión Directa
+- [x] **Fase 4:** Programación Persistente de Mensajes con IA (Completado)
+- [ ] **Fase 5:** Autenticación Web & Redis (OTP)
+- [ ] **Fase 6:** Panel Web de Gestión Directa
 
 ---
-*(Documentación actualizada al 11 de Mayo de 2026)*
+
+*(Documentación actualizada al 30 de Mayo de 2026)*
