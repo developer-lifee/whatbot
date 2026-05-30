@@ -245,6 +245,7 @@
   {
     "id": 8,
     "name": "YouTube Premium",
+    "discountTier": "C",
     "image": "https://cdn.pixabay.com/photo/2021/09/11/18/21/youtube-6616310_1280.png",
     "price": 12000,
     "characteristics": [

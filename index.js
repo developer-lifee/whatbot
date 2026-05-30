@@ -419,6 +419,7 @@ app.post('/api/admin/sales/create', async (req, res) => {
         
         // Map duration to subscriptionType
         let subscriptionType = 'mensual';
+        if (duration === '3') subscriptionType = 'trimestral';
         if (duration === '6') subscriptionType = 'semestral';
         if (duration === '12') subscriptionType = 'anual';
 

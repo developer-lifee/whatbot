@@ -1,5 +1,5 @@
 const { parsePurchaseIntent, parsePlanSelection } = require('./aiService');
-const { fetchRawData } = require('./apiService');
+const { fetchRawData, getPricingRules } = require('./apiService');
 
 const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
 const fs = require('fs');
@@ -276,23 +276,39 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
       return;
   }
 
+  const activeRules = await getPricingRules();
+
   const numPlatforms = selectedItems.length;
+  const discountPerItem = numPlatforms > 1 ? ((numPlatforms - 1) * activeRules.discountPerPlatform) / numPlatforms : 0;
+  
   if (numPlatforms > 1) {
-    const discount = (numPlatforms - 1) * 1000;
-    calculatedTotal -= discount;
-    consolidatedResponse += `\nDescuento por combo: -$${discount}\n`;
+    const totalComboDiscount = (numPlatforms - 1) * activeRules.discountPerPlatform;
+    consolidatedResponse += `\nDescuento por combo: -$${totalComboDiscount}\n`;
   }
 
+  let finalCalculatedTotal = 0;
+  for (const s of selectedItems) {
+    const tier = s.platform.discountTier || 'A';
+    const tierRules = activeRules.durationDiscounts[tier] || activeRules.durationDiscounts['A'];
+    const durationRule = tierRules[subscriptionType || 'mensual'] || tierRules['mensual'];
+    const months = durationRule.months || 1;
+    const factor = durationRule.factor || 1.0;
+    
+    // Ponderar el precio unitario base mensual descontando la parte proporcional del combo
+    const itemMonthlyPrice = s.plan.price - discountPerItem;
+    finalCalculatedTotal += (itemMonthlyPrice * months) * factor;
+  }
+
+  calculatedTotal = Math.ceil(finalCalculatedTotal / 1000) * 1000;
+  
+  const defaultTier = selectedItems[0]?.platform?.discountTier || 'A';
+  const defaultTierRules = activeRules.durationDiscounts[defaultTier] || activeRules.durationDiscounts['A'];
+  const defaultDurationRule = defaultTierRules[subscriptionType || 'mensual'] || defaultTierRules['mensual'];
   let periodText = "/mes";
-  if (subscriptionType === 'anual') {
-    calculatedTotal = calculatedTotal * 12 * 0.85;
-    periodText = "/año";
-  } else if (subscriptionType === 'semestral') {
-    calculatedTotal = calculatedTotal * 6 * 0.93;
-    periodText = "/semestre";
+  if (defaultDurationRule && defaultDurationRule.label) {
+    periodText = `/${defaultDurationRule.label}`;
   }
 
-  calculatedTotal = Math.round(calculatedTotal);
   consolidatedResponse += `\n\n💰 *Total a transferir:* $${calculatedTotal}${periodText}`;
 
   if (statedPrice !== null && Math.abs(statedPrice - calculatedTotal) > 2000) {
@@ -601,20 +617,40 @@ async function calculateAndShowPrice(message, userId, userStates) {
     }
   }
 
+  const activeRules = await getPricingRules();
+
   const numPlatforms = selected.length;
+  const discountPerItem = numPlatforms > 1 ? ((numPlatforms - 1) * activeRules.discountPerPlatform) / numPlatforms : 0;
+  
   if (numPlatforms > 1) {
-    const discount = (numPlatforms - 1) * 1000;
-    totalPrice -= discount;
-    responseText += `\nDescuento por combo: -$${discount}\n`;
+    const totalComboDiscount = (numPlatforms - 1) * activeRules.discountPerPlatform;
+    responseText += `\nDescuento por combo: -$${totalComboDiscount}\n`;
   }
 
+  let finalTotalPrice = 0;
+  selected.forEach(s => {
+    const plan = s.chosenPlan;
+    if (!plan) return;
+    
+    const tier = s.platform.discountTier || 'A';
+    const tierRules = activeRules.durationDiscounts[tier] || activeRules.durationDiscounts['A'];
+    const durationRule = tierRules[subscriptionType || 'mensual'] || tierRules['mensual'];
+    const months = durationRule.months || 1;
+    const factor = durationRule.factor || 1.0;
+    
+    // Ponderar el precio unitario base mensual descontando la parte proporcional del combo
+    const itemMonthlyPrice = plan.price - discountPerItem;
+    finalTotalPrice += (itemMonthlyPrice * months) * factor;
+  });
+
+  totalPrice = Math.ceil(finalTotalPrice / 1000) * 1000;
+  
+  const defaultTier = selected[0]?.platform?.discountTier || 'A';
+  const defaultTierRules = activeRules.durationDiscounts[defaultTier] || activeRules.durationDiscounts['A'];
+  const defaultDurationRule = defaultTierRules[subscriptionType || 'mensual'] || defaultTierRules['mensual'];
   let periodText = "/mes";
-  if (subscriptionType === 'anual') {
-    totalPrice = totalPrice * 12 * 0.85;
-    periodText = "/año";
-  } else if (subscriptionType === 'semestral') {
-    totalPrice = totalPrice * 6 * 0.93;
-    periodText = "/semestre";
+  if (defaultDurationRule && defaultDurationRule.label) {
+    periodText = `/${defaultDurationRule.label}`;
   }
 
   responseText += `\nTotal (${subscriptionType}): $${totalPrice}${periodText}`;

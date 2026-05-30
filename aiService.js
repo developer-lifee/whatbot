@@ -338,7 +338,7 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
         { "platform": "NombrePlataforma", "plan": "NombrePlan" }
       ],
       "statedPrice": number | null, // Si el usuario menciona un precio total, inclúyelo (solo números).
-      "subscriptionType": "mensual" | "semestral" | "anual", // "mensual" por defecto.
+      "subscriptionType": "mensual" | "trimestral" | "semestral" | "anual", // "mensual" por defecto.
       "empathyGreeting": string | null // Un saludo empático y MUY PERSUASIVO. Si el cliente pregunta por disponibilidad inmediata, dile que "Sí, tengo stock para entrega inmediata y yo mismo (el bot) puedo validar tu pago en segundos si usas el QR".
     }
     

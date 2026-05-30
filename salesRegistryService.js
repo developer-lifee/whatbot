@@ -35,7 +35,8 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null, baseD
     if (overrideMonths) {
         monthsToAdd = overrideMonths;
     } else {
-        if (subscriptionType === 'semestral') monthsToAdd = 6;
+        if (subscriptionType === 'trimestral') monthsToAdd = 3;
+        else if (subscriptionType === 'semestral') monthsToAdd = 6;
         else if (subscriptionType === 'anual') monthsToAdd = 12;
     }
 

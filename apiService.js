@@ -330,6 +330,71 @@ async function getWisdomKnowledge() {
     }
 }
 
+const RULES_URL = "https://sheerit.com.co/data/rules.json";
+
+/**
+ * Obtiene las reglas de precios y descuentos de combo dinámicas desde el JSON en línea.
+ */
+async function getPricingRules() {
+    const localPath = path.join(__dirname, 'rules.json');
+    try {
+        const response = await fetch(RULES_URL);
+        if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
+        const rules = await response.json();
+        
+        // Guardar copia local de respaldo actualizada asíncronamente
+        fs.writeFile(localPath, JSON.stringify(rules, null, 2), (err) => {
+            if (err) console.error('[API Service] Error guardando respaldo de rules.json:', err.message);
+        });
+        return rules;
+    } catch (error) {
+        console.warn("[API Service] No se pudo obtener reglas de precios remotas, intentando local...");
+        try {
+            if (fs.existsSync(localPath)) {
+                const data = fs.readFileSync(localPath, 'utf8');
+                return JSON.parse(data);
+            }
+        } catch (localError) {
+            console.error('[API Service] Error cargando reglas de precios locales:', localError.message);
+        }
+        return {
+            discountPerPlatform: 1000,
+            durationDiscounts: {
+                "A": {
+                    "1": { "months": 1, "factor": 1.00, "label": "mes", "name": "mensual" },
+                    "3": { "months": 3, "factor": 0.97, "label": "trimestre", "name": "trimestral" },
+                    "6": { "months": 6, "factor": 0.93, "label": "semestre", "name": "semestral" },
+                    "12": { "months": 12, "factor": 0.85, "label": "año", "name": "anual" },
+                    "mensual": { "months": 1, "factor": 1.00, "label": "mes", "name": "mensual" },
+                    "trimestral": { "months": 3, "factor": 0.97, "label": "trimestre", "name": "trimestral" },
+                    "semestral": { "months": 6, "factor": 0.93, "label": "semestre", "name": "semestral" },
+                    "anual": { "months": 12, "factor": 0.85, "label": "año", "name": "anual" }
+                },
+                "B": {
+                    "1": { "months": 1, "factor": 1.00, "label": "mes", "name": "mensual" },
+                    "3": { "months": 3, "factor": 0.98, "label": "trimestre", "name": "trimestral" },
+                    "6": { "months": 6, "factor": 0.95, "label": "semestre", "name": "semestral" },
+                    "12": { "months": 12, "factor": 0.90, "label": "año", "name": "anual" },
+                    "mensual": { "months": 1, "factor": 1.00, "label": "mes", "name": "mensual" },
+                    "trimestral": { "months": 3, "factor": 0.98, "label": "trimestre", "name": "trimestral" },
+                    "semestral": { "months": 6, "factor": 0.95, "label": "semestre", "name": "semestral" },
+                    "anual": { "months": 12, "factor": 0.90, "label": "año", "name": "anual" }
+                },
+                "C": {
+                    "1": { "months": 1, "factor": 1.00, "label": "mes", "name": "mensual" },
+                    "3": { "months": 3, "factor": 0.99, "label": "trimestre", "name": "trimestral" },
+                    "6": { "months": 6, "factor": 0.97, "label": "semestre", "name": "semestral" },
+                    "12": { "months": 12, "factor": 0.94, "label": "año", "name": "anual" },
+                    "mensual": { "months": 1, "factor": 1.00, "label": "mes", "name": "mensual" },
+                    "trimestral": { "months": 3, "factor": 0.99, "label": "trimestre", "name": "trimestral" },
+                    "semestral": { "months": 6, "factor": 0.97, "label": "semestre", "name": "semestral" },
+                    "anual": { "months": 12, "factor": 0.94, "label": "año", "name": "anual" }
+                }
+            }
+        };
+    }
+}
+
 module.exports = {
   fetchRawData,
   fetchCustomersData,
@@ -341,6 +406,7 @@ module.exports = {
   getTodayInBogota,
   getJsDateFromExcel,
   getPlatformKnowledge,
-  getWisdomKnowledge
+  getWisdomKnowledge,
+  getPricingRules
 };
 
