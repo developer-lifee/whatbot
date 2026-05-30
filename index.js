@@ -1661,75 +1661,179 @@ async function processIncomingMessage(messages) {
               await message.reply('❌ No pude identificar al cliente para confirmar el pago, jefe. Intenta poniendo el número o respondiendo al reporte del cliente.');
           }
       } else if (adminAI.intent === 'programar_mensaje') {
-          let targetId = null;
-          let targetName = null;
+          let recipients = [];
+          const isCredentialsRequest = message.body.toLowerCase().includes('credenciales') || 
+                                       message.body.toLowerCase().includes('cuenta');
 
-          // 1. Identificar destinatario (target_user)
-          if (adminAI.target_user === 'este cliente' || (!adminAI.target_user && !message.from.includes('@g.us'))) {
-              targetId = userId;
-              targetName = 'este cliente';
-          } else if (adminAI.target_user) {
-              const cleanTarget = adminAI.target_user.replace(/\D/g, '');
-              if (cleanTarget.length >= 8) {
-                  targetId = (cleanTarget.startsWith('57') ? cleanTarget : '57' + cleanTarget) + '@c.us';
-                  targetName = cleanTarget;
-              } else {
-                  // Buscar por nombre
-                  const { searchContactByName } = require('./googleContactsService');
-                  let foundPhone = await searchContactByName(adminAI.target_user);
-                  
-                  if (!foundPhone) {
-                      const { fetchRawData } = require('./apiService');
-                      try {
-                          const rawData = await fetchRawData();
-                          const userRow = rawData.find(r => {
-                              const rowName = (r.Nombre || r['Nombre Completo'] || "").toString().toLowerCase();
-                              return rowName.includes(adminAI.target_user.toLowerCase());
-                          });
-                          if (userRow && userRow.numero) {
-                              const tel = userRow.numero.toString().replace(/\D/g, '');
-                              foundPhone = tel.startsWith('57') ? tel : '57' + tel;
-                          }
-                      } catch (e) {
-                          console.error('Error buscando nombre en Excel para programar:', e.message);
-                      }
-                  }
-
-                  if (foundPhone) {
-                      targetId = foundPhone.includes('@') ? foundPhone : foundPhone + '@c.us';
-                      targetName = adminAI.target_user;
-                  }
-              }
-          }
-
-          if (!targetId) {
-              await message.reply('❌ Jefe, no pude identificar al cliente al que deseas enviarle el mensaje. Por favor especifica su nombre o número.');
-              return;
-          }
-
-          // 2. Extraer el mensaje limpio
-          const messageText = adminAI.message_text;
-          if (!messageText || messageText.trim().length === 0) {
-              await message.reply('❌ Jefe, no detecté el contenido del mensaje que quieres enviar.');
-              return;
-          }
-
-          // 3. ¿Es programado o inmediato?
-          if (adminAI.scheduled_time) {
-              const { scheduleNewMessage } = require('./scheduledMessageService');
+          // Caso A: El destinatario es una cuenta de correo (ej: sheerpremium@gmail.com)
+          if (adminAI.target_user && adminAI.target_user.includes('@') && adminAI.target_user.includes('.')) {
+              const targetEmail = adminAI.target_user.toLowerCase().trim();
+              const { fetchRawData } = require('./apiService');
               try {
-                  const result = await scheduleNewMessage(client, targetId, messageText, adminAI.scheduled_time);
-                  await message.reply(`📅 *MENSAJE PROGRAMADO CON ÉXITO*\n\n👤 *Cliente:* ${targetName} (@${targetId.replace('@c.us', '')})\n🕒 *Envío:* ${result.formattedTime}\n📝 *Mensaje:* "${messageText}"`);
+                  const rawData = await fetchRawData();
+                  const matchingRows = rawData.filter(row => {
+                      const rowEmail = (row.correo || row.Correo || '').toString().toLowerCase().trim();
+                      const rowPlat = (row.Streaming || row.streaming || '').toString().toLowerCase();
+                      const platFilter = adminAI.target_platform ? adminAI.target_platform.toLowerCase().trim() : '';
+
+                      const emailMatch = rowEmail === targetEmail;
+                      const platMatch = platFilter ? rowPlat.includes(platFilter) : true;
+                      const hasPhone = row.numero || row.whatsapp;
+
+                      return emailMatch && platMatch && hasPhone;
+                  });
+
+                  if (matchingRows.length === 0) {
+                      await message.reply(`❌ Jefe, no encontré a ningún cliente asignado a la cuenta *${targetEmail}* en el Excel.`);
+                      return;
+                  }
+
+                  matchingRows.forEach(row => {
+                      const tel = (row.numero || row.whatsapp).toString().replace(/\D/g, '');
+                      const targetId = (tel.startsWith('57') ? tel : '57' + tel) + '@c.us';
+                      const targetName = row.Nombre || row.nombre || 'Cliente';
+
+                      let msgToSend = adminAI.message_text || '';
+                      if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
+                          const streamingName = (row.Streaming || 'Streaming').toUpperCase();
+                          const pin = row['pin perfil'] || row['pin'] || '';
+                          msgToSend = `🔐 *CREDENCIALES ${streamingName}*\n\n📧 Correo: ${row.correo}\n🔒 Clave: ${row.contraseña}${pin ? `\n🔢 PIN: ${pin}` : ''}`;
+                      }
+
+                      recipients.push({
+                          targetId,
+                          targetName,
+                          messageText: msgToSend
+                      });
+                  });
               } catch (err) {
-                  await message.reply(`❌ *Error al programar:* ${err.message}`);
+                  console.error('Error buscando destinatarios por email:', err.message);
+                  await message.reply(`❌ Error al consultar los clientes de esa cuenta en Excel: ${err.message}`);
+                  return;
               }
           } else {
-              // Inmediato
-              try {
-                  await client.sendMessage(targetId, messageText);
-                  await message.reply(`✅ *MENSAJE ENVIADO INMEDIATAMENTE*\n\n👤 *Cliente:* ${targetName} (@${targetId.replace('@c.us', '')})\n📝 *Mensaje:* "${messageText}"`);
-              } catch (err) {
-                  await message.reply(`❌ *Error al enviar mensaje inmediato:* ${err.message}`);
+              // Caso B: Destinatario único (nombre, teléfono o "este cliente")
+              let targetId = null;
+              let targetName = null;
+
+              if (adminAI.target_user === 'este cliente' || (!adminAI.target_user && !message.from.includes('@g.us'))) {
+                  targetId = userId;
+                  targetName = 'este cliente';
+              } else if (adminAI.target_user) {
+                  const cleanTarget = adminAI.target_user.replace(/\D/g, '');
+                  if (cleanTarget.length >= 8) {
+                      targetId = (cleanTarget.startsWith('57') ? cleanTarget : '57' + cleanTarget) + '@c.us';
+                      targetName = cleanTarget;
+                  } else {
+                      // Buscar por nombre
+                      const { searchContactByName } = require('./googleContactsService');
+                      let foundPhone = await searchContactByName(adminAI.target_user);
+                      
+                      if (!foundPhone) {
+                          const { fetchRawData } = require('./apiService');
+                          try {
+                              const rawData = await fetchRawData();
+                              const userRow = rawData.find(r => {
+                                  const rowName = (r.Nombre || r['Nombre Completo'] || "").toString().toLowerCase();
+                                  return rowName.includes(adminAI.target_user.toLowerCase());
+                              });
+                              if (userRow && userRow.numero) {
+                                  const tel = userRow.numero.toString().replace(/\D/g, '');
+                                  foundPhone = tel.startsWith('57') ? tel : '57' + tel;
+                              }
+                          } catch (e) {
+                              console.error('Error buscando nombre en Excel para programar:', e.message);
+                          }
+                      }
+
+                      if (foundPhone) {
+                          targetId = foundPhone.includes('@') ? foundPhone : foundPhone + '@c.us';
+                          targetName = adminAI.target_user;
+                      }
+                  }
+              }
+
+              if (!targetId) {
+                  await message.reply('❌ Jefe, no pude identificar al cliente al que deseas enviarle el mensaje. Por favor especifica su nombre o número.');
+                  return;
+              }
+
+              // Generar credenciales si fue solicitado
+              let msgToSend = adminAI.message_text || '';
+              if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
+                  const { getAccountsByPhone } = require('./apiService');
+                  const { formatDirectCredentials } = require('./aiService');
+                  try {
+                      const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
+                      const userAccounts = await getAccountsByPhone(phoneNumber);
+                      const platFilter = adminAI.target_platform || '';
+                      
+                      const formatted = formatDirectCredentials(userAccounts, platFilter);
+                      if (formatted) {
+                          msgToSend = formatted;
+                      } else if (msgToSend.trim().length === 0) {
+                          await message.reply(`❌ Jefe, no encontré ninguna cuenta activa de *${platFilter.toUpperCase() || 'Streaming'}* para el cliente.`);
+                          return;
+                      }
+                  } catch (err) {
+                      console.error('Error buscando credenciales para programar:', err.message);
+                  }
+              }
+
+              if (!msgToSend || msgToSend.trim().length === 0) {
+                  await message.reply('❌ Jefe, no detecté el contenido del mensaje que quieres enviar.');
+                  return;
+              }
+
+              recipients.push({
+                  targetId,
+                  targetName,
+                  messageText: msgToSend
+              });
+          }
+
+          // 3. Procesar envíos (programados o inmediatos)
+          if (adminAI.scheduled_time) {
+              const { scheduleNewMessage } = require('./scheduledMessageService');
+              let successCount = 0;
+              let lastFormattedTime = '';
+
+              for (const rec of recipients) {
+                  try {
+                      const result = await scheduleNewMessage(client, rec.targetId, rec.messageText, adminAI.scheduled_time);
+                      lastFormattedTime = result.formattedTime;
+                      successCount++;
+                  } catch (err) {
+                      console.error(`Error programando a ${rec.targetId}:`, err.message);
+                  }
+              }
+
+              if (successCount === 0) {
+                  await message.reply('❌ Jefe, no se pudo programar el envío a ningún destinatario.');
+              } else if (recipients.length === 1) {
+                  await message.reply(`📅 *MENSAJE PROGRAMADO CON ÉXITO*\n\n👤 *Cliente:* ${recipients[0].targetName} (@${recipients[0].targetId.replace('@c.us', '')})\n🕒 *Envío:* ${lastFormattedTime}\n📝 *Mensaje:* "${recipients[0].messageText.substring(0, 100)}..."`);
+              } else {
+                  await message.reply(`📅 *DIFUSIÓN PROGRAMADA CON ÉXITO*\n\n📧 *Cuenta:* ${adminAI.target_user}\n👥 *Destinatarios:* ${successCount} clientes programados.\n🕒 *Envío:* ${lastFormattedTime}`);
+              }
+          } else {
+              // Envíos inmediatos
+              let successCount = 0;
+              for (const rec of recipients) {
+                  try {
+                      await client.sendMessage(rec.targetId, rec.messageText);
+                      successCount++;
+                      await new Promise(r => setTimeout(r, 2000)); // Delay sutil entre envíos
+                  } catch (err) {
+                      console.error(`Error enviando inmediato a ${rec.targetId}:`, err.message);
+                  }
+              }
+
+              if (successCount === 0) {
+                  await message.reply('❌ Jefe, no se pudo enviar el mensaje a ningún destinatario.');
+              } else if (recipients.length === 1) {
+                  await message.reply(`✅ *MENSAJE ENVIADO INMEDIATAMENTE*\n\n👤 *Cliente:* ${recipients[0].targetName} (@${recipients[0].targetId.replace('@c.us', '')})\n📝 *Mensaje:* "${recipients[0].messageText}"`);
+              } else {
+                  await message.reply(`✅ *DIFUSIÓN ENVIADA INMEDIATAMENTE*\n\n📧 *Cuenta:* ${adminAI.target_user}\n👥 *Entregados:* ${successCount} clientes.`);
               }
           }
           return;
