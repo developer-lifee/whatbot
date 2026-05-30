@@ -496,6 +496,12 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                             // 1. Detección de Netflix y Extras
                             const isNetflix = platformFilter && cln(platformFilter).includes('netflix');
                             const isExtra = cln(platStr).includes('extra');
+                            const isRequestedExtra = platformFilter && cln(platformFilter).includes('extra');
+
+                            // Excluir Extras de difusiones generales de credenciales de la cuenta principal
+                            if (isExtra && !isRequestedExtra) {
+                                return null;
+                            }
                             
                             // 2. Cálculo de vencimiento
                             const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
