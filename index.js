@@ -1368,9 +1368,11 @@ async function processIncomingMessage(messages) {
 
                   const displayEmail = isSharedPlatform ? (r.customer_mail || payload.target_account) : (payload.target_account || r.customer_mail);
 
-                  let msg = payload.custom_message 
-                    ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}`
-                    : `🚨 *${title}*\n\nHola 👋, te contactamos de Sheerit para informarte que los datos de acceso de tu cuenta de *${payload.platform}* han sido actualizados.\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`;
+                  let msg = payload.is_prerendered
+                     ? (r.pin_perfil || payload.custom_message)
+                     : (payload.custom_message 
+                        ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}`
+                        : `🚨 *${title}*\n\nHola 👋, te contactamos de Sheerit para informarte que los datos de acceso de tu cuenta de *${payload.platform}* han sido actualizados.\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`);
                   try {
                       await client.sendMessage(targetUser, msg);
                       exitosos++;
@@ -1663,8 +1665,16 @@ async function processIncomingMessage(messages) {
           }
       } else if (adminAI.intent === 'programar_mensaje') {
           let recipients = [];
+          
+          // Detección robusta de solicitud de credenciales o de solo PIN
           const isCredentialsRequest = message.body.toLowerCase().includes('credenciales') || 
                                        message.body.toLowerCase().includes('cuenta');
+                                       
+          const isPinOnlyRequest = message.body.toLowerCase().includes('pin') && 
+                                   (message.body.toLowerCase().includes('unicamente') || 
+                                    message.body.toLowerCase().includes('únicamente') || 
+                                    message.body.toLowerCase().includes('solo') || 
+                                    message.body.toLowerCase().includes('solamente'));
 
           // Caso A: El destinatario es una cuenta de correo (ej: sheerpremium@gmail.com)
           if (adminAI.target_user && adminAI.target_user.includes('@') && adminAI.target_user.includes('.')) {
@@ -1698,7 +1708,11 @@ async function processIncomingMessage(messages) {
                       const targetName = row.Nombre || row.nombre || 'Cliente';
 
                       let msgToSend = adminAI.message_text || '';
-                      if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
+                      if (isPinOnlyRequest) {
+                          const streamingName = (row.Streaming || 'Streaming').toUpperCase();
+                          const pin = row['pin perfil'] || row['pin'] || 'Sin PIN';
+                          msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
+                      } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
                           const streamingName = (row.Streaming || 'Streaming').toUpperCase();
                           const pin = row['pin perfil'] || row['pin'] || '';
                           msgToSend = `🔐 *CREDENCIALES ${streamingName}*\n\n📧 Correo: ${row.correo}\n🔒 Clave: ${row.contraseña}${pin ? `\n🔢 PIN: ${pin}` : ''}`;
@@ -1764,7 +1778,25 @@ async function processIncomingMessage(messages) {
 
               // Generar credenciales si fue solicitado
               let msgToSend = adminAI.message_text || '';
-              if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
+              if (isPinOnlyRequest) {
+                  const { getAccountsByPhone } = require('./apiService');
+                  try {
+                      const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
+                      const userAccounts = await getAccountsByPhone(phoneNumber);
+                      const platFilter = adminAI.target_platform || '';
+                      const targetAccount = userAccounts.find(a => (a.Streaming || '').toLowerCase().includes(platFilter.toLowerCase()));
+                      if (targetAccount) {
+                          const streamingName = (targetAccount.Streaming || 'Streaming').toUpperCase();
+                          const pin = targetAccount['pin perfil'] || targetAccount['pin'] || 'Sin PIN';
+                          msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
+                      } else {
+                          await message.reply(`❌ Jefe, no encontré ninguna cuenta de *${platFilter.toUpperCase() || 'Streaming'}* activa para el cliente.`);
+                          return;
+                      }
+                  } catch (err) {
+                      console.error('Error buscando PIN único para programar:', err.message);
+                  }
+              } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
                   const { getAccountsByPhone } = require('./apiService');
                   const { formatDirectCredentials } = require('./aiService');
                   try {
@@ -1796,7 +1828,7 @@ async function processIncomingMessage(messages) {
               });
           }
 
-          // 3. Procesar envíos (programados o inmediatos)
+          // 3. Procesar envíos (programados o con confirmación obligatoria previa)
           if (adminAI.scheduled_time) {
               const { scheduleNewMessage } = require('./scheduledMessageService');
               let successCount = 0;
@@ -1820,25 +1852,30 @@ async function processIncomingMessage(messages) {
                   await message.reply(`📅 *DIFUSIÓN PROGRAMADA CON ÉXITO*\n\n📧 *Cuenta:* ${adminAI.target_user}\n👥 *Destinatarios:* ${successCount} clientes programados.\n🕒 *Envío:* ${lastFormattedTime}`);
               }
           } else {
-              // Envíos inmediatos
-              let successCount = 0;
-              for (const rec of recipients) {
-                  try {
-                      await client.sendMessage(rec.targetId, rec.messageText);
-                      successCount++;
-                      await new Promise(r => setTimeout(r, 2000)); // Delay sutil entre envíos
-                  } catch (err) {
-                      console.error(`Error enviando inmediato a ${rec.targetId}:`, err.message);
-                  }
-              }
+              // ENVIOS INMEDIATOS: Pedir confirmación OBLIGATORIA al jefe para evitar desastres
+              userStates.set(userId, {
+                  state: 'awaiting_admin_broadcast_confirmation',
+                  payload: {
+                      status: 'pending_confirmation',
+                      action_type: 'broadcast',
+                      is_prerendered: true, // Indica que el mensaje ya está pre-renderizado y no debe alterarse
+                      target_account: adminAI.target_user,
+                      platform: adminAI.target_platform || 'Streaming',
+                      new_password: '', 
+                      custom_message: recipients[0].messageText, 
+                      only_fields: isPinOnlyRequest ? ['pin perfil'] : [],
+                      count: recipients.length,
+                      recipients: recipients.map(r => ({
+                          tel: r.targetId.replace('@c.us', ''),
+                          nombre: r.targetName,
+                          pin_perfil: r.messageText // Mensaje pre-renderizado individual
+                      }))
+                  },
+                  timestamp: Date.now()
+              });
 
-              if (successCount === 0) {
-                  await message.reply('❌ Jefe, no se pudo enviar el mensaje a ningún destinatario.');
-              } else if (recipients.length === 1) {
-                  await message.reply(`✅ *MENSAJE ENVIADO INMEDIATAMENTE*\n\n👤 *Cliente:* ${recipients[0].targetName} (@${recipients[0].targetId.replace('@c.us', '')})\n📝 *Mensaje:* "${recipients[0].messageText}"`);
-              } else {
-                  await message.reply(`✅ *DIFUSIÓN ENVIADA INMEDIATAMENTE*\n\n📧 *Cuenta:* ${adminAI.target_user}\n👥 *Entregados:* ${successCount} clientes.`);
-              }
+              const preview = recipients[0].messageText;
+              await message.reply(`📢 *PREPARANDO ENVÍO INMEDIATO DE DIFUSIÓN*\n\n📧 *Cuenta:* ${adminAI.target_user}\n👥 *Destinatarios:* ${recipients.length} clientes.\n\n📝 *Vista previa del mensaje a enviar:*\n---\n${preview}\n---\n\n¿Deseas proceder con el envío masivo inmediato a los ${recipients.length} clientes? Responde *sí* para confirmar o *no* para cancelar.`);
           }
           return;
       }

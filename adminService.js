@@ -536,27 +536,86 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     const platformWords = ['netflix', 'spotify', 'amazon', 'prime', 'hbo', 'max', 'disney', 'star', 'microsoft', 'crunchyroll', 'paramount', 'vix', 'apple', 'youtube', 'canva', 'magis', 'iptv', 'plex'];
     const mentionedPlatform = platformWords.find(p => command.toLowerCase().includes(p));
 
-    if (!stateData || !stateData.items || stateData.items.length === 0) {
+    let activeStateData = stateData;
+
+    if (!activeStateData || !activeStateData.items || activeStateData.items.length === 0) {
         if (mentionedPlatform) {
             const newItem = { Streaming: mentionedPlatform, platform: { name: mentionedPlatform } };
-            if (!stateData) {
-                userStates.set(userId, { state: 'awaiting_payment_confirmation', nombre: "Cliente", items: [newItem] });
+            if (!activeStateData) {
+                activeStateData = { state: 'awaiting_payment_confirmation', nombre: "Cliente", items: [newItem] };
             } else {
-                stateData.items = [newItem];
-                userStates.set(userId, stateData);
+                activeStateData.items = [newItem];
             }
+            userStates.set(userId, activeStateData);
         } else {
-            await message.reply(`⚠️ El cliente ${displayPhone} no tiene un pedido activo y no indicaste qué plataforma pagó.\n\nPor favor, repite el comando incluyendo la plataforma. Ej: *@bot confirmar ${displayPhone} Netflix*`);
-            return;
+            // NUEVO INTENTO INTELIGENTE: Buscar en Excel las cuentas de este cliente
+            const { fetchRawData, getJsDateFromExcel, getTodayInBogota } = require('./apiService');
+            try {
+                const rawData = await fetchRawData();
+                const cleanPhone = phone.replace(/\D/g, '');
+                
+                // Filtrar las cuentas de este número de teléfono
+                const clientRows = rawData.filter(row => {
+                    const rowNum = (row.numero || row.whatsapp || '').toString().replace(/\D/g, '');
+                    return rowNum.includes(cleanPhone) || cleanPhone.includes(rowNum);
+                });
+
+                if (clientRows.length > 0) {
+                    const today = getTodayInBogota();
+                    
+                    // Buscar cuentas vencidas o próximas a vencer (3 días)
+                    const expiredOrExpiring = clientRows.filter(row => {
+                        if (!row.deben && !row.vencimiento) return false;
+                        const expDate = getJsDateFromExcel(row.deben || row.vencimiento);
+                        if (!expDate) return false;
+                        const diffDays = (expDate - today) / (1000 * 60 * 60 * 24);
+                        return diffDays <= 3; // Vencida o vence en los próximos 3 días
+                    });
+
+                    if (expiredOrExpiring.length === 1) {
+                        // Caso A: Hay exactamente UNA cuenta vencida o por vencer, ¡asumimos que pagó esa!
+                        const targetRow = expiredOrExpiring[0];
+                        const platName = (targetRow.Streaming || 'Streaming');
+                        const newItem = { Streaming: platName, platform: { name: platName } };
+                        
+                        await message.reply(`ℹ️ El cliente no tenía un pedido activo en memoria, pero detecté en Excel que su cuenta de *${platName.toUpperCase()}* está vencida o por vencer. Procediendo a confirmar pago para ese servicio...`);
+                        
+                        if (!activeStateData) {
+                            activeStateData = { state: 'awaiting_payment_confirmation', nombre: targetRow.Nombre || "Cliente", items: [newItem] };
+                        } else {
+                            activeStateData.items = [newItem];
+                        }
+                        userStates.set(userId, activeStateData);
+                    } else if (expiredOrExpiring.length > 1) {
+                        // Caso B: Múltiples cuentas vencidas
+                        const list = expiredOrExpiring.map((r, i) => `${i + 1}. *${(r.Streaming || '').toUpperCase()}* (Vence: ${r.deben || r.vencimiento})`).join('\n');
+                        await message.reply(`⚠️ El cliente no tiene un pedido activo y tiene múltiples cuentas vencidas o por vencer en Excel:\n\n${list}\n\nPor favor, especifica cuál pagó repitiendo el comando. Ej:\n*@bot confirmar ${displayPhone} ${(expiredOrExpiring[0].Streaming || 'Netflix')}*`);
+                        return;
+                    } else {
+                        // Caso C: No hay vencidas, pero tiene activas
+                        const list = clientRows.map((r, i) => `${i + 1}. *${(r.Streaming || '').toUpperCase()}* (Vence: ${r.deben || r.vencimiento})`).join('\n');
+                        await message.reply(`⚠️ El cliente no tiene un pedido activo en el bot, pero tiene estas cuentas activas en Excel:\n\n${list}\n\nPor favor, repite el comando especificando la plataforma. Ej:\n*@bot confirmar ${displayPhone} ${(clientRows[0].Streaming || 'Netflix')}*`);
+                        return;
+                    }
+                } else {
+                    // Sin cuentas en Excel
+                    await message.reply(`⚠️ El cliente ${displayPhone} no tiene un pedido activo y no encontramos ninguna cuenta a su nombre en Excel.\n\nPor favor, especifica qué plataforma pagó agregando el nombre al final. Ej: *@bot confirmar ${displayPhone} Netflix*`);
+                    return;
+                }
+            } catch (err) {
+                console.error('Error en búsqueda inteligente de confirmación:', err.message);
+                await message.reply(`⚠️ El cliente ${displayPhone} no tiene un pedido activo y falló la búsqueda en Excel. Por favor especifica la plataforma. Ej: *@bot confirmar ${displayPhone} Netflix*`);
+                return;
+            }
         }
     } else if (mentionedPlatform) {
         // Si el cliente tiene varios pendientes pero el admin solo menciona uno, filtramos
-        const filtered = stateData.items.filter(item => {
+        const filtered = activeStateData.items.filter(item => {
             const name = (item.Streaming || item.name || "").toLowerCase();
             return name.includes(mentionedPlatform);
         });
         if (filtered.length > 0) {
-            stateData.items = filtered;
+            activeStateData.items = filtered;
             console.log(`[Admin Service] Filtrando confirmación solo para: ${mentionedPlatform}`);
         }
     }
