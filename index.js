@@ -1680,6 +1680,9 @@ async function processIncomingMessage(messages) {
                       const platMatch = platFilter ? rowPlat.includes(platFilter) : true;
                       const hasPhone = row.numero || row.whatsapp;
 
+                      const isExtra = rowPlat.includes('extra');
+                      if (isCredentialsRequest && isExtra) return false;
+
                       return emailMatch && platMatch && hasPhone;
                   });
 
