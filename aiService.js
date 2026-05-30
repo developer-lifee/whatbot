@@ -129,13 +129,16 @@ async function detectAdminIntent(messageContent) {
       *IMPORTANTE*: NO uses este intent si el mensaje menciona "envía", "manda", "pasa a todos", "notifica", "a los de", "código", "gmail", "correo" o "verificación", ya que eso indica un broadcast o la búsqueda de un código de acceso temporal.
     - "dormir_bot": El jefe quiere apagar las respuestas automáticas globales ("duérmete", "apágate").
     - "despertar_bot": El jefe quiere reactivar el bot globalmente ("despiértate", "actívate").
+    - "programar_mensaje": El jefe quiere que el bot le envíe un mensaje a un cliente específico (ej: "dile a Juan...", "envía a 573...", "dile a este cliente..."). Puede ser programado para el futuro (ej: "a las 8 am", "mañana a las 10:30", "en 10 minutos") o puede ser inmediato (si no se especifica hora, el tiempo programado es null).
     - "desconocido": Consultas de códigos (menciona "código", "gmail", "correo", "2fa", "authenticator", "totp", "verificación"), consultas de datos, reportes, envíos masivos (broadcast), refinamientos de mensajes, o charla casual.
  
     Salida esperada JSON:
     {
-      "intent": "confirmar_pago" | "confirm_action" | "liberar_bot" | "dame_cuenta" | "dormir_bot" | "despertar_bot" | "desconocido",
+      "intent": "confirmar_pago" | "confirm_action" | "liberar_bot" | "dame_cuenta" | "dormir_bot" | "despertar_bot" | "programar_mensaje" | "desconocido",
       "target_platform": string | null, // Ej: "Netflix", "HBO"
-      "target_user": string | null, // Ej: "57304...", "Estefania Arias"
+      "target_user": string | null, // Ej: "57304...", "Estefania Arias", o "este cliente"
+      "message_text": string | null, // El contenido limpio del mensaje que el jefe quiere enviarle al cliente (sin el @bot dile a..., etc.)
+      "scheduled_time": string | null, // La descripción del tiempo si la hay (ej: "8 am", "mañana a las 10:30", "en 10 minutos"), de lo contrario null
       "months": number | null // Si menciona duración para una confirmación
     }
   `;

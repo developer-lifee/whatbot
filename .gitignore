@@ -5,6 +5,7 @@ node_modules
 .env.local
 # Credentials
 credentials.json
+credentials_pagos.json
 token.json
 token_*.json
 pending_charges.json

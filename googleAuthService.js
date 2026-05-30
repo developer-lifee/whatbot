@@ -27,16 +27,13 @@ async function getOAuth2Client(serviceName = 'contacts', code = null, email = nu
     const cacheKey = email ? `${serviceName}_${email}` : serviceName;
     if (cachedClients.has(cacheKey) && !code) return cachedClients.get(cacheKey);
 
-    // Permitir archivo de credenciales específico por servicio (ej: credentials_pagos.json para gmail de pagos)
+    // Permitir archivo de credenciales específico por servicio (ej: credentials_pagos.json para gmail)
     let activeCredentialsPath = CREDENTIALS_PATH;
     if (serviceName === 'gmail') {
-        const paymentEmails = ['jordimemesmomazosdick@gmail.com', 'estebanavila6324@gmail.com'];
-        if (!email || paymentEmails.includes(email.toLowerCase().trim())) {
-            const specificGmailCreds = path.join(__dirname, 'credentials_pagos.json');
-            if (fs.existsSync(specificGmailCreds)) {
-                activeCredentialsPath = specificGmailCreds;
-                console.log(`[GOOGLE AUTH] Usando credenciales específicas de PAGOS para GMAIL: ${activeCredentialsPath}`);
-            }
+        const specificGmailCreds = path.join(__dirname, 'credentials_pagos.json');
+        if (fs.existsSync(specificGmailCreds)) {
+            activeCredentialsPath = specificGmailCreds;
+            console.log(`[GOOGLE AUTH] Usando credenciales específicas de PAGOS para GMAIL: ${activeCredentialsPath}`);
         }
     }
 

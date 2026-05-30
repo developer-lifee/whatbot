@@ -706,6 +706,13 @@ client.on('message_create', async (msg) => {
            return;
        }
 
+       // NUEVO: Manejo directo de programar/enviar mensaje en el chat del cliente
+       if (command.startsWith('@bot dile') || command.startsWith('@bot envia') || command.startsWith('@bot envía')) {
+           processIncomingMessage([msg])
+               .catch(err => console.error('Error procesando comando @bot en message_create:', err));
+           return;
+       }
+
        // Manejo de liberar
        if (command.includes('libera')) {
            userStates.delete(targetId);
@@ -1653,9 +1660,81 @@ async function processIncomingMessage(messages) {
           } else {
               await message.reply('❌ No pude identificar al cliente para confirmar el pago, jefe. Intenta poniendo el número o respondiendo al reporte del cliente.');
           }
+      } else if (adminAI.intent === 'programar_mensaje') {
+          let targetId = null;
+          let targetName = null;
+
+          // 1. Identificar destinatario (target_user)
+          if (adminAI.target_user === 'este cliente' || (!adminAI.target_user && !message.from.includes('@g.us'))) {
+              targetId = userId;
+              targetName = 'este cliente';
+          } else if (adminAI.target_user) {
+              const cleanTarget = adminAI.target_user.replace(/\D/g, '');
+              if (cleanTarget.length >= 8) {
+                  targetId = (cleanTarget.startsWith('57') ? cleanTarget : '57' + cleanTarget) + '@c.us';
+                  targetName = cleanTarget;
+              } else {
+                  // Buscar por nombre
+                  const { searchContactByName } = require('./googleContactsService');
+                  let foundPhone = await searchContactByName(adminAI.target_user);
+                  
+                  if (!foundPhone) {
+                      const { fetchRawData } = require('./apiService');
+                      try {
+                          const rawData = await fetchRawData();
+                          const userRow = rawData.find(r => {
+                              const rowName = (r.Nombre || r['Nombre Completo'] || "").toString().toLowerCase();
+                              return rowName.includes(adminAI.target_user.toLowerCase());
+                          });
+                          if (userRow && userRow.numero) {
+                              const tel = userRow.numero.toString().replace(/\D/g, '');
+                              foundPhone = tel.startsWith('57') ? tel : '57' + tel;
+                          }
+                      } catch (e) {
+                          console.error('Error buscando nombre en Excel para programar:', e.message);
+                      }
+                  }
+
+                  if (foundPhone) {
+                      targetId = foundPhone.includes('@') ? foundPhone : foundPhone + '@c.us';
+                      targetName = adminAI.target_user;
+                  }
+              }
+          }
+
+          if (!targetId) {
+              await message.reply('❌ Jefe, no pude identificar al cliente al que deseas enviarle el mensaje. Por favor especifica su nombre o número.');
+              return;
+          }
+
+          // 2. Extraer el mensaje limpio
+          const messageText = adminAI.message_text;
+          if (!messageText || messageText.trim().length === 0) {
+              await message.reply('❌ Jefe, no detecté el contenido del mensaje que quieres enviar.');
+              return;
+          }
+
+          // 3. ¿Es programado o inmediato?
+          if (adminAI.scheduled_time) {
+              const { scheduleNewMessage } = require('./scheduledMessageService');
+              try {
+                  const result = await scheduleNewMessage(client, targetId, messageText, adminAI.scheduled_time);
+                  await message.reply(`📅 *MENSAJE PROGRAMADO CON ÉXITO*\n\n👤 *Cliente:* ${targetName} (@${targetId.replace('@c.us', '')})\n🕒 *Envío:* ${result.formattedTime}\n📝 *Mensaje:* "${messageText}"`);
+              } catch (err) {
+                  await message.reply(`❌ *Error al programar:* ${err.message}`);
+              }
+          } else {
+              // Inmediato
+              try {
+                  await client.sendMessage(targetId, messageText);
+                  await message.reply(`✅ *MENSAJE ENVIADO INMEDIATAMENTE*\n\n👤 *Cliente:* ${targetName} (@${targetId.replace('@c.us', '')})\n📝 *Mensaje:* "${messageText}"`);
+              } catch (err) {
+                  await message.reply(`❌ *Error al enviar mensaje inmediato:* ${err.message}`);
+              }
+          }
           return;
       }
-      
+
       // Fallback a lógica antigua para comandos específicos no manejados por IA
       let command = "";
       if (isBotCommand) {

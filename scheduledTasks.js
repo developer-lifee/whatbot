@@ -20,6 +20,14 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
     
     console.log('⏰ [AUTOMATION] Inicializando tareas diarias (9:00 AM y 2:00 PM)...');
 
+    // Inicializar el gestor de mensajes programados
+    try {
+        const { initScheduledMessages } = require('./scheduledMessageService');
+        initScheduledMessages(client);
+    } catch (e) {
+        console.error('❌ Error inicializando gestor de mensajes programados:', e.message);
+    }
+
     // 1. COBROS AUTOMÁTICOS (9:00 AM)
     // Se ejecuta de Lunes a Domingo a las 9:00
     schedule.scheduleJob('0 9 * * *', async () => {
