@@ -3,6 +3,7 @@ const { getOAuth2Client } = require('./googleAuthService');
 
 let personasAPI = null;
 const recentlyAdded = new Set(); // Caché local para evitar duplicados en ráfagas rápidas
+const contactCache = new Map(); // Caché en memoria para evitar el lag de indexación de Google
 const PROCESSING_WINDOW = 1000 * 60 * 5; // 5 minutos de ventana de procesamiento
 
 /**
@@ -80,6 +81,7 @@ async function addNewContact(name, phone) {
         });
 
         console.log(`✅ Contacto [${name} - ${formattedPhone}] creado exitosamente en Google Contacts.`);
+        contactCache.set(coreNumber, name); // Guardar en caché para evitar lag de indexación
         return true;
     } catch (error) {
         const errorMsg = error.message || "";
@@ -113,6 +115,12 @@ async function searchContactByPhone(phone) {
 
         if (coreNumber.length < 10) return null;
 
+        // Verificar en caché local primero
+        if (contactCache.has(coreNumber)) {
+            console.log(`[Google Contacts Cache] 🚀 Match encontrado en caché para: ${coreNumber} -> ${contactCache.get(coreNumber)}`);
+            return contactCache.get(coreNumber);
+        }
+
         let response = await personasAPI.people.searchContacts({
             query: coreNumber,
             readMask: 'names,phoneNumbers',
@@ -140,6 +148,7 @@ async function searchContactByPhone(phone) {
 
             if (matches && person.names && person.names.length > 0) {
                 const foundName = person.names[0].displayName || person.names[0].givenName;
+                contactCache.set(coreNumber, foundName); // Guardar en caché para futuras llamadas rápidas
                 return foundName;
             }
         }

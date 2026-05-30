@@ -218,98 +218,315 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 /**
  * Maneja el proceso automático de cobros (Aviso de Cobro).
  */
-async function handleAutoCobros(message, groupId, userStates, pendingConfirmations, client) {
-    try {
-        console.log('[Billing Service] Iniciando escaneo de vencimientos para cobros automáticos...');
-        const customers = await fetchCustomersData();
-        const today = getTodayInBogota();
-        
-        // Notificar al grupo que inició el proceso
-        if (message && typeof message.reply === 'function') {
-            await message.reply('⏳ Escaneando base de datos para enviar avisos de cobro...');
-        }
+/**
+ * Función auxiliar para enviar mensajes de cobro de forma masiva con delay anti-spam.
+ */
+async function sendBulkCharges(client, records, requesterId = null) {
+  const file = path.join(__dirname, 'pending_charges.json');
+  
+  let existing = [];
+  try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
+  const entry = { requester: requesterId || 'SYSTEM_AUTO', records, timestamp: new Date().toISOString() };
+  existing.push(entry);
+  fs.writeFileSync(file, JSON.stringify(existing, null, 2));
 
-        const expiredOrSoon = customers.filter(c => {
-            const expDate = getJsDateFromExcel(c.deben || c.vencimiento);
-            if (!expDate) return false;
-            
-            const observaciones = String(c.observaciones || "").toUpperCase();
-            if (observaciones.includes("COMPROBANTE") || observaciones.includes("REVISAR")) return false;
-            
-            // Avisar si vence hoy o ya venció hace poco (ej: hasta 2 días atrás)
-            const diffDays = Math.floor((today - expDate) / (1000 * 60 * 60 * 24));
-            return diffDays >= -1 && diffDays <= 2; // -1 es "vence mañana", 0 es "vence hoy", 1-2 es "vencido"
-        });
-
-        // Agrupar por teléfono para no mandar 5 mensajes a alguien con 5 cuentas
-        const groupedByPhone = {};
-        expiredOrSoon.forEach(c => {
-            const phone = (c.numero || c.Numero || c.whatsapp || "").toString().replace(/\D/g, '');
-            if (phone.length < 10) return;
-            const fullPhone = phone.startsWith('57') ? phone : '57' + phone;
-            
-            if (!groupedByPhone[fullPhone]) {
-                groupedByPhone[fullPhone] = {
-                    nombre: c.Nombre || 'cliente',
-                    servicios: [],
-                    vencimiento: c.deben || c.vencimiento
-                };
-            }
-            groupedByPhone[fullPhone].servicios.push((c.Streaming || 'Servicio').toUpperCase());
-        });
-
-        let sentCount = 0;
-        for (const [phone, data] of Object.entries(groupedByPhone)) {
-            const userId = phone + '@c.us';
-            const expDate = getJsDateFromExcel(data.vencimiento);
-            const diffDays = expDate ? Math.floor((today - expDate) / (1000 * 60 * 60 * 24)) : 99;
-            
-            let dateContext = "está próximo a vencer o ya venció";
-            if (diffDays === -1) dateContext = "vence el día de mañana";
-            else if (diffDays === 0) dateContext = "vence el día de HOY";
-            else if (diffDays === 1) dateContext = "se venció el día de ayer";
-            else if (diffDays > 1) dateContext = `se venció el pasado ${expDate.toLocaleDateString('es-CO')}`;
-
-            const msg = `🤖 *Aviso de Cobro*\n\nHola *${data.nombre}*, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que tu servicio ${dateContext}.\n\nServicio(s): ${data.servicios.join(', ')}\n\nEscribe *3* en este chat para conocer el valor exacto a pagar y ver los medios de transferencia. ¡Gracias por preferirnos! 😊`;
-            
-            try {
-                await client.sendMessage(userId, msg);
-                sentCount++;
-                // Pequeño delay para evitar spam block
-                await new Promise(r => setTimeout(r, 3000));
-            } catch (e) {
-                console.error(`Error enviando cobro a ${phone}:`, e.message);
-            }
-        }
-
-        if (message && typeof message.reply === 'function') {
-            await message.reply(`✅ Proceso finalizado. Se enviaron ${sentCount} avisos de cobro exitosamente.`);
-        }
-
-    } catch (error) {
-        console.error('[Billing Service] Error en handleAutoCobros:', error);
-        if (message && typeof message.reply === 'function') {
-            await message.reply('❌ Error al procesar los cobros automáticos.');
+  let exitosos = 0;
+  for (const r of records) {
+    const dest = r.phone + '@c.us';
+    
+    let vencimientoTxt = "tu suscripción está próxima a renovarse o ya venció";
+    if (r.date || r.dateStr) {
+        const d = r.date || r.dateStr;
+        if (d === "MAÑANA") {
+           vencimientoTxt = "el día de mañana se vence tu cuenta";
+        } else {
+           vencimientoTxt = `el día ${d} se venció tu cuenta`;
         }
     }
+    
+    const serviceName = r.textToShow || r.services?.join(', ') || r.service || 'tus servicios';
+    
+    try {
+        await client.sendMessage(dest, `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${serviceName}\n\nEscribe *3* en este chat para conocer el valor a pagar y ver los medios de transferencia. ¡Gracias por preferirnos!`);
+        exitosos++;
+    } catch(e) {
+        console.error(`[Billing] Error enviando cobro a ${dest}:`, e.message);
+    }
+    
+    // Pausa de seguridad (3s anti-spam)
+    await new Promise(resolve => setTimeout(resolve, 3000));
+  }
+  return exitosos;
 }
 
-/**
- * Marcadores de posición para otras funciones requeridas por index.js
- */
-async function handleCobrosParser(message) {
-    await message.reply("🤖 Función de parseo manual de cobros no implementada aún en este módulo, pero puedes usar '@bot cobros automáticos' para el proceso general.");
+async function handleCobrosParser(message, userId, userStates, pendingConfirmations) {
+  const payload = message.body.split(':')[1] || '';
+  const lines = payload.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const records = [];
+  
+  for (let line of lines) {
+    line = line.replace(/\t/g, ' ');
+    const parts = line.split(',');
+    const name = (parts[0] || '').trim();
+    const rest = (parts.slice(1).join(',') || '').trim();
+    
+    const digits = (rest.match(/\d+/g) || []).join('');
+    if (name && digits) {
+      let phone = digits;
+      if (!phone.startsWith('57')) {
+        if (phone.length === 10) phone = '57' + phone;
+      }
+      records.push({ name, phone });
+    }
+  }
+
+  if (records.length === 0) {
+    await message.reply('No pude parsear las líneas. Verifica el formato y vuelve a intentarlo.');
+    return;
+  }
+
+  const names = records.map(r => r.name);
+  const summary = records.length > 1
+    ? `Al día de hoy tienes vencidas las cuentas de ${names.join(', ')}. ¿Deseas renovar?`
+    : `Al día de hoy tienes vencida la cuenta de ${names[0]}. ¿Deseas renovar?`;
+
+  pendingConfirmations.set(userId, records);
+  userStates.set(userId, 'awaiting_cobros_confirmation');
+  await message.reply(`Recibí los siguientes cargos (tal cual los enviaste):\n\n${lines.join('\n')}\n\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`);
 }
 
-async function handleAwaitingCobrosConfirmation(message, userId, userStates) {
-    // Lógica para cuando el usuario confirma que recibió el cobro o pregunta algo
-    await processCheckPrices(message, userId, userStates);
+async function handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client) {
+  try {
+    const body = (message.body || '').trim().toLowerCase();
+    if (body === 'si' || body === 'sí') {
+      const records = pendingConfirmations.get(userId) || [];
+      if (records.length === 0) {
+        await message.reply('🤖 No hay cobros pendientes para confirmar.');
+        userStates.delete(userId);
+        return;
+      }
+
+      await message.reply(`🚀 *Iniciando envío de ${records.length} cobros confirmados...*`);
+      const exitosos = await sendBulkCharges(client, records, userId);
+
+      await message.reply(`🤖 He finalizado el proceso.\n- Total: ${records.length}\n- Enviados con éxito: ${exitosos}\n- Fallidos: ${records.length - exitosos}`);
+      pendingConfirmations.delete(userId);
+      userStates.delete(userId);
+    } else if (body === 'no') {
+      pendingConfirmations.delete(userId);
+      userStates.delete(userId);
+      await message.reply('🤖 Operación cancelada. No se enviaron cobros.');
+    } else {
+      await message.reply('🤖 Por favor responde *SI* para confirmar o *NO* para cancelar.');
+    }
+  } catch (error) {
+    console.error("Error en confirmación de cobros:", error);
+    await message.reply("🤖 ⚠️ Ocurrió un error procesando tu solicitud. Por favor contacta al administrador.");
+    userStates.delete(userId);
+  }
+}
+
+async function handleAutoCobros(message, userId, userStates, pendingConfirmations, client) {
+  try {
+    const { fetchCustomersData } = require('./apiService');
+    const clientes = await fetchCustomersData();
+    
+    const today = getTodayInBogota();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    let records = [];
+    const { updateExcelData } = require('./apiService');
+    
+    for (const account of clientes) {
+      let isTargetDate = false;
+      let accountDate = null;
+      let diffDays = 0;
+      
+      accountDate = getJsDateFromExcel(account.deben);
+      if (accountDate) {
+        if (accountDate.getTime() <= tomorrow.getTime()) {
+           isTargetDate = true;
+        }
+        const diffTime = today.getTime() - accountDate.getTime();
+        diffDays = Math.floor(diffTime / (1000 * 3600 * 24));
+      }
+      
+      if (isTargetDate && account.numero) {
+        let phone = account.numero.toString().replace(/\D/g, '');
+        if (!phone.startsWith('57')) {
+          if (phone.length === 10) phone = '57' + phone;
+        }
+        
+        const destId = phone + '@c.us';
+        const currentState = userStates.get(destId);
+        const stateStr = (typeof currentState === 'object') ? currentState.state : currentState;
+
+        let observacion = (account.observaciones || '').toString().trim();
+        let dateStr = accountDate ? accountDate.toLocaleDateString('es-ES') : '';
+        if (accountDate && accountDate.getTime() === tomorrow.getTime()) {
+            dateStr = "MAÑANA";
+        }
+
+        // LÓGICA DE SUSPENSIÓN (CORTAR)
+        let wasSuspendedNow = false;
+        if (diffDays >= 3 && !observacion.toLowerCase().includes('cortar')) {
+            observacion = observacion ? observacion + " - cortar" : "cortar";
+            try {
+                if (account.rowNumber) {
+                    await updateExcelData(account.rowNumber, { "observaciones": observacion });
+                    console.log(`[SUSPENSIÓN] Se agregó 'cortar' a fila ${account.rowNumber} (${account.Nombre}) por >3 días de mora.`);
+                    wasSuspendedNow = true;
+                }
+            } catch (err) {
+                console.error(`Error auto-suspendiendo fila ${account.rowNumber}:`, err);
+            }
+        }
+
+        // --- FILTRO DE SEGURIDAD ---
+        if (stateStr === 'waiting_admin_confirmation' || stateStr === 'waiting_human') {
+          records.push({ 
+            name: account.Nombre || 'Cliente', 
+            phone, 
+            service: account.Streaming || 'Servicio',
+            dateStr,
+            observacion: `[PENDIENTE] Ya hay actividad o pago en este chat (${stateStr}).`,
+            isSkip: true
+          });
+          continue;
+        }
+        
+        records.push({ 
+          name: account.Nombre || 'Cliente', 
+          phone, 
+          service: account.Streaming || 'Servicio',
+          dateStr,
+          observacion,
+          wasSuspendedNow // Bandera para enviar mensaje de corte hoy
+        });
+      }
+    }
+
+    if (records.length === 0) {
+      await message.reply('🤖 Revisé la base de datos y no encontré cobros pendientes para hoy o fechas anteriores en la columna "deben".');
+      return;
+    }
+
+    const toChargeUsers = new Map();
+    const toReviewUsers = new Map();
+    const toNotifyAdminUsers = new Map();
+    const toSuspendUsers = new Map();
+    
+    records.forEach(r => {
+      if (r.isSkip) {
+        if (!toNotifyAdminUsers.has(r.phone)) {
+            toNotifyAdminUsers.set(r.phone, { name: r.name, phone: r.phone, services: [] });
+        }
+        toNotifyAdminUsers.get(r.phone).services.push(r.service);
+        return;
+      }
+
+      if (r.wasSuspendedNow) {
+          if (!toSuspendUsers.has(r.phone)) {
+              toSuspendUsers.set(r.phone, { name: r.name, phone: r.phone, services: [] });
+          }
+          toSuspendUsers.get(r.phone).services.push(r.service);
+          return;
+      }
+
+      const lowerObs = r.observacion ? r.observacion.toLowerCase() : '';
+      const hasCorte = lowerObs.includes('cortar') || lowerObs.includes('corte');
+      
+      if (r.observacion && hasCorte) {
+         // Va a revisión manual, SÓLO este servicio específico
+         if (!toReviewUsers.has(r.phone)) {
+           toReviewUsers.set(r.phone, { name: r.name, phone: r.phone, services: [] });
+         }
+         toReviewUsers.get(r.phone).services.push(`${r.service} (Nota: ${r.observacion})`);
+      } else {
+         // Va a cobrar (incluso si hay notas, si no son de corte, se adjuntan)
+         if (!toChargeUsers.has(r.phone)) {
+           toChargeUsers.set(r.phone, { name: r.name, phone: r.phone, services: [], date: r.dateStr });
+         }
+         let serviceDisplay = r.service;
+         if (r.observacion) {
+           serviceDisplay += ` (Nota del asesor: ${r.observacion})`;
+         }
+         toChargeUsers.get(r.phone).services.push(serviceDisplay);
+      }
+    });
+
+    const toCharge = Array.from(toChargeUsers.values());
+    const toReview = Array.from(toReviewUsers.values());
+    const toNotify = Array.from(toNotifyAdminUsers.values());
+    const toSuspend = Array.from(toSuspendUsers.values());
+
+    if (toCharge.length === 0 && toReview.length === 0 && toNotify.length === 0 && toSuspend.length === 0) {
+      await message.reply('🤖 No se encontraron cobros, revisiones ni pagos pendientes para procesar.');
+      return;
+    }
+
+    // AVISAR QUE INICIAMOS
+    await message.reply(`🤖 *PROCESO AUTOMÁTICO DE COBROS INICIADO*\n\nHe encontrado ${toCharge.length} para cobrar, ${toSuspend.length} para corte inminente, ${toReview.length} para revisión y ${toNotify.length} con pagos/actividad pendiente. Procedo con el envío...`);
+
+    // EJECUCIÓN DIRECTA
+    let exitosos = 0;
+    if (toCharge.length > 0) {
+        exitosos = await sendBulkCharges(client || message._client, toCharge, userId);
+    }
+    
+    // ENVIAR AVISO DE CORTE
+    let exitososCorte = 0;
+    for (const r of toSuspend) {
+        try {
+            const destId = r.phone + '@c.us';
+            const suspendMsg = `⚠️ *AVISO DE CORTE INMINENTE* ⚠️\n\nHola ${r.name}, te informamos que por falta de respuesta, tus cuentas de *${r.services.join(', ')}* serán suspendidas el día de hoy a menos de que envíes el comprobante de pago en el transcurso del día.\n\nPor favor envíanos tu comprobante lo antes posible para evitar la interrupción del servicio.`;
+            await (client || message._client).sendMessage(destId, suspendMsg);
+            exitososCorte++;
+            await new Promise(res => setTimeout(res, 1000));
+        } catch (e) {
+            console.error(`Error enviando aviso de corte a ${r.phone}:`, e);
+        }
+    }
+
+    let finalReport = `✅ *REPORTE DE EJECUCIÓN FINALIZADO*\n\n`;
+    finalReport += `- Cobros enviados: ${exitosos}/${toCharge.length}\n`;
+    finalReport += `- Avisos de corte enviados: ${exitososCorte}/${toSuspend.length}\n`;
+    
+    if (toSuspend.length > 0) {
+      finalReport += `\n🚨 *CUENTAS MARCADAS PARA CORTE HOY:*\n`;
+      toSuspend.forEach(r => {
+        finalReport += `• ${r.name} - Tel: ${r.phone}\n  Servicios: ${r.services.join(', ')}\n`;
+      });
+    }
+
+    if (toReview.length > 0) {
+      finalReport += `\n⚠️ *PENDIENTES PARA REVISIÓN MANUAL (Cortes antiguos):*\n`;
+      toReview.forEach(r => {
+        finalReport += `• ${r.name} - Tel: ${r.phone}\n  Notas: ${r.services.join(' | ')}\n`;
+      });
+    }
+
+    if (toNotify.length > 0) {
+      finalReport += `\n📥 *PAGOS/CHATS POR VALIDAR (Bot saltó el cobro):*\n`;
+      toNotify.forEach(r => {
+        finalReport += `• ${r.name} - Tel: ${r.phone} (${r.services.join(', ')})\n`;
+      });
+    }
+
+    finalReport += `\n_El bot ha terminado su tarea programada de la mañana._`;
+    await message.reply(finalReport);
+
+  } catch (err) {
+    console.error('Error calculando cobros automáticos:', err);
+    await message.reply('Ocurrió un error al consultar Azure. Intenta nuevamente.');
+  }
 }
 
 module.exports = {
-    processCheckCredentials,
-    processCheckPrices,
-    handleAutoCobros,
-    handleCobrosParser,
-    handleAwaitingCobrosConfirmation
+  processCheckCredentials,
+  processCheckPrices,
+  handleAutoCobros,
+  handleCobrosParser,
+  handleAwaitingCobrosConfirmation
 };

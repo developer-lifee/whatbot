@@ -105,6 +105,7 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
     if (!auth) return null;
 
     const gmail = google.gmail({ version: 'v1', auth });
+    const processedIds = loadProcessedEmails();
     
     try {
         const res = await gmail.users.messages.list({
@@ -117,6 +118,10 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
         const now = Date.now();
 
         for (const msg of messages) {
+            if (processedIds.includes(msg.id)) {
+                continue;
+            }
+
             const fullMsg = await gmail.users.messages.get({
                 userId: 'me',
                 id: msg.id
@@ -149,6 +154,7 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
 
                     if (cleanValue === targetAmount) {
                         console.log(`[GMAIL MATCH BANCOLOMBIA] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
+                        saveProcessedEmail(msg.id);
                         return {
                             id: msg.id,
                             amount: cleanValue,
@@ -172,6 +178,7 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
 
                     if (cleanValue === targetAmount) {
                         console.log(`[GMAIL MATCH BRE-B] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
+                        saveProcessedEmail(msg.id);
                         return {
                             id: msg.id,
                             amount: cleanValue,

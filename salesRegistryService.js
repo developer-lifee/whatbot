@@ -98,6 +98,8 @@ function findAvailableSlot(platformName, allRows) {
         const row = allRows[i];
         let rowStreaming = (row.Streaming || row.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
 
+        if (!rowStreaming || rowStreaming.trim() === "") continue;
+
         if (rowStreaming.includes('hbomax')) {
             rowStreaming = rowStreaming.replace('hbomax', 'hbo');
         } else if (rowStreaming.includes('max') && !rowStreaming.includes('hbo')) {
