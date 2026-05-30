@@ -1315,7 +1315,12 @@ async function processIncomingMessage(messages) {
                   const only = (payload.only_fields || []).map(f => f.toLowerCase()); 
                   const showAll = only.length === 0;
                   const platformLower = (payload.platform || "").toLowerCase();
-                  const isSharedPlatform = platformLower.includes('spotify') || platformLower.includes('youtube');
+                  const isSharedPlatform = platformLower.includes('spotify') || 
+                                           platformLower.includes('youtube') || 
+                                           platformLower.includes('microsoft') || 
+                                           platformLower.includes('office') || 
+                                           platformLower.includes('apple') || 
+                                           platformLower.includes('extra');
                   
                   // Detección flexible de campos
                   const wantClave = only.some(f => f.includes('clave') || f.includes('password') || f.includes('contraseña'));
