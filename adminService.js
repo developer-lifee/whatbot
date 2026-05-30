@@ -249,17 +249,21 @@ function getDynamicSupportExpectationMessage() {
 /**
  * Valida un pago comparándolo con Gmail y registrando la venta.
  */
-async function executePaymentValidation(userId, userState, client, userStates, adminMessage = null) {
+async function executePaymentValidation(userId, userState, client, userStates, adminMessage = null, preMatchedId = null) {
     const { findMatchingPayment } = require('./gmailService');
     const { recordNewSale } = require('./salesRegistryService');
     
     const amount = userState.total || 0;
     if (amount <= 0) return { success: false, message: "Monto no válido" };
 
-    const match = await findMatchingPayment(amount, 60);
-    if (!match) return { success: false, message: "No se encontró el pago en Gmail" };
+    let matchId = preMatchedId;
+    if (!matchId) {
+        const match = await findMatchingPayment(amount, 60);
+        if (!match) return { success: false, message: "No se encontró el pago en Gmail" };
+        matchId = match.id;
+    }
 
-    const results = await recordNewSale(userId, userState, `Gmail Match (${match.id})`);
+    const results = await recordNewSale(userId, userState, `Gmail Match (${matchId})`);
     
     let report = `✅ *PAGO VALIDADO AUTOMÁTICAMENTE*\n\n`;
     results.forEach(res => {
@@ -698,6 +702,21 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             });
 
             if (hasAnyCredentials) {
+                let customerName = "";
+                if (activeStateData && activeStateData.nombre && activeStateData.nombre !== "Cliente" && activeStateData.nombre !== "Cliente WhatsApp") {
+                    customerName = activeStateData.nombre.split(' ')[0];
+                } else {
+                    try {
+                        const { searchContactByPhone } = require('./googleContactsService');
+                        const contactName = await searchContactByPhone(phone.replace(/\D/g, ''));
+                        if (contactName && contactName !== "Cliente WhatsApp") {
+                            customerName = contactName.split(' ')[0];
+                        }
+                    } catch (e) {}
+                }
+                const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
+                credentialsMsg += profileTip;
+
                 await client.sendMessage(userId, credentialsMsg);
             } else {
                 const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +

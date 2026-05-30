@@ -1668,6 +1668,7 @@ async function processIncomingMessage(messages) {
           } else {
               await message.reply('❌ No pude identificar al cliente para confirmar el pago, jefe. Intenta poniendo el número o respondiendo al reporte del cliente.');
           }
+          return;
       } else if (adminAI.intent === 'programar_mensaje') {
           let recipients = [];
           
@@ -1953,7 +1954,7 @@ async function processIncomingMessage(messages) {
           }
           return;
       } else if (command.includes('confirmar') || command.includes('si me llego') || command.includes('si la recibi')) {
-          await handleAdminPaymentConfirmation(message, command, client, userStates, overridePhone);
+          await handleAdminPaymentConfirmation(message, command, client, userStates, null);
           return;
       } else if (command === '' || command === 'funciones' || command === 'comandos') {
           await showAdminFunctions(message);
@@ -2263,8 +2264,30 @@ async function processIncomingMessage(messages) {
                               return;
                           }
 
+                          let hasNetflix = false;
+                          if (stateData.items && Array.isArray(stateData.items)) {
+                              hasNetflix = stateData.items.some(item => {
+                                  const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                                  return name.includes('netflix') && !name.includes('extra');
+                              });
+                          }
+
+                          if (hasNetflix && !stateData.isRenewal) {
+                              await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
+                              
+                              userStates.set(userId, { 
+                                  ...stateData, 
+                                  state: 'awaiting_netflix_operator_post_payment',
+                                  paymentMethod: check.bank || 'Transferencia',
+                                  checkAmount: check.amount,
+                                  gmailMatchId: match.id
+                              });
+                              
+                              return;
+                          }
+
                           // Ejecutar validación automática directa si todo coincide perfectamente
-                          const validationResult = await executePaymentValidation(userId, { ...stateData, total: check.amount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null);
+                          const validationResult = await executePaymentValidation(userId, { ...stateData, total: check.amount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null, match.id);
                           
                           if (validationResult.success) {
                               // Notificar al grupo administrativo del éxito automático
@@ -2737,7 +2760,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
               total: stateInfo.amount,
               chatJid: stateInfo.chatJid || userId
           };
-          const valResult = await executePaymentValidation(userId, tempState, client, userStates, null);
+          const valResult = await executePaymentValidation(userId, tempState, client, userStates, null, stateInfo.matchId);
           if (!valResult.success) {
               await message.reply("🤖 Hubo un problema al renovar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
               userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
@@ -2777,6 +2800,34 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
       const st = userStates.get(userId) || {};
       
       userStates.set(userId, { ...st, state: 'awaiting_payment_confirmation', netflixIsp: ispInfo });
+
+      // Si tenemos un matchId de Gmail precargado, podemos autovalidar inmediatamente!
+      if (st.gmailMatchId) {
+          await message.reply("🤖 ¡Excelente! He validado tu comprobante y registrado tu información de operador. Estoy generando tus credenciales, dame un momento... ⏳");
+          const validationResult = await executePaymentValidation(
+              userId, 
+              { ...st, netflixIsp: ispInfo, total: st.checkAmount, paymentMethod: `Gmail Match (${st.paymentMethod || 'Bre-B'})` }, 
+              client, 
+              userStates, 
+              null, 
+              st.gmailMatchId
+          );
+          
+          if (validationResult.success) {
+              try {
+                  const groupChat = await client.getChatById(GROUP_ID);
+                  if (groupChat) {
+                      await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO CON OPERADOR* (@${userId.replace('@c.us', '')})\n` +
+                                     `Monto: $${st.checkAmount}\n` +
+                                     `Banco: ${st.paymentMethod || 'Bre-B'}\n` +
+                                     `Operador: ${ispInfo}\n` +
+                                     `ID Gmail: ${st.gmailMatchId}\n\n` +
+                                     `El bot ya entregó el servicio automáticamente.`);
+                  }
+              } catch(e) {}
+              return;
+          }
+      }
 
       try {
           const groupChat = await client.getChatById(GROUP_ID);
