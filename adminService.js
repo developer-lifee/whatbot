@@ -669,9 +669,9 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     }
 
     try {
-        const results = await recordNewSale(userId, stateData, "Confirmado por Admin", overrideMonths);
+        const results = await recordNewSale(userId, activeStateData, "Confirmado por Admin", overrideMonths);
         
-        let report = `✅ *PAGO PROCESADO*\nCliente: ${stateData.nombre || displayPhone}\n\n`;
+        let report = `✅ *PAGO PROCESADO*\nCliente: ${(activeStateData && activeStateData.nombre) || displayPhone}\n\n`;
         let someFailed = false;
 
         results.forEach(res => {
@@ -712,7 +712,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         }
         
         // Limpiar estado
-        userStates.set(userId, { state: 'main_menu', nombre: stateData.nombre });
+        userStates.set(userId, { state: 'main_menu', nombre: (activeStateData && activeStateData.nombre) || "Cliente" });
     } catch (error) {
         console.error("[Admin Service] Error en confirmación manual:", error.message);
         await message.reply(`❌ Error al registrar: ${error.message}`);
