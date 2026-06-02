@@ -90,8 +90,46 @@ Permite al administrador programar envíos de mensajes de forma natural a cualqu
 - [x] **Fase 3:** Dashboard Administrativo Contextual (Completado)
 - [x] **Fase 4:** Programación Persistente de Mensajes con IA (Completado)
 - [ ] **Fase 5:** Autenticación Web & Redis (OTP)
-- [ ] **Fase 6:** Panel Web de Gestión Directa
+- [x] **Fase 6:** Panel Web de Gestión Directa (Completado - Junio 2026)
 
 ---
 
-*(Documentación actualizada al 30 de Mayo de 2026)*
+## 🔒 API de Administración (Servidor Express)
+
+El backend de `whatbot` expone un servidor de Express en el puerto `3000` (por defecto) con los siguientes endpoints para el panel administrativo (`/aiuda/admin` en el frontend):
+
+### Seguridad & Autenticación
+Los endpoints que ejecutan acciones de escritura o envío de mensajes de WhatsApp requieren enviar en el body el parámetro `password` configurado como `"admin123"`.
+
+### Endpoints Disponibles
+
+#### 📩 Tickets de Soporte
+*   `GET /api/admin/tickets`: Retorna los usuarios en espera de atención humana (`waiting_human`). Resuelve dinámicamente el nombre, fecha del reporte y el último mensaje real del chat en WhatsApp.
+*   `POST /api/admin/tickets/claim`: Asigna un asesor (ej. `"Katherine"`) a un ticket para evitar colisiones.
+*   `POST /api/admin/tickets/resolve`: Libera la conversación de la memoria del bot para que la IA retome el control automático.
+
+#### 🔑 Cuentas GPT / Netflix (Autenticador 2FA/TOTP)
+*   `GET /api/admin/gpt-accounts`: Lista las cuentas que usan 2FA y genera sus códigos TOTP activos con los segundos restantes para expirar.
+*   `POST /api/admin/gpt-accounts/save`: Agrega o actualiza una clave secreta (semilla/seed TOTP) para un correo.
+*   `POST /api/admin/gpt-accounts/delete`: Elimina una cuenta y su semilla del archivo `gpt_secrets.json`.
+
+#### 📧 Correos Gestionados
+*   `GET /api/admin/managed-emails`: Retorna la lista de correos autorizados en el archivo `managed_emails.json`.
+*   `POST /api/admin/managed-emails/save`: Agrega un nuevo correo al listado.
+*   `POST /api/admin/managed-emails/delete`: Remueve un correo del listado.
+
+#### 👥 Clientes & Ventas
+*   `GET /api/admin/clients`: Obtiene y mapea los datos de los clientes desde la base de datos o Excel Graph.
+*   `POST /api/admin/sales/create`: Registra una nueva venta directamente en el Excel.
+*   `GET /api/admin/stats`: Genera estadísticas financieras y de vencimiento (clientes activos, vencidos, alertas y proyecciones a 7, 15 y 30 días).
+*   `POST /api/admin/actions/send-info`: Envía credenciales (`credentials`) o recordatorios de pago (`payment`) de forma manual por WhatsApp.
+
+---
+
+## 🪵 Formato de Logueo del Servidor (Logs)
+
+El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`console.log`) integrado al arranque:
+1.  **Estampa de Tiempo Local:** Todos los logs generados en el servidor imprimen automáticamente un prefijo con la hora de Colombia (`America/Bogota`), ej: `[02/06/2026 18:40:00] [System] Estado cargado...`.
+2.  **Monitoreo del Navegador (Heartbeat):** Cada 5 minutos se ejecuta y registra un reporte de salud del navegador (Puppeteer) para detectar cuelgues (estados zombies), reiniciando el proceso en caso de fallo crítico para que PM2 lo levante de nuevo.
+
+*(Documentación actualizada al 2 de Junio de 2026)*
