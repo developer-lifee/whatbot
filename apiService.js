@@ -101,12 +101,14 @@ async function fetchCustomersData(retries = 3, delay = 2000) {
  */
 async function getAccountsByPhone(phoneNumber) {
   try {
+    if (!phoneNumber) return [];
+    const cleanInputPhone = phoneNumber.toString().replace(/\D/g, '');
     const clientes = await fetchCustomersData();
     const userAccounts = clientes.filter(c => {
       const rowNumber = c.numero || c.Numero;
       if (!rowNumber) return false;
       const normalizedJsonNumber = rowNumber.toString().replace(/\D/g, '');
-      return normalizedJsonNumber === phoneNumber || (normalizedJsonNumber.length >= 10 && phoneNumber.endsWith(normalizedJsonNumber.slice(-10)));
+      return normalizedJsonNumber === cleanInputPhone || (normalizedJsonNumber.length >= 10 && cleanInputPhone.endsWith(normalizedJsonNumber.slice(-10)));
     });
     return userAccounts;
   } catch (error) {

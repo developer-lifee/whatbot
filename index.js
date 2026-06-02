@@ -450,6 +450,203 @@ app.get('/api/admin/match', async (req, res) => {
     }
 });
 
+app.get('/api/admin/tickets', async (req, res) => {
+    try {
+        const tickets = [];
+        for (const [userId, state] of userStates.entries()) {
+            const stateStr = typeof state === 'object' ? state.state : state;
+            if (stateStr === 'waiting_human') {
+                const phone = userId.replace('@c.us', '');
+                let lastMessage = "";
+                let lastMessageTime = null;
+                
+                try {
+                    if (client && client.info) {
+                        const chat = await client.getChatById(userId);
+                        const messages = await chat.fetchMessages({ limit: 1 });
+                        if (messages && messages.length > 0) {
+                            lastMessage = messages[0].body || "";
+                            lastMessageTime = messages[0].timestamp * 1000;
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`[Tickets API] No se pudo obtener el último mensaje para ${userId}:`, err.message);
+                }
+
+                tickets.push({
+                    userId,
+                    phone,
+                    nombre: typeof state === 'object' ? state.nombre : "Cliente",
+                    state: stateStr,
+                    lastHumanInteraction: typeof state === 'object' ? state.lastHumanInteraction : null,
+                    agent: typeof state === 'object' ? state.agent : null,
+                    lastMessage,
+                    lastMessageTime
+                });
+            }
+        }
+        res.json(tickets);
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/tickets/claim', async (req, res) => {
+    try {
+        const { phone, agent, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        const currentState = userStates.get(userId);
+
+        if (!currentState) {
+            return res.status(404).json({ success: false, message: 'No active state found for this user' });
+        }
+
+        let updatedState = {};
+        if (typeof currentState === 'string') {
+            updatedState = { state: currentState, agent: agent };
+        } else {
+            updatedState = { ...currentState, agent: agent };
+        }
+
+        userStates.set(userId, updatedState);
+        res.json({ success: true, message: `Ticket asignado a ${agent}` });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/tickets/resolve', async (req, res) => {
+    try {
+        const { phone, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        userStates.delete(userId);
+        res.json({ success: true, message: 'Ticket resuelto y bot reactivado' });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/gpt-accounts', (req, res) => {
+    try {
+        const { loadSecrets } = require('./totpService');
+        const { authenticator } = require('@otplib/preset-default');
+        const secrets = loadSecrets();
+        const list = [];
+        for (const email of Object.keys(secrets)) {
+            let code = "";
+            let timeRemaining = 30;
+            try {
+                code = authenticator.generate(secrets[email]);
+                timeRemaining = authenticator.timeRemaining();
+            } catch (e) {
+                code = "Error";
+            }
+            list.push({ email, code, timeRemaining });
+        }
+        res.json(list);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/gpt-accounts/save', (req, res) => {
+    try {
+        const { email, secret, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!email || !secret) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+        
+        const { saveSecret } = require('./totpService');
+        saveSecret(email, secret);
+        res.json({ success: true, message: 'Cuenta GPT guardada con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/gpt-accounts/delete', (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!email) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+
+        const { loadSecrets } = require('./totpService');
+        const secrets = loadSecrets();
+        const key = email.toLowerCase().trim();
+        if (secrets[key]) {
+            delete secrets[key];
+            const SECRETS_FILE = path.join(__dirname, 'tokens', 'gpt_secrets.json');
+            fs.writeFileSync(SECRETS_FILE, JSON.stringify(secrets, null, 2));
+            res.json({ success: true, message: 'Cuenta GPT eliminada con éxito' });
+        } else {
+            res.status(404).json({ success: false, message: 'Cuenta no encontrada' });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/managed-emails', (req, res) => {
+    try {
+        const emailsPath = path.join(__dirname, 'managed_emails.json');
+        if (fs.existsSync(emailsPath)) {
+            const data = fs.readFileSync(emailsPath, 'utf8');
+            res.json(JSON.parse(data));
+        } else {
+            res.json([]);
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/managed-emails/save', (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!email) return res.status(400).json({ error: 'Falta el correo' });
+
+        const emailsPath = path.join(__dirname, 'managed_emails.json');
+        let emails = [];
+        if (fs.existsSync(emailsPath)) {
+            emails = JSON.parse(fs.readFileSync(emailsPath, 'utf8'));
+        }
+        
+        const cleanEmail = email.toLowerCase().trim();
+        if (!emails.includes(cleanEmail)) {
+            emails.push(cleanEmail);
+            fs.writeFileSync(emailsPath, JSON.stringify(emails, null, 2));
+        }
+        res.json({ success: true, message: 'Correo agregado con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/managed-emails/delete', (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!email) return res.status(400).json({ error: 'Falta el correo' });
+
+        const emailsPath = path.join(__dirname, 'managed_emails.json');
+        if (fs.existsSync(emailsPath)) {
+            let emails = JSON.parse(fs.readFileSync(emailsPath, 'utf8'));
+            const cleanEmail = email.toLowerCase().trim();
+            const filtered = emails.filter(e => e !== cleanEmail);
+            fs.writeFileSync(emailsPath, JSON.stringify(filtered, null, 2));
+            res.json({ success: true, message: 'Correo eliminado con éxito' });
+        } else {
+            res.status(404).json({ success: false, message: 'Archivo de correos no encontrado' });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Legacy PHP logic migration: Support Management
 app.get('/api/support', (req, res) => {
     try {
