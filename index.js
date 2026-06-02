@@ -589,58 +589,111 @@ app.post('/api/admin/gpt-accounts/delete', (req, res) => {
     }
 });
 
-app.get('/api/admin/managed-emails', (req, res) => {
+app.get('/api/admin/gmail-inboxes', (req, res) => {
     try {
-        const emailsPath = path.join(__dirname, 'managed_emails.json');
-        if (fs.existsSync(emailsPath)) {
-            const data = fs.readFileSync(emailsPath, 'utf8');
-            res.json(JSON.parse(data));
-        } else {
-            res.json([]);
+        const tokensDir = path.join(__dirname, 'tokens');
+        if (!fs.existsSync(tokensDir)) {
+            return res.json([]);
         }
+        const files = fs.readdirSync(tokensDir);
+        const emails = files
+            .filter(f => f.startsWith('token_') && f.endsWith('.json'))
+            .map(f => f.replace('token_', '').replace('.json', ''))
+            .filter(email => email.includes('@') && email !== 'contacts');
+        res.json(emails);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
 
-app.post('/api/admin/managed-emails/save', (req, res) => {
+app.post('/api/admin/gmail-inboxes/auth-url', async (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!email || !email.includes('@')) return res.status(400).json({ error: 'Email no válido' });
+
+        const { google } = require('googleapis');
+        const credFile = fs.existsSync(path.join(__dirname, 'credentials_pagos.json')) 
+            ? path.join(__dirname, 'credentials_pagos.json') 
+            : path.join(__dirname, 'credentials.json');
+
+        if (!fs.existsSync(credFile)) {
+            return res.status(500).json({ error: 'No se encontraron las credenciales de Google API en el servidor.' });
+        }
+
+        const credentials = JSON.parse(fs.readFileSync(credFile, 'utf8'));
+        const { client_secret, client_id, redirect_uris } = credentials.installed || credentials.web;
+        const redirectUri = redirect_uris ? redirect_uris[0] : 'urn:ietf:wg:oauth:2.0:oob';
+        const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
+
+        const authUrl = oAuth2Client.generateAuthUrl({
+            access_type: 'offline',
+            scope: ['https://www.googleapis.com/auth/gmail.readonly'],
+            prompt: 'consent'
+        });
+
+        res.json({ success: true, authUrl });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/gmail-inboxes/confirm-code', async (req, res) => {
+    try {
+        const { email, codeOrUrl, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!email || !codeOrUrl) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+
+        const { google } = require('googleapis');
+        const credFile = fs.existsSync(path.join(__dirname, 'credentials_pagos.json')) 
+            ? path.join(__dirname, 'credentials_pagos.json') 
+            : path.join(__dirname, 'credentials.json');
+
+        if (!fs.existsSync(credFile)) {
+            return res.status(500).json({ error: 'No se encontraron las credenciales en el servidor.' });
+        }
+
+        const credentials = JSON.parse(fs.readFileSync(credFile, 'utf8'));
+        const { client_secret, client_id, redirect_uris } = credentials.installed || credentials.web;
+        const redirectUri = redirect_uris ? redirect_uris[0] : 'urn:ietf:wg:oauth:2.0:oob';
+        const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirectUri);
+
+        let code = codeOrUrl;
+        if (codeOrUrl.includes('code=')) {
+            const urlParts = new URL(codeOrUrl);
+            code = urlParts.searchParams.get('code');
+        }
+
+        oAuth2Client.getToken(code, (err, token) => {
+            if (err) {
+                console.error('[Google Auth API Error]:', err.message);
+                return res.status(500).json({ error: 'Error al verificar el código de Google: ' + err.message });
+            }
+            
+            const safeEmail = email.toLowerCase().trim();
+            const tokenPath = path.join(__dirname, 'tokens', `token_${safeEmail}.json`);
+            fs.writeFileSync(tokenPath, JSON.stringify(token));
+            res.json({ success: true, message: `Bandeja ${email} vinculada con éxito.` });
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/gmail-inboxes/delete', (req, res) => {
     try {
         const { email, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!email) return res.status(400).json({ error: 'Falta el correo' });
 
-        const emailsPath = path.join(__dirname, 'managed_emails.json');
-        let emails = [];
-        if (fs.existsSync(emailsPath)) {
-            emails = JSON.parse(fs.readFileSync(emailsPath, 'utf8'));
-        }
+        const safeEmail = email.toLowerCase().trim();
+        const tokenPath = path.join(__dirname, 'tokens', `token_${safeEmail}.json`);
         
-        const cleanEmail = email.toLowerCase().trim();
-        if (!emails.includes(cleanEmail)) {
-            emails.push(cleanEmail);
-            fs.writeFileSync(emailsPath, JSON.stringify(emails, null, 2));
-        }
-        res.json({ success: true, message: 'Correo agregado con éxito' });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-app.post('/api/admin/managed-emails/delete', (req, res) => {
-    try {
-        const { email, password } = req.body;
-        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
-        if (!email) return res.status(400).json({ error: 'Falta el correo' });
-
-        const emailsPath = path.join(__dirname, 'managed_emails.json');
-        if (fs.existsSync(emailsPath)) {
-            let emails = JSON.parse(fs.readFileSync(emailsPath, 'utf8'));
-            const cleanEmail = email.toLowerCase().trim();
-            const filtered = emails.filter(e => e !== cleanEmail);
-            fs.writeFileSync(emailsPath, JSON.stringify(filtered, null, 2));
-            res.json({ success: true, message: 'Correo eliminado con éxito' });
+        if (fs.existsSync(tokenPath)) {
+            fs.unlinkSync(tokenPath);
+            res.json({ success: true, message: 'Bandeja desvinculada con éxito' });
         } else {
-            res.status(404).json({ success: false, message: 'Archivo de correos no encontrado' });
+            res.status(404).json({ success: false, message: 'Bandeja no encontrada' });
         }
     } catch (e) {
         res.status(500).json({ error: e.message });

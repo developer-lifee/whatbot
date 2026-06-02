@@ -387,6 +387,22 @@ async function getUpcomingExpirationsReport() {
     const endDate = new Date(today);
     endDate.setDate(today.getDate() + 3);
     
+    const fs = require('fs');
+    const path = require('path');
+    const tokensDir = path.join(__dirname, 'tokens');
+    let managedEmails = [];
+    if (fs.existsSync(tokensDir)) {
+        try {
+            const files = fs.readdirSync(tokensDir);
+            managedEmails = files
+                .filter(f => f.startsWith('token_') && f.endsWith('.json'))
+                .map(f => f.replace('token_', '').replace('.json', '').toLowerCase().trim())
+                .filter(email => email.includes('@') && email !== 'contacts');
+        } catch (err) {
+            console.error("Error reading managed emails tokens for report:", err.message);
+        }
+    }
+
     try {
         const data = await fetchCustomersData();
         
@@ -395,6 +411,9 @@ async function getUpcomingExpirationsReport() {
             const expDate = getJsDateFromExcel(c.vencimiento);
             const isWithinWindow = expDate && expDate >= startDate && expDate <= endDate;
             if (!isWithinWindow) return false;
+
+            const clientEmail = (c.correo || "").toString().toLowerCase().trim();
+            if (managedEmails.includes(clientEmail)) return false;
 
             const streaming = (c.Streaming || "").toString().toUpperCase();
             const paymentMethod = (c['Metodo de pago'] || "").toString().toLowerCase().trim();
@@ -768,7 +787,7 @@ async function notifyProviderExpiringAccounts(client) {
         if (report.includes("No hay cuentas próximas a vencer")) return;
 
         // Número del proveedor (ejemplo, ajustar si es necesario)
-        const providerNumber = "573027892534@c.us"; 
+        const providerNumber = "573027892574@c.us"; 
         const msg = `🤖 *AVISO DE RENOVACIONES PRÓXIMAS*\n\nHola, te paso el reporte de las cuentas que vencen pronto para gestionar las renovaciones:\n\n${report}`;
         
         await client.sendMessage(providerNumber, msg);
