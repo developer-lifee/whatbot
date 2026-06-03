@@ -187,7 +187,8 @@ function procesarHistoricoArray(matriz2D) {
             let itemDeben = "";
 
             for (let i = bloque.start; i <= bloque.end; i++) {
-                let titulo = filaTitulos[i] ? filaTitulos[i].toString().trim().toLowerCase() : "";
+                let rawTitulo = filaTitulos[i] ? filaTitulos[i].toString().trim() : "";
+                let titulo = rawTitulo.toLowerCase();
                 const valor = fila[i] !== undefined && fila[i] !== null ? fila[i] : "";
                 
                 if (titulo === "streaming") itemStreaming = valor;
@@ -199,6 +200,18 @@ function procesarHistoricoArray(matriz2D) {
                 else if (titulo.includes("vencimiento")) itemVencimiento = valor;
                 else if (titulo.includes("metodo") || titulo.includes("medio") || titulo.includes("pago")) itemMetodoPago = valor;
                 else if (titulo.includes("deben")) itemDeben = valor;
+
+                // If the column header itself is a date or "hoy", use it as the snapshot date
+                if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(titulo)) {
+                    itemFechaCorte = rawTitulo;
+                } else if (titulo === "hoy") {
+                    const bogotaStr = new Date().toLocaleString("en-US", {timeZone: "America/Bogota"});
+                    const bog = new Date(bogotaStr);
+                    const d = String(bog.getDate()).padStart(2, '0');
+                    const m = String(bog.getMonth() + 1).padStart(2, '0');
+                    const y = bog.getFullYear();
+                    itemFechaCorte = `${d}/${m}/${y}`;
+                }
             }
             
             if (itemNumero && itemStreaming) {

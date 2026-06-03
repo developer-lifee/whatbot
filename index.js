@@ -459,26 +459,32 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
 
 app.post('/api/admin/sales/create', async (req, res) => {
     try {
-        const { phone, name, items, duration, total, password } = req.body;
+        const { phone, name, items, duration, total, isRenewal, paymentMethod, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const { recordNewSale } = require('./salesRegistryService');
         
-        // Map duration to subscriptionType
         let subscriptionType = 'mensual';
         if (duration === '3') subscriptionType = 'trimestral';
         if (duration === '6') subscriptionType = 'semestral';
         if (duration === '12') subscriptionType = 'anual';
 
-        // Prepare dummy state for recordNewSale
         const userState = {
-            items: items.map(it => ({ platform: { name: it.platformName } })),
+            isRenewal: !!isRenewal,
+            items: items.map(it => ({
+                platform: { name: it.platformName },
+                _rowNumber: it._rowNumber || it.index || null,
+                correo: it.correo || null,
+                contraseña: it.contraseña || null,
+                pin: it.pin || null,
+                deben: it.deben || null
+            })),
             subscriptionType,
             nombre: name
         };
 
         const phoneId = phone.includes('@') ? phone : `${phone}@c.us`;
-        const results = await recordNewSale(phoneId, userState, "Web Admin");
+        const results = await recordNewSale(phoneId, userState, paymentMethod || "Web Admin", parseInt(duration) || null);
 
         res.json({ success: true, results });
     } catch(e) {
@@ -672,6 +678,39 @@ app.post('/api/admin/gpt-accounts/delete', (req, res) => {
         } else {
             res.status(404).json({ success: false, message: 'Cuenta no encontrada' });
         }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/accounts/add', async (req, res) => {
+    try {
+        const { streaming, correo, contraseña, perfiles, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!streaming || !correo || !contraseña || !perfiles) {
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
+        }
+
+        const { fetchRawData, updateExcelData } = require('./apiService');
+        const allRows = await fetchRawData();
+        const startRow = allRows.length + 2;
+
+        const numPerfiles = parseInt(perfiles) || 1;
+        for (let i = 0; i < numPerfiles; i++) {
+            const rowNumber = startRow + i;
+            const updates = {
+                "Streaming": streaming,
+                "correo": correo,
+                "contraseña": contraseña,
+                "Nombre": "libre",
+                "whatsapp": "",
+                "numero": "",
+                "deben": ""
+            };
+            await updateExcelData(rowNumber, updates);
+        }
+
+        res.json({ success: true, message: `Se agregaron ${numPerfiles} perfiles para la cuenta de ${streaming} (${correo}) en el inventario.` });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
