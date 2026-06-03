@@ -199,7 +199,10 @@ app.post('/api/netflix/verify', async (req, res) => {
 });
 
 // Public Endpoint to get recommended combo based on high stock (libres)
-app.get('/api/public/recommended-combo', async (req, res) => {
+const COMBO_CACHE_FILE = path.join(__dirname, 'recommended_combo.json');
+
+async function updateRecommendedComboCache() {
+  console.log('[COMBO CACHE] 🔄 Actualizando caché de combo recomendado...');
   try {
     const { fetchRawData } = require('./apiService');
     const rawData = await fetchRawData();
@@ -222,8 +225,51 @@ app.get('/api/public/recommended-combo', async (req, res) => {
     const sortedPlatforms = Object.entries(stockMap)
       .sort((a, b) => b[1] - a[1])
       .map(entry => entry[0]);
-      
-    res.json({ success: true, sortedPlatforms, stockMap });
+
+    const data = {
+      success: true,
+      sortedPlatforms,
+      stockMap,
+      updatedAt: new Date().toISOString()
+    };
+
+    fs.writeFileSync(COMBO_CACHE_FILE, JSON.stringify(data, null, 2));
+    console.log('[COMBO CACHE] ✅ Caché de combo recomendado actualizada con éxito.');
+    return data;
+  } catch (e) {
+    console.error('[COMBO CACHE] ❌ Error actualizando caché:', e.message);
+    return null;
+  }
+}
+
+// Programar actualización cada hora
+setInterval(() => {
+  updateRecommendedComboCache().catch(console.error);
+}, 60 * 60 * 1000);
+
+// Ejecutar una vez al arrancar de forma asíncrona
+setTimeout(() => {
+  updateRecommendedComboCache().catch(console.error);
+}, 10000);
+
+app.get('/api/public/recommended-combo', async (req, res) => {
+  try {
+    if (fs.existsSync(COMBO_CACHE_FILE)) {
+      const cached = JSON.parse(fs.readFileSync(COMBO_CACHE_FILE, 'utf8'));
+      // Si la caché tiene más de 1 hora, disparar actualización silenciosa en segundo plano
+      const ageMs = Date.now() - new Date(cached.updatedAt).getTime();
+      if (ageMs > 60 * 60 * 1000) {
+        updateRecommendedComboCache().catch(console.error);
+      }
+      return res.json(cached);
+    }
+    
+    // Fallback si no existe la caché
+    const data = await updateRecommendedComboCache();
+    if (data) {
+      return res.json(data);
+    }
+    res.status(500).json({ error: 'No se pudo generar el combo' });
   } catch (e) {
     console.error("[Recommended Combo API Error]:", e);
     res.status(500).json({ error: e.message });
