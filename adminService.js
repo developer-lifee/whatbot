@@ -5,12 +5,12 @@ const GROUP_ID = process.env.GROUP_ID || '120363102144405222@g.us';
 function isCriticalBrowserError(err) {
     if (!err || !err.message) return false;
     const msg = err.message.toLowerCase();
-    return msg.includes('detached frame') || 
-           msg.includes('execution context was destroyed') || 
-           msg.includes('navigation failed') ||
-           msg.includes('connection closed') ||
-           msg.includes('cannot read properties of undefined') ||
-           msg.includes('getchats');
+    return msg.includes('detached frame') ||
+        msg.includes('execution context was destroyed') ||
+        msg.includes('navigation failed') ||
+        msg.includes('connection closed') ||
+        msg.includes('cannot read properties of undefined') ||
+        msg.includes('getchats');
 }
 
 function formatVencimientoDate(vencimiento) {
@@ -39,24 +39,24 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
     try {
         const chats = await client.getChats();
         console.log(`[BATCH] Escaneo iniciado. Total chats recuperados: ${chats.length}`);
-        
+
         const pendingChats = chats.filter(chat => {
             if (!chat || !chat.id || !chat.id._serialized) return false;
-            
+
             const chatId = chat.id._serialized;
             if (chat.isGroup || chatId.includes('@broadcast')) return false;
-            
+
             // Criterio 1: Mensajes sin leer
             if (chat.unreadCount > 0) return true;
-            
+
             // Criterio 2: Marcado explícitamente en memoria como esperando humano
             const state = userStates.get(chatId);
             const stateStr = typeof state === 'object' ? state.state : state;
             if (stateStr === 'waiting_human') return true;
-            
+
             return false;
         });
-        
+
         console.log(`[BATCH] Chats pendientes detectados: ${pendingChats.length}`);
 
         for (const chat of pendingChats) {
@@ -65,12 +65,12 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                 const unreadCount = chat.unreadCount || 0;
                 const fetchLimit = Math.max(unreadCount, 5);
                 const messages = await safeFetchMessages(chat, fetchLimit);
-                
+
                 if (messages.length > 0) {
                     const chatId = chat.id._serialized;
                     const currentState = userStates.get(chatId);
                     const isSilenced = currentState && typeof currentState === 'object' && currentState.state === 'waiting_human';
-                    
+
                     console.log(`[BATCH] Escaneando chat: ${chatId} (Unread: ${unreadCount}${isSilenced ? ', Silenced' : ''})`);
 
                     // Procesar todos los mensajes no leídos
@@ -80,7 +80,7 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
 
                     // Procesar solo mensajes que NO sean del bot
                     const filteredMessages = toProcess.filter(m => !m.fromMe);
-                    
+
                     if (filteredMessages.length > 0) {
                         await processIncomingMessage(filteredMessages);
                     }
@@ -109,14 +109,14 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
  * Busca todos los chats individuales con mensajes sin leer o en estado waiting_human y los procesa.
  */
 async function handleBatchUnanswered(adminMessage, client, userStates, processIncomingMessage) {
-  await adminMessage.reply('⏳ Escaneando todos tus chats en busca de mensajes no leídos o casos pendientes...');
-  const count = await processPendingChats(client, userStates, processIncomingMessage);
-  
-  if (count === 0) {
-    await adminMessage.reply('🤖 No encontré ningún chat sin leer ni clientes marcados en "espera de asesor" que requirieran acción inmediata.');
-  } else {
-    await adminMessage.reply(`✅ *Proceso Finalizado*\nSe atendieron exitosamente ${count} chats que estaban pendientes.`);
-  }
+    await adminMessage.reply('⏳ Escaneando todos tus chats en busca de mensajes no leídos o casos pendientes...');
+    const count = await processPendingChats(client, userStates, processIncomingMessage);
+
+    if (count === 0) {
+        await adminMessage.reply('🤖 No encontré ningún chat sin leer ni clientes marcados en "espera de asesor" que requirieran acción inmediata.');
+    } else {
+        await adminMessage.reply(`✅ *Proceso Finalizado*\nSe atendieron exitosamente ${count} chats que estaban pendientes.`);
+    }
 }
 
 /**
@@ -181,19 +181,19 @@ async function handleSendBulkCredentials(message, command, client, getAccountsBy
     for (const plat of knownPlatforms) {
         if (command.includes(plat)) { requestedPlatform = plat; break; }
     }
-    
+
     let listText = command;
     if (!isReply && message.body.split('\n').length > 1) {
         listText = message.body.split('\n').slice(1).join('\n');
     }
     const regex = /57\s*3\d{2}\s*\d{7}|57\s*3\d{9}/g;
     const phones = listText.match(regex);
-    
+
     if (!requestedPlatform) {
         await message.reply('❌ No identifiqué la plataforma (netflix, disney, etc.)');
         return;
     }
-    
+
     if (!phones || phones.length === 0) {
         if (!isReply) {
             userStates.set(GROUP_ID, { state: 'awaiting_target_for_credentials', platform: requestedPlatform });
@@ -205,14 +205,14 @@ async function handleSendBulkCredentials(message, command, client, getAccountsBy
     }
 
     await message.reply(`📡 Iniciando envío masivo de credenciales de *${requestedPlatform.toUpperCase()}* a ${phones.length} números...`);
-    
+
     let success = 0;
     for (const phone of phones) {
         try {
             const cleanPhone = phone.replace(/\s+/g, '');
             const accounts = await getAccountsByPhone(cleanPhone);
             const targetAccount = accounts.find(a => (a.Streaming || '').toLowerCase().includes(requestedPlatform));
-            
+
             if (targetAccount) {
                 const creds = `🔐 *CREDENCIALES ${requestedPlatform.toUpperCase()}*\n\n📧 Correo: ${targetAccount.correo}\n🔒 Clave: ${targetAccount.contraseña}${targetAccount['pin perfil'] ? `\n🔢 PIN: ${targetAccount['pin perfil']}` : ''}`;
                 await client.sendMessage(cleanPhone + '@c.us', creds);
@@ -269,7 +269,7 @@ function getDynamicSupportExpectationMessage() {
 async function executePaymentValidation(userId, userState, client, userStates, adminMessage = null, preMatchedId = null) {
     const { findMatchingPayment } = require('./gmailService');
     const { recordNewSale } = require('./salesRegistryService');
-    
+
     const amount = userState.total || 0;
     if (amount <= 0) return { success: false, message: "Monto no válido" };
 
@@ -281,99 +281,137 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     }
 
     const results = await recordNewSale(userId, userState, `Gmail Match (${matchId})`);
-    
+
     let report = `✅ *PAGO VALIDADO AUTOMÁTICAMENTE*\n\n`;
     results.forEach(res => {
         report += `- *${res.name}*: ${res.status === 'success' ? 'Asignada ✅' : 'Manual ⚠️'}\n`;
     });
     console.log(`[Payment Auto-Validate] ✅ Registro en Excel completado para ${userId}`);
-     
+
     const targetJid = userState.chatJid || userId;
 
-     if (adminMessage) {
-         await adminMessage.reply(report);
-     } else {
-          try {
-              let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nAquí tienes tus credenciales:\n\n";
-              let hasAnyCredentials = false;
-              results.forEach(res => {
-                  if (res.status === 'success' && res.correo) {
-                      hasAnyCredentials = true;
-                      const vencStr = formatVencimientoDate(res.vencimiento);
-                      const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
-                      credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n${vencLine}\n`;
-                  }
-              });
+    if (adminMessage) {
+        await adminMessage.reply(report);
+    } else {
+        try {
+            let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nAquí tienes tus credenciales:\n\n";
+            let hasAnyCredentials = false;
+            results.forEach(res => {
+                if (res.status === 'success' && res.correo) {
+                    hasAnyCredentials = true;
+                    const vencStr = formatVencimientoDate(res.vencimiento);
+                    const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
+                    credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n${vencLine}\n`;
+                }
+            });
 
-              const manualItems = results.filter(res => res.status !== 'success');
+            const manualItems = results.filter(res => res.status !== 'success');
 
-              if (hasAnyCredentials) {
-                   const customerName = userState.nombre ? userState.nombre.split(' ')[0] : "";
-                   const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
-                   credentialsMsg += profileTip;
-                   
-                   if (manualItems.length > 0) {
-                       const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
-                       const expectation = getDynamicSupportExpectationMessage();
-                       credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. ${expectation}`;
-                       // Notificar al grupo de administración de la parte manual
-                       try {
-                           const groupChat = await client.getChatById(GROUP_ID);
-                           if (groupChat) {
-                               await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL PARCIAL REQUERIDA* (@${userId.replace('@c.us', '')})\n` +
-                                                           `Servicios manuales: ${manualPlats}\n` +
-                                                           `Por favor, envíale la invitación manualmente.`);
-                           }
-                       } catch(e) {}
-                   }
+            if (hasAnyCredentials) {
+                const customerName = userState.nombre ? userState.nombre.split(' ')[0] : "";
+                const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
+                credentialsMsg += profileTip;
 
-                   await client.sendMessage(targetJid, credentialsMsg);
+                if (manualItems.length > 0) {
+                    const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                    const expectation = getDynamicSupportExpectationMessage();
+                    credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. ${expectation}`;
+                    // Notificar al grupo de administración de la parte manual
+                    try {
+                        const groupChat = await client.getChatById(GROUP_ID);
+                        if (groupChat) {
+                            await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL PARCIAL REQUERIDA* (@${userId.replace('@c.us', '')})\n` +
+                                `Servicios manuales: ${manualPlats}\n` +
+                                `Por favor, envíale la invitación manualmente.`);
+                        }
+                    } catch (e) { }
+                }
 
-                    if (manualItems.length > 0) {
+                await client.sendMessage(targetJid, credentialsMsg);
+
+                if (manualItems.length > 0) {
+                    const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
+                    if (hasAppleOne) {
+                        const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
+                            `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
+                            `1. Tu número de teléfono celular\n` +
+                            `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
+                            `*(Ejemplo: 3101234567, miusuario@gmail.com)*`;
+                        await client.sendMessage(targetJid, appleMsg);
+
+                        const otherManuals = manualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
+                        if (otherManuals.length > 0) {
+                            const otherPlats = otherManuals.map(item => item.name.toUpperCase()).join(', ');
+                            const expectation = getDynamicSupportExpectationMessage();
+                            await client.sendMessage(targetJid, `⚠️ *Nota:* Tus otros servicios (*${otherPlats}*) requieren activación manual por parte de un asesor. ${expectation}`);
+                        }
+
+                        userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: targetJid, lastPaymentValidated: Date.now() });
+                    } else {
                         userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
-                        return { success: true };
                     }
-              } else {
-                   if (manualItems.length > 0) {
-                       let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
-                       const platformsStr = manualItems.map(item => item.name.toUpperCase()).join(', ');
-                       const expectation = getDynamicSupportExpectationMessage();
-                       manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
-                                    `${expectation}`;
-                       await client.sendMessage(targetJid, manualMsg);
-                       
-                       // Notificar al grupo de administración de la venta manual
-                       try {
-                           const groupChat = await client.getChatById(GROUP_ID);
-                           if (groupChat) {
-                               await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA* (@${userId.replace('@c.us', '')})\n` +
-                                                           `Servicios: ${platformsStr}\n` +
-                                                           `Monto: $${amount}\n` +
-                                                           `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
-                           }
-                       } catch(e) {}
-                       
-                       userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
-                       return { success: true };
-                   }
+                    return { success: true };
+                }
+            } else {
+                if (manualItems.length > 0) {
+                    const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
+                    if (hasAppleOne) {
+                        const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
+                            `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
+                            `1. Tu número de teléfono celular\n` +
+                            `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
+                            `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
+                        await client.sendMessage(targetJid, appleMsg);
 
-                   const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
-                                      "Aquí tienes tus credenciales actualizadas:";
-                   await client.sendMessage(targetJid, successMsg);
-                   
-                   // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
-                   await new Promise(r => setTimeout(r, 6000));
-                   const { processCheckCredentials } = require('./billingService');
-                   await processCheckCredentials(targetJid, client, "Entrega automática tras pago", "");
-              }
-          } catch (deliveryErr) {
-              console.error(`[Payment Auto-Validate] ❌ Error entregando credenciales a ${targetJid}:`, deliveryErr.message);
-              await client.sendMessage(targetJid, "🤖 Tu pago fue validado con éxito, pero tuve un problema al enviarte las credenciales automáticamente. Por favor escribe *credenciales* en unos minutos o espera a que un asesor te ayude. 😊");
-          }
-     }
-     
-     userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: userState.chatJid, lastPaymentValidated: Date.now() });
-     return { success: true };
+                        const otherManuals = manualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
+                        if (otherManuals.length > 0) {
+                            const otherPlats = otherManuals.map(item => item.name.toUpperCase()).join(', ');
+                            const expectation = getDynamicSupportExpectationMessage();
+                            await client.sendMessage(targetJid, `⚠️ *Nota:* Tus otros servicios (*${otherPlats}*) requieren de una activación personalizada. ${expectation}`);
+                        }
+
+                        userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: targetJid, lastPaymentValidated: Date.now() });
+                    } else {
+                        let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
+                        const platformsStr = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                        const expectation = getDynamicSupportExpectationMessage();
+                        manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
+                            `${expectation}`;
+                        await client.sendMessage(targetJid, manualMsg);
+
+                        // Notificar al grupo de administración de la venta manual
+                        try {
+                            const groupChat = await client.getChatById(GROUP_ID);
+                            if (groupChat) {
+                                await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA* (@${userId.replace('@c.us', '')})\n` +
+                                    `Servicios: ${platformsStr}\n` +
+                                    `Monto: $${amount}\n` +
+                                    `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
+                            }
+                        } catch (e) { }
+
+                        userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                    }
+                    return { success: true };
+                }
+
+                const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
+                    "Aquí tienes tus credenciales actualizadas:";
+                await client.sendMessage(targetJid, successMsg);
+
+                // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
+                await new Promise(r => setTimeout(r, 6000));
+                const { processCheckCredentials } = require('./billingService');
+                await processCheckCredentials(targetJid, client, "Entrega automática tras pago", "");
+            }
+        } catch (deliveryErr) {
+            console.error(`[Payment Auto-Validate] ❌ Error entregando credenciales a ${targetJid}:`, deliveryErr.message);
+            await client.sendMessage(targetJid, "🤖 Tu pago fue validado con éxito, pero tuve un problema al enviarte las credenciales automáticamente. Por favor escribe *credenciales* en unos minutos o espera a que un asesor te ayude. 😊");
+        }
+    }
+
+    userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: userState.chatJid, lastPaymentValidated: Date.now() });
+    return { success: true };
 }
 
 /**
@@ -383,7 +421,7 @@ async function executeTestMode(message, client) {
     const { updateExcelData } = require('./apiService');
     const now = new Date().toLocaleString('es-CO');
     const testData = { "operador": `TEST EXITOSO: ${now}` };
-    
+
     try {
         await updateExcelData(2, testData);
         await message.reply(`✅ *Prueba de Escritura Realizada*\n\nHe inyectado un timestamp en la *Fila 2, Columna Operador*. Por favor revisa tu Excel para confirmar que el cambio es visible.`);
@@ -398,14 +436,14 @@ async function executeTestMode(message, client) {
 async function getUpcomingExpirationsReport() {
     const { fetchCustomersData, getTodayInBogota, getJsDateFromExcel } = require('./apiService');
     const today = getTodayInBogota();
-    
+
     // Ventana: Desde hace 2 días (ayer y antier) hasta dentro de 3 días
     const startDate = new Date(today);
     startDate.setDate(today.getDate() - 2);
-    
+
     const endDate = new Date(today);
     endDate.setDate(today.getDate() + 3);
-    
+
     const fs = require('fs');
     const path = require('path');
     let managedEmails = [];
@@ -445,7 +483,7 @@ async function getUpcomingExpirationsReport() {
 
     try {
         const data = await fetchCustomersData();
-        
+
         // 1. Filtrar por fecha y por la regla de Netflix (solo 'net' en método de pago)
         const upcoming = data.filter(c => {
             const expDate = getJsDateFromExcel(c.vencimiento);
@@ -462,19 +500,19 @@ async function getUpcomingExpirationsReport() {
             if (streaming.includes("NETFLIX") && !streaming.includes("EXTRA")) {
                 return paymentMethod === "net";
             }
-            
+
             return true;
         });
-        
+
         if (upcoming.length === 0) return "No hay vencimientos programados para el periodo reportado. ✅";
-        
+
         // 2. Agrupar por correo para evitar duplicados y mostrar el correo en lugar del nombre
         const uniqueAccounts = new Map();
         upcoming.forEach(c => {
             const email = (c.correo || "Sin Correo").trim();
             const streaming = (c.Streaming || "Servicio").toUpperCase();
             const key = `${email}|${streaming}`;
-            
+
             if (!uniqueAccounts.has(key)) {
                 uniqueAccounts.set(key, {
                     email,
@@ -483,12 +521,12 @@ async function getUpcomingExpirationsReport() {
                 });
             }
         });
-        
+
         let report = `📅 *VENCIMIENTOS PRÓXIMOS (Ventana extendida)*\n\n`;
         uniqueAccounts.forEach(acc => {
             report += `• ${acc.email} (${acc.streaming}): ${acc.vencimiento}\n`;
         });
-        
+
         return report;
     } catch (e) {
         console.error("Error generating expiration report:", e);
@@ -509,24 +547,24 @@ async function getNetflixMatchReport(ispInfo = '') {
             const nombre = (row['Nombre'] || '').toString().toLowerCase();
             return plat.includes('netflix') && (status.includes('libre') || nombre === 'libre' || nombre === '');
         });
-        
+
         const hasStock = netflixLibres.length > 0;
         let report = "";
-        
+
         if (!hasStock) {
             report = "No hay cuentas de Netflix libres en este momento. ❌";
             return { rawReport: report, hasStock: false };
         }
-        
+
         report = `📺 *CUENTAS NETFLIX DISPONIBLES*\n\n`;
         if (ispInfo) {
             report += `*🔍 Referencia operador cliente: ${ispInfo}*\n\n`;
         }
-        
+
         netflixLibres.forEach(c => {
             report += `- ${c.correo} (${c['pin perfil'] || 'Sin PIN'})\n`;
         });
-        
+
         return { rawReport: report, hasStock: true };
     } catch (e) {
         return { rawReport: "Error buscando cuentas de Netflix.", hasStock: false };
@@ -540,7 +578,7 @@ async function handleAdminSuggestions(message, userStates) {
     const fs = require('fs');
     const path = require('path');
     const { suggestAdminActions } = require('./aiService');
-    
+
     // Leer arquitectura del README para darle "cerebro" técnico a la IA
     let readmeContext = "";
     try {
@@ -548,7 +586,7 @@ async function handleAdminSuggestions(message, userStates) {
         const readme = fs.readFileSync(readmePath, 'utf8');
         const start = readme.indexOf('# 🛠️ Arquitectura');
         if (start !== -1) readmeContext = readme.substring(start);
-    } catch(e) {}
+    } catch (e) { }
 
     const adminState = userStates.get(message.from) || {};
     const lastAction = adminState.lastAction ? JSON.stringify(adminState.lastAction, null, 2) : "No hay acciones recientes registradas.";
@@ -566,7 +604,7 @@ async function handleAdminSuggestions(message, userStates) {
     `;
 
     const result = await suggestAdminActions(message.body, context);
-    
+
     if (result && result.replyMessage) {
         await message.reply(result.replyMessage + " 🤖");
     }
@@ -616,15 +654,15 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             try {
                 const chat = await client.getChatById(userId);
                 const messages = await chat.fetchMessages({ limit: 15 });
-                
+
                 if (messages && messages.length > 0) {
                     const chatHistory = messages.map(m => `${m.fromMe ? 'Bot' : 'Cliente'}: ${m.body}`).join('\n');
                     const lastClientMsg = [...messages].reverse().find(m => !m.fromMe && m.body);
-                    
+
                     if (lastClientMsg) {
                         const { parsePurchaseIntent } = require('./aiService');
                         const intent = await parsePurchaseIntent(lastClientMsg.body, chatHistory);
-                        
+
                         if (intent && intent.items && intent.items.length > 0) {
                             fetchedItems = intent.items.map(item => ({
                                 Streaming: item.platform,
@@ -642,7 +680,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             if (fetchedItems.length > 0) {
                 const plist = fetchedItems.map(i => i.Streaming.toUpperCase()).join(', ');
                 await message.reply(`ℹ️ El cliente no tenía un pedido activo en memoria, pero leí su historial de conversación y detecté que estaba intentando adquirir *${plist}*. Procediendo a confirmar el pago...`);
-                
+
                 if (!activeStateData) {
                     activeStateData = { state: 'awaiting_payment_confirmation', nombre: "Cliente", items: fetchedItems };
                 } else {
@@ -655,7 +693,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
                 try {
                     const rawData = await fetchRawData();
                     const cleanPhone = phone.replace(/\D/g, '');
-                    
+
                     // Filtrar las cuentas de este número de teléfono
                     const clientRows = rawData.filter(row => {
                         const rowNum = (row.numero || row.whatsapp || '').toString().replace(/\D/g, '');
@@ -664,7 +702,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
 
                     if (clientRows.length > 0) {
                         const today = getTodayInBogota();
-                        
+
                         // Buscar cuentas vencidas o próximas a vencer (3 días)
                         const expiredOrExpiring = clientRows.filter(row => {
                             if (!row.deben && !row.vencimiento) return false;
@@ -679,9 +717,9 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
                             const targetRow = expiredOrExpiring[0];
                             const platName = (targetRow.Streaming || 'Streaming');
                             const newItem = { Streaming: platName, platform: { name: platName } };
-                            
+
                             await message.reply(`ℹ️ El cliente no tenía un pedido activo en memoria, pero detecté en Excel que su cuenta de *${platName.toUpperCase()}* está vencida o por vencer. Procediendo a confirmar pago para ese servicio...`);
-                            
+
                             if (!activeStateData) {
                                 activeStateData = { state: 'awaiting_payment_confirmation', nombre: targetRow.Nombre || "Cliente", items: [newItem] };
                             } else {
@@ -733,7 +771,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
 
     try {
         const results = await recordNewSale(userId, activeStateData, "Confirmado por Admin", overrideMonths);
-        
+
         let report = `✅ *PAGO PROCESADO*\nCliente: ${(activeStateData && activeStateData.nombre) || displayPhone}\n\n`;
         let someFailed = false;
 
@@ -745,11 +783,28 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
                 someFailed = true;
             }
         });
-        
+
         await message.reply(report);
 
         if (someFailed) {
-            await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! 🎉\n\nSin embargo, para uno de tus servicios estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊");
+            const appleOneItem = results.find(res => res.status === 'manual_invitation_required' && res.name.toLowerCase().includes('apple one'));
+            if (appleOneItem) {
+                const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
+                    `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
+                    `1. Tu número de teléfono celular\n` +
+                    `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
+                    `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
+                await client.sendMessage(userId, appleMsg);
+
+                const otherFailed = results.filter(res => res.status !== 'success' && !res.name.toLowerCase().includes('apple one'));
+                if (otherFailed.length > 0) {
+                    await client.sendMessage(userId, "🤖 Para tus otros servicios, estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊");
+                }
+
+                userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: userId, lastPaymentValidated: Date.now() });
+            } else {
+                await client.sendMessage(userId, "🤖 ¡Tu pago ha sido verificado! 🎉\n\nSin embargo, para uno de tus servicios estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊");
+            }
         } else {
             let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nAquí tienes tus credenciales:\n\n";
             let hasAnyCredentials = false;
@@ -773,7 +828,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
                         if (contactName && contactName !== "Cliente WhatsApp") {
                             customerName = contactName.split(' ')[0];
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
                 const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
                 credentialsMsg += profileTip;
@@ -781,16 +836,16 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
                 await client.sendMessage(userId, credentialsMsg);
             } else {
                 const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
-                                   "Aquí tienes tus credenciales actualizadas:";
+                    "Aquí tienes tus credenciales actualizadas:";
                 await client.sendMessage(userId, successMsg);
-                
+
                 // --- ENTREGA AUTOMÁTICA (con delay de gracia de 6 segundos para permitir la sincronización de Azure/Excel) ---
                 await new Promise(r => setTimeout(r, 6000));
                 const { processCheckCredentials } = require('./billingService');
                 await processCheckCredentials(userId, client, "Entrega automática tras confirmación manual", "");
             }
         }
-        
+
         // Limpiar estado
         userStates.set(userId, { state: 'main_menu', nombre: (activeStateData && activeStateData.nombre) || "Cliente" });
     } catch (error) {
@@ -829,9 +884,9 @@ async function notifyProviderExpiringAccounts(client) {
         if (report.includes("No hay cuentas próximas a vencer")) return;
 
         // Número del proveedor (ejemplo, ajustar si es necesario)
-        const providerNumber = "573027892574@c.us"; 
+        const providerNumber = "573027892574@c.us";
         const msg = `🤖 *AVISO DE RENOVACIONES PRÓXIMAS*\n\nHola, te paso el reporte de las cuentas que vencen pronto para gestionar las renovaciones:\n\n${report}`;
-        
+
         await client.sendMessage(providerNumber, msg);
         console.log(`[Automation] Reporte de vencimientos enviado al proveedor.`);
     } catch (error) {
@@ -843,7 +898,7 @@ async function handleAdminForceRetrieve(message, command, client, targetUser = n
     // Regex para extraer la plataforma de forma más precisa
     const platformMatch = command.match(/(?:dame una de|pásame|pasa cuenta de|pasa la de|cuenta de|dame la de)\s+([a-zA-Z0-9\s.]+)/i);
     const platformName = platformMatch ? platformMatch[1].trim().toLowerCase() : command.replace('@bot', '').trim().toLowerCase();
-    
+
     if (!platformName || platformName.length > 30) { // Si es muy largo, probablemente no es solo la plataforma
         return; // Dejar que pase a processAdminQuery en index.js
     }
@@ -916,7 +971,7 @@ async function handleAdminForceRetrieve(message, command, client, targetUser = n
         response += `*Clave:* ${clave}\n`;
         if (perfil) response += `*Perfil:* ${perfil}\n`;
         if (pin) response += `*PIN:* ${pin}\n`;
-        
+
         await client.sendMessage(recipientId, response);
 
         if (recipientId !== message.from) {
@@ -935,7 +990,7 @@ async function handleAdminForceRetrieve(message, command, client, targetUser = n
 async function getPendientesReport(userStates) {
     let report = "📝 *CHATS PENDIENTES DE ATENCIÓN*:\n\n";
     let count = 0;
-    
+
     for (const [userId, state] of userStates.entries()) {
         if (state && (state.state === 'waiting_human' || state.state === 'awaiting_payment_confirmation')) {
             count++;
@@ -943,25 +998,25 @@ async function getPendientesReport(userStates) {
             report += `• @${userId.replace('@c.us', '')} [${status}]\n`;
         }
     }
-    
+
     if (count === 0) return "✅ No hay chats pendientes de atención en este momento.";
     return report + `\nTotal: ${count} pendientes.`;
 }
 
 module.exports = {
-  processPendingChats,
-  handleBatchUnanswered,
-  showAdminFunctions,
-  showDetailedHelp,
-  handleSendBulkCredentials,
-  executePaymentValidation,
-  executeTestMode,
-  getUpcomingExpirationsReport,
-  getNetflixMatchReport,
-  handleAdminSuggestions,
-  handleAdminPaymentConfirmation,
-  handleSendManualPaymentMethods,
-  handleAdminForceRetrieve,
-  notifyProviderExpiringAccounts,
-  getPendientesReport
+    processPendingChats,
+    handleBatchUnanswered,
+    showAdminFunctions,
+    showDetailedHelp,
+    handleSendBulkCredentials,
+    executePaymentValidation,
+    executeTestMode,
+    getUpcomingExpirationsReport,
+    getNetflixMatchReport,
+    handleAdminSuggestions,
+    handleAdminPaymentConfirmation,
+    handleSendManualPaymentMethods,
+    handleAdminForceRetrieve,
+    notifyProviderExpiringAccounts,
+    getPendientesReport
 };

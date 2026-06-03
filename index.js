@@ -3266,6 +3266,48 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     case 'main_menu':
       await handleMainMenuSelection(message, userId, detection, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
       break;
+    case 'awaiting_apple_one_details':
+      const text = (message.body || "").trim();
+      const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+      const phoneRegex = /(?:57)?\s*3\d{2}\s*\d{7}|\d{10}/;
+      
+      const emailMatch = text.match(emailRegex);
+      const phoneMatch = text.match(phoneRegex);
+      
+      if (emailMatch && phoneMatch) {
+          const appleId = emailMatch[0].trim();
+          const phoneNumber = phoneMatch[0].replace(/\s+/g, '');
+          
+          await message.reply(`🤖 ¡Perfecto! He recibido tus datos:\n📱 *Número:* ${phoneNumber}\n📧 *Apple ID:* ${appleId}\n\nYa reporté la información al área encargada. Por favor, está al tanto de tu correo electrónico o de tus mensajes de texto, ya que por ahí recibirás las instrucciones e invitación para unerte. ¡Muchas gracias! 😊`);
+          
+          try {
+              const chats = await client.getChats();
+              const appleGroup = chats.find(c => c.isGroup && c.name.toLowerCase().includes('usuarios apple'));
+              if (appleGroup) {
+                  const groupMsg = `🚨 *NUEVO REGISTRO APPLE ONE* 🚨\n\n` +
+                                   `👤 *Cliente:* @${userId.replace('@c.us', '')}\n` +
+                                   `📱 *Celular:* ${phoneNumber}\n` +
+                                   `📧 *Apple ID:* ${appleId}\n\n` +
+                                   `Por favor, envíale la invitación familiar.`;
+                  await appleGroup.sendMessage(groupMsg);
+              } else {
+                  console.warn("No se encontró el grupo 'usuarios apple'. Notificando al grupo admin por defecto.");
+                  const adminGroup = await client.getChatById(GROUP_ID);
+                  if (adminGroup) {
+                      await adminGroup.sendMessage(`🚨 *NUEVO REGISTRO APPLE ONE* (Grupo 'usuarios apple' no encontrado)\n\n` +
+                                                   `👤 *Cliente:* @${userId.replace('@c.us', '')}\n` +
+                                                   `📱 *Celular:* ${phoneNumber}\n` +
+                                                   `📧 *Apple ID:* ${appleId}`);
+                  }
+              }
+          } catch (e) {
+              console.error("Error forwarding Apple One details to group:", e.message);
+          }
+          userStates.set(userId, { state: 'main_menu', nombre: foundName });
+      } else {
+          await message.reply("🤖 No pude identificar tu número de celular y/o tu correo (Apple ID).\n\nPor favor, envíamelos en un solo mensaje.\n*(Ejemplo: 3101234567, miusuario@icloud.com)*");
+      }
+      break;
     case 'awaiting_netflix_operator_post_payment':
       const ispInfo = (message.body || "").trim();
       const st = userStates.get(userId) || {};
