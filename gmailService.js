@@ -327,6 +327,44 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
     }
 }
 
+function getMessageBody(payload) {
+    if (!payload) return "";
+    let body = "";
+    if (payload.body && payload.body.data) {
+        body = Buffer.from(payload.body.data, 'base64').toString('utf8');
+    } else if (payload.parts && payload.parts.length > 0) {
+        for (const part of payload.parts) {
+            if (part.mimeType === 'text/plain' && part.body && part.body.data) {
+                body += Buffer.from(part.body.data, 'base64').toString('utf8');
+            } else if (part.mimeType === 'text/html' && part.body && part.body.data) {
+                if (!body) {
+                    body = Buffer.from(part.body.data, 'base64').toString('utf8');
+                }
+            } else if (part.parts) {
+                body += getMessageBody(part);
+            }
+        }
+    }
+    return body;
+}
+
+function cleanHtml(html) {
+    if (!html) return "";
+    let text = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+    text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+    text = text.replace(/<\/p>/gi, '\n');
+    text = text.replace(/<[^>]+>/g, '');
+    text = text.replace(/&nbsp;/g, ' ')
+               .replace(/&amp;/g, '&')
+               .replace(/&lt;/g, '<')
+               .replace(/&gt;/g, '>')
+               .replace(/&quot;/g, '"')
+               .replace(/&#39;/g, "'");
+    text = text.replace(/\n\s*\n+/g, '\n\n');
+    return text.trim();
+}
+
 async function getEmailsFromInbox(email, maxResults = 15) {
     const auth = await getOAuth2Client('gmail', null, email);
     if (!auth) throw new Error(`No se pudo obtener la autorización OAuth para ${email}`);
@@ -359,13 +397,18 @@ async function getEmailsFromInbox(email, maxResults = 15) {
             const internalDate = fullMsg.data.internalDate;
             const snippet = fullMsg.data.snippet || '';
 
+            const rawBody = getMessageBody(fullMsg.data.payload);
+            const isHtml = fullMsg.data.payload.mimeType === 'text/html' || (fullMsg.data.payload.parts && fullMsg.data.payload.parts.some(p => p.mimeType === 'text/html'));
+            const cleanBody = isHtml ? cleanHtml(rawBody) : rawBody;
+
             emailsList.push({
                 id: msg.id,
                 subject,
                 from,
                 date: dateStr,
                 internalDate,
-                snippet
+                snippet,
+                body: cleanBody || snippet
             });
         }
 
