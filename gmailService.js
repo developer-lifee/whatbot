@@ -327,8 +327,58 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
     }
 }
 
+async function getEmailsFromInbox(email, maxResults = 15) {
+    const auth = await getOAuth2Client('gmail', null, email);
+    if (!auth) throw new Error(`No se pudo obtener la autorización OAuth para ${email}`);
+
+    const gmail = google.gmail({ version: 'v1', auth });
+
+    try {
+        const res = await gmail.users.messages.list({
+            userId: 'me',
+            maxResults: maxResults
+        });
+
+        const messages = res.data.messages || [];
+        const emailsList = [];
+
+        for (const msg of messages) {
+            const fullMsg = await gmail.users.messages.get({
+                userId: 'me',
+                id: msg.id
+            });
+
+            const headers = fullMsg.data.payload.headers;
+            const subjectHeader = headers.find(h => h.name.toLowerCase() === 'subject');
+            const fromHeader = headers.find(h => h.name.toLowerCase() === 'from');
+            const dateHeader = headers.find(h => h.name.toLowerCase() === 'date');
+
+            const subject = subjectHeader ? subjectHeader.value : 'Sin Asunto';
+            const from = fromHeader ? fromHeader.value : 'Desconocido';
+            const dateStr = dateHeader ? dateHeader.value : '';
+            const internalDate = fullMsg.data.internalDate;
+            const snippet = fullMsg.data.snippet || '';
+
+            emailsList.push({
+                id: msg.id,
+                subject,
+                from,
+                date: dateStr,
+                internalDate,
+                snippet
+            });
+        }
+
+        return emailsList;
+    } catch (e) {
+        console.error(`Error en getEmailsFromInbox para ${email}:`, e.message);
+        throw e;
+    }
+}
+
 module.exports = {
     checkNewPayments,
     findMatchingPayment,
-    findRecentCodes
+    findRecentCodes,
+    getEmailsFromInbox
 };

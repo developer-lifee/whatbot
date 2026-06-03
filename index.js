@@ -647,6 +647,20 @@ app.get('/api/admin/gmail-inboxes', (req, res) => {
     }
 });
 
+app.get('/api/admin/gmail-inboxes/emails', async (req, res) => {
+    try {
+        const { email, password } = req.query;
+        if (password !== 'admin123') return res.status(401).json({ error: 'Unauthorized' });
+        if (!email) return res.status(400).json({ error: 'Falta el correo' });
+
+        const { getEmailsFromInbox } = require('./gmailService');
+        const emailsList = await getEmailsFromInbox(email, 15);
+        res.json(emailsList);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.post('/api/admin/gmail-inboxes/auth-url', async (req, res) => {
     try {
         const { email, password } = req.body;
