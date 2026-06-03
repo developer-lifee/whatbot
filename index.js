@@ -2566,6 +2566,7 @@ async function processIncomingMessage(messages) {
       // Tomamos la primera imagen para el interceptor de pagos (normalmente el usuario manda el recibo solo)
       const batchText = messages.map(m => m.body).filter(b => b).join('\n');
       const check = await isPaymentReceipt(mediaData[0], `[TEXTO EN ESTE LOTE: ${batchText}]\n\n${history}`);
+      console.log(`[PAYMENT INTERCEPTOR DEBUG] Result check: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, platform=${check.inferredPlatform}`);
       
       if (check.isReceipt) {
           console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);

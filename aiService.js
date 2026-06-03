@@ -656,6 +656,7 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
   try {
     const jsonString = await callGemini(prompt, "Eres un validador de comprobantes de pago bancarios.", true, mediaData);
     const result = JSON.parse(jsonString);
+    console.log("[PAYMENT RECEIPT DEBUG] Resultado IA Raw:", JSON.stringify(result, null, 2));
     return {
       isReceipt: result.isReceipt && result.confidence > 0.7,
       amount: result.amount,

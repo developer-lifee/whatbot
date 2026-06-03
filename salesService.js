@@ -213,7 +213,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
         const targetPlan = item.plan.toLowerCase().replace(/[^a-z0-9]/g, '');
         plan = platform.plans.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlan));
       }
-      selectedItems.push({ platform, plan, originalItem: item });
+      selectedItems.push({ platform, chosenPlan: plan, originalItem: item });
     } else {
       invalidElements.push(item.platform);
     }
@@ -238,41 +238,31 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   let plansToClarify = [];
 
   for (const s of selectedItems) {
-    if (s.plan) {
-      calculatedTotal += s.plan.price;
-      consolidatedResponse += `- ${s.platform.name} (${s.plan.name}): $${s.plan.price}\n`;
+    if (s.chosenPlan) {
+      calculatedTotal += s.chosenPlan.price;
+      consolidatedResponse += `- ${s.platform.name} (${s.chosenPlan.name}): $${s.chosenPlan.price}\n`;
     } else {
       if (s.platform.plans.length > 1) {
           plansToClarify.push(s.platform);
       } else {
           const defaultPlan = s.platform.plans[0];
           calculatedTotal += defaultPlan.price;
-          s.plan = defaultPlan; 
+          s.chosenPlan = defaultPlan; 
           consolidatedResponse += `- ${s.platform.name}: $${defaultPlan.price}\n`;
       }
     }
   }
 
-  // Si hay planes que aclarar, interrumpimos el flujo de pago para preguntar
+  // Si hay planes que aclarar, usamos el flujo estándar de selección de planes
   if (plansToClarify.length > 0) {
-      let clarificationMsg = "🤖 ¡Excelente elección! Pero antes de continuar, cuéntame qué plan prefieres para estas plataformas:\n\n";
-      plansToClarify.forEach(p => {
-          clarificationMsg += `*${p.name}:*\n`;
-          p.plans.forEach(plan => {
-              clarificationMsg += `- ${plan.name}: $${plan.price}\n`;
-          });
-          clarificationMsg += "\n";
-      });
-      clarificationMsg += "¿Cuál de estos te gustaría activar? 😊";
-      await message.reply(clarificationMsg);
-      
-      // Mantenemos el estado de búsqueda pero sin pasar a pago aún
       userStates.set(userId, { 
           ...userStates.get(userId), 
-          state: 'awaiting_purchase_platforms',
-          selected: selectedItems, // Guardamos lo que ya identificamos (aunque falte el plan)
-          lastClarifiedPlatforms: plansToClarify.map(p => p.name)
+          state: 'selecting_plans', 
+          selected: selectedItems, 
+          currentIndex: 0,
+          subscriptionType: subscriptionType || 'mensual'
       });
+      await showPlanSelection(message, userId, userStates);
       return;
   }
 
