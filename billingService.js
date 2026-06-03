@@ -221,7 +221,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 /**
  * Función auxiliar para enviar mensajes de cobro de forma masiva con delay anti-spam.
  */
-async function sendBulkCharges(client, records, requesterId = null) {
+async function sendBulkCharges(client, records, requesterId = null, userStates = null) {
   const file = path.join(__dirname, 'pending_charges.json');
   
   let existing = [];
@@ -248,6 +248,14 @@ async function sendBulkCharges(client, records, requesterId = null) {
     
     try {
         await client.sendMessage(dest, `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${serviceName}\n\nEscribe *3* en este chat para conocer el valor a pagar y ver los medios de transferencia. ¡Gracias por preferirnos!`);
+        if (userStates && userStates.has(dest)) {
+            const st = userStates.get(dest);
+            const stateStr = (typeof st === 'object') ? st.state : st;
+            if (stateStr === 'waiting_human') {
+                userStates.delete(dest);
+                console.log(`[Auto-Billing] Cleared waiting_human state for ${dest} to allow automated interactions.`);
+            }
+        }
         exitosos++;
     } catch(e) {
         console.error(`[Billing] Error enviando cobro a ${dest}:`, e.message);
@@ -384,13 +392,13 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         }
 
         // --- FILTRO DE SEGURIDAD ---
-        if (stateStr === 'waiting_admin_confirmation' || stateStr === 'waiting_human') {
+        if (stateStr === 'waiting_admin_confirmation') {
           records.push({ 
             name: account.Nombre || 'Cliente', 
             phone, 
             service: account.Streaming || 'Servicio',
             dateStr,
-            observacion: `[PENDIENTE] Ya hay actividad o pago en este chat (${stateStr}).`,
+            observacion: `Ya hay actividad o pago en este chat (${stateStr}).`,
             isSkip: true
           });
           continue;
@@ -420,7 +428,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     records.forEach(r => {
       if (r.isSkip) {
         if (!toNotifyAdminUsers.has(r.phone)) {
-            toNotifyAdminUsers.set(r.phone, { name: r.name, phone: r.phone, services: [] });
+            toNotifyAdminUsers.set(r.phone, { name: r.name, phone: r.phone, services: [], reason: r.observacion });
         }
         toNotifyAdminUsers.get(r.phone).services.push(r.service);
         return;
@@ -472,7 +480,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     // EJECUCIÓN DIRECTA
     let exitosos = 0;
     if (toCharge.length > 0) {
-        exitosos = await sendBulkCharges(client || message._client, toCharge, userId);
+        exitosos = await sendBulkCharges(client || message._client, toCharge, userId, userStates);
     }
     
     // ENVIAR AVISO DE CORTE
@@ -482,6 +490,14 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
             const destId = r.phone + '@c.us';
             const suspendMsg = `⚠️ *AVISO DE CORTE INMINENTE* ⚠️\n\nHola ${r.name}, te informamos que por falta de respuesta, tus cuentas de *${r.services.join(', ')}* serán suspendidas el día de hoy a menos de que envíes el comprobante de pago en el transcurso del día.\n\nPor favor envíanos tu comprobante lo antes posible para evitar la interrupción del servicio.`;
             await (client || message._client).sendMessage(destId, suspendMsg);
+            if (userStates && userStates.has(destId)) {
+                const st = userStates.get(destId);
+                const stateStr = (typeof st === 'object') ? st.state : st;
+                if (stateStr === 'waiting_human') {
+                    userStates.delete(destId);
+                    console.log(`[Auto-Billing] Cleared waiting_human state for ${destId} during suspension notice.`);
+                }
+            }
             exitososCorte++;
             await new Promise(res => setTimeout(res, 1000));
         } catch (e) {
@@ -510,7 +526,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     if (toNotify.length > 0) {
       finalReport += `\n📥 *PAGOS/CHATS POR VALIDAR (Bot saltó el cobro):*\n`;
       toNotify.forEach(r => {
-        finalReport += `• ${r.name} - Tel: ${r.phone} (${r.services.join(', ')})\n`;
+        finalReport += `• ${r.name} - Tel: ${r.phone} (${r.services.join(', ')}) - Motivo: ${r.reason || 'Sin especificar'}\n`;
       });
     }
 
