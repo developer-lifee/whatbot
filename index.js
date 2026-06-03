@@ -473,10 +473,51 @@ app.get('/api/admin/tickets', async (req, res) => {
                     console.warn(`[Tickets API] No se pudo obtener el último mensaje para ${userId}:`, err.message);
                 }
 
+                let resolvedName = typeof state === 'object' ? state.nombre : "Cliente";
+                if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
+                    try {
+                        const { getAccountsByPhone } = require('./apiService');
+                        const accounts = await getAccountsByPhone(phone);
+                        if (accounts && accounts.length > 0) {
+                            const firstAcc = accounts[0];
+                            const first = firstAcc.Nombre || firstAcc.nombre || "";
+                            const last = firstAcc.apellido || firstAcc.Apellido || "";
+                            if (first.trim()) {
+                                resolvedName = `${first} ${last}`.trim();
+                            }
+                        }
+                    } catch (err) {
+                        console.warn(`[Tickets API] Error buscando nombre en base de datos para ${phone}:`, err.message);
+                    }
+                }
+
+                if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
+                    try {
+                        const { searchContactByPhone } = require('./googleContactsService');
+                        const contactName = await searchContactByPhone(phone);
+                        if (contactName) {
+                            resolvedName = contactName;
+                        }
+                    } catch (e) {
+                        console.warn(`[Tickets API] Error buscando nombre en Google Contacts para ${phone}:`, e.message);
+                    }
+                }
+
+                if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
+                    try {
+                        if (client && client.info) {
+                            const contact = await client.getContactById(userId);
+                            if (contact) {
+                                resolvedName = contact.pushname || contact.name || "Cliente WhatsApp";
+                            }
+                        }
+                    } catch (e) {}
+                }
+
                 tickets.push({
                     userId,
                     phone,
-                    nombre: typeof state === 'object' ? state.nombre : "Cliente",
+                    nombre: resolvedName,
                     state: stateStr,
                     lastHumanInteraction: typeof state === 'object' ? state.lastHumanInteraction : null,
                     agent: typeof state === 'object' ? state.agent : null,
@@ -3114,6 +3155,62 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     case 'awaiting_payment_confirmation':
       await handleAwaitingPaymentConfirmation(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
       break;
+    case 'awaiting_advisor_reason':
+      try {
+          const reason = inputToUse.trim();
+          console.log(`[Advisor Flow] El usuario dio la razón de soporte: "${reason}"`);
+          
+          const { analyzeAdvisorReason } = require('./aiService');
+          const analysis = await analyzeAdvisorReason(reason, hist);
+          
+          console.log(`[Advisor Flow AI Analysis] Can resolve? ${analysis.canResolve}. Action: ${analysis.action}. Explanation: ${analysis.explanation}`);
+
+          if (analysis.canResolve && analysis.action) {
+              if (analysis.action === 'comprar') {
+                  userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
+                  await message.reply(`🤖 Entiendo que deseas adquirir un nuevo servicio (${analysis.explanation}). ¡Yo mismo puedo ayudarte con eso de inmediato!`);
+                  const { handleSubscriptionInterest } = require('./salesService');
+                  await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+                  return;
+              } else if (analysis.action === 'pagar' || analysis.action === 'renovar') {
+                  userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                  await message.reply(`🤖 Veo que deseas realizar un pago o renovar tus cuentas (${analysis.explanation}). ¡Puedo ayudarte con eso ahora mismo!`);
+                  const { processCheckPrices } = require('./billingService');
+                  await processCheckPrices(message, userId, userStates, reason, analysis.detectedPlatform, 1);
+                  return;
+              } else if (analysis.action === 'credenciales') {
+                  userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                  await message.reply(`🤖 Veo que necesitas revisar tus credenciales o claves de acceso (${analysis.explanation}).`);
+                  const { processCheckCredentials } = require('./billingService');
+                  await processCheckCredentials(userId, client, reason, "");
+                  return;
+              } else if (analysis.action === 'soporte') {
+                  await message.reply("🤖 Entiendo que experimentas un problema técnico. Para ayudarte a solucionarlo de inmediato, por favor indícame con qué plataforma tienes el inconveniente o envíame una captura de pantalla del error.");
+                  userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                  return;
+              }
+          }
+      } catch (err) {
+          console.error("Error in awaiting_advisor_reason flow:", err.message);
+      }
+
+      // Fallback: comunicar con humano
+      try {
+        const chat = await client.getChatById(GROUP_ID);
+        if (chat) {
+          let realPhone = userId.replace(/\D/g, '');
+          try {
+              const contact = await message.getContact();
+              if (contact && contact.number) realPhone = contact.number;
+          } catch(e) {}
+          await chat.sendMessage(`🚨 *Atención Asesor Requerida* (@${realPhone})\n\nMotivo del cliente: "${inputToUse}"`);
+        }
+      } catch (error) {
+        console.error('Error enviando mensaje al grupo:', error);
+      }
+      await message.reply("🤖 Entendido. He notificado a un asesor humano sobre tu solicitud. Un asesor te responderá por este chat lo más pronto posible. He silenciado mis respuestas automáticas de charla general para no interrumpir.");
+      userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+      break;
     case 'waiting_human':
       console.log(`[DEBUG] Usuario ${userId} en modo waiting_human.`);
       const currentSt = userStates.get(userId) || {};
@@ -3288,26 +3385,8 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
 
       break;
     case '5':
-      // Reportar al grupo para atención humana
-      try {
-        const chat = await client.getChatById(GROUP_ID);
-        if (chat) {
-          let realPhone = userId.replace(/\D/g, '');
-          try {
-              const contact = await message.getContact();
-              if (contact && contact.number) realPhone = contact.number;
-          } catch(e) {
-              console.warn("[Menu] No se pudo obtener el contacto para notificar grupo:", e.message);
-          }
-          await chat.sendMessage(`🚨 Nuevo caso para atención: Usuario @${realPhone} seleccionó "Otro" y necesita ayuda de un asesor.`);
-        } else {
-          console.error('Grupo no encontrado con ID:', GROUP_ID);
-        }
-      } catch (error) {
-        console.error('Error enviando mensaje al grupo:', error);
-      }
-      await message.reply("🤖 Un asesor te atenderá lo más pronto posible. He silenciado mis respuestas automáticas de charla general para que puedas hablar con un humano, pero si necesitas revisar tus cuentas o comprar algo, ¡puedes seguir usando el menú!");
-      userStates.set(userId, { state: 'waiting_human', waitingCount: 0 }); // No seteamos lastHumanInteraction para que no sea un mute absoluto
+      await message.reply("🤖 Para poder ayudarte mejor y resolver tu solicitud lo antes posible, por favor escribe detalladamente qué necesitas consultar con el asesor (ej. dudas sobre un pago, cambio de plan, soporte técnico, etc.).\n\nEl bot analizará tu respuesta y, si es necesario, te comunicará con un asesor de inmediato.");
+      userStates.set(userId, { state: 'awaiting_advisor_reason', nombre: foundName });
       break;
     default:
       if (detection) {

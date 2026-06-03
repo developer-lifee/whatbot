@@ -1090,6 +1090,41 @@ async function detectPaymentPromise(messageContent, chatHistory = "") {
   }
 }
 
+async function analyzeAdvisorReason(reason, chatHistory = "") {
+  const prompt = `
+    Analiza la siguiente explicación de un cliente sobre por qué desea hablar con un asesor humano:
+    Explicación: "${reason}"
+    
+    Historial reciente de la conversación:
+    ${chatHistory}
+    
+    Determina si la petición del cliente corresponde a un flujo que el bot de Sheerit puede resolver AUTOMÁTICAMENTE.
+    El bot puede resolver automáticamente:
+    1. Comprar un servicio nuevo ("comprar").
+    2. Pagar, renovar o consultar el precio de su cuenta actual ("pagar" / "renovar").
+    3. Solicitar credenciales, cambiar contraseña o consultar PIN ("credenciales").
+    4. Fallas técnicas comunes o errores de pantalla en plataformas ("soporte").
+    
+    Si el cliente está enojado, tiene problemas de saldos, quejas de atención, o pide un reembolso, el bot NO puede resolverlo y debe ser atendido por un humano (canResolve: false).
+    
+    Salida esperada JSON:
+    {
+      "canResolve": boolean, // true si el bot puede resolverlo automáticamente usando uno de los flujos de arriba.
+      "action": "comprar" | "pagar" | "renovar" | "credenciales" | "soporte" | null, // null si canResolve es false.
+      "detectedPlatform": string | null, // Ej: "Netflix", "Disney" si se menciona, de lo contrario null.
+      "explanation": string // Una frase muy corta justificando la decisión (ej. "Quiere comprar Amazon Prime").
+    }
+  `;
+
+  try {
+    const jsonString = await callGemini(prompt, "Eres un clasificador de intenciones de soporte. Responde solo con JSON.", true);
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error("Error en analyzeAdvisorReason:", error);
+    return { canResolve: false, action: null, detectedPlatform: null, explanation: "Error de análisis" };
+  }
+}
+
 module.exports = {
   parsePurchaseIntent,
   detectPaymentMethod,
@@ -1107,5 +1142,6 @@ module.exports = {
   generateReactivationResponse,
   isFamilyPlan,
   getMaskedAccessData,
-  detectPaymentPromise
+  detectPaymentPromise,
+  analyzeAdvisorReason
 };

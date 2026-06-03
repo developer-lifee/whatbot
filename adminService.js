@@ -13,6 +13,23 @@ function isCriticalBrowserError(err) {
            msg.includes('getchats');
 }
 
+function formatVencimientoDate(vencimiento) {
+    if (!vencimiento) return "";
+    try {
+        const { getJsDateFromExcel } = require('./apiService');
+        const jsDate = getJsDateFromExcel(vencimiento);
+        if (jsDate && !isNaN(jsDate.getTime())) {
+            const day = jsDate.getDate();
+            const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
+            const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
+            return `${day} de ${month}`;
+        }
+    } catch (e) {
+        console.error("Error formatting date:", e);
+    }
+    return vencimiento;
+}
+
 /**
  * Función central para procesar chats con mensajes sin leer.
  * Puede ser llamada por un comando o por un proceso automático.
@@ -282,7 +299,9 @@ async function executePaymentValidation(userId, userState, client, userStates, a
               results.forEach(res => {
                   if (res.status === 'success' && res.correo) {
                       hasAnyCredentials = true;
-                      credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n\n`;
+                      const vencStr = formatVencimientoDate(res.vencimiento);
+                      const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
+                      credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n${vencLine}\n`;
                   }
               });
 
@@ -389,15 +408,36 @@ async function getUpcomingExpirationsReport() {
     
     const fs = require('fs');
     const path = require('path');
-    const tokensDir = path.join(__dirname, 'tokens');
     let managedEmails = [];
+
+    // Cargar desde managed_emails.json (el listado completo de correos propios)
+    const managedEmailsPath = path.join(__dirname, 'managed_emails.json');
+    if (fs.existsSync(managedEmailsPath)) {
+        try {
+            const content = fs.readFileSync(managedEmailsPath, 'utf8');
+            const data = JSON.parse(content);
+            if (Array.isArray(data)) {
+                managedEmails = data.map(email => email.toLowerCase().trim());
+            }
+        } catch (err) {
+            console.error("Error reading managed_emails.json for report:", err.message);
+        }
+    }
+
+    // Cargar también desde la carpeta tokens/ (tokens de bandejas activas)
+    const tokensDir = path.join(__dirname, 'tokens');
     if (fs.existsSync(tokensDir)) {
         try {
             const files = fs.readdirSync(tokensDir);
-            managedEmails = files
+            files
                 .filter(f => f.startsWith('token_') && f.endsWith('.json'))
                 .map(f => f.replace('token_', '').replace('.json', '').toLowerCase().trim())
-                .filter(email => email.includes('@') && email !== 'contacts');
+                .filter(email => email.includes('@') && email !== 'contacts')
+                .forEach(email => {
+                    if (!managedEmails.includes(email)) {
+                        managedEmails.push(email);
+                    }
+                });
         } catch (err) {
             console.error("Error reading managed emails tokens for report:", err.message);
         }
@@ -716,7 +756,9 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             results.forEach(res => {
                 if (res.status === 'success' && res.correo) {
                     hasAnyCredentials = true;
-                    credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n\n`;
+                    const vencStr = formatVencimientoDate(res.vencimiento);
+                    const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
+                    credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n${vencLine}\n`;
                 }
             });
 

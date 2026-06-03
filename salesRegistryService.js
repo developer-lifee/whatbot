@@ -187,7 +187,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     type: 'renewal',
                     correo: item.correo || item.Correo || "",
                     contraseña: item.contraseña || item.Contraseña || item.password || "",
-                    pin: item["pin perfil"] || item.pin || ""
+                    pin: item["pin perfil"] || item.pin || "",
+                    vencimiento: nextPaymentDate
                 });
                 continue;
             }
@@ -228,7 +229,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     type: 'renewal',
                     correo: matchedRow.correo || matchedRow.Correo || "",
                     contraseña: matchedRow.contraseña || matchedRow.Contraseña || matchedRow.password || "",
-                    pin: matchedRow["pin perfil"] || matchedRow.pin || ""
+                    pin: matchedRow["pin perfil"] || matchedRow.pin || "",
+                    vencimiento: nextPaymentDate
                 });
                 continue;
             }
@@ -292,7 +294,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     type: 'new_sale',
                     correo: slot.rowData.correo || slot.rowData.Correo || "",
                     contraseña: slot.rowData.contraseña || slot.rowData.Contraseña || slot.rowData.password || "",
-                    pin: slot.rowData["pin perfil"] || slot.rowData.pin || ""
+                    pin: slot.rowData["pin perfil"] || slot.rowData.pin || "",
+                    vencimiento: nextPaymentDate
                 });
             } else {
                 console.log(`[Sales Registry] NO se encontró cupo disponible para ${platformName}.`);
