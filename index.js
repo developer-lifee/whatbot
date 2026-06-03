@@ -7,7 +7,7 @@ const multer = require('multer');
 
 // Sobrescribir consola para añadir timestamps con la hora local correcta
 const originalLog = console.log;
-console.log = function() {
+console.log = function () {
     const now = new Date();
     const timestamp = `[${now.toLocaleString('es-CO')}]`;
     originalLog.apply(console, [timestamp, ...arguments]);
@@ -21,12 +21,12 @@ const { Client, LocalAuth } = require('whatsapp-web.js');
 function isCriticalBrowserError(err) {
     if (!err || !err.message) return false;
     const msg = err.message.toLowerCase();
-    return msg.includes('detached frame') || 
-           msg.includes('execution context was destroyed') || 
-           msg.includes('navigation failed') ||
-           msg.includes('connection closed') ||
-           msg.includes('cannot read properties of undefined') ||
-           msg.includes('getchats');
+    return msg.includes('detached frame') ||
+        msg.includes('execution context was destroyed') ||
+        msg.includes('navigation failed') ||
+        msg.includes('connection closed') ||
+        msg.includes('cannot read properties of undefined') ||
+        msg.includes('getchats');
 }
 const { pool } = require('./database');
 const { initDailyAutomation } = require('./scheduledTasks');
@@ -71,14 +71,14 @@ function saveUserStates() {
 
 // Sobrescribir Map.set y Map.delete para auto-guardar
 const originalSet = userStates.set.bind(userStates);
-userStates.set = function(key, value) {
+userStates.set = function (key, value) {
     const result = originalSet(key, value);
     saveUserStates();
     return result;
 };
 
 const originalDelete = userStates.delete.bind(userStates);
-userStates.delete = function(key) {
+userStates.delete = function (key) {
     const result = originalDelete(key);
     saveUserStates();
     return result;
@@ -96,33 +96,33 @@ const BATCH_INTERVAL = 12000; // 12 segundos para agrupar mensajes
 const RESPONSE_COOLDOWN = 15000; // 15 segundos entre respuestas automáticas (evita ráfagas separadas)
 global.supportQueue = []; // Cola global de soporte anti-spam
 const {
-  startPurchaseProcess,
-  handleSubscriptionInterest,
-  handleAwaitingPurchasePlatforms,
-  handleSelectingPlans,
-  handleAddingPlatform
+    startPurchaseProcess,
+    handleSubscriptionInterest,
+    handleAwaitingPurchasePlatforms,
+    handleSelectingPlans,
+    handleAddingPlatform
 } = require('./salesService');
 
 const {
-  handleCobrosParser,
-  handleAwaitingCobrosConfirmation,
-  processCheckPrices,
-  handleAutoCobros
+    handleCobrosParser,
+    handleAwaitingCobrosConfirmation,
+    processCheckPrices,
+    handleAutoCobros
 } = require('./billingService');
 
 const { recordNewSale } = require('./salesRegistryService');
-const { 
-  handleBatchUnanswered, 
-  showAdminFunctions, 
-  handleAdminPaymentConfirmation, 
-  processPendingChats, 
-  handleSendManualPaymentMethods, 
-  showDetailedHelp,
-  getUpcomingExpirationsReport,
-  getNetflixMatchReport,
-  handleAdminSuggestions,
-  executeTestMode,
-  executePaymentValidation
+const {
+    handleBatchUnanswered,
+    showAdminFunctions,
+    handleAdminPaymentConfirmation,
+    processPendingChats,
+    handleSendManualPaymentMethods,
+    showDetailedHelp,
+    getUpcomingExpirationsReport,
+    getNetflixMatchReport,
+    handleAdminSuggestions,
+    executeTestMode,
+    executePaymentValidation
 } = require('./adminService');
 
 
@@ -130,9 +130,9 @@ const {
 const app = express();
 app.use(cors());
 app.use(express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
-  }
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
 }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -149,131 +149,131 @@ const upload = multer({ storage: storage });
 
 // Main App Routes
 app.get('/', (req, res) => {
-  res.send('Hola, mundo! This is Sheerit Whatbot Express Server.');
+    res.send('Hola, mundo! This is Sheerit Whatbot Express Server.');
 });
 
 // Netflix Verification Endpoint
 app.post('/api/netflix/verify', async (req, res) => {
-  try {
-    const { phone } = req.body;
-    let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-    
-    // Clean IP (remove ipv6 wrapper if present)
-    if (clientIp.includes('::ffff:')) {
-        clientIp = clientIp.replace('::ffff:', '');
-    }
-    
-    const { getAccountsByPhone, updateExcelData } = require('./apiService');
-    const userAccounts = await getAccountsByPhone(phone);
-    
-    // Check if they have a non-extra Netflix account
-    const netflixAcct = userAccounts.find(c => {
-        const streamingName = (c.Streaming || "").toLowerCase();
-        return streamingName.includes('netflix') && !streamingName.includes('extra');
-    });
+    try {
+        const { phone } = req.body;
+        let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
-    if (!netflixAcct) {
-        return res.status(404).json({ success: false, message: "No se encontró cuenta de Netflix principal asociada a este número." });
-    }
-
-    // Capture the IP natively into Microsoft Graph Excels (Operador column)
-    if (netflixAcct._rowNumber) {
-        const oldOperador = (netflixAcct.Operador || "").toString();
-        let newOperadorRecord = oldOperador;
-        
-        // Only append IP if it's not already recorded
-        if (!oldOperador.includes(clientIp)) {
-            newOperadorRecord = oldOperador ? `${oldOperador} | IP: ${clientIp}` : `IP: ${clientIp}`;
-            await updateExcelData(netflixAcct._rowNumber, { "Operador": newOperadorRecord });
-            console.log(`[NETFLIX API] Saved IP ${clientIp} for @${phone} (Row ${netflixAcct._rowNumber})`);
-        } else {
-            console.log(`[NETFLIX API] IP ${clientIp} was already recorded for @${phone}`);
+        // Clean IP (remove ipv6 wrapper if present)
+        if (clientIp.includes('::ffff:')) {
+            clientIp = clientIp.replace('::ffff:', '');
         }
+
+        const { getAccountsByPhone, updateExcelData } = require('./apiService');
+        const userAccounts = await getAccountsByPhone(phone);
+
+        // Check if they have a non-extra Netflix account
+        const netflixAcct = userAccounts.find(c => {
+            const streamingName = (c.Streaming || "").toLowerCase();
+            return streamingName.includes('netflix') && !streamingName.includes('extra');
+        });
+
+        if (!netflixAcct) {
+            return res.status(404).json({ success: false, message: "No se encontró cuenta de Netflix principal asociada a este número." });
+        }
+
+        // Capture the IP natively into Microsoft Graph Excels (Operador column)
+        if (netflixAcct._rowNumber) {
+            const oldOperador = (netflixAcct.Operador || "").toString();
+            let newOperadorRecord = oldOperador;
+
+            // Only append IP if it's not already recorded
+            if (!oldOperador.includes(clientIp)) {
+                newOperadorRecord = oldOperador ? `${oldOperador} | IP: ${clientIp}` : `IP: ${clientIp}`;
+                await updateExcelData(netflixAcct._rowNumber, { "Operador": newOperadorRecord });
+                console.log(`[NETFLIX API] Saved IP ${clientIp} for @${phone} (Row ${netflixAcct._rowNumber})`);
+            } else {
+                console.log(`[NETFLIX API] IP ${clientIp} was already recorded for @${phone}`);
+            }
+        }
+
+        res.json({ success: true, message: `Código de Hogar enviado para la cuenta: ${netflixAcct.correo}`, account: netflixAcct.correo, ip: clientIp });
+    } catch (e) {
+        console.error("[NETFLIX API Error]:", e);
+        res.status(500).json({ error: e.message });
     }
-    
-    res.json({ success: true, message: `Código de Hogar enviado para la cuenta: ${netflixAcct.correo}`, account: netflixAcct.correo, ip: clientIp });
-  } catch(e) {
-    console.error("[NETFLIX API Error]:", e);
-    res.status(500).json({ error: e.message });
-  }
 });
 
 // Public Endpoint to get recommended combo based on high stock (libres)
 const COMBO_CACHE_FILE = path.join(__dirname, 'recommended_combo.json');
 
 async function updateRecommendedComboCache() {
-  console.log('[COMBO CACHE] 🔄 Actualizando caché de combo recomendado...');
-  try {
-    const { fetchRawData } = require('./apiService');
-    const rawData = await fetchRawData();
-    
-    const stockMap = {};
-    rawData.forEach(row => {
-      const streaming = (row.Streaming || '').trim();
-      if (!streaming) return;
-      
-      const name = (row.Nombre || '').toLowerCase().trim();
-      const wa = (row.whatsapp || '').trim();
-      const isLibre = !wa && (name === 'libre' || name === '');
-      
-      if (isLibre) {
-        stockMap[streaming] = (stockMap[streaming] || 0) + 1;
-      }
-    });
-    
-    // Sort platforms by count of free spots descending
-    const sortedPlatforms = Object.entries(stockMap)
-      .sort((a, b) => b[1] - a[1])
-      .map(entry => entry[0]);
+    console.log('[COMBO CACHE] 🔄 Actualizando caché de combo recomendado...');
+    try {
+        const { fetchRawData } = require('./apiService');
+        const rawData = await fetchRawData();
 
-    const data = {
-      success: true,
-      sortedPlatforms,
-      stockMap,
-      updatedAt: new Date().toISOString()
-    };
+        const stockMap = {};
+        rawData.forEach(row => {
+            const streaming = (row.Streaming || '').trim();
+            if (!streaming) return;
 
-    fs.writeFileSync(COMBO_CACHE_FILE, JSON.stringify(data, null, 2));
-    console.log('[COMBO CACHE] ✅ Caché de combo recomendado actualizada con éxito.');
-    return data;
-  } catch (e) {
-    console.error('[COMBO CACHE] ❌ Error actualizando caché:', e.message);
-    return null;
-  }
+            const name = (row.Nombre || '').toLowerCase().trim();
+            const wa = (row.whatsapp || '').trim();
+            const isLibre = !wa && (name === 'libre' || name === '');
+
+            if (isLibre) {
+                stockMap[streaming] = (stockMap[streaming] || 0) + 1;
+            }
+        });
+
+        // Sort platforms by count of free spots descending
+        const sortedPlatforms = Object.entries(stockMap)
+            .sort((a, b) => b[1] - a[1])
+            .map(entry => entry[0]);
+
+        const data = {
+            success: true,
+            sortedPlatforms,
+            stockMap,
+            updatedAt: new Date().toISOString()
+        };
+
+        fs.writeFileSync(COMBO_CACHE_FILE, JSON.stringify(data, null, 2));
+        console.log('[COMBO CACHE] ✅ Caché de combo recomendado actualizada con éxito.');
+        return data;
+    } catch (e) {
+        console.error('[COMBO CACHE] ❌ Error actualizando caché:', e.message);
+        return null;
+    }
 }
 
 // Programar actualización cada hora
 setInterval(() => {
-  updateRecommendedComboCache().catch(console.error);
+    updateRecommendedComboCache().catch(console.error);
 }, 60 * 60 * 1000);
 
 // Ejecutar una vez al arrancar de forma asíncrona
 setTimeout(() => {
-  updateRecommendedComboCache().catch(console.error);
+    updateRecommendedComboCache().catch(console.error);
 }, 10000);
 
 app.get('/api/public/recommended-combo', async (req, res) => {
-  try {
-    if (fs.existsSync(COMBO_CACHE_FILE)) {
-      const cached = JSON.parse(fs.readFileSync(COMBO_CACHE_FILE, 'utf8'));
-      // Si la caché tiene más de 1 hora, disparar actualización silenciosa en segundo plano
-      const ageMs = Date.now() - new Date(cached.updatedAt).getTime();
-      if (ageMs > 60 * 60 * 1000) {
-        updateRecommendedComboCache().catch(console.error);
-      }
-      return res.json(cached);
+    try {
+        if (fs.existsSync(COMBO_CACHE_FILE)) {
+            const cached = JSON.parse(fs.readFileSync(COMBO_CACHE_FILE, 'utf8'));
+            // Si la caché tiene más de 1 hora, disparar actualización silenciosa en segundo plano
+            const ageMs = Date.now() - new Date(cached.updatedAt).getTime();
+            if (ageMs > 60 * 60 * 1000) {
+                updateRecommendedComboCache().catch(console.error);
+            }
+            return res.json(cached);
+        }
+
+        // Fallback si no existe la caché
+        const data = await updateRecommendedComboCache();
+        if (data) {
+            return res.json(data);
+        }
+        res.status(500).json({ error: 'No se pudo generar el combo' });
+    } catch (e) {
+        console.error("[Recommended Combo API Error]:", e);
+        res.status(500).json({ error: e.message });
     }
-    
-    // Fallback si no existe la caché
-    const data = await updateRecommendedComboCache();
-    if (data) {
-      return res.json(data);
-    }
-    res.status(500).json({ error: 'No se pudo generar el combo' });
-  } catch (e) {
-    console.error("[Recommended Combo API Error]:", e);
-    res.status(500).json({ error: e.message });
-  }
 });
 
 
@@ -283,7 +283,7 @@ app.get('/api/admin/clients', async (req, res) => {
         const { fetchCustomersData } = require('./apiService');
         const clients = await fetchCustomersData();
         res.json(clients);
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -303,10 +303,10 @@ app.post('/api/bold/generate-token', async (req, res) => {
 
         const timestamp = Date.now();
         const random = Math.floor(1000 + Math.random() * 9000);
-        const orderId = `inv${random}`; 
+        const orderId = `inv${random}`;
         const amount = platform.price;
         const currency = 'COP';
-        
+
         const concatenated = `${orderId}${amount}${currency}${secretKey}`;
         const integritySignature = crypto.createHash('sha256').update(concatenated).digest('hex');
 
@@ -332,7 +332,7 @@ app.post('/api/bold/generate-token', async (req, res) => {
             integritySignature,
             redirectionUrl: 'https://sheerit.com.co/'
         });
-    } catch(e) {
+    } catch (e) {
         console.error("Bold Generate Token Error:", e);
         res.status(500).json({ error: e.message });
     }
@@ -361,19 +361,19 @@ app.post('/api/bold/webhook', async (req, res) => {
         if (eventType === 'SALE_APPROVED') {
             global.pendingSales = global.pendingSales || new Map();
             const customerData = global.pendingSales.get(orderId);
-            
+
             if (customerData) {
                 console.log(`Venta aprobada vía Webhook para orden ${orderId}`);
-                
+
                 // Usando recordNewSale de whatbot
                 const { recordNewSale } = require('./salesRegistryService');
-                
+
                 const formattedPhone = customerData.whatsapp.replace(/\D/g, '');
                 const numericPhone = parseInt(formattedPhone) || 0;
-                
+
                 const userState = {
                     items: [{ platform: { name: customerData.platformName } }],
-                    subscriptionType: 'mensual', 
+                    subscriptionType: 'mensual',
                     nombre: `${customerData.firstName} ${customerData.lastName}`,
                     phoneData: {
                         raw: formattedPhone,
@@ -383,10 +383,10 @@ app.post('/api/bold/webhook', async (req, res) => {
                 };
 
                 const phoneId = customerData.whatsapp.includes('@') ? customerData.whatsapp : `${customerData.whatsapp}@c.us`;
-                
+
                 const results = await recordNewSale(phoneId, userState, "Bold Pagos");
                 console.log("Resultados guardado en Excel via Bold:", results);
-                
+
                 // Enviar confirmación por WhatsApp
                 let successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema.\nEn breve te asignaremos tus servicios.`;
                 await client.sendMessage(phoneId, successMsg);
@@ -412,7 +412,7 @@ app.get('/api/admin/stats', async (req, res) => {
         const clients = await fetchCustomersData();
         const now = new Date();
         now.setHours(0, 0, 0, 0);
-        
+
         const stats = {
             totalClients: clients.length,
             byPlatform: {},
@@ -484,9 +484,9 @@ app.get('/api/admin/stats', async (req, res) => {
                 const sortKey = y * 12 + m;
                 return { name, ventas, sortKey };
             })
-            .sort((a, b) => a.sortKey - b.sortKey)
-            .slice(-8)
-            .map(({ name, ventas }) => ({ name, ventas }));
+                .sort((a, b) => a.sortKey - b.sortKey)
+                .slice(-8)
+                .map(({ name, ventas }) => ({ name, ventas }));
 
             stats.historyTrend = trend;
         } catch (histErr) {
@@ -494,7 +494,7 @@ app.get('/api/admin/stats', async (req, res) => {
         }
 
         res.json(stats);
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -513,25 +513,25 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
 
         if (type === 'credentials') {
             message = `*Tus Credenciales de Sheer IT*\n\n` +
-                      `🍿 *Servicio:* ${clientData.Streaming}\n` +
-                      `📧 *Usuario:* ${clientData.correo}\n` +
-                      `🔑 *Contraseña:* ${clientData['pin perfil'] || 'N/A'}\n` +
-                      `👤 *Perfil:* ${clientData.Nombre}\n\n` +
-                      `📅 *Vence:* ${clientData['Fecha Vencimiento']}\n\n` +
-                      `¡Disfruta tu servicio!`;
+                `🍿 *Servicio:* ${clientData.Streaming}\n` +
+                `📧 *Usuario:* ${clientData.correo}\n` +
+                `🔑 *Contraseña:* ${clientData['pin perfil'] || 'N/A'}\n` +
+                `👤 *Perfil:* ${clientData.Nombre}\n\n` +
+                `📅 *Vence:* ${clientData['Fecha Vencimiento']}\n\n` +
+                `¡Disfruta tu servicio!`;
         } else if (type === 'payment') {
             message = `¡Hola ${clientData.Nombre}! 👋\n\n` +
-                      `Te recordamos que tu suscripción de *${clientData.Streaming}* está próxima a vencer (${clientData['Fecha Vencimiento']}).\n\n` +
-                      `Puedes renovar realizando tu transferencia aquí:\n` +
-                      `*Nequi/Daviplata:* 3133866170\n\n` +
-                      `Una vez realizado, envíanos el comprobante por este medio. ¡Gracias!`;
+                `Te recordamos que tu suscripción de *${clientData.Streaming}* está próxima a vencer (${clientData['Fecha Vencimiento']}).\n\n` +
+                `Puedes renovar realizando tu transferencia aquí:\n` +
+                `*Nequi/Daviplata:* 3133866170\n\n` +
+                `Una vez realizado, envíanos el comprobante por este medio. ¡Gracias!`;
         }
 
         const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
         await client.sendMessage(chatId, message);
-        
+
         res.json({ success: true, message: 'Message sent via WhatsApp' });
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -542,7 +542,7 @@ app.post('/api/admin/sales/create', async (req, res) => {
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const { recordNewSale } = require('./salesRegistryService');
-        
+
         let subscriptionType = 'mensual';
         if (duration === '3') subscriptionType = 'trimestral';
         if (duration === '6') subscriptionType = 'semestral';
@@ -566,7 +566,7 @@ app.post('/api/admin/sales/create', async (req, res) => {
         const results = await recordNewSale(phoneId, userState, paymentMethod || "Web Admin", parseInt(duration) || null);
 
         res.json({ success: true, results });
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -577,7 +577,7 @@ app.get('/api/admin/match', async (req, res) => {
         const { getNetflixMatchReport } = require('./adminService');
         const matchData = await getNetflixMatchReport(isp);
         res.json(matchData);
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -591,7 +591,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                 const phone = userId.replace('@c.us', '');
                 let lastMessage = "";
                 let lastMessageTime = null;
-                
+
                 try {
                     if (client && client.info) {
                         const chat = await client.getChatById(userId);
@@ -643,7 +643,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                                 resolvedName = contact.pushname || contact.name || "Cliente WhatsApp";
                             }
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
 
                 tickets.push({
@@ -659,7 +659,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             }
         }
         res.json(tickets);
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -685,7 +685,7 @@ app.post('/api/admin/tickets/claim', async (req, res) => {
 
         userStates.set(userId, updatedState);
         res.json({ success: true, message: `Ticket asignado a ${agent}` });
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -698,7 +698,7 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         const userId = phone.includes('@') ? phone : phone + '@c.us';
         userStates.delete(userId);
         res.json({ success: true, message: 'Ticket resuelto y bot reactivado' });
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -731,7 +731,7 @@ app.post('/api/admin/gpt-accounts/save', (req, res) => {
         const { email, secret, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!email || !secret) return res.status(400).json({ error: 'Faltan campos obligatorios' });
-        
+
         const { saveSecret } = require('./totpService');
         saveSecret(email, secret);
         res.json({ success: true, message: 'Cuenta GPT guardada con éxito' });
@@ -833,8 +833,8 @@ app.post('/api/admin/gmail-inboxes/auth-url', async (req, res) => {
         if (!email || !email.includes('@')) return res.status(400).json({ error: 'Email no válido' });
 
         const { google } = require('googleapis');
-        const credFile = fs.existsSync(path.join(__dirname, 'credentials_pagos.json')) 
-            ? path.join(__dirname, 'credentials_pagos.json') 
+        const credFile = fs.existsSync(path.join(__dirname, 'credentials_pagos.json'))
+            ? path.join(__dirname, 'credentials_pagos.json')
             : path.join(__dirname, 'credentials.json');
 
         if (!fs.existsSync(credFile)) {
@@ -865,8 +865,8 @@ app.post('/api/admin/gmail-inboxes/confirm-code', async (req, res) => {
         if (!email || !codeOrUrl) return res.status(400).json({ error: 'Faltan campos obligatorios' });
 
         const { google } = require('googleapis');
-        const credFile = fs.existsSync(path.join(__dirname, 'credentials_pagos.json')) 
-            ? path.join(__dirname, 'credentials_pagos.json') 
+        const credFile = fs.existsSync(path.join(__dirname, 'credentials_pagos.json'))
+            ? path.join(__dirname, 'credentials_pagos.json')
             : path.join(__dirname, 'credentials.json');
 
         if (!fs.existsSync(credFile)) {
@@ -889,7 +889,7 @@ app.post('/api/admin/gmail-inboxes/confirm-code', async (req, res) => {
                 console.error('[Google Auth API Error]:', err.message);
                 return res.status(500).json({ error: 'Error al verificar el código de Google: ' + err.message });
             }
-            
+
             const safeEmail = email.toLowerCase().trim();
             const tokenPath = path.join(__dirname, 'tokens', `token_${safeEmail}.json`);
             fs.writeFileSync(tokenPath, JSON.stringify(token));
@@ -908,7 +908,7 @@ app.post('/api/admin/gmail-inboxes/delete', (req, res) => {
 
         const safeEmail = email.toLowerCase().trim();
         const tokenPath = path.join(__dirname, 'tokens', `token_${safeEmail}.json`);
-        
+
         if (fs.existsSync(tokenPath)) {
             fs.unlinkSync(tokenPath);
             res.json({ success: true, message: 'Bandeja desvinculada con éxito' });
@@ -926,7 +926,7 @@ app.get('/api/support', (req, res) => {
         const supportData = fs.readFileSync(path.join(__dirname, 'support.json'), 'utf8');
         res.setHeader('Content-Type', 'application/json');
         res.send(supportData);
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
@@ -935,7 +935,7 @@ app.post('/api/support/save', upload.none(), (req, res) => {
     try {
         const { password, action, data } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
-        
+
         if (action === 'save' && data) {
             const jsonPath = path.join(__dirname, 'support.json');
             if (fs.existsSync(jsonPath)) {
@@ -946,7 +946,7 @@ app.post('/api/support/save', upload.none(), (req, res) => {
         } else {
             res.json({ success: false, message: 'Datos inválidos' });
         }
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ success: false, message: e.message });
     }
 });
@@ -956,12 +956,12 @@ app.post('/api/support/upload', upload.single('image'), (req, res) => {
         const password = req.body.password;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
         if (req.file) {
-             const publicUrl = `http://localhost:3000/uploads/${req.file.filename}`; // Replace localhost in Prod
-             res.json({ success: true, url: publicUrl }); 
+            const publicUrl = `http://localhost:3000/uploads/${req.file.filename}`; // Replace localhost in Prod
+            res.json({ success: true, url: publicUrl });
         } else {
-             res.json({ success: false, message: 'No se envió ninguna imagen' });
+            res.json({ success: false, message: 'No se envió ninguna imagen' });
         }
-    } catch(e) {
+    } catch (e) {
         res.status(500).json({ success: false, message: e.message });
     }
 });
@@ -970,40 +970,40 @@ const server = http.createServer(app);
 const port = process.env.PORT || 3000;
 
 server.listen(port, () => {
-  console.log(`Servidor Express corriendo en el puerto ${port}`);
-  
-  // Heartbeat cada 5 minutos (reducido para detectar cuelgues de Puppeteer)
-  setInterval(async () => {
-    try {
-      if (!client) return;
-      const state = await client.getState();
-      console.log(`💓 Heartbeat: Proceso vivo. Estado del cliente: ${state}`);
-      
-      // Verificación de salud profunda: ¿Sigue respondiendo el navegador?
-      if (state === 'CONNECTED') {
-          // Intentamos obtener info básica del cliente para verificar que el canal IPC con Puppeteer sigue vivo
-          const info = await Promise.race([
-              client.getContactById(client.info.wid._serialized),
-              new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 10000))
-          ]);
-          if (!info) throw new Error("Browser unresponsive (Deep check failed)");
-      }
-    } catch (err) {
-      console.error('⚠️ Heartbeat: Error de salud detectado:', err.message);
-      if (isCriticalBrowserError(err) || err.message.includes("Timeout") || err.message.includes("unresponsive")) {
-          console.error('🔥 [ANTI-ZOMBIE] Detectado estado crítico o zombie de Puppeteer. Forzando reinicio para PM2...');
-          process.exit(1);
-      }
-    }
-  }, 5 * 60 * 1000);
+    console.log(`Servidor Express corriendo en el puerto ${port}`);
+
+    // Heartbeat cada 5 minutos (reducido para detectar cuelgues de Puppeteer)
+    setInterval(async () => {
+        try {
+            if (!client) return;
+            const state = await client.getState();
+            console.log(`💓 Heartbeat: Proceso vivo. Estado del cliente: ${state}`);
+
+            // Verificación de salud profunda: ¿Sigue respondiendo el navegador?
+            if (state === 'CONNECTED') {
+                // Intentamos obtener info básica del cliente para verificar que el canal IPC con Puppeteer sigue vivo
+                const info = await Promise.race([
+                    client.getContactById(client.info.wid._serialized),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 10000))
+                ]);
+                if (!info) throw new Error("Browser unresponsive (Deep check failed)");
+            }
+        } catch (err) {
+            console.error('⚠️ Heartbeat: Error de salud detectado:', err.message);
+            if (isCriticalBrowserError(err) || err.message.includes("Timeout") || err.message.includes("unresponsive")) {
+                console.error('🔥 [ANTI-ZOMBIE] Detectado estado crítico o zombie de Puppeteer. Forzando reinicio para PM2...');
+                process.exit(1);
+            }
+        }
+    }, 5 * 60 * 1000);
 }).on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`🔥 ERROR: El puerto ${port} ya está en uso.`);
-    console.error(`Intenta matar el proceso ejecutando: lsof -i :${port} y luego kill -9 <PID>`);
-    process.exit(1);
-  } else {
-    console.error('Error al iniciar el servidor Express:', err);
-  }
+    if (err.code === 'EADDRINUSE') {
+        console.error(`🔥 ERROR: El puerto ${port} ya está en uso.`);
+        console.error(`Intenta matar el proceso ejecutando: lsof -i :${port} y luego kill -9 <PID>`);
+        process.exit(1);
+    } else {
+        console.error('Error al iniciar el servidor Express:', err);
+    }
 });
 
 // Nota: usamos `./database.js` que expone `pool` (mysql2/promise pool)
@@ -1013,38 +1013,38 @@ server.listen(port, () => {
 const isMac = process.platform === 'darwin';
 
 const client = new Client({
-  puppeteer: {
-    // executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--disable-gpu',
-      '--disable-extensions',
-      '--disable-software-rasterizer'
-    ],
-    timeout: 60000, // Aumentar a 60 segundos
-  },
-  authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
-  markOnlineAvailable: false,
-  takeoverOnConflict: true, 
-  takeoverTimeoutMs: 15000 
+    puppeteer: {
+        // executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--disable-gpu',
+            '--disable-extensions',
+            '--disable-software-rasterizer'
+        ],
+        timeout: 60000, // Aumentar a 60 segundos
+    },
+    authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+    markOnlineAvailable: false,
+    takeoverOnConflict: true,
+    takeoverTimeoutMs: 15000
 });
 
 // Manejo de cierres limpios
 async function shutdown() {
-  console.log('Cerrando bot de forma limpia...');
-  try {
-    if (client) await client.destroy();
-    if (server) server.close();
-    process.exit(0);
-  } catch (e) {
-    process.exit(1);
-  }
+    console.log('Cerrando bot de forma limpia...');
+    try {
+        if (client) await client.destroy();
+        if (server) server.close();
+        process.exit(0);
+    } catch (e) {
+        process.exit(1);
+    }
 }
 
 process.on('SIGINT', shutdown);
@@ -1052,178 +1052,178 @@ process.on('SIGTERM', shutdown);
 
 // Generar QR para conexión
 client.on('qr', (qr) => {
-  qrcode.generate(qr, { small: true });
+    qrcode.generate(qr, { small: true });
 });
 
 client.on('ready', () => {
-  console.log('✅ Conexión establecida correctamente. ¡Bot listo!');
-  
-  const { setAlertCallback } = require('./googleAuthService');
-  setAlertCallback(async (serviceName, authUrl) => {
-      try {
-          const adminPhone = OPERATOR_NUMBER;
-          const msg = `⚠️ *ALERTA DE SISTEMA (Sheer IT)* ⚠️\n\nFalta el token de autorización para el servicio: *${serviceName}*\n\n*Paso a paso para autorizar:*\n1. Abre este enlace desde tu navegador:\n${authUrl}\n\n2. Inicia sesión con la cuenta de Google correspondiente.\n3. Otorga los permisos solicitados.\n4. Serás redirigido a una página de error o a \`localhost\`.\n5. Copia el parámetro \`code=\` de la URL de esa página.\n6. Envíame un mensaje con el formato: \`@bot autorizar ${serviceName.toLowerCase()} [tu_codigo_aqui]\``;
-          await client.sendMessage(adminPhone, msg);
-          console.log(`[ALERTA ENVIADA] Se notificó al admin sobre el token faltante de ${serviceName}.`);
-      } catch (err) {
-          console.error("Error enviando alerta de auth al admin:", err);
-      }
-  });
+    console.log('✅ Conexión establecida correctamente. ¡Bot listo!');
 
-  // Iniciar Automatización Diaria (9am y 2pm)
-  initDailyAutomation(client, userStates, pendingConfirmations, GROUP_ID);
+    const { setAlertCallback } = require('./googleAuthService');
+    setAlertCallback(async (serviceName, authUrl) => {
+        try {
+            const adminPhone = OPERATOR_NUMBER;
+            const msg = `⚠️ *ALERTA DE SISTEMA (Sheer IT)* ⚠️\n\nFalta el token de autorización para el servicio: *${serviceName}*\n\n*Paso a paso para autorizar:*\n1. Abre este enlace desde tu navegador:\n${authUrl}\n\n2. Inicia sesión con la cuenta de Google correspondiente.\n3. Otorga los permisos solicitados.\n4. Serás redirigido a una página de error o a \`localhost\`.\n5. Copia el parámetro \`code=\` de la URL de esa página.\n6. Envíame un mensaje con el formato: \`@bot autorizar ${serviceName.toLowerCase()} [tu_codigo_aqui]\``;
+            await client.sendMessage(adminPhone, msg);
+            console.log(`[ALERTA ENVIADA] Se notificó al admin sobre el token faltante de ${serviceName}.`);
+        } catch (err) {
+            console.error("Error enviando alerta de auth al admin:", err);
+        }
+    });
 
-  // Procesar chats que quedaron sin leer mientras el bot estuvo apagado
-  setTimeout(async () => {
-      console.log('⏳ Escaneando chats con mensajes no leídos desde el arranque inicial...');
-      try {
-          const { processPendingChats } = require('./adminService');
-          const count = await processPendingChats(client, userStates, processIncomingMessage);
-          console.log(`✅ Escaneo inicial completado. Se procesaron/ignoraron ${count} chats pendientes adecuadamente.`);
-      } catch (err) {
-          console.error('Error en escaneo inicial de chats pendientes:', err);
-      }
-  }, 5000); // Pequeño delay de gracia
+    // Iniciar Automatización Diaria (9am y 2pm)
+    initDailyAutomation(client, userStates, pendingConfirmations, GROUP_ID);
+
+    // Procesar chats que quedaron sin leer mientras el bot estuvo apagado
+    setTimeout(async () => {
+        console.log('⏳ Escaneando chats con mensajes no leídos desde el arranque inicial...');
+        try {
+            const { processPendingChats } = require('./adminService');
+            const count = await processPendingChats(client, userStates, processIncomingMessage);
+            console.log(`✅ Escaneo inicial completado. Se procesaron/ignoraron ${count} chats pendientes adecuadamente.`);
+        } catch (err) {
+            console.error('Error en escaneo inicial de chats pendientes:', err);
+        }
+    }, 5000); // Pequeño delay de gracia
 });
 
 client.on('disconnected', (reason) => {
-  console.error('❌ El cliente se desconectó. Razón:', reason);
-  // Si usas PM2, esto forzará un reinicio
-  console.log('⚠️ Intentando forzar reinicio del proceso...');
-  process.exit(1);
+    console.error('❌ El cliente se desconectó. Razón:', reason);
+    // Si usas PM2, esto forzará un reinicio
+    console.log('⚠️ Intentando forzar reinicio del proceso...');
+    process.exit(1);
 });
 
 client.on('auth_failure', (msg) => {
-  console.error('❌ FALLO DE AUTENTICACIÓN:', msg);
-  process.exit(1);
+    console.error('❌ FALLO DE AUTENTICACIÓN:', msg);
+    process.exit(1);
 });
 
 // Manejo de llamadas automáticas
 client.on('call', async (call) => {
-  console.log(`[CALL] ✨ Llamada entrante de ${call.from}. Rechazando y enviando aviso.`);
-  try {
-    await call.reject();
-    await client.sendMessage(call.from, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
-  } catch(e) {
-    console.error('Error al rechazar llamada:', e);
-  }
+    console.log(`[CALL] ✨ Llamada entrante de ${call.from}. Rechazando y enviando aviso.`);
+    try {
+        await call.reject();
+        await client.sendMessage(call.from, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
+    } catch (e) {
+        console.error('Error al rechazar llamada:', e);
+    }
 });
 
 // Implement incoming_call para compatibilidad con diferentes versiones
 client.on('incoming_call', async (call) => {
-  console.log(`[INCOMING_CALL] ✨ Llamada entrante de ${call.from}. Rechazando y enviando aviso.`);
-  try {
-    await call.reject();
-    await client.sendMessage(call.from, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
-  } catch(e) {
-    console.error('Error al rechazar llamada (incoming_call):', e);
-  }
+    console.log(`[INCOMING_CALL] ✨ Llamada entrante de ${call.from}. Rechazando y enviando aviso.`);
+    try {
+        await call.reject();
+        await client.sendMessage(call.from, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
+    } catch (e) {
+        console.error('Error al rechazar llamada (incoming_call):', e);
+    }
 });
 
 client.on('change_state', (state) => {
-  console.log('🔄 Cambio de estado detectado:', state);
+    console.log('🔄 Cambio de estado detectado:', state);
 });
 
 client.on('loading_screen', (percent, message) => {
-  console.log('CARGANDO PANTALLA', percent, message);
+    console.log('CARGANDO PANTALLA', percent, message);
 });
 
 client.on('authenticated', () => {
-  console.log('AUTENTICADO');
+    console.log('AUTENTICADO');
 });
 
 client.on('auth_failure', msg => {
-  // Fails if the session is not restored successfully
-  console.error('FALLO DE AUTENTICACION', msg);
+    // Fails if the session is not restored successfully
+    console.error('FALLO DE AUTENTICACION', msg);
 });
 
 client.on('disconnected', (reason) => {
-  console.log('Cliente desconectado', reason);
+    console.log('Cliente desconectado', reason);
 });
 
 // DETECTAR INTERVENCIÓN HUMANA
 
 client.on('message_create', async (msg) => {
-  // Ignorar si el mensaje es antiguo
-  if (msg.timestamp < BOT_START_TIME) return;
+    // Ignorar si el mensaje es antiguo
+    if (msg.timestamp < BOT_START_TIME) return;
 
-  // DETECTAR INTERVENCIÓN HUMANA: Si el mensaje lo envío yo manualmente
-  // a un chat que NO es un grupo y NO tiene el emoji del bot.
-  if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast')) {
-    let targetId = msg.to;
-    
-    // Traducción de LID a @c.us para consistencia en el estado (evita pisar charlas humanas)
-    if (targetId && targetId.includes('@lid')) {
-        try {
-            const contact = await client.getContactById(targetId);
-            if (contact && contact.id && contact.id.user) {
-                targetId = contact.id.user + '@c.us';
+    // DETECTAR INTERVENCIÓN HUMANA: Si el mensaje lo envío yo manualmente
+    // a un chat que NO es un grupo y NO tiene el emoji del bot.
+    if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast')) {
+        let targetId = msg.to;
+
+        // Traducción de LID a @c.us para consistencia en el estado (evita pisar charlas humanas)
+        if (targetId && targetId.includes('@lid')) {
+            try {
+                const contact = await client.getContactById(targetId);
+                if (contact && contact.id && contact.id.user) {
+                    targetId = contact.id.user + '@c.us';
+                }
+            } catch (e) {
+                if (msg && msg.body) console.warn("[LID Fix message_create] Error traduciendo contacto:", e.message);
             }
-        } catch(e) { 
-            if (msg && msg.body) console.warn("[LID Fix message_create] Error traduciendo contacto:", e.message); 
+        }
+
+        // Comando o mención en el chat para reactivar el bot o confirmar pagos
+        if (msg.body.toLowerCase().includes('@bot')) {
+            const command = msg.body.toLowerCase();
+
+            // NUEVO: Manejo directo de confirmación en el chat del cliente
+            if (command.includes('confirmar')) {
+                const { handleAdminPaymentConfirmation } = require('./adminService');
+                // Pasamos targetId como overridePhone para que no tenga que buscarlo
+                handleAdminPaymentConfirmation(msg, command, client, userStates, targetId)
+                    .catch(err => console.error('Error en confirmación directa:', err));
+                return;
+            }
+
+            // NUEVO: Manejo directo de programar/enviar mensaje en el chat del cliente
+            if (command.startsWith('@bot dile') || command.startsWith('@bot envia') || command.startsWith('@bot envía')) {
+                processIncomingMessage([msg])
+                    .catch(err => console.error('Error procesando comando @bot en message_create:', err));
+                return;
+            }
+
+            // Manejo de liberar
+            if (command.includes('libera')) {
+                userStates.delete(targetId);
+                console.log(`[BOT UNMUTE] Reactivado por comando liberar en el chat ${targetId} de forma silenciosa.`);
+                return;
+            }
+
+            userStates.delete(targetId);
+            console.log(`[BOT UNMUTE] Reactivado silenciosamente por mención en el chat ${targetId}.`);
+            return;
+        }
+
+        // Si el mensaje NO contiene el emoji 🤖 ni @bot, asumimos que fue enviado manualmente.
+        const body = msg.body.toLowerCase();
+        const isTestCommand = body === 'pruebas' || body.includes('prueba de escritura');
+        const isBotCommand = body.includes('@bot');
+        const isSystemResponse = body.includes('¡he despertado, jefe!') || body.includes('modo dormido activado, jefe') || body.includes('bot reactivado');
+
+        if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand && !isSystemResponse) {
+            let st = userStates.get(targetId);
+            if (typeof st === 'object' && st.state === 'waiting_human') {
+                // Ya estaba silenciado, renovamos el temporizador de mute absoluto (30 min extra)
+                st.lastHumanInteraction = Date.now();
+                userStates.set(targetId, st);
+            } else {
+                console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot por 30 mins.`);
+                userStates.set(targetId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
+            }
+
+            // Si el asesor intervino manualmente, lo sacamos de la cola de espera
+            if (global.supportQueue) {
+                const qIdx = global.supportQueue.indexOf(targetId);
+                if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
+            }
         }
     }
-    
-    // Comando o mención en el chat para reactivar el bot o confirmar pagos
-    if (msg.body.toLowerCase().includes('@bot')) {
-       const command = msg.body.toLowerCase();
-       
-       // NUEVO: Manejo directo de confirmación en el chat del cliente
-       if (command.includes('confirmar')) {
-           const { handleAdminPaymentConfirmation } = require('./adminService');
-           // Pasamos targetId como overridePhone para que no tenga que buscarlo
-           handleAdminPaymentConfirmation(msg, command, client, userStates, targetId)
-               .catch(err => console.error('Error en confirmación directa:', err));
-           return;
-       }
-
-       // NUEVO: Manejo directo de programar/enviar mensaje en el chat del cliente
-       if (command.startsWith('@bot dile') || command.startsWith('@bot envia') || command.startsWith('@bot envía')) {
-           processIncomingMessage([msg])
-               .catch(err => console.error('Error procesando comando @bot en message_create:', err));
-           return;
-       }
-
-       // Manejo de liberar
-       if (command.includes('libera')) {
-           userStates.delete(targetId);
-           console.log(`[BOT UNMUTE] Reactivado por comando liberar en el chat ${targetId} de forma silenciosa.`);
-           return;
-       }
-
-       userStates.delete(targetId);
-       console.log(`[BOT UNMUTE] Reactivado silenciosamente por mención en el chat ${targetId}.`);
-       return;
-    }
-
-    // Si el mensaje NO contiene el emoji 🤖 ni @bot, asumimos que fue enviado manualmente.
-    const body = msg.body.toLowerCase();
-    const isTestCommand = body === 'pruebas' || body.includes('prueba de escritura');
-    const isBotCommand = body.includes('@bot');
-    const isSystemResponse = body.includes('¡he despertado, jefe!') || body.includes('modo dormido activado, jefe') || body.includes('bot reactivado');
-    
-    if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand && !isSystemResponse) {
-      let st = userStates.get(targetId);
-      if (typeof st === 'object' && st.state === 'waiting_human') {
-          // Ya estaba silenciado, renovamos el temporizador de mute absoluto (30 min extra)
-          st.lastHumanInteraction = Date.now();
-          userStates.set(targetId, st);
-      } else {
-          console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot por 30 mins.`);
-          userStates.set(targetId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
-      }
-      
-      // Si el asesor intervino manualmente, lo sacamos de la cola de espera
-      if (global.supportQueue) {
-          const qIdx = global.supportQueue.indexOf(targetId);
-          if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
-      }
-    }
-  }
 });
 
 client.on('change_state', state => {
-  console.log('CAMBIO DE ESTADO:', state);
+    console.log('CAMBIO DE ESTADO:', state);
 });
 
 
@@ -1235,8 +1235,8 @@ let startupLock = Promise.resolve();
 async function processFallbackWithEscalation(message, userId, isMedia, mediaData, historyText) {
     const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
     let userAccounts = [];
-    try { userAccounts = await getAccountsByPhone(phoneNumber); } catch(e){}
-    
+    try { userAccounts = await getAccountsByPhone(phoneNumber); } catch (e) { }
+
     // --- NUEVO: DETECTAR PROMESA DE PAGO Y DEPOSITAR OBSERVACIÓN EN EXCEL ---
     try {
         const { detectPaymentPromise } = require('./aiService');
@@ -1263,7 +1263,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
 
             if (targetAccount && targetAccount._rowNumber && promiseResult.dateStr) {
                 const { updateExcelData } = require('./apiService');
-                
+
                 // Validar límite máximo de 14 días
                 let withinLimit = true;
                 let formattedNoteDate = promiseResult.dateStr;
@@ -1271,10 +1271,10 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                     const promiseDate = new Date(promiseResult.dateStr + 'T12:00:00');
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
-                    
+
                     const diffTime = promiseDate - today;
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    
+
                     if (diffDays > 14 || diffDays < 0) {
                         withinLimit = false;
                         console.log(`[Promesa de Pago] Ignorada para fila ${targetAccount._rowNumber} por superar el límite de 14 días: ${diffDays} días.`);
@@ -1284,7 +1284,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                         const month = String(promiseDate.getMonth() + 1).padStart(2, '0');
                         formattedNoteDate = `${day}/${month}`;
                     }
-                } catch(parseErr) {
+                } catch (parseErr) {
                     console.error("Error al calcular diferencia de fecha para promesa de pago:", parseErr.message);
                 }
 
@@ -1298,10 +1298,10 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
     } catch (err) {
         console.error("Error en interceptor de promesa de pago:", err.message);
     }
-    
+
     // Si isMedia y no hay texto, body podría estar vacío, igual se pasa.
     const fallbackResult = await generateEmpatheticFallback(message.body || "", isMedia, historyText, mediaData, userAccounts);
-    
+
     // Puede que devuelva solo string si algo falló gravemente, por precaución validamos
     if (typeof fallbackResult === 'string') {
         await message.reply(fallbackResult);
@@ -1311,24 +1311,24 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
     if (fallbackResult.replyMessage) {
         await message.reply(fallbackResult.replyMessage);
     }
-    
+
     if (fallbackResult.needsEscalation) {
-         try {
+        try {
             const chat = await client.getChatById(GROUP_ID);
             if (chat) {
-               // Resolver número real para el reporte (LID fix)
-               let contact;
-               try {
-                   contact = await message.getContact();
-               } catch(e) {
-                   contact = { number: userId.replace(/\D/g, '') };
-               }
-               const realPhone = contact.number || userId.replace(/\D/g, '');
-               await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
+                // Resolver número real para el reporte (LID fix)
+                let contact;
+                try {
+                    contact = await message.getContact();
+                } catch (e) {
+                    contact = { number: userId.replace(/\D/g, '') };
+                }
+                const realPhone = contact.number || userId.replace(/\D/g, '');
+                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
-         } catch(e) { console.error('Error enviando escalamiento:', e); }
-          userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
-          globalLastPaymentUserId = userId;
+        } catch (e) { console.error('Error enviando escalamiento:', e); }
+        userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+        globalLastPaymentUserId = userId;
     }
 }
 
@@ -1345,9 +1345,9 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
     if (accountEmail && !isNetflixExtra) {
         const fs = require('fs');
         const path = require('path');
-        
+
         // A. Es una cuenta GPT o Amazon con TOTP offline
-        const gptSecrets = fs.existsSync(path.join(__dirname, 'tokens', 'gpt_secrets.json')) 
+        const gptSecrets = fs.existsSync(path.join(__dirname, 'tokens', 'gpt_secrets.json'))
             ? JSON.parse(fs.readFileSync(path.join(__dirname, 'tokens', 'gpt_secrets.json'), 'utf8'))
             : {};
         const hasTotpSecret = gptSecrets[accountEmail];
@@ -1366,13 +1366,13 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 return;
             }
         }
-        
+
         // B. Cuenta con token de Gmail configurado (Disney+, Max, Netflix 4K, YouTube, etc.)
         const tokenExists = fs.existsSync(path.join(__dirname, 'tokens', `token_${accountEmail}.json`));
-        
+
         if (tokenExists) {
             await message.reply(`🤖 🔍 *Buscando código para tu cuenta de ${streamingName}:* ${accountEmail}...\nPor favor espera un momento.`);
-            
+
             const { findRecentCodes } = require('./gmailService');
             const codes = await findRecentCodes(accountEmail, 10);
 
@@ -1392,7 +1392,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 return;
             }
         }
-        
+
         // C. Es Netflix pero no tiene token (dar el verificador web)
         if (streamingName.includes('NETFLIX')) {
             await message.reply(`🤖 ¡Hola! Para generar tu código de hogar, ingresa a este enlace:\n\n👉 https://sheerit.com.co/verificar?tel=${realPhone}`);
@@ -1402,7 +1402,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
         // D. No tiene token y no es Netflix (explicar amablemente y alertar al grupo admin)
         await message.reply(`🤖 ¡Hola! Encontré tu cuenta de *${streamingName}* (${accountEmail}), pero aún no está vinculada a nuestro sistema de códigos automáticos 2FA.\n\nHe notificado a tu asesor para que te entregue tu código manualmente en un momento. Además, vincularemos tu cuenta para que en futuras ocasiones puedas obtener tus códigos en segundos de forma automática. ¡Gracias por tu paciencia!`);
-        
+
         // Silenciar bot para este cliente y poner en cola de espera humana
         userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
         if (!global.supportQueue) global.supportQueue = [];
@@ -1428,2069 +1428,2069 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
  * @param {Message[]} messages 
  */
 async function processIncomingMessage(messages) {
-  if (messages.length === 0) return;
+    if (messages.length === 0) return;
 
-  const batchId = messages.map(m => m.id ? m.id._serialized : '').join(',');
-  if (processedMessageIds.has(batchId)) {
-      console.log(`[Deduplicator] Ignorando lote ya procesado simultáneamente: ${batchId}`);
-      return;
-  }
-  processedMessageIds.add(batchId);
-
-  const firstMsg = messages[0];
-  let userId = firstMsg.from;
-  
-  // Extraemos el autor real del mensaje (especialmente en grupos o dispositivos vinculados)
-  const authorId = firstMsg.author || firstMsg.from; 
-  const authorPhone = authorId.replace('@c.us', '').replace(/\D/g, '');
-  const chatPhone = userId.replace('@c.us', '').replace(/\D/g, '');
-  
-  // Reconocimiento blindado del jefe (por su número personal, incluso en grupos)
-  const isFromAdmin = authorPhone.includes(ADMIN_RAW_PHONE) || authorPhone.includes('3133890800') || authorPhone.includes('573133890800') || firstMsg.fromMe;
-  
-  // --- CORRECCIÓN DE CONTEXTO ---
-  // Si el mensaje es enviado por el jefe (fromMe), el ID de la conversación (userId) es el destinatario (to)
-  if (firstMsg.fromMe && firstMsg.to && firstMsg.to !== (client.info ? client.info.wid._serialized : '')) {
-      userId = firstMsg.to;
-  }
-
-  // realPhone se mantiene como el ID del chat para búsqueda de cuentas etc.
-  let realPhone = userId.replace('@c.us', '').replace(/\D/g, '');
-
-  // --- PRIORIDAD JEFE (3133890800) ---
-  if (isFromAdmin && !userId.includes('@g.us')) {
-      const { detectAdminIntent } = require('./aiService');
-      const combinedAdminBody = messages.map(m => m.body).join(' ');
-      const adminAI = await detectAdminIntent(combinedAdminBody);
-      
-      console.log(`[Chief Mode] Intención detectada: ${adminAI.intent} para ${adminAI.target_user || adminAI.target}`);
-
-      if (adminAI.intent === 'dame_cuenta' && (adminAI.target_platform || adminAI.target_user)) {
-          const { handleAdminForceRetrieve } = require('./adminService');
-          await handleAdminForceRetrieve(firstMsg, adminAI.target_platform || adminAI.target_user, client, adminAI.target_user);
-          return;
-      } else if (adminAI.intent === 'confirmar_pago') {
-          const { handleAdminPaymentConfirmation } = require('./adminService');
-          // Pasamos el texto original para que extraiga el número del cliente y los meses, y null para que no se auto-asigne el número del admin
-          await handleAdminPaymentConfirmation(firstMsg, firstMsg.body, client, userStates, null);
-          return;
-      } else if (adminAI.intent === 'liberar_bot') {
-          userStates.delete(userId);
-          const isAdminPrivate = userId.replace('@c.us', '') === ADMIN_RAW_PHONE;
-          if (isAdminPrivate) {
-              await firstMsg.reply(`✅ Bot reactivado para ti, jefe.`);
-          } else {
-              // Lectura prematura del chat para llegar ayudando
-              const { generateReactivationResponse } = require('./aiService');
-              const chatHistory = await getChatHistoryText(firstMsg, 10); // Leer últimos 10 mensajes
-              const reactivationMsg = await generateReactivationResponse(chatHistory);
-              await firstMsg.reply(reactivationMsg);
-          }
-          return;
-      }
-  }
-
-  const message = messages[messages.length - 1];
-  const isMedia = messages.some(m => m.hasMedia);
-  const combinedBody = messages.map(m => m.body || "").filter(b => b !== "").join("\n");
-  
-  // --- INTERCEPTOR ESPECIAL ADMINISTRADOR ---
-  if (isFromAdmin) {
-      const adminStateData = userStates.get(userId) || {};
-      const cleanBody = (message.body || "").trim().toLowerCase();
-      const isSimulating = adminStateData.state === 'simulating_client';
-
-      if (!cleanBody.startsWith("@bot") && !message.fromMe && !message.hasMedia && !isSimulating) {
-          const { handleAdminSuggestions } = require('./adminQueries');
-          await handleAdminSuggestions(message, userStates);
-      }
-  }
-
-  let contact;
-  try {
-      if (message && typeof message.getContact === 'function' && message.id && message.id._serialized) {
-          contact = await message.getContact();
-          if (contact && contact.number) {
-              const oldId = userId;
-              realPhone = contact.number;
-              
-              if (userId.includes('@lid') || (isFromAdmin && !userId.includes('@g.us'))) {
-                  userId = realPhone + '@c.us';
-                  
-                  // MIGRACIÓN DE ESTADO: Si el ID cambió (de @lid a @c.us) y tenemos estado en el viejo, lo pasamos al nuevo
-                  if (oldId !== userId && userStates.has(oldId)) {
-                      const oldData = userStates.get(oldId);
-                      const newData = userStates.get(userId) || {};
-                      
-                      // Solo migramos si el nuevo está vacío o si el viejo tiene información más relevante (como items en carrito)
-                      if (!newData.state || (oldData.items && oldData.items.length > 0)) {
-                          userStates.set(userId, { ...oldData, ...newData });
-                          console.log(`[LID Migration] Migrado estado de ${oldId} a ${userId} para preservar contexto.`);
-                      }
-                      userStates.delete(oldId);
-                  }
-              }
-          }
-      }
-  } catch (err) {
-      console.warn("No se pudo obtener contacto del mensaje:", err.message);
-  }
-
-  // Asegurar que el estado tenga guardado el chatJid original para envíos directos sin LID mismatch
-  const originalChatJid = firstMsg.fromMe && firstMsg.to ? firstMsg.to : firstMsg.from;
-  let rawState = userStates.get(userId);
-  if (rawState && typeof rawState === 'object') {
-      rawState.chatJid = originalChatJid;
-      userStates.set(userId, rawState);
-  } else if (!rawState) {
-      userStates.set(userId, { chatJid: originalChatJid });
-  }
-
-  // --- MUTE ABSOLUTO PROVEEDORES ---
-  if (realPhone.includes('3027892534')) {
-      console.log(`[Mute] Chat con proveedor @${realPhone} ignorado.`);
-      return;
-  }
-  
-  let foundName = contact ? (contact.name || contact.pushname) : null;
-  if (!foundName) {
-      const { searchContactByPhone } = require('./googleContactsService');
-      foundName = await searchContactByPhone(userId);
-      
-      // Si aún no hay nombre, buscar en la base de datos de Excel por el número
-      if (!foundName) {
-          const { getAccountsByPhone } = require('./apiService');
-          const userAccounts = await getAccountsByPhone(realPhone);
-          if (userAccounts && userAccounts.length > 0) {
-              foundName = userAccounts[0].Nombre || userAccounts[0].nombre;
-          }
-      }
-  }
-
-
-  // 2. ESTADO ACTUAL
-  let currentStateData = userStates.get(userId);
-  let currentState = undefined;
-  if (currentStateData && typeof currentStateData === 'object') {
-    currentState = currentStateData.state;
-  }
-
-  // --- ANTI-AUTO-CONTESTAR (Loop Protection) ---
-  // Si el mensaje contiene el emoji del bot (🤖), es una respuesta automática.
-  // Ignoramos COMPLETAMENTE para no entrar en bucles de autocontestación.
-  if (message.body && message.body.includes('🤖')) {
-      console.log(`[Auto] Ignorando mensaje automático (🤖) para @${userId.replace('@c.us', '')}`);
-      return;
-  }
-
-  // --- FILTRO DE MENSAJES PROPIOS (ADMIN) ---
-  const cleanBodyText = message.body ? message.body.trim() : "";
-  const isAdminCommand = cleanBodyText.toLowerCase().startsWith("@bot ");
-  const hasBotMention = cleanBodyText.toLowerCase().includes("@bot");
-
-  if (message.fromMe) {
-      // Excepción: Permitir comandos de @bot para el admin dashboard
-      if (isAdminCommand || cleanBodyText.toLowerCase() === "@bot" || hasBotMention) {
-          console.log(`[Admin] Comando o mención detectada de la propia cuenta: ${cleanBodyText}`);
-          // Reactivar si estaba en waiting_human
-          if (currentState === 'waiting_human') {
-              console.log(`[BOT MUTE] Reactivado por comando administrativo @bot.`);
-              userStates.delete(userId);
-              currentState = undefined;
-          }
-          if (!isAdminCommand) return; // Si fue una mención para reactivar el chat con cliente, ignorar para la IA.
-      } else {
-          if (currentState !== 'waiting_human') {
-              console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
-          }
-          const existingData = typeof currentStateData === 'object' ? currentStateData : {};
-          userStates.set(userId, { ...existingData, state: 'waiting_human', nombre: foundName, waitingCount: 0, lastHumanInteraction: Date.now() });
-          return;
-      }
-  }
-
-  console.log(`[DEBUG] Procesando mensaje de: ${userId} Contenido: ${message.body || "[Sin texto]"}`);
-
-  // Ignorar stickers, reacciones, y estados
-  if (message.type === 'sticker' || message.type === 'reaction' || message.isStatus) {
-      console.log(`[Ignorado] Mensaje tipo ${message.type} de ${userId}.`);
-      return;
-  }
-  
-  // Ignorar mensajes que son exclusivamente emojis (pero PERMITIMOS números y letras)
-  const isEmojiOnly = /^[\p{Emoji}\s]+$/u.test(cleanBodyText);
-  const hasAlphaNumeric = /[a-zA-Z0-9]/.test(cleanBodyText);
-  
-  if (isEmojiOnly && !hasAlphaNumeric) {
-      console.log(`[Ignorado] Mensaje solo contiene emojis de ${userId}.`);
-      return; 
-  }
-
-  // Marcar chat como leído para limpiar notificaciones y bucles de atendido
-  try {
-      if (!message.fromMe) {
-          const chat = await message.getChat();
-          if (chat && chat.unreadCount > 0) {
-              await chat.sendSeen();
-          }
-      }
-  } catch (err) {}
-
-  // Sincronizar con Google Contacts si tenemos un nombre válido y es un chat individual
-  if (!message.fromMe && foundName && !realPhone.includes(ADMIN_RAW_PHONE) && !userId.includes('@g.us')) {
-      const { addNewContact } = require('./googleContactsService');
-      // addNewContact ya tiene validación interna y caché local para evitar duplicados
-      await addNewContact(foundName, realPhone);
-  }
-
-  // --- IDENTIFICADOR DE ESTADO INICIAL ---
-  if (currentStateData && typeof currentStateData === 'object') {
-    currentState = currentStateData.state;
-  }
-
-  if (currentState === 'waiting_human') {
-      // Reactivación rápida
-      const cleanInput = (message.body || '').trim().toLowerCase();
-      if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot') || ['1','2','3'].includes(cleanInput)) {
-          console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por intención explícita: ${cleanInput}`);
-          userStates.delete(userId);
-          currentState = undefined;
-
-      } else {
-          let sData = typeof currentStateData === 'object' ? currentStateData : { state: 'waiting_human', lastHumanInteraction: 0 };
-          const lastHumanMsg = sData.lastHumanInteraction || 0;
-          const timeSinceLastHuman = Date.now() - lastHumanMsg;
-          
-          // Si el asesor (humano) envió un mensaje en los últimos 30 min, asumimos que
-          // están en una conversación activa. El bot guarda SILENCIO ABSOLUTO.
-          if (timeSinceLastHuman < 1000 * 60 * 30) {
-              console.log(`[DEBUG] Mute activo para @${userId.replace('@c.us', '')} - Conversación humana reciente.`);
-              return;
-          }
-
-          // Si pasó más de media hora sin que el admin responda, el bot usará la IA 
-          // SOLAMENTE para capturar si el cliente está enviando un comprobante de pago o quiere comprar algo nuevo.
-          // Si es soporte o charla, seguirá en silencio sin molestar.
-          let mediaData = null;
-          if (message.hasMedia) {
-              try {
-                  const media = await message.downloadMedia();
-                  if (media && media.data && media.mimetype) {
-                      mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
-                  }
-              } catch (e) {}
-          }
-
-          const { detectInitialIntent } = require('./aiService');
-          const hist = await getChatHistoryText(message, 15); // Historial más largo para capturar contexto humano y LID
-          const detection = await detectInitialIntent(message.body, hist, mediaData);
-          
-          const cleanBody = (message.body || "").trim();
-          // Añadimos 'soporte' para que el bot no ignore al cliente si el asesor se fue hace más de 30 min.
-          const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "soporte"];
-          const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
-
-          if (solvableIntents.includes(detection.intent) || isMenuSelection) {
-              console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA o selección de menú. Intent: ${detection.intent}`);
-              userStates.delete(userId);
-              currentState = undefined;
-              // Continúa el flujo
-          } else {
-              // Silencio absoluto
-              return;
-          }
-      }
-  }
-
-  // Log de procesamiento movido arriba
-
-
-  // --- Cobros parser: mensaje especial ---
-  if (message.body && message.body.toLowerCase().startsWith('@bot porfa haz los cobros para hoy de:')) {
-    await handleCobrosParser(message, userId, userStates, pendingConfirmations);
-    return;
-  }
-
-  // --- Cobros automáticos: mensaje especial ---
-  const checkCobros = message.body ? message.body.toLowerCase().trim() : '';
-  if (checkCobros === '@bot cobros automáticos' || checkCobros === '@bot cobros automaticos') {
-    await handleAutoCobros(message, userId, userStates, pendingConfirmations);
-    return;
-  }
-
-
-  /**
-   * Procesa el resultado de un comando administrativo (Dashboard)
-   */
-  async function handleAdminResultLogic(data, userId, userStates, message, isAwaitingAdminConfirm, adminState) {
-      console.log(`[Admin Dashboard DEBUG] handleAdminResultLogic: status=${data.status}, userId=${userId}, isAwaitingConfirm=${!!isAwaitingAdminConfirm}, hasState=${!!adminState}, state=${adminState ? adminState.state : 'none'}`);
-      
-      if (!adminState || (adminState.state !== 'awaiting_admin_broadcast_confirmation' && adminState.state !== 'awaiting_admin_suggestion_selection')) {
-          // Intento de recuperación: Si no hay estado en el ID actual, buscar en el ID del admin directo
-          const contact = await message.getContact();
-          if (contact && contact.number) {
-              const adminId = contact.number + '@c.us';
-              const recoveredState = userStates.get(adminId);
-              if (recoveredState && (recoveredState.state === 'awaiting_admin_broadcast_confirmation' || recoveredState.state === 'awaiting_admin_suggestion_selection')) {
-                  console.log(`[Admin Dashboard] Recuperado estado desde ID de admin: ${adminId}`);
-                  adminState = recoveredState;
-                  isAwaitingAdminConfirm = adminState.state === 'awaiting_admin_broadcast_confirmation';
-              }
-          }
-      }
-
-      console.log(`[Admin Dashboard DEBUG AFTER RECOVERY] userId=${userId}, isAwaitingConfirm=${!!isAwaitingAdminConfirm}, state=${adminState ? adminState.state : 'none'}`);
-      
-      if (data.status === 'pending_confirmation') {
-          userStates.set(userId, { state: 'awaiting_admin_broadcast_confirmation', payload: data, timestamp: Date.now() });
-      } else if (data.status === 'suggestion') {
-          userStates.set(userId, { 
-              state: 'awaiting_admin_suggestion_selection', 
-              originalFilters: data.originalFilters, 
-              payload: { options: data.options }, // Guardamos las opciones para el "si"
-              timestamp: Date.now() 
-          });
-      } else if (data.status === 'ready_to_confirm') {
-          if (isAwaitingAdminConfirm && adminState.payload) {
-              const payload = adminState.payload;
-              
-              // Si es un envío masivo de credenciales, reseteamos contadores de GPT
-              if (payload.action_type === 'broadcast') {
-                  try {
-                      const { resetAllUsage } = require('./totpService');
-                      resetAllUsage();
-                  } catch (e) { console.error("Error reseteando uso GPT:", e.message); }
-              }
-
-              if (payload.count > 5) {
-                  try {
-                      await client.sendMessage(userId, `🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
-                  } catch(e) { console.error('Error enviando mensaje inicio masivo:', e.message); }
-              }
-              
-              let exitosos = 0;
-              for (const r of payload.recipients) {
-                  const telRaw = (r.tel || r.phone || '').toString().replace(/\D/g, '');
-                  if (telRaw.length < 8) {
-                      console.warn(`[Admin Broadcast] Saltando destinatario ${r.nombre} por falta de número válido.`);
-                      continue;
-                  }
-                  // Formateo robusto (respeta códigos internacionales)
-                  let cleanNumber = telRaw;
-                  if (!cleanNumber.startsWith('57') && cleanNumber.length === 10) {
-                      cleanNumber = '57' + cleanNumber;
-                  }
-                  const targetUser = `${cleanNumber}@c.us`;
-
-                  const only = (payload.only_fields || []).map(f => f.toLowerCase()); 
-                  const showAll = only.length === 0;
-                  const platformLower = (payload.platform || "").toLowerCase();
-                  const isSharedPlatform = platformLower.includes('spotify') || 
-                                           platformLower.includes('youtube') || 
-                                           platformLower.includes('microsoft') || 
-                                           platformLower.includes('office') || 
-                                           platformLower.includes('apple') || 
-                                           platformLower.includes('extra');
-                  
-                  // Detección flexible de campos
-                  const wantClave = only.some(f => f.includes('clave') || f.includes('password') || f.includes('contraseña'));
-                  const wantPin = only.some(f => f.includes('pin'));
-                  const wantPerfil = only.some(f => f.includes('perfil'));
-                  const wantVencimiento = only.some(f => f.includes('vencimiento') || f.includes('fecha') || f.includes('deben'));
-
-                  const isClave = r.is_owner || (showAll && !isSharedPlatform) || wantClave;
-                  const isPinPerfil = !r.is_owner && (showAll || (wantPin && wantPerfil) || only.some(f => f.includes('pin perfil') || f.includes('pin de perfil')));
-                  const isPinOnly = !isPinPerfil && !r.is_owner && wantPin;
-                  const isPerfilOnly = !isPinPerfil && !r.is_owner && wantPerfil;
-                  const isVencimiento = showAll || wantVencimiento;
-
-                   // --- NUEVO: OCULTAR CREDENCIALES A EXTRAS O VENCIDOS ---
-                   const isExtra = r.streaming && r.streaming.toLowerCase().includes('extra');
-                   const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
-                   const expDate = r.vencimiento ? getJsDateFromExcel(r.vencimiento) : null;
-                   const isExpired = expDate && expDate < getTodayInBogota();
-                   
-                   const shouldHide = isExtra || isExpired;
-                   const hideReason = isExtra ? "[Exclusivo Cuenta Principal]" : "[Oculto por falta de pago]";
-
-                   const finalClave = shouldHide ? hideReason : payload.new_password;
-                   const finalPin = shouldHide ? hideReason : r.pin_perfil;
-
-                  const pinPerfilLine = (r.pin_perfil && isPinPerfil) ? `\n📍 *Pin Perfil:* ${finalPin}` : "";
-                  const pinLine = (r.pin_perfil && isPinOnly) ? `\n📌 *Pin:* ${finalPin}` : "";
-                  const perfilLine = (r.pin_perfil && isPerfilOnly) ? `\n👤 *Perfil:* ${finalPin}` : "";
-                  const claveLine = (finalClave && isClave) ? `\n🔑 *Clave:* ${finalClave}` : "";
-
-                  let vencimientoLine = "";
-                  if (isVencimiento && r.vencimiento) {
-                      try {
-                          const { getJsDateFromExcel } = require('./apiService');
-                          const jsDate = getJsDateFromExcel(r.vencimiento);
-                          const day = jsDate.getDate();
-                          const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
-                          const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
-                          vencimientoLine = `\n📅 *Vence:* ${day} de ${month}`;
-                      } catch(e) {
-                          vencimientoLine = `\n📅 *Vence:* ${r.vencimiento}`;
-                      }
-                  }
-
-                  let title = "ACTUALIZACIÓN DE CREDENCIALES";
-                  if (!showAll && only.length === 1) {
-                      if (isPinPerfil) title = "ACTUALIZACIÓN DE PIN PERFIL";
-                      if (isClave) title = "ACTUALIZACIÓN DE CLAVE";
-                  }
-
-                  const displayEmail = isSharedPlatform ? (r.customer_mail || payload.target_account) : (payload.target_account || r.customer_mail);
-
-                  let msg = payload.is_prerendered
-                     ? (r.pin_perfil || payload.custom_message)
-                     : (payload.custom_message 
-                        ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}`
-                        : `🚨 *${title}*\n\nHola 👋, te contactamos de Sheerit para informarte que los datos de acceso de tu cuenta de *${payload.platform}* han sido actualizados.\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`);
-                  try {
-                      await client.sendMessage(targetUser, msg);
-                      exitosos++;
-                      await new Promise(res => setTimeout(res, 500));
-                  } catch(e) { console.error(`[Admin Broadcast] Error enviando a ${targetUser}:`, e.message); }
-              }
-              try {
-                  await client.sendMessage(userId, `✅ *Envío completado exitosamente.*\n- Total: ${payload.count}\n- Enviados: ${exitosos}`);
-                  userStates.delete(userId);
-              } catch(e) { console.error('Error enviando mensaje completado:', e.message); }
-           } else {
-               try {
-                   console.log(`[Admin State DEBUG] No se halló estado para ${userId}. Contenido de userStates:`, Array.from(userStates.keys()));
-                   await client.sendMessage(userId, "❌ No tengo ninguna acción pendiente para confirmar.");
-               } catch(e) { console.error('Error respondiendo acción pendiente:', e.message); }
-           }
-      } else if (data.status === 'success' || data.status === 'error' || data.status === 'warning') {
-          // Ya se envió un reporte detallado en processAdminQuery, no duplicamos.
-          return;
-      } else {
-          const { generateAdminReport } = require('./aiService');
-          const report = await generateAdminReport(message.body, data);
-          await client.sendMessage(userId, report);
-      }
-  }
-
-  // Comandos de operador/administrador
-  if (message.from === OPERATOR_NUMBER || message.from === GROUP_ID) {
-    const adminState = userStates.get(message.from) || {};
-    const bodyLower = (message.body || '').trim().toLowerCase();
-
-    // Activar simulación (solo desde chat privado con el bot para evitar ruidos en grupos)
-    if (bodyLower.includes('@bot simula cliente') && message.from === OPERATOR_NUMBER) {
-        userStates.set(message.from, { ...adminState, state: 'simulating_client', simulationCount: 6 }); // 6 para que el primer mensaje cuente
-        await message.reply("🎭 *MODO SIMULACIÓN ACTIVADO*\n\nA partir de ahora, te trataré como si fueras un cliente nuevo. El bot responderá a tus mensajes sin necesidad de usar @bot.\n\n_Este modo durará 5 mensajes o hasta que digas '@bot detener'._ 🤖");
+    const batchId = messages.map(m => m.id ? m.id._serialized : '').join(',');
+    if (processedMessageIds.has(batchId)) {
+        console.log(`[Deduplicator] Ignorando lote ya procesado simultáneamente: ${batchId}`);
         return;
-    } else if (bodyLower.includes('@bot codigos')) {
-        const { findRecentCodes } = require('./gmailService');
-        const codes = await findRecentCodes('jordimemesmomazosdick@gmail.com', 10);
-        if (codes.length === 0) {
-            await message.reply("🤖 No encontré códigos recientes en los últimos 10 minutos.");
-        } else {
-            let reply = "🤖 *CÓDIGOS RECIENTES (GMAIL)*:\n\n";
-            codes.forEach(c => {
-                reply += `📧 *${c.subject}*\n🔢 *Código:* ${c.code || 'Ver snippet'}\n📝 ${c.snippet}...\n⏰ Hace ${c.time} min\n\n`;
-            });
-            await message.reply(reply);
-        }
-        return;
-    } else if (bodyLower.includes('@bot pendientes')) {
-        const { getPendientesReport } = require('./adminService');
-        const report = await getPendientesReport(userStates);
-        await message.reply(report);
-        return;
-    } else if (bodyLower.includes('@bot cola') || bodyLower.includes('@bot soporte')) {
-        if (!global.supportQueue || global.supportQueue.length === 0) {
-            await message.reply("📋 *COLA DE ESPERA*\n\nActualmente no hay usuarios en cola de espera (0 pendientes).");
-        } else {
-            let reply = `📋 *COLA DE ESPERA (${global.supportQueue.length} casos):*\n\n`;
-            for (let i = 0; i < global.supportQueue.length; i++) {
-                const qId = global.supportQueue[i];
-                const st = userStates.get(qId) || {};
-                const name = st.nombre || "Cliente";
-                reply += `${i + 1}. ${name} - Tel: +${qId.replace('@c.us', '')}\n`;
+    }
+    processedMessageIds.add(batchId);
+
+    const firstMsg = messages[0];
+    let userId = firstMsg.from;
+
+    // Extraemos el autor real del mensaje (especialmente en grupos o dispositivos vinculados)
+    const authorId = firstMsg.author || firstMsg.from;
+    const authorPhone = authorId.replace('@c.us', '').replace(/\D/g, '');
+    const chatPhone = userId.replace('@c.us', '').replace(/\D/g, '');
+
+    // Reconocimiento blindado del jefe (por su número personal, incluso en grupos)
+    const isFromAdmin = authorPhone.includes(ADMIN_RAW_PHONE) || authorPhone.includes('3133890800') || authorPhone.includes('573133890800') || firstMsg.fromMe;
+
+    // --- CORRECCIÓN DE CONTEXTO ---
+    // Si el mensaje es enviado por el jefe (fromMe), el ID de la conversación (userId) es el destinatario (to)
+    if (firstMsg.fromMe && firstMsg.to && firstMsg.to !== (client.info ? client.info.wid._serialized : '')) {
+        userId = firstMsg.to;
+    }
+
+    // realPhone se mantiene como el ID del chat para búsqueda de cuentas etc.
+    let realPhone = userId.replace('@c.us', '').replace(/\D/g, '');
+
+    // --- PRIORIDAD JEFE (3133890800) ---
+    if (isFromAdmin && !userId.includes('@g.us')) {
+        const { detectAdminIntent } = require('./aiService');
+        const combinedAdminBody = messages.map(m => m.body).join(' ');
+        const adminAI = await detectAdminIntent(combinedAdminBody);
+
+        console.log(`[Chief Mode] Intención detectada: ${adminAI.intent} para ${adminAI.target_user || adminAI.target}`);
+
+        if (adminAI.intent === 'dame_cuenta' && (adminAI.target_platform || adminAI.target_user)) {
+            const { handleAdminForceRetrieve } = require('./adminService');
+            await handleAdminForceRetrieve(firstMsg, adminAI.target_platform || adminAI.target_user, client, adminAI.target_user);
+            return;
+        } else if (adminAI.intent === 'confirmar_pago') {
+            const { handleAdminPaymentConfirmation } = require('./adminService');
+            // Pasamos el texto original para que extraiga el número del cliente y los meses, y null para que no se auto-asigne el número del admin
+            await handleAdminPaymentConfirmation(firstMsg, firstMsg.body, client, userStates, null);
+            return;
+        } else if (adminAI.intent === 'liberar_bot') {
+            userStates.delete(userId);
+            const isAdminPrivate = userId.replace('@c.us', '') === ADMIN_RAW_PHONE;
+            if (isAdminPrivate) {
+                await firstMsg.reply(`✅ Bot reactivado para ti, jefe.`);
+            } else {
+                // Lectura prematura del chat para llegar ayudando
+                const { generateReactivationResponse } = require('./aiService');
+                const chatHistory = await getChatHistoryText(firstMsg, 10); // Leer últimos 10 mensajes
+                const reactivationMsg = await generateReactivationResponse(chatHistory);
+                await firstMsg.reply(reactivationMsg);
             }
-            reply += "\n_Nota: Los clientes que envían nuevos mensajes se mueven automáticamente al final de esta lista._";
-            await message.reply(reply);
+            return;
         }
-        return;
     }
-    
-    if (bodyLower === '@bot stats') {
-        const stats = {
-            totalStates: userStates.size,
-            states: Array.from(userStates.entries()).map(([k, v]) => `${k}: ${v.state}`),
-            queues: messageQueues.size
-        };
-        await message.reply(`📊 *ESTADÍSTICAS DEL SISTEMA*\n\n- Estados en memoria: ${stats.totalStates}\n- Colas activas: ${stats.queues}\n\n*Estados:* \n${stats.states.slice(-10).join('\n')}`);
+
+    const message = messages[messages.length - 1];
+    const isMedia = messages.some(m => m.hasMedia);
+    const combinedBody = messages.map(m => m.body || "").filter(b => b !== "").join("\n");
+
+    // --- INTERCEPTOR ESPECIAL ADMINISTRADOR ---
+    if (isFromAdmin) {
+        const adminStateData = userStates.get(userId) || {};
+        const cleanBody = (message.body || "").trim().toLowerCase();
+        const isSimulating = adminStateData.state === 'simulating_client';
+
+        if (!cleanBody.startsWith("@bot") && !message.fromMe && !message.hasMedia && !isSimulating) {
+            const { handleAdminSuggestions } = require('./adminQueries');
+            await handleAdminSuggestions(message, userStates);
+        }
+    }
+
+    let contact;
+    try {
+        if (message && typeof message.getContact === 'function' && message.id && message.id._serialized) {
+            contact = await message.getContact();
+            if (contact && contact.number) {
+                const oldId = userId;
+                realPhone = contact.number;
+
+                if (userId.includes('@lid') || (isFromAdmin && !userId.includes('@g.us'))) {
+                    userId = realPhone + '@c.us';
+
+                    // MIGRACIÓN DE ESTADO: Si el ID cambió (de @lid a @c.us) y tenemos estado en el viejo, lo pasamos al nuevo
+                    if (oldId !== userId && userStates.has(oldId)) {
+                        const oldData = userStates.get(oldId);
+                        const newData = userStates.get(userId) || {};
+
+                        // Solo migramos si el nuevo está vacío o si el viejo tiene información más relevante (como items en carrito)
+                        if (!newData.state || (oldData.items && oldData.items.length > 0)) {
+                            userStates.set(userId, { ...oldData, ...newData });
+                            console.log(`[LID Migration] Migrado estado de ${oldId} a ${userId} para preservar contexto.`);
+                        }
+                        userStates.delete(oldId);
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.warn("No se pudo obtener contacto del mensaje:", err.message);
+    }
+
+    // Asegurar que el estado tenga guardado el chatJid original para envíos directos sin LID mismatch
+    const originalChatJid = firstMsg.fromMe && firstMsg.to ? firstMsg.to : firstMsg.from;
+    let rawState = userStates.get(userId);
+    if (rawState && typeof rawState === 'object') {
+        rawState.chatJid = originalChatJid;
+        userStates.set(userId, rawState);
+    } else if (!rawState) {
+        userStates.set(userId, { chatJid: originalChatJid });
+    }
+
+    // --- MUTE ABSOLUTO PROVEEDORES ---
+    if (realPhone.includes('3027892534')) {
+        console.log(`[Mute] Chat con proveedor @${realPhone} ignorado.`);
         return;
     }
 
-    // COMANDO DE PRUEBA DE ESCRITURA
-    if (bodyLower.startsWith('@bot test de numero')) {
-        const parts = message.body.split(' ');
-        const targetRow = parts[4];
-        const testNum = parts[5] || "123456789";
-        
-        if (!targetRow) {
-            await message.reply("❌ Uso: @bot test de numero [fila] [numero]");
+    let foundName = contact ? (contact.name || contact.pushname) : null;
+    if (!foundName) {
+        const { searchContactByPhone } = require('./googleContactsService');
+        foundName = await searchContactByPhone(userId);
+
+        // Si aún no hay nombre, buscar en la base de datos de Excel por el número
+        if (!foundName) {
+            const { getAccountsByPhone } = require('./apiService');
+            const userAccounts = await getAccountsByPhone(realPhone);
+            if (userAccounts && userAccounts.length > 0) {
+                foundName = userAccounts[0].Nombre || userAccounts[0].nombre;
+            }
+        }
+    }
+
+
+    // 2. ESTADO ACTUAL
+    let currentStateData = userStates.get(userId);
+    let currentState = undefined;
+    if (currentStateData && typeof currentStateData === 'object') {
+        currentState = currentStateData.state;
+    }
+
+    // --- ANTI-AUTO-CONTESTAR (Loop Protection) ---
+    // Si el mensaje contiene el emoji del bot (🤖), es una respuesta automática.
+    // Ignoramos COMPLETAMENTE para no entrar en bucles de autocontestación.
+    if (message.body && message.body.includes('🤖')) {
+        console.log(`[Auto] Ignorando mensaje automático (🤖) para @${userId.replace('@c.us', '')}`);
+        return;
+    }
+
+    // --- FILTRO DE MENSAJES PROPIOS (ADMIN) ---
+    const cleanBodyText = message.body ? message.body.trim() : "";
+    const isAdminCommand = cleanBodyText.toLowerCase().startsWith("@bot ");
+    const hasBotMention = cleanBodyText.toLowerCase().includes("@bot");
+
+    if (message.fromMe) {
+        // Excepción: Permitir comandos de @bot para el admin dashboard
+        if (isAdminCommand || cleanBodyText.toLowerCase() === "@bot" || hasBotMention) {
+            console.log(`[Admin] Comando o mención detectada de la propia cuenta: ${cleanBodyText}`);
+            // Reactivar si estaba en waiting_human
+            if (currentState === 'waiting_human') {
+                console.log(`[BOT MUTE] Reactivado por comando administrativo @bot.`);
+                userStates.delete(userId);
+                currentState = undefined;
+            }
+            if (!isAdminCommand) return; // Si fue una mención para reactivar el chat con cliente, ignorar para la IA.
+        } else {
+            if (currentState !== 'waiting_human') {
+                console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
+            }
+            const existingData = typeof currentStateData === 'object' ? currentStateData : {};
+            userStates.set(userId, { ...existingData, state: 'waiting_human', nombre: foundName, waitingCount: 0, lastHumanInteraction: Date.now() });
+            return;
+        }
+    }
+
+    console.log(`[DEBUG] Procesando mensaje de: ${userId} Contenido: ${message.body || "[Sin texto]"}`);
+
+    // Ignorar stickers, reacciones, y estados
+    if (message.type === 'sticker' || message.type === 'reaction' || message.isStatus) {
+        console.log(`[Ignorado] Mensaje tipo ${message.type} de ${userId}.`);
+        return;
+    }
+
+    // Ignorar mensajes que son exclusivamente emojis (pero PERMITIMOS números y letras)
+    const isEmojiOnly = /^[\p{Emoji}\s]+$/u.test(cleanBodyText);
+    const hasAlphaNumeric = /[a-zA-Z0-9]/.test(cleanBodyText);
+
+    if (isEmojiOnly && !hasAlphaNumeric) {
+        console.log(`[Ignorado] Mensaje solo contiene emojis de ${userId}.`);
+        return;
+    }
+
+    // Marcar chat como leído para limpiar notificaciones y bucles de atendido
+    try {
+        if (!message.fromMe) {
+            const chat = await message.getChat();
+            if (chat && chat.unreadCount > 0) {
+                await chat.sendSeen();
+            }
+        }
+    } catch (err) { }
+
+    // Sincronizar con Google Contacts si tenemos un nombre válido y es un chat individual
+    if (!message.fromMe && foundName && !realPhone.includes(ADMIN_RAW_PHONE) && !userId.includes('@g.us')) {
+        const { addNewContact } = require('./googleContactsService');
+        // addNewContact ya tiene validación interna y caché local para evitar duplicados
+        await addNewContact(foundName, realPhone);
+    }
+
+    // --- IDENTIFICADOR DE ESTADO INICIAL ---
+    if (currentStateData && typeof currentStateData === 'object') {
+        currentState = currentStateData.state;
+    }
+
+    if (currentState === 'waiting_human') {
+        // Reactivación rápida
+        const cleanInput = (message.body || '').trim().toLowerCase();
+        if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot') || ['1', '2', '3'].includes(cleanInput)) {
+            console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por intención explícita: ${cleanInput}`);
+            userStates.delete(userId);
+            currentState = undefined;
+
+        } else {
+            let sData = typeof currentStateData === 'object' ? currentStateData : { state: 'waiting_human', lastHumanInteraction: 0 };
+            const lastHumanMsg = sData.lastHumanInteraction || 0;
+            const timeSinceLastHuman = Date.now() - lastHumanMsg;
+
+            // Si el asesor (humano) envió un mensaje en los últimos 30 min, asumimos que
+            // están en una conversación activa. El bot guarda SILENCIO ABSOLUTO.
+            if (timeSinceLastHuman < 1000 * 60 * 30) {
+                console.log(`[DEBUG] Mute activo para @${userId.replace('@c.us', '')} - Conversación humana reciente.`);
+                return;
+            }
+
+            // Si pasó más de media hora sin que el admin responda, el bot usará la IA 
+            // SOLAMENTE para capturar si el cliente está enviando un comprobante de pago o quiere comprar algo nuevo.
+            // Si es soporte o charla, seguirá en silencio sin molestar.
+            let mediaData = null;
+            if (message.hasMedia) {
+                try {
+                    const media = await message.downloadMedia();
+                    if (media && media.data && media.mimetype) {
+                        mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
+                    }
+                } catch (e) { }
+            }
+
+            const { detectInitialIntent } = require('./aiService');
+            const hist = await getChatHistoryText(message, 15); // Historial más largo para capturar contexto humano y LID
+            const detection = await detectInitialIntent(message.body, hist, mediaData);
+
+            const cleanBody = (message.body || "").trim();
+            // Añadimos 'soporte' para que el bot no ignore al cliente si el asesor se fue hace más de 30 min.
+            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "soporte"];
+            const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
+
+            if (solvableIntents.includes(detection.intent) || isMenuSelection) {
+                console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA o selección de menú. Intent: ${detection.intent}`);
+                userStates.delete(userId);
+                currentState = undefined;
+                // Continúa el flujo
+            } else {
+                // Silencio absoluto
+                return;
+            }
+        }
+    }
+
+    // Log de procesamiento movido arriba
+
+
+    // --- Cobros parser: mensaje especial ---
+    if (message.body && message.body.toLowerCase().startsWith('@bot porfa haz los cobros para hoy de:')) {
+        await handleCobrosParser(message, userId, userStates, pendingConfirmations);
+        return;
+    }
+
+    // --- Cobros automáticos: mensaje especial ---
+    const checkCobros = message.body ? message.body.toLowerCase().trim() : '';
+    if (checkCobros === '@bot cobros automáticos' || checkCobros === '@bot cobros automaticos') {
+        await handleAutoCobros(message, userId, userStates, pendingConfirmations);
+        return;
+    }
+
+
+    /**
+     * Procesa el resultado de un comando administrativo (Dashboard)
+     */
+    async function handleAdminResultLogic(data, userId, userStates, message, isAwaitingAdminConfirm, adminState) {
+        console.log(`[Admin Dashboard DEBUG] handleAdminResultLogic: status=${data.status}, userId=${userId}, isAwaitingConfirm=${!!isAwaitingAdminConfirm}, hasState=${!!adminState}, state=${adminState ? adminState.state : 'none'}`);
+
+        if (!adminState || (adminState.state !== 'awaiting_admin_broadcast_confirmation' && adminState.state !== 'awaiting_admin_suggestion_selection')) {
+            // Intento de recuperación: Si no hay estado en el ID actual, buscar en el ID del admin directo
+            const contact = await message.getContact();
+            if (contact && contact.number) {
+                const adminId = contact.number + '@c.us';
+                const recoveredState = userStates.get(adminId);
+                if (recoveredState && (recoveredState.state === 'awaiting_admin_broadcast_confirmation' || recoveredState.state === 'awaiting_admin_suggestion_selection')) {
+                    console.log(`[Admin Dashboard] Recuperado estado desde ID de admin: ${adminId}`);
+                    adminState = recoveredState;
+                    isAwaitingAdminConfirm = adminState.state === 'awaiting_admin_broadcast_confirmation';
+                }
+            }
+        }
+
+        console.log(`[Admin Dashboard DEBUG AFTER RECOVERY] userId=${userId}, isAwaitingConfirm=${!!isAwaitingAdminConfirm}, state=${adminState ? adminState.state : 'none'}`);
+
+        if (data.status === 'pending_confirmation') {
+            userStates.set(userId, { state: 'awaiting_admin_broadcast_confirmation', payload: data, timestamp: Date.now() });
+        } else if (data.status === 'suggestion') {
+            userStates.set(userId, {
+                state: 'awaiting_admin_suggestion_selection',
+                originalFilters: data.originalFilters,
+                payload: { options: data.options }, // Guardamos las opciones para el "si"
+                timestamp: Date.now()
+            });
+        } else if (data.status === 'ready_to_confirm') {
+            if (isAwaitingAdminConfirm && adminState.payload) {
+                const payload = adminState.payload;
+
+                // Si es un envío masivo de credenciales, reseteamos contadores de GPT
+                if (payload.action_type === 'broadcast') {
+                    try {
+                        const { resetAllUsage } = require('./totpService');
+                        resetAllUsage();
+                    } catch (e) { console.error("Error reseteando uso GPT:", e.message); }
+                }
+
+                if (payload.count > 5) {
+                    try {
+                        await client.sendMessage(userId, `🚀 *Iniciando envío masivo...* (${payload.count} destinatarios)`);
+                    } catch (e) { console.error('Error enviando mensaje inicio masivo:', e.message); }
+                }
+
+                let exitosos = 0;
+                for (const r of payload.recipients) {
+                    const telRaw = (r.tel || r.phone || '').toString().replace(/\D/g, '');
+                    if (telRaw.length < 8) {
+                        console.warn(`[Admin Broadcast] Saltando destinatario ${r.nombre} por falta de número válido.`);
+                        continue;
+                    }
+                    // Formateo robusto (respeta códigos internacionales)
+                    let cleanNumber = telRaw;
+                    if (!cleanNumber.startsWith('57') && cleanNumber.length === 10) {
+                        cleanNumber = '57' + cleanNumber;
+                    }
+                    const targetUser = `${cleanNumber}@c.us`;
+
+                    const only = (payload.only_fields || []).map(f => f.toLowerCase());
+                    const showAll = only.length === 0;
+                    const platformLower = (payload.platform || "").toLowerCase();
+                    const isSharedPlatform = platformLower.includes('spotify') ||
+                        platformLower.includes('youtube') ||
+                        platformLower.includes('microsoft') ||
+                        platformLower.includes('office') ||
+                        platformLower.includes('apple') ||
+                        platformLower.includes('extra');
+
+                    // Detección flexible de campos
+                    const wantClave = only.some(f => f.includes('clave') || f.includes('password') || f.includes('contraseña'));
+                    const wantPin = only.some(f => f.includes('pin'));
+                    const wantPerfil = only.some(f => f.includes('perfil'));
+                    const wantVencimiento = only.some(f => f.includes('vencimiento') || f.includes('fecha') || f.includes('deben'));
+
+                    const isClave = r.is_owner || (showAll && !isSharedPlatform) || wantClave;
+                    const isPinPerfil = !r.is_owner && (showAll || (wantPin && wantPerfil) || only.some(f => f.includes('pin perfil') || f.includes('pin de perfil')));
+                    const isPinOnly = !isPinPerfil && !r.is_owner && wantPin;
+                    const isPerfilOnly = !isPinPerfil && !r.is_owner && wantPerfil;
+                    const isVencimiento = showAll || wantVencimiento;
+
+                    // --- NUEVO: OCULTAR CREDENCIALES A EXTRAS O VENCIDOS ---
+                    const isExtra = r.streaming && r.streaming.toLowerCase().includes('extra');
+                    const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
+                    const expDate = r.vencimiento ? getJsDateFromExcel(r.vencimiento) : null;
+                    const isExpired = expDate && expDate < getTodayInBogota();
+
+                    const shouldHide = isExtra || isExpired;
+                    const hideReason = isExtra ? "[Exclusivo Cuenta Principal]" : "[Oculto por falta de pago]";
+
+                    const finalClave = shouldHide ? hideReason : payload.new_password;
+                    const finalPin = shouldHide ? hideReason : r.pin_perfil;
+
+                    const pinPerfilLine = (r.pin_perfil && isPinPerfil) ? `\n📍 *Pin Perfil:* ${finalPin}` : "";
+                    const pinLine = (r.pin_perfil && isPinOnly) ? `\n📌 *Pin:* ${finalPin}` : "";
+                    const perfilLine = (r.pin_perfil && isPerfilOnly) ? `\n👤 *Perfil:* ${finalPin}` : "";
+                    const claveLine = (finalClave && isClave) ? `\n🔑 *Clave:* ${finalClave}` : "";
+
+                    let vencimientoLine = "";
+                    if (isVencimiento && r.vencimiento) {
+                        try {
+                            const { getJsDateFromExcel } = require('./apiService');
+                            const jsDate = getJsDateFromExcel(r.vencimiento);
+                            const day = jsDate.getDate();
+                            const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
+                            const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
+                            vencimientoLine = `\n📅 *Vence:* ${day} de ${month}`;
+                        } catch (e) {
+                            vencimientoLine = `\n📅 *Vence:* ${r.vencimiento}`;
+                        }
+                    }
+
+                    let title = "ACTUALIZACIÓN DE CREDENCIALES";
+                    if (!showAll && only.length === 1) {
+                        if (isPinPerfil) title = "ACTUALIZACIÓN DE PIN PERFIL";
+                        if (isClave) title = "ACTUALIZACIÓN DE CLAVE";
+                    }
+
+                    const displayEmail = isSharedPlatform ? (r.customer_mail || payload.target_account) : (payload.target_account || r.customer_mail);
+
+                    let msg = payload.is_prerendered
+                        ? (r.pin_perfil || payload.custom_message)
+                        : (payload.custom_message
+                            ? `🚨 *NOTIFICACIÓN DE SHEERIT*\n\n${payload.custom_message}\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}`
+                            : `🚨 *${title}*\n\nHola 👋, te contactamos de Sheerit para informarte que los datos de acceso de tu cuenta de *${payload.platform}* han sido actualizados.\n\n📧 *Cuenta:* ${displayEmail}${claveLine}${pinPerfilLine}${pinLine}${perfilLine}${vencimientoLine}\n\nSi tienes inconvenientes, acude a nuestro soporte o escribe "ayuda". ¡Gracias por confiar en nosotros!`);
+                    try {
+                        await client.sendMessage(targetUser, msg);
+                        exitosos++;
+                        await new Promise(res => setTimeout(res, 500));
+                    } catch (e) { console.error(`[Admin Broadcast] Error enviando a ${targetUser}:`, e.message); }
+                }
+                try {
+                    await client.sendMessage(userId, `✅ *Envío completado exitosamente.*\n- Total: ${payload.count}\n- Enviados: ${exitosos}`);
+                    userStates.delete(userId);
+                } catch (e) { console.error('Error enviando mensaje completado:', e.message); }
+            } else {
+                try {
+                    console.log(`[Admin State DEBUG] No se halló estado para ${userId}. Contenido de userStates:`, Array.from(userStates.keys()));
+                    await client.sendMessage(userId, "❌ No tengo ninguna acción pendiente para confirmar.");
+                } catch (e) { console.error('Error respondiendo acción pendiente:', e.message); }
+            }
+        } else if (data.status === 'success' || data.status === 'error' || data.status === 'warning') {
+            // Ya se envió un reporte detallado en processAdminQuery, no duplicamos.
+            return;
+        } else {
+            const { generateAdminReport } = require('./aiService');
+            const report = await generateAdminReport(message.body, data);
+            await client.sendMessage(userId, report);
+        }
+    }
+
+    // Comandos de operador/administrador
+    if (message.from === OPERATOR_NUMBER || message.from === GROUP_ID) {
+        const adminState = userStates.get(message.from) || {};
+        const bodyLower = (message.body || '').trim().toLowerCase();
+
+        // Activar simulación (solo desde chat privado con el bot para evitar ruidos en grupos)
+        if (bodyLower.includes('@bot simula cliente') && message.from === OPERATOR_NUMBER) {
+            userStates.set(message.from, { ...adminState, state: 'simulating_client', simulationCount: 6 }); // 6 para que el primer mensaje cuente
+            await message.reply("🎭 *MODO SIMULACIÓN ACTIVADO*\n\nA partir de ahora, te trataré como si fueras un cliente nuevo. El bot responderá a tus mensajes sin necesidad de usar @bot.\n\n_Este modo durará 5 mensajes o hasta que digas '@bot detener'._ 🤖");
+            return;
+        } else if (bodyLower.includes('@bot codigos')) {
+            const { findRecentCodes } = require('./gmailService');
+            const codes = await findRecentCodes('jordimemesmomazosdick@gmail.com', 10);
+            if (codes.length === 0) {
+                await message.reply("🤖 No encontré códigos recientes en los últimos 10 minutos.");
+            } else {
+                let reply = "🤖 *CÓDIGOS RECIENTES (GMAIL)*:\n\n";
+                codes.forEach(c => {
+                    reply += `📧 *${c.subject}*\n🔢 *Código:* ${c.code || 'Ver snippet'}\n📝 ${c.snippet}...\n⏰ Hace ${c.time} min\n\n`;
+                });
+                await message.reply(reply);
+            }
+            return;
+        } else if (bodyLower.includes('@bot pendientes')) {
+            const { getPendientesReport } = require('./adminService');
+            const report = await getPendientesReport(userStates);
+            await message.reply(report);
+            return;
+        } else if (bodyLower.includes('@bot cola') || bodyLower.includes('@bot soporte')) {
+            if (!global.supportQueue || global.supportQueue.length === 0) {
+                await message.reply("📋 *COLA DE ESPERA*\n\nActualmente no hay usuarios en cola de espera (0 pendientes).");
+            } else {
+                let reply = `📋 *COLA DE ESPERA (${global.supportQueue.length} casos):*\n\n`;
+                for (let i = 0; i < global.supportQueue.length; i++) {
+                    const qId = global.supportQueue[i];
+                    const st = userStates.get(qId) || {};
+                    const name = st.nombre || "Cliente";
+                    reply += `${i + 1}. ${name} - Tel: +${qId.replace('@c.us', '')}\n`;
+                }
+                reply += "\n_Nota: Los clientes que envían nuevos mensajes se mueven automáticamente al final de esta lista._";
+                await message.reply(reply);
+            }
             return;
         }
 
-        await message.reply(`🧪 Iniciando diagnóstico profundo en fila ${targetRow}...`);
+        if (bodyLower === '@bot stats') {
+            const stats = {
+                totalStates: userStates.size,
+                states: Array.from(userStates.entries()).map(([k, v]) => `${k}: ${v.state}`),
+                queues: messageQueues.size
+            };
+            await message.reply(`📊 *ESTADÍSTICAS DEL SISTEMA*\n\n- Estados en memoria: ${stats.totalStates}\n- Colas activas: ${stats.queues}\n\n*Estados:* \n${stats.states.slice(-10).join('\n')}`);
+            return;
+        }
+
+        // COMANDO DE PRUEBA DE ESCRITURA
+        if (bodyLower.startsWith('@bot test de numero')) {
+            const parts = message.body.split(' ');
+            const targetRow = parts[4];
+            const testNum = parts[5] || "123456789";
+
+            if (!targetRow) {
+                await message.reply("❌ Uso: @bot test de numero [fila] [numero]");
+                return;
+            }
+
+            await message.reply(`🧪 Iniciando diagnóstico profundo en fila ${targetRow}...`);
+            try {
+                const { updateExcelData, fetchRawData } = require('./apiService');
+
+                // Forzamos lectura para ver encabezados reales en consola
+                const rawData = await fetchRawData();
+                if (rawData && rawData.length > 0) {
+                    console.log(`[TEST DEBUG] Encabezados detectados en este momento:`, Object.keys(rawData[0]).map(k => `[${k}]`).join(', '));
+                }
+
+                const alphabet = "ABCDEFGHIJKLMNOPQRST".split("");
+                const bombUpdates = {};
+                const numericTest = parseInt(testNum.replace(/\D/g, '')) || 0;
+
+                alphabet.forEach((letter, index) => {
+                    // Por defecto texto
+                    bombUpdates[letter] = `TEST_${letter}_${index}`;
+                });
+
+                // CASOS ESPECIALES DE TIPO DE DATO
+                bombUpdates["E"] = numericTest;           // Columna E como NÚMERO puro
+                bombUpdates["F"] = `'${testNum}`;         // Columna F con COMILLA (Texto)
+                bombUpdates["G"] = parseFloat(testNum);   // Columna G como FLOAT
+
+                bombUpdates["numero"] = testNum;          // Como texto
+                bombUpdates["Numero"] = numericTest;      // Como número
+                bombUpdates["whatsapp"] = testNum;
+                bombUpdates["observaciones"] = "BOMBARDEO TIPOS " + new Date().toLocaleTimeString();
+
+                await message.reply(`💣 Iniciando bombardeo de tipos de datos en fila ${targetRow}...`);
+
+                const res = await updateExcelData(parseInt(targetRow), bombUpdates);
+                await message.reply(`✅ Bombardeo de tipos completado. Revisa el resultado: ${JSON.stringify(res, null, 2)}`);
+            } catch (err) {
+                await message.reply(`❌ Error en el diagnóstico: ${err.message}`);
+            }
+            return;
+        }
+
+        // Interceptor de Simulación
+        if (adminState.state === 'simulating_client' && message.from === OPERATOR_NUMBER) {
+            if (bodyLower.includes('@bot detener')) {
+                userStates.set(message.from, { ...adminState, state: 'main_menu', simulationCount: 0 });
+                await message.reply("🎭 *MODO SIMULACIÓN DESACTIVADO* 🤖");
+                return;
+            }
+
+            const newCount = (adminState.simulationCount || 1) - 1;
+            if (newCount <= 0) {
+                userStates.set(message.from, { ...adminState, state: 'main_menu', simulationCount: 0 });
+                console.log(`[Simulación] Finalizada para ${message.from}`);
+            } else {
+                userStates.set(message.from, { ...adminState, simulationCount: newCount });
+                console.log(`[Simulación] Procesando mensaje de admin como cliente (${newCount} restantes)`);
+                await processIncomingMessage(message);
+                return;
+            }
+        }
+
+        const body = (message.body || '').trim().toLowerCase();
+
+        if (body === '!liberar masivo' || body === 'liberar masivo') {
+            let count = 0;
+            for (const [key, val] of userStates.entries()) {
+                let stateStr = typeof val === 'object' ? val.state : val;
+                if (stateStr === 'waiting_human') {
+                    userStates.delete(key);
+                    count++;
+                }
+            }
+            await message.reply(`✅ *Liberación masiva completada!*\nSe reactivó el bot para ${count} clientes que estaban en espera.`);
+            return;
+        }
+
+        if (body.startsWith('!bot') || body.startsWith('!liberar') || body.startsWith('liberar ')) {
+            let targetPhone = body.replace('!bot', '').replace('!liberar', '').replace('liberar', '').trim().replace(/\D/g, '');
+            if (!targetPhone && !message.from.includes('@g.us')) {
+                targetPhone = userId.replace(/\D/g, '');
+            }
+
+            if (targetPhone) {
+                const targetId = targetPhone + '@c.us';
+                userStates.delete(targetId);
+                await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
+                await message.reply(`✅ Bot reactivado para ${targetPhone}`);
+            } else {
+                await message.reply('❌ Por favor especifica el número (ej: !bot 57311...)');
+            }
+            return;
+        }
+
+        if (body.toLowerCase().startsWith('confirmar_cobros ')) {
+            const phone = body.split(' ')[1].replace(/\D/g, '');
+            const targetId = phone + '@c.us';
+            if (pendingConfirmations.has(targetId)) {
+                const records = pendingConfirmations.get(targetId);
+                const fs = require('fs');
+                const path = require('path');
+                const file = path.join(__dirname, 'pending_charges.json');
+                let existing = [];
+                try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
+                const entry = { requester: targetId, records, timestamp: new Date().toISOString() };
+                existing.push(entry);
+                fs.writeFileSync(file, JSON.stringify(existing, null, 2));
+                for (const r of records) {
+                    const dest = r.phone + '@c.us';
+                    await client.sendMessage(dest, `Se ha generado un cobro para *${r.name}* solicitado por ${targetId}. Por favor, responde si este pago fue procesado.`);
+                }
+                pendingConfirmations.delete(targetId);
+                await message.reply('Cobros confirmados y enviados.');
+            } else {
+                await message.reply('No encontré cobros pendientes para ese usuario.');
+            }
+        }
+    }
+
+    // Comandos de Grupo / Admin
+    const isBotCommand = (message.from === GROUP_ID || isFromAdmin) && message.body && message.body.toLowerCase().startsWith('@bot');
+    const isReplyConfirmation = message.from === GROUP_ID && message.hasQuotedMsg && (
+        ['si', 'ya', 'listo', 'confirmado', 'vale', 'ok', 'claro'].includes(message.body.toLowerCase().trim()) ||
+        message.body.toLowerCase().includes('confirmar') ||
+        message.body.toLowerCase().includes('si me llego')
+    );
+
+    if (isBotCommand || isReplyConfirmation) {
+        const { detectAdminIntent } = require('./aiService');
+        const adminAI = await detectAdminIntent(message.body);
+        console.log(`[Admin AI] Intención detectada: ${adminAI.intent} para ${adminAI.target_user || adminAI.target}`);
+
+        if (adminAI.intent === 'dormir_bot') {
+            globalBotSleep = true;
+            await message.reply('😴 Modo dormido activado, jefe.');
+            return;
+        } else if (adminAI.intent === 'despertar_bot') {
+            globalBotSleep = false;
+            await message.reply('😃 ¡He despertado, jefe! Vuelvo a atender a los clientes.');
+            return;
+        } else if (adminAI.intent === 'liberar_bot') {
+            const { handleBatchUnanswered } = require('./adminService');
+            if (message.body.toLowerCase().includes('masivo') || message.body.toLowerCase().includes('pendientes')) {
+                await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
+            } else {
+                // Liberar a uno solo
+                let targetPhone = (adminAI.target_user || adminAI.target) ? (adminAI.target_user || adminAI.target).replace(/\D/g, '') : null;
+                let targetId = targetPhone ? targetPhone + '@c.us' : (isFromAdmin && !message.from.includes('@g.us') ? message.to : null);
+
+                if (targetId) {
+                    userStates.delete(targetId);
+                    await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
+                    await message.reply(`✅ Bot reactivado para ${targetId.replace('@c.us', '')}`);
+                } else {
+                    await message.reply('❌ No pude saber a quién liberar, jefe.');
+                }
+            }
+            return;
+        } else if (adminAI.intent === 'dame_cuenta') {
+            const { handleAdminForceRetrieve } = require('./adminService');
+            await handleAdminForceRetrieve(message, adminAI.target_platform || adminAI.target_user || message.body, client, adminAI.target_user);
+            return;
+        } else if (adminAI.intent === 'confirmar_pago' || isReplyConfirmation) {
+            const { handleAdminPaymentConfirmation } = require('./adminService');
+            let targetPhone = adminAI.target_user ? adminAI.target_user.replace(/\D/g, '') : null;
+
+            // Fallback manual si la IA no detectó el número pero está en el texto
+            if (!targetPhone) {
+                const regex = /57\s*3\d{2}\s*\d{7}|3\d{9}/;
+                const match = message.body.match(regex);
+                if (match) targetPhone = match[0].replace(/\s+/g, '');
+            }
+
+            let targetId = targetPhone ? (targetPhone.includes('@') ? targetPhone : targetPhone + '@c.us') : null;
+
+            // Prioridad: 1. Quoted Message, 2. Target Phone, 3. globalLastPaymentUserId
+            if (isReplyConfirmation) {
+                const quotedMsg = await message.getQuotedMessage();
+                const phoneRegex = /(57\d{10})|(\d{10})/;
+                const match = quotedMsg.body.match(phoneRegex);
+                if (match) {
+                    let num = match[0];
+                    if (num.length === 10) num = '57' + num;
+                    targetId = num + '@c.us';
+                } else if (quotedMsg.from !== client.info.wid._serialized) {
+                    // Si no hay número en el texto pero el mensaje citado es de un cliente (no del bot)
+                    targetId = quotedMsg.from;
+                }
+            }
+
+            if (!targetId && globalLastPaymentUserId) {
+                console.log(`[Admin Logic] No se halló ID en comando, usando memoria global: ${globalLastPaymentUserId}`);
+                targetId = globalLastPaymentUserId;
+            }
+
+            if (targetId) {
+                const cmd = adminAI.months ? `confirmar ${adminAI.months} meses` : "confirmar";
+                await handleAdminPaymentConfirmation(message, cmd, client, userStates, targetId);
+            } else {
+                await message.reply('❌ No pude identificar al cliente para confirmar el pago, jefe. Intenta poniendo el número o respondiendo al reporte del cliente.');
+            }
+            return;
+        } else if (adminAI.intent === 'programar_mensaje') {
+            let recipients = [];
+
+            // Detección robusta de solicitud de credenciales o de solo PIN
+            const isCredentialsRequest = message.body.toLowerCase().includes('credenciales') ||
+                message.body.toLowerCase().includes('cuenta');
+
+            const isPinOnlyRequest = message.body.toLowerCase().includes('pin') &&
+                (message.body.toLowerCase().includes('unicamente') ||
+                    message.body.toLowerCase().includes('únicamente') ||
+                    message.body.toLowerCase().includes('solo') ||
+                    message.body.toLowerCase().includes('solamente'));
+
+            // Caso A: El destinatario es una cuenta de correo (ej: sheerpremium@gmail.com)
+            if (adminAI.target_user && adminAI.target_user.includes('@') && adminAI.target_user.includes('.')) {
+                const targetEmail = adminAI.target_user.toLowerCase().trim();
+                const { fetchRawData } = require('./apiService');
+                try {
+                    const rawData = await fetchRawData();
+                    const matchingRows = rawData.filter(row => {
+                        const rowEmail = (row.correo || row.Correo || '').toString().toLowerCase().trim();
+                        const rowPlat = (row.Streaming || row.streaming || '').toString().toLowerCase();
+                        const platFilter = adminAI.target_platform ? adminAI.target_platform.toLowerCase().trim() : '';
+
+                        const emailMatch = rowEmail === targetEmail;
+                        const platMatch = platFilter ? rowPlat.includes(platFilter) : true;
+                        const hasPhone = row.numero || row.whatsapp;
+
+                        const isExtra = rowPlat.includes('extra');
+                        if (isCredentialsRequest && isExtra) return false;
+
+                        return emailMatch && platMatch && hasPhone;
+                    });
+
+                    if (matchingRows.length === 0) {
+                        await message.reply(`❌ Jefe, no encontré a ningún cliente asignado a la cuenta *${targetEmail}* en el Excel.`);
+                        return;
+                    }
+
+                    matchingRows.forEach(row => {
+                        const tel = (row.numero || row.whatsapp).toString().replace(/\D/g, '');
+                        const targetId = (tel.startsWith('57') ? tel : '57' + tel) + '@c.us';
+                        const targetName = row.Nombre || row.nombre || 'Cliente';
+
+                        let msgToSend = adminAI.message_text || '';
+                        if (isPinOnlyRequest) {
+                            const streamingName = (row.Streaming || 'Streaming').toUpperCase();
+                            const pin = row['pin perfil'] || row['pin'] || 'Sin PIN';
+                            msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
+                        } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
+                            const streamingName = (row.Streaming || 'Streaming').toUpperCase();
+                            const pin = row['pin perfil'] || row['pin'] || '';
+                            msgToSend = `🔐 *CREDENCIALES ${streamingName}*\n\n📧 Correo: ${row.correo}\n🔒 Clave: ${row.contraseña}${pin ? `\n🔢 PIN: ${pin}` : ''}`;
+                        }
+
+                        recipients.push({
+                            targetId,
+                            targetName,
+                            messageText: msgToSend
+                        });
+                    });
+                } catch (err) {
+                    console.error('Error buscando destinatarios por email:', err.message);
+                    await message.reply(`❌ Error al consultar los clientes de esa cuenta en Excel: ${err.message}`);
+                    return;
+                }
+            } else {
+                // Caso B: Destinatario único (nombre, teléfono o "este cliente")
+                let targetId = null;
+                let targetName = null;
+
+                if (adminAI.target_user === 'este cliente' || (!adminAI.target_user && !message.from.includes('@g.us'))) {
+                    targetId = userId;
+                    targetName = 'este cliente';
+                } else if (adminAI.target_user) {
+                    const cleanTarget = adminAI.target_user.replace(/\D/g, '');
+                    if (cleanTarget.length >= 8) {
+                        targetId = (cleanTarget.startsWith('57') ? cleanTarget : '57' + cleanTarget) + '@c.us';
+                        targetName = cleanTarget;
+                    } else {
+                        // Buscar por nombre
+                        const { searchContactByName } = require('./googleContactsService');
+                        let foundPhone = await searchContactByName(adminAI.target_user);
+
+                        if (!foundPhone) {
+                            const { fetchRawData } = require('./apiService');
+                            try {
+                                const rawData = await fetchRawData();
+                                const userRow = rawData.find(r => {
+                                    const rowName = (r.Nombre || r['Nombre Completo'] || "").toString().toLowerCase();
+                                    return rowName.includes(adminAI.target_user.toLowerCase());
+                                });
+                                if (userRow && userRow.numero) {
+                                    const tel = userRow.numero.toString().replace(/\D/g, '');
+                                    foundPhone = tel.startsWith('57') ? tel : '57' + tel;
+                                }
+                            } catch (e) {
+                                console.error('Error buscando nombre en Excel para programar:', e.message);
+                            }
+                        }
+
+                        if (foundPhone) {
+                            targetId = foundPhone.includes('@') ? foundPhone : foundPhone + '@c.us';
+                            targetName = adminAI.target_user;
+                        }
+                    }
+                }
+
+                if (!targetId) {
+                    await message.reply('❌ Jefe, no pude identificar al cliente al que deseas enviarle el mensaje. Por favor especifica su nombre o número.');
+                    return;
+                }
+
+                // Generar credenciales si fue solicitado
+                let msgToSend = adminAI.message_text || '';
+                if (isPinOnlyRequest) {
+                    const { getAccountsByPhone } = require('./apiService');
+                    try {
+                        const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
+                        const userAccounts = await getAccountsByPhone(phoneNumber);
+                        const platFilter = adminAI.target_platform || '';
+                        const targetAccount = userAccounts.find(a => (a.Streaming || '').toLowerCase().includes(platFilter.toLowerCase()));
+                        if (targetAccount) {
+                            const streamingName = (targetAccount.Streaming || 'Streaming').toUpperCase();
+                            const pin = targetAccount['pin perfil'] || targetAccount['pin'] || 'Sin PIN';
+                            msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
+                        } else {
+                            await message.reply(`❌ Jefe, no encontré ninguna cuenta de *${platFilter.toUpperCase() || 'Streaming'}* activa para el cliente.`);
+                            return;
+                        }
+                    } catch (err) {
+                        console.error('Error buscando PIN único para programar:', err.message);
+                    }
+                } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
+                    const { getAccountsByPhone } = require('./apiService');
+                    const { formatDirectCredentials } = require('./aiService');
+                    try {
+                        const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
+                        const userAccounts = await getAccountsByPhone(phoneNumber);
+                        const platFilter = adminAI.target_platform || '';
+
+                        const formatted = formatDirectCredentials(userAccounts, platFilter);
+                        if (formatted) {
+                            msgToSend = formatted;
+                        } else if (msgToSend.trim().length === 0) {
+                            await message.reply(`❌ Jefe, no encontré ninguna cuenta activa de *${platFilter.toUpperCase() || 'Streaming'}* para el cliente.`);
+                            return;
+                        }
+                    } catch (err) {
+                        console.error('Error buscando credenciales para programar:', err.message);
+                    }
+                }
+
+                if (!msgToSend || msgToSend.trim().length === 0) {
+                    await message.reply('❌ Jefe, no detecté el contenido del mensaje que quieres enviar.');
+                    return;
+                }
+
+                recipients.push({
+                    targetId,
+                    targetName,
+                    messageText: msgToSend
+                });
+            }
+
+            // 3. Procesar envíos (programados o con confirmación obligatoria previa)
+            if (adminAI.scheduled_time) {
+                const { scheduleNewMessage } = require('./scheduledMessageService');
+                let successCount = 0;
+                let lastFormattedTime = '';
+
+                for (const rec of recipients) {
+                    try {
+                        const result = await scheduleNewMessage(client, rec.targetId, rec.messageText, adminAI.scheduled_time);
+                        lastFormattedTime = result.formattedTime;
+                        successCount++;
+                    } catch (err) {
+                        console.error(`Error programando a ${rec.targetId}:`, err.message);
+                    }
+                }
+
+                if (successCount === 0) {
+                    await message.reply('❌ Jefe, no se pudo programar el envío a ningún destinatario.');
+                } else if (recipients.length === 1) {
+                    await message.reply(`📅 *MENSAJE PROGRAMADO CON ÉXITO*\n\n👤 *Cliente:* ${recipients[0].targetName} (@${recipients[0].targetId.replace('@c.us', '')})\n🕒 *Envío:* ${lastFormattedTime}\n📝 *Mensaje:* "${recipients[0].messageText.substring(0, 100)}..."`);
+                } else {
+                    await message.reply(`📅 *DIFUSIÓN PROGRAMADA CON ÉXITO*\n\n📧 *Cuenta:* ${adminAI.target_user}\n👥 *Destinatarios:* ${successCount} clientes programados.\n🕒 *Envío:* ${lastFormattedTime}`);
+                }
+            } else {
+                // ENVIOS INMEDIATOS: Pedir confirmación OBLIGATORIA al jefe para evitar desastres
+                userStates.set(userId, {
+                    state: 'awaiting_admin_broadcast_confirmation',
+                    payload: {
+                        status: 'pending_confirmation',
+                        action_type: 'broadcast',
+                        is_prerendered: true, // Indica que el mensaje ya está pre-renderizado y no debe alterarse
+                        target_account: adminAI.target_user,
+                        platform: adminAI.target_platform || 'Streaming',
+                        new_password: '',
+                        custom_message: recipients[0].messageText,
+                        only_fields: isPinOnlyRequest ? ['pin perfil'] : [],
+                        count: recipients.length,
+                        recipients: recipients.map(r => ({
+                            tel: r.targetId.replace('@c.us', ''),
+                            nombre: r.targetName,
+                            pin_perfil: r.messageText // Mensaje pre-renderizado individual
+                        }))
+                    },
+                    timestamp: Date.now()
+                });
+
+                const preview = recipients[0].messageText;
+                await message.reply(`📢 *PREPARANDO ENVÍO INMEDIATO DE DIFUSIÓN*\n\n📧 *Cuenta:* ${adminAI.target_user}\n👥 *Destinatarios:* ${recipients.length} clientes.\n\n📝 *Vista previa del mensaje a enviar:*\n---\n${preview}\n---\n\n¿Deseas proceder con el envío masivo inmediato a los ${recipients.length} clientes? Responde *sí* para confirmar o *no* para cancelar.`);
+            }
+            return;
+        }
+
+        // Fallback a lógica antigua para comandos específicos no manejados por IA
+        let command = "";
+        if (isBotCommand) {
+            command = message.body.toLowerCase().replace('@bot', '').trim();
+        }
+
+        if (command.startsWith('autorizar')) {
+            const parts = command.split(' ');
+            if (parts.length < 3) {
+                await message.reply('❌ Formato: @bot autorizar [contacts/gmail] [codigo]');
+            } else {
+                const service = parts[1].toLowerCase();
+                const code = parts[2];
+                const { getOAuth2Client } = require('./googleAuthService');
+                await message.reply(`⏳ Intentando autorizar servicio ${service} con el código proporcionado...`);
+                try {
+                    const auth = await getOAuth2Client(service, code);
+                    if (auth) {
+                        await message.reply(`✅ Servicio ${service} autorizado y token guardado correctamente.`);
+                    } else {
+                        await message.reply(`❌ No se pudo autorizar el servicio ${service}. Revisa los logs.`);
+                    }
+                } catch (e) {
+                    await message.reply(`❌ Error al autorizar: ${e.message}`);
+                }
+            }
+            return;
+        } else if (command === 'pruebas' || command === 'prueba de escritura') {
+            const { executeTestMode } = require('./adminService');
+            await executeTestMode(message, client);
+            return;
+        } else if (command === 'si, prueba de escritura' || command === 'sí, prueba de escritura') {
+            await message.reply('🧪 Iniciando prueba de escritura verificada...');
+            const { recordNewSale } = require('./salesRegistryService');
+            const { fetchRawData } = require('./apiService');
+
+            // Dummy state para forzar escritura en una fila de Netflix
+            const dummyState = {
+                nombre: "TEST_IA_VERIFICADO",
+                items: [{ platform: { name: "Netflix" } }],
+                subscriptionType: 'mensual'
+            };
+
+            // Intentar escribir
+            const results = await recordNewSale(userId, dummyState, "TEST_VERIFICACION_API");
+
+            if (results && results.some(r => r.status === 'success')) {
+                const successMatch = results.find(r => r.status === 'success');
+                const targetRow = successMatch.index;
+                await message.reply(`⏳ Escritura enviada a la fila ${targetRow}. Verificando persistencia con la API de lectura...`);
+
+                // Esperar un momento para que Azure procese el cambio
+                await new Promise(r => setTimeout(r, 3000));
+
+                // Volver a leer para confirmar
+                const freshData = await fetchRawData();
+                const verifiedRow = freshData[targetRow - 2]; // 0-indexed in array
+
+                if (verifiedRow && (verifiedRow.Nombre === "TEST_IA_VERIFICADO" || verifiedRow.nombre === "TEST_IA_VERIFICADO")) {
+                    await message.reply(`✅ *¡CONFIRMADO!*\nLa API de lectura detectó el cambio en la fila ${targetRow}. La comunicación Escritura -> Excel -> Lectura es 100% correcta.`);
+                } else {
+                    await message.reply(`⚠️ *AVISO*: La escritura se envió con éxito, pero la API de lectura aún no muestra el cambio (puede ser delay de sincronización de OneDrive). Por favor revisa el Excel manualmente en unos segundos.`);
+                }
+            } else {
+                await message.reply(`❌ *FALLO EN PRUEBA*\nNo se encontró cupo disponible para probar o la API de Azure devolvió un error.`);
+            }
+            return;
+        } else if (command.includes('confirmar') || command.includes('si me llego') || command.includes('si la recibi')) {
+            await handleAdminPaymentConfirmation(message, command, client, userStates, null);
+            return;
+        } else if (command === '' || command === 'funciones' || command === 'comandos') {
+            await showAdminFunctions(message);
+            return;
+        } else if (command === 'ayuda' || command === 'manual' || command === 'help') {
+            await showDetailedHelp(message);
+            return;
+        } else if (command.startsWith('enviale medios') || command.startsWith('medios')) {
+            await handleSendManualPaymentMethods(message, command, client, userStates);
+            return;
+        } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
+            const { handleSendBulkCredentials } = require('./adminService');
+            const { getAccountsByPhone } = require('./apiService');
+            await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
+            return;
+        } else {
+            // --- Admin Data Queries (Dashboard Conversacional) ---
+            // Si el comando @bot no coincide con nada rígido, usar IA para consultar datos o conversar
+            const { processAdminQuery } = require('./adminQueries');
+
+            // Resolución de texto de consulta
+            let queryText = command; // Usamos el comando ya limpio
+            const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(queryText.toLowerCase());
+
+            // Recalcular estados para asegurar frescura
+            const freshAdminState = userStates.get(userId);
+            const freshIsAwaitingConfirm = freshAdminState && freshAdminState.state === 'awaiting_admin_broadcast_confirmation';
+            const freshIsAwaitingSuggestion = freshAdminState && freshAdminState.state === 'awaiting_admin_suggestion_selection';
+
+            if (queryText.length > 0) {
+                // --- CASO 1: Respuesta afirmativa ("si", "dale") ---
+                if (isAffirmative && (freshIsAwaitingConfirm || freshIsAwaitingSuggestion)) {
+                    if (freshIsAwaitingSuggestion) {
+                        if (freshAdminState.payload && freshAdminState.payload.options && freshAdminState.payload.options.length === 1) {
+                            const selectedPlatform = freshAdminState.payload.options[0];
+                            const { fetchRawData } = require('./apiService');
+                            const rawData = await fetchRawData();
+                            const resultDirect = await processAdminQuery(message, selectedPlatform, userStates, client, freshAdminState.originalFilters, rawData);
+                            if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
+                            return;
+                        }
+                    }
+                    const result = await processAdminQuery(message, queryText, userStates, client, freshAdminState);
+                    if (result && result.filteredData) await handleAdminResultLogic(result.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
+                    return;
+                }
+
+                // --- CASO 1.5: Cancelar Broadcast ---
+                if (freshIsAwaitingConfirm && !isAffirmative) {
+                    const isNegative = ['no', 'cancelar', 'abortar', 'detener'].includes(queryText.toLowerCase());
+                    if (isNegative) {
+                        userStates.delete(userId);
+                        await message.reply("🚫 *Envío masivo cancelado.*");
+                        return;
+                    }
+                    // Si no es negativo ni afirmativo, dejamos que pase a Caso 3 para que processAdminQuery
+                    // lo trate como un refinamiento contextual (ej. "descarta los extra").
+                }
+
+                // --- CASO 2: Selección directa de plataforma en estado de sugerencia ---
+                if (freshIsAwaitingSuggestion && !isAffirmative) {
+                    const { fetchRawData } = require('./apiService');
+                    const rawData = await fetchRawData();
+                    const resultDirect = await processAdminQuery(message, queryText, userStates, client, freshAdminState.originalFilters, rawData);
+                    if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
+                    return;
+                }
+
+                // --- CASO 3: Consulta general (Data o Conversación) ---
+                const result = await processAdminQuery(message, queryText, userStates, client, freshAdminState);
+                if (result && result.filteredData) {
+                    await handleAdminResultLogic(result.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
+                }
+                return;
+            }
+        }
+        return;
+    }
+
+    // MANEJO CONVERSACIONAL DEL GRUPO ADMIN (Respuestas)
+    if (message.from === GROUP_ID) {
+        const groupStateData = userStates.get(GROUP_ID);
+        if (groupStateData && typeof groupStateData === 'object') {
+            const gState = groupStateData.state;
+            const targetResponse = message.body.trim();
+
+            if (gState === 'awaiting_target_for_credentials') {
+                const { handleSendBulkCredentials } = require('./adminService');
+                const { getAccountsByPhone } = require('./apiService');
+                await handleSendBulkCredentials(message, `${groupStateData.platform} ${targetResponse}`, client, getAccountsByPhone, userStates, true);
+                userStates.delete(GROUP_ID);
+                return;
+            } else if (gState === 'awaiting_target_for_payment_methods') {
+                await handleSendManualPaymentMethods(message, `medios ${targetResponse}`, client, userStates, true);
+                userStates.delete(GROUP_ID);
+                return;
+            } else if (gState === 'awaiting_admin_broadcast_confirmation' || gState === 'awaiting_admin_suggestion_selection') {
+                const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(targetResponse.toLowerCase());
+                if (isAffirmative) {
+                    const { processAdminQuery } = require('./adminQueries');
+                    const result = await processAdminQuery(message, targetResponse, userStates, client);
+                    const isAwaitingConfirm = gState === 'awaiting_admin_broadcast_confirmation';
+                    if (result && result.filteredData) {
+                        await handleAdminResultLogic(result.filteredData, GROUP_ID, userStates, message, isAwaitingConfirm, groupStateData);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    let cleanBody = combinedBody;
+    if (cleanBody.startsWith('"') && cleanBody.endsWith('"')) {
+        cleanBody = cleanBody.slice(1, -1).trim();
+    }
+
+    // --- GENERAL CODE INTERCEPTOR (Netflix, Disney+, Max, Amazon, GPT, etc.) ---
+    const lowerBody = cleanBody.toLowerCase();
+
+    const wantsCodeKeywords = [
+        'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código',
+        'enviar código', 'enviar codigo', 'el código', 'el codigo',
+        'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
+    ];
+    const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify'];
+    const hasCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw));
+    const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
+    const isQuestionOrCode = lowerBody === '?' || lowerBody.includes('enviar') || wantsCodeKeywords.some(kw => lowerBody === kw);
+
+    if (hasCodeKeyword || (isQuestionOrCode && hasPlatformKeyword) || isQuestionOrCode) {
         try {
-            const { updateExcelData, fetchRawData } = require('./apiService');
-            
-            // Forzamos lectura para ver encabezados reales en consola
-            const rawData = await fetchRawData();
-            if (rawData && rawData.length > 0) {
-                console.log(`[TEST DEBUG] Encabezados detectados en este momento:`, Object.keys(rawData[0]).map(k => `[${k}]`).join(', '));
+            const { getAccountsByPhone } = require('./apiService');
+            const userAccounts = await getAccountsByPhone(realPhone);
+
+            if (userAccounts.length > 0) {
+                let targetAccount = null;
+
+                // 1. Intentar buscar coincidencia directa por plataforma
+                const matchedPlatform = platformsSupported.find(p => lowerBody.includes(p));
+                if (matchedPlatform) {
+                    targetAccount = userAccounts.find(c => {
+                        const streamingName = (c.Streaming || "").toLowerCase();
+                        if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
+                            return streamingName.includes('hbo') || streamingName.includes('max');
+                        }
+                        if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
+                            return streamingName.includes('amazon') || streamingName.includes('prime');
+                        }
+                        return streamingName.includes(matchedPlatform);
+                    });
+                }
+
+                // 2. Si no hay coincidencia directa, pero solo tiene 1 cuenta, usar esa
+                if (!targetAccount && userAccounts.length === 1) {
+                    targetAccount = userAccounts[0];
+                }
+
+                // 3. Si tiene varias, presentar opciones para evitar errores o falsos supuestos
+                if (!targetAccount && userAccounts.length > 1) {
+                    let msg = `🤖 Veo que tienes registradas múltiples cuentas activas. ¿De cuál de ellas necesitas el código de verificación?\n\n`;
+                    userAccounts.forEach((acc, idx) => {
+                        const platName = (acc.Streaming || "").toUpperCase();
+                        const email = (acc.correo || "").trim().toLowerCase();
+                        const profile = acc['pin perfil'] || acc['Nombre'] || "";
+                        const profileStr = profile ? ` (Perfil: ${profile})` : "";
+                        msg += `${idx + 1} - *${platName}* - ${email}${profileStr}\n`;
+                    });
+                    msg += `\n*Responde únicamente con el número de la opción que deseas.* 📲`;
+
+                    await message.reply(msg);
+
+                    userStates.set(userId, {
+                        state: 'awaiting_code_account_selection',
+                        candidates: userAccounts,
+                        timestamp: Date.now(),
+                        nombre: foundName
+                    });
+                    return;
+                }
+
+                if (targetAccount) {
+                    await processAccountVerificationCode(message, userId, targetAccount, realPhone, client, userStates);
+                    return;
+                }
             }
-
-            const alphabet = "ABCDEFGHIJKLMNOPQRST".split("");
-            const bombUpdates = {};
-            const numericTest = parseInt(testNum.replace(/\D/g, '')) || 0;
-            
-            alphabet.forEach((letter, index) => {
-                // Por defecto texto
-                bombUpdates[letter] = `TEST_${letter}_${index}`;
-            });
-
-            // CASOS ESPECIALES DE TIPO DE DATO
-            bombUpdates["E"] = numericTest;           // Columna E como NÚMERO puro
-            bombUpdates["F"] = `'${testNum}`;         // Columna F con COMILLA (Texto)
-            bombUpdates["G"] = parseFloat(testNum);   // Columna G como FLOAT
-            
-            bombUpdates["numero"] = testNum;          // Como texto
-            bombUpdates["Numero"] = numericTest;      // Como número
-            bombUpdates["whatsapp"] = testNum;
-            bombUpdates["observaciones"] = "BOMBARDEO TIPOS " + new Date().toLocaleTimeString();
-
-            await message.reply(`💣 Iniciando bombardeo de tipos de datos en fila ${targetRow}...`);
-            
-            const res = await updateExcelData(parseInt(targetRow), bombUpdates);
-            await message.reply(`✅ Bombardeo de tipos completado. Revisa el resultado: ${JSON.stringify(res, null, 2)}`);
-        } catch (err) {
-            await message.reply(`❌ Error en el diagnóstico: ${err.message}`);
-        }
-        return;
-    }
-
-    // Interceptor de Simulación
-    if (adminState.state === 'simulating_client' && message.from === OPERATOR_NUMBER) {
-        if (bodyLower.includes('@bot detener')) {
-            userStates.set(message.from, { ...adminState, state: 'main_menu', simulationCount: 0 });
-            await message.reply("🎭 *MODO SIMULACIÓN DESACTIVADO* 🤖");
-            return;
-        }
-
-        const newCount = (adminState.simulationCount || 1) - 1;
-        if (newCount <= 0) {
-            userStates.set(message.from, { ...adminState, state: 'main_menu', simulationCount: 0 });
-            console.log(`[Simulación] Finalizada para ${message.from}`);
-        } else {
-            userStates.set(message.from, { ...adminState, simulationCount: newCount });
-            console.log(`[Simulación] Procesando mensaje de admin como cliente (${newCount} restantes)`);
-            await processIncomingMessage(message);
-            return;
+        } catch (e) {
+            console.error("Error en interceptor general de códigos:", e);
         }
     }
-
-    const body = (message.body || '').trim().toLowerCase();
-    
-    if (body === '!liberar masivo' || body === 'liberar masivo') {
-      let count = 0;
-      for (const [key, val] of userStates.entries()) {
-        let stateStr = typeof val === 'object' ? val.state : val;
-        if (stateStr === 'waiting_human') {
-          userStates.delete(key);
-          count++;
-        }
-      }
-      await message.reply(`✅ *Liberación masiva completada!*\nSe reactivó el bot para ${count} clientes que estaban en espera.`);
-      return;
-    }
-
-    if (body.startsWith('!bot') || body.startsWith('!liberar') || body.startsWith('liberar ')) {
-      let targetPhone = body.replace('!bot', '').replace('!liberar', '').replace('liberar', '').trim().replace(/\D/g, '');
-      if (!targetPhone && !message.from.includes('@g.us')) {
-        targetPhone = userId.replace(/\D/g, '');
-      }
-
-      if (targetPhone) {
-        const targetId = targetPhone + '@c.us';
-        userStates.delete(targetId);
-        await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
-        await message.reply(`✅ Bot reactivado para ${targetPhone}`);
-      } else {
-        await message.reply('❌ Por favor especifica el número (ej: !bot 57311...)');
-      }
-      return;
-    }
-
-    if (body.toLowerCase().startsWith('confirmar_cobros ')) {
-      const phone = body.split(' ')[1].replace(/\D/g, '');
-      const targetId = phone + '@c.us';
-      if (pendingConfirmations.has(targetId)) {
-        const records = pendingConfirmations.get(targetId);
-        const fs = require('fs');
-        const path = require('path');
-        const file = path.join(__dirname, 'pending_charges.json');
-        let existing = [];
-        try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
-        const entry = { requester: targetId, records, timestamp: new Date().toISOString() };
-        existing.push(entry);
-        fs.writeFileSync(file, JSON.stringify(existing, null, 2));
-        for (const r of records) {
-          const dest = r.phone + '@c.us';
-          await client.sendMessage(dest, `Se ha generado un cobro para *${r.name}* solicitado por ${targetId}. Por favor, responde si este pago fue procesado.`);
-        }
-        pendingConfirmations.delete(targetId);
-        await message.reply('Cobros confirmados y enviados.');
-      } else {
-        await message.reply('No encontré cobros pendientes para ese usuario.');
-      }
-    }
-  }
-
-  // Comandos de Grupo / Admin
-  const isBotCommand = (message.from === GROUP_ID || isFromAdmin) && message.body && message.body.toLowerCase().startsWith('@bot');
-  const isReplyConfirmation = message.from === GROUP_ID && message.hasQuotedMsg && (
-      ['si', 'ya', 'listo', 'confirmado', 'vale', 'ok', 'claro'].includes(message.body.toLowerCase().trim()) ||
-      message.body.toLowerCase().includes('confirmar') ||
-      message.body.toLowerCase().includes('si me llego')
-  );
-
-  if (isBotCommand || isReplyConfirmation) {
-      const { detectAdminIntent } = require('./aiService');
-      const adminAI = await detectAdminIntent(message.body);
-      console.log(`[Admin AI] Intención detectada: ${adminAI.intent} para ${adminAI.target_user || adminAI.target}`);
-
-      if (adminAI.intent === 'dormir_bot') {
-          globalBotSleep = true;
-          await message.reply('😴 Modo dormido activado, jefe.');
-          return;
-      } else if (adminAI.intent === 'despertar_bot') {
-          globalBotSleep = false;
-          await message.reply('😃 ¡He despertado, jefe! Vuelvo a atender a los clientes.');
-          return;
-      } else if (adminAI.intent === 'liberar_bot') {
-          const { handleBatchUnanswered } = require('./adminService');
-          if (message.body.toLowerCase().includes('masivo') || message.body.toLowerCase().includes('pendientes')) {
-              await handleBatchUnanswered(message, client, userStates, processIncomingMessage);
-          } else {
-              // Liberar a uno solo
-              let targetPhone = (adminAI.target_user || adminAI.target) ? (adminAI.target_user || adminAI.target).replace(/\D/g, '') : null;
-              let targetId = targetPhone ? targetPhone + '@c.us' : (isFromAdmin && !message.from.includes('@g.us') ? message.to : null);
-              
-              if (targetId) {
-                  userStates.delete(targetId);
-                  await client.sendMessage(targetId, '🤖 *BOT REACTIVADO*: Un asesor me ha pedido retomar la atención automática. ¿En qué puedo ayudarte?');
-                  await message.reply(`✅ Bot reactivado para ${targetId.replace('@c.us', '')}`);
-              } else {
-                  await message.reply('❌ No pude saber a quién liberar, jefe.');
-              }
-          }
-          return;
-      } else if (adminAI.intent === 'dame_cuenta') {
-          const { handleAdminForceRetrieve } = require('./adminService');
-          await handleAdminForceRetrieve(message, adminAI.target_platform || adminAI.target_user || message.body, client, adminAI.target_user);
-          return;
-      } else if (adminAI.intent === 'confirmar_pago' || isReplyConfirmation) {
-          const { handleAdminPaymentConfirmation } = require('./adminService');
-          let targetPhone = adminAI.target_user ? adminAI.target_user.replace(/\D/g, '') : null;
-          
-          // Fallback manual si la IA no detectó el número pero está en el texto
-          if (!targetPhone) {
-              const regex = /57\s*3\d{2}\s*\d{7}|3\d{9}/;
-              const match = message.body.match(regex);
-              if (match) targetPhone = match[0].replace(/\s+/g, '');
-          }
-
-          let targetId = targetPhone ? (targetPhone.includes('@') ? targetPhone : targetPhone + '@c.us') : null;
-          
-          // Prioridad: 1. Quoted Message, 2. Target Phone, 3. globalLastPaymentUserId
-          if (isReplyConfirmation) {
-              const quotedMsg = await message.getQuotedMessage();
-              const phoneRegex = /(57\d{10})|(\d{10})/;
-              const match = quotedMsg.body.match(phoneRegex);
-              if (match) {
-                  let num = match[0];
-                  if (num.length === 10) num = '57' + num;
-                  targetId = num + '@c.us';
-              } else if (quotedMsg.from !== client.info.wid._serialized) {
-                  // Si no hay número en el texto pero el mensaje citado es de un cliente (no del bot)
-                  targetId = quotedMsg.from;
-              }
-          }
-
-          if (!targetId && globalLastPaymentUserId) {
-              console.log(`[Admin Logic] No se halló ID en comando, usando memoria global: ${globalLastPaymentUserId}`);
-              targetId = globalLastPaymentUserId;
-          }
-
-          if (targetId) {
-              const cmd = adminAI.months ? `confirmar ${adminAI.months} meses` : "confirmar";
-              await handleAdminPaymentConfirmation(message, cmd, client, userStates, targetId);
-          } else {
-              await message.reply('❌ No pude identificar al cliente para confirmar el pago, jefe. Intenta poniendo el número o respondiendo al reporte del cliente.');
-          }
-          return;
-      } else if (adminAI.intent === 'programar_mensaje') {
-          let recipients = [];
-          
-          // Detección robusta de solicitud de credenciales o de solo PIN
-          const isCredentialsRequest = message.body.toLowerCase().includes('credenciales') || 
-                                       message.body.toLowerCase().includes('cuenta');
-                                       
-          const isPinOnlyRequest = message.body.toLowerCase().includes('pin') && 
-                                   (message.body.toLowerCase().includes('unicamente') || 
-                                    message.body.toLowerCase().includes('únicamente') || 
-                                    message.body.toLowerCase().includes('solo') || 
-                                    message.body.toLowerCase().includes('solamente'));
-
-          // Caso A: El destinatario es una cuenta de correo (ej: sheerpremium@gmail.com)
-          if (adminAI.target_user && adminAI.target_user.includes('@') && adminAI.target_user.includes('.')) {
-              const targetEmail = adminAI.target_user.toLowerCase().trim();
-              const { fetchRawData } = require('./apiService');
-              try {
-                  const rawData = await fetchRawData();
-                  const matchingRows = rawData.filter(row => {
-                      const rowEmail = (row.correo || row.Correo || '').toString().toLowerCase().trim();
-                      const rowPlat = (row.Streaming || row.streaming || '').toString().toLowerCase();
-                      const platFilter = adminAI.target_platform ? adminAI.target_platform.toLowerCase().trim() : '';
-
-                      const emailMatch = rowEmail === targetEmail;
-                      const platMatch = platFilter ? rowPlat.includes(platFilter) : true;
-                      const hasPhone = row.numero || row.whatsapp;
-
-                      const isExtra = rowPlat.includes('extra');
-                      if (isCredentialsRequest && isExtra) return false;
-
-                      return emailMatch && platMatch && hasPhone;
-                  });
-
-                  if (matchingRows.length === 0) {
-                      await message.reply(`❌ Jefe, no encontré a ningún cliente asignado a la cuenta *${targetEmail}* en el Excel.`);
-                      return;
-                  }
-
-                  matchingRows.forEach(row => {
-                      const tel = (row.numero || row.whatsapp).toString().replace(/\D/g, '');
-                      const targetId = (tel.startsWith('57') ? tel : '57' + tel) + '@c.us';
-                      const targetName = row.Nombre || row.nombre || 'Cliente';
-
-                      let msgToSend = adminAI.message_text || '';
-                      if (isPinOnlyRequest) {
-                          const streamingName = (row.Streaming || 'Streaming').toUpperCase();
-                          const pin = row['pin perfil'] || row['pin'] || 'Sin PIN';
-                          msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
-                      } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
-                          const streamingName = (row.Streaming || 'Streaming').toUpperCase();
-                          const pin = row['pin perfil'] || row['pin'] || '';
-                          msgToSend = `🔐 *CREDENCIALES ${streamingName}*\n\n📧 Correo: ${row.correo}\n🔒 Clave: ${row.contraseña}${pin ? `\n🔢 PIN: ${pin}` : ''}`;
-                      }
-
-                      recipients.push({
-                          targetId,
-                          targetName,
-                          messageText: msgToSend
-                      });
-                  });
-              } catch (err) {
-                  console.error('Error buscando destinatarios por email:', err.message);
-                  await message.reply(`❌ Error al consultar los clientes de esa cuenta en Excel: ${err.message}`);
-                  return;
-              }
-          } else {
-              // Caso B: Destinatario único (nombre, teléfono o "este cliente")
-              let targetId = null;
-              let targetName = null;
-
-              if (adminAI.target_user === 'este cliente' || (!adminAI.target_user && !message.from.includes('@g.us'))) {
-                  targetId = userId;
-                  targetName = 'este cliente';
-              } else if (adminAI.target_user) {
-                  const cleanTarget = adminAI.target_user.replace(/\D/g, '');
-                  if (cleanTarget.length >= 8) {
-                      targetId = (cleanTarget.startsWith('57') ? cleanTarget : '57' + cleanTarget) + '@c.us';
-                      targetName = cleanTarget;
-                  } else {
-                      // Buscar por nombre
-                      const { searchContactByName } = require('./googleContactsService');
-                      let foundPhone = await searchContactByName(adminAI.target_user);
-                      
-                      if (!foundPhone) {
-                          const { fetchRawData } = require('./apiService');
-                          try {
-                              const rawData = await fetchRawData();
-                              const userRow = rawData.find(r => {
-                                  const rowName = (r.Nombre || r['Nombre Completo'] || "").toString().toLowerCase();
-                                  return rowName.includes(adminAI.target_user.toLowerCase());
-                              });
-                              if (userRow && userRow.numero) {
-                                  const tel = userRow.numero.toString().replace(/\D/g, '');
-                                  foundPhone = tel.startsWith('57') ? tel : '57' + tel;
-                              }
-                          } catch (e) {
-                              console.error('Error buscando nombre en Excel para programar:', e.message);
-                          }
-                      }
-
-                      if (foundPhone) {
-                          targetId = foundPhone.includes('@') ? foundPhone : foundPhone + '@c.us';
-                          targetName = adminAI.target_user;
-                      }
-                  }
-              }
-
-              if (!targetId) {
-                  await message.reply('❌ Jefe, no pude identificar al cliente al que deseas enviarle el mensaje. Por favor especifica su nombre o número.');
-                  return;
-              }
-
-              // Generar credenciales si fue solicitado
-              let msgToSend = adminAI.message_text || '';
-              if (isPinOnlyRequest) {
-                  const { getAccountsByPhone } = require('./apiService');
-                  try {
-                      const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
-                      const userAccounts = await getAccountsByPhone(phoneNumber);
-                      const platFilter = adminAI.target_platform || '';
-                      const targetAccount = userAccounts.find(a => (a.Streaming || '').toLowerCase().includes(platFilter.toLowerCase()));
-                      if (targetAccount) {
-                          const streamingName = (targetAccount.Streaming || 'Streaming').toUpperCase();
-                          const pin = targetAccount['pin perfil'] || targetAccount['pin'] || 'Sin PIN';
-                          msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
-                      } else {
-                          await message.reply(`❌ Jefe, no encontré ninguna cuenta de *${platFilter.toUpperCase() || 'Streaming'}* activa para el cliente.`);
-                          return;
-                      }
-                  } catch (err) {
-                      console.error('Error buscando PIN único para programar:', err.message);
-                  }
-              } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
-                  const { getAccountsByPhone } = require('./apiService');
-                  const { formatDirectCredentials } = require('./aiService');
-                  try {
-                      const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
-                      const userAccounts = await getAccountsByPhone(phoneNumber);
-                      const platFilter = adminAI.target_platform || '';
-                      
-                      const formatted = formatDirectCredentials(userAccounts, platFilter);
-                      if (formatted) {
-                          msgToSend = formatted;
-                      } else if (msgToSend.trim().length === 0) {
-                          await message.reply(`❌ Jefe, no encontré ninguna cuenta activa de *${platFilter.toUpperCase() || 'Streaming'}* para el cliente.`);
-                          return;
-                      }
-                  } catch (err) {
-                      console.error('Error buscando credenciales para programar:', err.message);
-                  }
-              }
-
-              if (!msgToSend || msgToSend.trim().length === 0) {
-                  await message.reply('❌ Jefe, no detecté el contenido del mensaje que quieres enviar.');
-                  return;
-              }
-
-              recipients.push({
-                  targetId,
-                  targetName,
-                  messageText: msgToSend
-              });
-          }
-
-          // 3. Procesar envíos (programados o con confirmación obligatoria previa)
-          if (adminAI.scheduled_time) {
-              const { scheduleNewMessage } = require('./scheduledMessageService');
-              let successCount = 0;
-              let lastFormattedTime = '';
-
-              for (const rec of recipients) {
-                  try {
-                      const result = await scheduleNewMessage(client, rec.targetId, rec.messageText, adminAI.scheduled_time);
-                      lastFormattedTime = result.formattedTime;
-                      successCount++;
-                  } catch (err) {
-                      console.error(`Error programando a ${rec.targetId}:`, err.message);
-                  }
-              }
-
-              if (successCount === 0) {
-                  await message.reply('❌ Jefe, no se pudo programar el envío a ningún destinatario.');
-              } else if (recipients.length === 1) {
-                  await message.reply(`📅 *MENSAJE PROGRAMADO CON ÉXITO*\n\n👤 *Cliente:* ${recipients[0].targetName} (@${recipients[0].targetId.replace('@c.us', '')})\n🕒 *Envío:* ${lastFormattedTime}\n📝 *Mensaje:* "${recipients[0].messageText.substring(0, 100)}..."`);
-              } else {
-                  await message.reply(`📅 *DIFUSIÓN PROGRAMADA CON ÉXITO*\n\n📧 *Cuenta:* ${adminAI.target_user}\n👥 *Destinatarios:* ${successCount} clientes programados.\n🕒 *Envío:* ${lastFormattedTime}`);
-              }
-          } else {
-              // ENVIOS INMEDIATOS: Pedir confirmación OBLIGATORIA al jefe para evitar desastres
-              userStates.set(userId, {
-                  state: 'awaiting_admin_broadcast_confirmation',
-                  payload: {
-                      status: 'pending_confirmation',
-                      action_type: 'broadcast',
-                      is_prerendered: true, // Indica que el mensaje ya está pre-renderizado y no debe alterarse
-                      target_account: adminAI.target_user,
-                      platform: adminAI.target_platform || 'Streaming',
-                      new_password: '', 
-                      custom_message: recipients[0].messageText, 
-                      only_fields: isPinOnlyRequest ? ['pin perfil'] : [],
-                      count: recipients.length,
-                      recipients: recipients.map(r => ({
-                          tel: r.targetId.replace('@c.us', ''),
-                          nombre: r.targetName,
-                          pin_perfil: r.messageText // Mensaje pre-renderizado individual
-                      }))
-                  },
-                  timestamp: Date.now()
-              });
-
-              const preview = recipients[0].messageText;
-              await message.reply(`📢 *PREPARANDO ENVÍO INMEDIATO DE DIFUSIÓN*\n\n📧 *Cuenta:* ${adminAI.target_user}\n👥 *Destinatarios:* ${recipients.length} clientes.\n\n📝 *Vista previa del mensaje a enviar:*\n---\n${preview}\n---\n\n¿Deseas proceder con el envío masivo inmediato a los ${recipients.length} clientes? Responde *sí* para confirmar o *no* para cancelar.`);
-          }
-          return;
-      }
-
-      // Fallback a lógica antigua para comandos específicos no manejados por IA
-      let command = "";
-      if (isBotCommand) {
-          command = message.body.toLowerCase().replace('@bot', '').trim();
-      }
-
-      if (command.startsWith('autorizar')) {
-          const parts = command.split(' ');
-          if (parts.length < 3) {
-              await message.reply('❌ Formato: @bot autorizar [contacts/gmail] [codigo]');
-          } else {
-              const service = parts[1].toLowerCase();
-              const code = parts[2];
-              const { getOAuth2Client } = require('./googleAuthService');
-              await message.reply(`⏳ Intentando autorizar servicio ${service} con el código proporcionado...`);
-              try {
-                  const auth = await getOAuth2Client(service, code); 
-                  if (auth) {
-                      await message.reply(`✅ Servicio ${service} autorizado y token guardado correctamente.`);
-                  } else {
-                      await message.reply(`❌ No se pudo autorizar el servicio ${service}. Revisa los logs.`);
-                  }
-              } catch (e) {
-                  await message.reply(`❌ Error al autorizar: ${e.message}`);
-              }
-          }
-          return;
-      } else if (command === 'pruebas' || command === 'prueba de escritura') {
-          const { executeTestMode } = require('./adminService');
-          await executeTestMode(message, client);
-          return;
-      } else if (command === 'si, prueba de escritura' || command === 'sí, prueba de escritura') {
-          await message.reply('🧪 Iniciando prueba de escritura verificada...');
-          const { recordNewSale } = require('./salesRegistryService');
-          const { fetchRawData } = require('./apiService');
-          
-          // Dummy state para forzar escritura en una fila de Netflix
-          const dummyState = {
-              nombre: "TEST_IA_VERIFICADO",
-              items: [{ platform: { name: "Netflix" } }],
-              subscriptionType: 'mensual'
-          };
-          
-          // Intentar escribir
-          const results = await recordNewSale(userId, dummyState, "TEST_VERIFICACION_API");
-          
-          if (results && results.some(r => r.status === 'success')) {
-              const successMatch = results.find(r => r.status === 'success');
-              const targetRow = successMatch.index;
-              await message.reply(`⏳ Escritura enviada a la fila ${targetRow}. Verificando persistencia con la API de lectura...`);
-              
-              // Esperar un momento para que Azure procese el cambio
-              await new Promise(r => setTimeout(r, 3000));
-              
-              // Volver a leer para confirmar
-              const freshData = await fetchRawData();
-              const verifiedRow = freshData[targetRow - 2]; // 0-indexed in array
-              
-              if (verifiedRow && (verifiedRow.Nombre === "TEST_IA_VERIFICADO" || verifiedRow.nombre === "TEST_IA_VERIFICADO")) {
-                  await message.reply(`✅ *¡CONFIRMADO!*\nLa API de lectura detectó el cambio en la fila ${targetRow}. La comunicación Escritura -> Excel -> Lectura es 100% correcta.`);
-              } else {
-                  await message.reply(`⚠️ *AVISO*: La escritura se envió con éxito, pero la API de lectura aún no muestra el cambio (puede ser delay de sincronización de OneDrive). Por favor revisa el Excel manualmente en unos segundos.`);
-              }
-          } else {
-              await message.reply(`❌ *FALLO EN PRUEBA*\nNo se encontró cupo disponible para probar o la API de Azure devolvió un error.`);
-          }
-          return;
-      } else if (command.includes('confirmar') || command.includes('si me llego') || command.includes('si la recibi')) {
-          await handleAdminPaymentConfirmation(message, command, client, userStates, null);
-          return;
-      } else if (command === '' || command === 'funciones' || command === 'comandos') {
-          await showAdminFunctions(message);
-          return;
-      } else if (command === 'ayuda' || command === 'manual' || command === 'help') {
-          await showDetailedHelp(message);
-          return;
-      } else if (command.startsWith('enviale medios') || command.startsWith('medios')) {
-          await handleSendManualPaymentMethods(message, command, client, userStates);
-          return;
-      } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
-          const { handleSendBulkCredentials } = require('./adminService');
-          const { getAccountsByPhone } = require('./apiService');
-          await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
-          return;
-      } else {
-          // --- Admin Data Queries (Dashboard Conversacional) ---
-          // Si el comando @bot no coincide con nada rígido, usar IA para consultar datos o conversar
-          const { processAdminQuery } = require('./adminQueries');
-          
-          // Resolución de texto de consulta
-          let queryText = command; // Usamos el comando ya limpio
-          const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(queryText.toLowerCase());
-
-          // Recalcular estados para asegurar frescura
-          const freshAdminState = userStates.get(userId);
-          const freshIsAwaitingConfirm = freshAdminState && freshAdminState.state === 'awaiting_admin_broadcast_confirmation';
-          const freshIsAwaitingSuggestion = freshAdminState && freshAdminState.state === 'awaiting_admin_suggestion_selection';
-
-          if (queryText.length > 0) {
-              // --- CASO 1: Respuesta afirmativa ("si", "dale") ---
-              if (isAffirmative && (freshIsAwaitingConfirm || freshIsAwaitingSuggestion)) {
-                  if (freshIsAwaitingSuggestion) {
-                      if (freshAdminState.payload && freshAdminState.payload.options && freshAdminState.payload.options.length === 1) {
-                          const selectedPlatform = freshAdminState.payload.options[0];
-                          const { fetchRawData } = require('./apiService');
-                          const rawData = await fetchRawData();
-                          const resultDirect = await processAdminQuery(message, selectedPlatform, userStates, client, freshAdminState.originalFilters, rawData);
-                          if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
-                          return;
-                      }
-                  }
-                  const result = await processAdminQuery(message, queryText, userStates, client, freshAdminState);
-                  if (result && result.filteredData) await handleAdminResultLogic(result.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
-                  return;
-              }
-
-              // --- CASO 1.5: Cancelar Broadcast ---
-              if (freshIsAwaitingConfirm && !isAffirmative) {
-                  const isNegative = ['no', 'cancelar', 'abortar', 'detener'].includes(queryText.toLowerCase());
-                  if (isNegative) {
-                      userStates.delete(userId);
-                      await message.reply("🚫 *Envío masivo cancelado.*");
-                      return;
-                  }
-                  // Si no es negativo ni afirmativo, dejamos que pase a Caso 3 para que processAdminQuery
-                  // lo trate como un refinamiento contextual (ej. "descarta los extra").
-              }
-
-              // --- CASO 2: Selección directa de plataforma en estado de sugerencia ---
-              if (freshIsAwaitingSuggestion && !isAffirmative) {
-                  const { fetchRawData } = require('./apiService');
-                  const rawData = await fetchRawData();
-                  const resultDirect = await processAdminQuery(message, queryText, userStates, client, freshAdminState.originalFilters, rawData);
-                  if (resultDirect && resultDirect.filteredData) await handleAdminResultLogic(resultDirect.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
-                  return;
-              }
-
-              // --- CASO 3: Consulta general (Data o Conversación) ---
-              const result = await processAdminQuery(message, queryText, userStates, client, freshAdminState);
-              if (result && result.filteredData) {
-                  await handleAdminResultLogic(result.filteredData, userId, userStates, message, freshIsAwaitingConfirm, freshAdminState);
-              }
-              return;
-          }
-      }
-      return; 
-  }
-
-  // MANEJO CONVERSACIONAL DEL GRUPO ADMIN (Respuestas)
-  if (message.from === GROUP_ID) {
-      const groupStateData = userStates.get(GROUP_ID);
-      if (groupStateData && typeof groupStateData === 'object') {
-          const gState = groupStateData.state;
-          const targetResponse = message.body.trim();
-          
-          if (gState === 'awaiting_target_for_credentials') {
-              const { handleSendBulkCredentials } = require('./adminService');
-              const { getAccountsByPhone } = require('./apiService');
-              await handleSendBulkCredentials(message, `${groupStateData.platform} ${targetResponse}`, client, getAccountsByPhone, userStates, true);
-              userStates.delete(GROUP_ID);
-              return;
-          } else if (gState === 'awaiting_target_for_payment_methods') {
-              await handleSendManualPaymentMethods(message, `medios ${targetResponse}`, client, userStates, true);
-              userStates.delete(GROUP_ID);
-              return;
-          } else if (gState === 'awaiting_admin_broadcast_confirmation' || gState === 'awaiting_admin_suggestion_selection') {
-              const isAffirmative = ['si', 'sí', 'dale', 'ok', 'yes', 'proceder', 'confirmar'].includes(targetResponse.toLowerCase());
-              if (isAffirmative) {
-                  const { processAdminQuery } = require('./adminQueries');
-                  const result = await processAdminQuery(message, targetResponse, userStates, client);
-                  const isAwaitingConfirm = gState === 'awaiting_admin_broadcast_confirmation';
-                  if (result && result.filteredData) {
-                      await handleAdminResultLogic(result.filteredData, GROUP_ID, userStates, message, isAwaitingConfirm, groupStateData);
-                  }
-                  return;
-              }
-          }
-      }
-  }
-
-  let cleanBody = combinedBody;
-  if (cleanBody.startsWith('"') && cleanBody.endsWith('"')) {
-    cleanBody = cleanBody.slice(1, -1).trim();
-  }
-
-  // --- GENERAL CODE INTERCEPTOR (Netflix, Disney+, Max, Amazon, GPT, etc.) ---
-  const lowerBody = cleanBody.toLowerCase();
-  
-  const wantsCodeKeywords = [
-      'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código', 
-      'enviar código', 'enviar codigo', 'el código', 'el codigo', 
-      'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
-  ];
-  const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify'];
-  const hasCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw));
-  const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
-  const isQuestionOrCode = lowerBody === '?' || lowerBody.includes('enviar') || wantsCodeKeywords.some(kw => lowerBody === kw);
-  
-  if (hasCodeKeyword || (isQuestionOrCode && hasPlatformKeyword) || isQuestionOrCode) {
-      try {
-          const { getAccountsByPhone } = require('./apiService');
-          const userAccounts = await getAccountsByPhone(realPhone);
-          
-          if (userAccounts.length > 0) {
-              let targetAccount = null;
-              
-              // 1. Intentar buscar coincidencia directa por plataforma
-              const matchedPlatform = platformsSupported.find(p => lowerBody.includes(p));
-              if (matchedPlatform) {
-                  targetAccount = userAccounts.find(c => {
-                      const streamingName = (c.Streaming || "").toLowerCase();
-                      if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
-                          return streamingName.includes('hbo') || streamingName.includes('max');
-                      }
-                      if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
-                          return streamingName.includes('amazon') || streamingName.includes('prime');
-                      }
-                      return streamingName.includes(matchedPlatform);
-                  });
-              }
-              
-              // 2. Si no hay coincidencia directa, pero solo tiene 1 cuenta, usar esa
-              if (!targetAccount && userAccounts.length === 1) {
-                  targetAccount = userAccounts[0];
-              }
-              
-              // 3. Si tiene varias, presentar opciones para evitar errores o falsos supuestos
-              if (!targetAccount && userAccounts.length > 1) {
-                  let msg = `🤖 Veo que tienes registradas múltiples cuentas activas. ¿De cuál de ellas necesitas el código de verificación?\n\n`;
-                  userAccounts.forEach((acc, idx) => {
-                      const platName = (acc.Streaming || "").toUpperCase();
-                      const email = (acc.correo || "").trim().toLowerCase();
-                      const profile = acc['pin perfil'] || acc['Nombre'] || "";
-                      const profileStr = profile ? ` (Perfil: ${profile})` : "";
-                      msg += `${idx + 1} - *${platName}* - ${email}${profileStr}\n`;
-                  });
-                  msg += `\n*Responde únicamente con el número de la opción que deseas.* 📲`;
-                  
-                  await message.reply(msg);
-                  
-                  userStates.set(userId, {
-                      state: 'awaiting_code_account_selection',
-                      candidates: userAccounts,
-                      timestamp: Date.now(),
-                      nombre: foundName
-                  });
-                  return;
-              }
-
-              if (targetAccount) {
-                  await processAccountVerificationCode(message, userId, targetAccount, realPhone, client, userStates);
-                  return;
-              }
-          }
-      } catch (e) {
-          console.error("Error en interceptor general de códigos:", e);
-      }
-  }
 
     if (cleanBody.toLowerCase().startsWith("hola, estoy interesado en")) {
-    message.body = cleanBody;
-    await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
-    return;
-  }
-
-  let mediaData = [];
-  if (isMedia) {
-    // --- MANEJO DE MULTIMEDIA (LOTE) ---
-    const history = await getChatHistoryText(message);
-    
-    try {
-      for (const m of messages) {
-        if (m.hasMedia) {
-          const media = await m.downloadMedia();
-          if (media && media.data && media.mimetype) {
-            const cleanMime = media.mimetype.split(';')[0];
-            mediaData.push({ data: media.data, mimeType: cleanMime });
-          }
-        }
-      }
-    } catch(err) {
-      console.error("Error descargando multimedia del lote:", err.message);
+        message.body = cleanBody;
+        await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+        return;
     }
 
-    // --- INTERCEPTOR GLOBAL DE PAGOS ---
-    if (mediaData.length > 0) {
-      // Tomamos la primera imagen para el interceptor de pagos (normalmente el usuario manda el recibo solo)
-      const batchText = messages.map(m => m.body).filter(b => b).join('\n');
-      const check = await isPaymentReceipt(mediaData[0], `[TEXTO EN ESTE LOTE: ${batchText}]\n\n${history}`);
-      console.log(`[PAYMENT INTERCEPTOR DEBUG] Result check: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, platform=${check.inferredPlatform}`);
-      
-      if (check.isReceipt) {
-          console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);
-          
-          const existing = userStates.get(userId);
-          const stateData = typeof existing === 'object' ? { ...existing } : { nombre: foundName };
-          
-          // Si el carrito está vacío, intentar auto-rellenarlo
-          if (!stateData.items || stateData.items.length === 0) {
-              const { getAccountsByPhone } = require('./apiService');
-              let userAccounts = [];
-              try { userAccounts = await getAccountsByPhone(realPhone); } catch(e) {}
+    let mediaData = [];
+    if (isMedia) {
+        // --- MANEJO DE MULTIMEDIA (LOTE) ---
+        const history = await getChatHistoryText(message);
 
-              if (check.inferredPlatform) {
-                  console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}`);
-                  
-                  // Intentar obtener el precio real de la plataforma en el catálogo
-                  let catalogPrice = 0;
-                  try {
-                      const { getPlatforms } = require('./salesService');
-                      const platforms = await getPlatforms();
-                      const lowerInferred = check.inferredPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
-                      const matchedPlatform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(lowerInferred)) ||
-                                               platforms.find(p => lowerInferred.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
-                      if (matchedPlatform) {
-                          if (matchedPlatform.name.toLowerCase().includes('spotify')) {
-                              // Spotify tiene planes de 10000 (Individual) y 8000 (Owner)
-                              const matchedPlan = matchedPlatform.plans.find(p => p.price === check.amount);
-                              if (matchedPlan) {
-                                  catalogPrice = matchedPlan.price;
-                              } else {
-                                  const individualPlan = matchedPlatform.plans.find(p => p.name.toLowerCase().includes('individual'));
-                                  catalogPrice = individualPlan ? individualPlan.price : 10000;
-                              }
-                          } else if (matchedPlatform.plans && matchedPlatform.plans.length > 0) {
-                              catalogPrice = matchedPlatform.plans[0].price;
-                          }
-                      }
-                  } catch (platErr) {
-                      console.error("[PAYMENT INTERCEPTOR] Error buscando precio de plataforma en catálogo:", platErr.message);
-                  }
+        try {
+            for (const m of messages) {
+                if (m.hasMedia) {
+                    const media = await m.downloadMedia();
+                    if (media && media.data && media.mimetype) {
+                        const cleanMime = media.mimetype.split(';')[0];
+                        mediaData.push({ data: media.data, mimeType: cleanMime });
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("Error descargando multimedia del lote:", err.message);
+        }
 
-                  stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
-                  stateData.total = catalogPrice || check.amount;
-                  stateData.isAutoFilled = true;
-                  userStates.set(userId, stateData); // Persistir el auto-llenado
-              } else if (userAccounts.length === 1) {
-                  const singleAcc = userAccounts[0];
-                  stateData.items = [singleAcc];
-                  stateData.total = check.amount;
-                  stateData.isAutoFilled = true;
-                  stateData.isImplicitFallback = true; // Flag para confirmación de precisión
-                  userStates.set(userId, stateData); // Persistir el auto-llenado
-              }
-          }
-          
-          // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---
-          if (check.amount && check.amount > 0) {
-              try {
-                  const expectedTotal = stateData.total || 0;
-                  if (expectedTotal > 0 && check.amount !== expectedTotal) {
-                      console.log(`[PAYMENT AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) no coincide con el total esperado ($${expectedTotal}) para @${userId}. No se auto-validará.`);
-                  } else {
-                      const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min
-                      if (match) {
-                          console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
-                          
-                          // SI LA PLATAFORMA FUE AUTO-RELLENADA DE FORMA IMPLÍCITA (PORQUE EL RECIBO NO TENÍA LA PLATAFORMA), PEDIR CONFIRMACIÓN
-                          if (stateData.isImplicitFallback && stateData.items && stateData.items.length > 0) {
-                              const targetPlat = (stateData.items[0].Streaming || "Servicio").toUpperCase();
-                              let msg = `🤖 ¡Hola! He recibido tu comprobante de Nequi/Abono de *$${check.amount}*.\n\n` +
+        // --- INTERCEPTOR GLOBAL DE PAGOS ---
+        if (mediaData.length > 0) {
+            // Tomamos la primera imagen para el interceptor de pagos (normalmente el usuario manda el recibo solo)
+            const batchText = messages.map(m => m.body).filter(b => b).join('\n');
+            const check = await isPaymentReceipt(mediaData[0], `[TEXTO EN ESTE LOTE: ${batchText}]\n\n${history}`);
+            console.log(`[PAYMENT INTERCEPTOR DEBUG] Result check: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, platform=${check.inferredPlatform}`);
+
+            if (check.isReceipt) {
+                console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);
+
+                const existing = userStates.get(userId);
+                const stateData = typeof existing === 'object' ? { ...existing } : { nombre: foundName };
+
+                // Si el carrito está vacío, intentar auto-rellenarlo
+                if (!stateData.items || stateData.items.length === 0) {
+                    const { getAccountsByPhone } = require('./apiService');
+                    let userAccounts = [];
+                    try { userAccounts = await getAccountsByPhone(realPhone); } catch (e) { }
+
+                    if (check.inferredPlatform) {
+                        console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}`);
+
+                        // Intentar obtener el precio real de la plataforma en el catálogo
+                        let catalogPrice = 0;
+                        try {
+                            const { getPlatforms } = require('./salesService');
+                            const platforms = await getPlatforms();
+                            const lowerInferred = check.inferredPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
+                            const matchedPlatform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(lowerInferred)) ||
+                                platforms.find(p => lowerInferred.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
+                            if (matchedPlatform) {
+                                if (matchedPlatform.name.toLowerCase().includes('spotify')) {
+                                    // Spotify tiene planes de 10000 (Individual) y 8000 (Owner)
+                                    const matchedPlan = matchedPlatform.plans.find(p => p.price === check.amount);
+                                    if (matchedPlan) {
+                                        catalogPrice = matchedPlan.price;
+                                    } else {
+                                        const individualPlan = matchedPlatform.plans.find(p => p.name.toLowerCase().includes('individual'));
+                                        catalogPrice = individualPlan ? individualPlan.price : 10000;
+                                    }
+                                } else if (matchedPlatform.plans && matchedPlatform.plans.length > 0) {
+                                    catalogPrice = matchedPlatform.plans[0].price;
+                                }
+                            }
+                        } catch (platErr) {
+                            console.error("[PAYMENT INTERCEPTOR] Error buscando precio de plataforma en catálogo:", platErr.message);
+                        }
+
+                        stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
+                        stateData.total = catalogPrice || check.amount;
+                        stateData.isAutoFilled = true;
+                        userStates.set(userId, stateData); // Persistir el auto-llenado
+                    } else if (userAccounts.length === 1) {
+                        const singleAcc = userAccounts[0];
+                        stateData.items = [singleAcc];
+                        stateData.total = check.amount;
+                        stateData.isAutoFilled = true;
+                        stateData.isImplicitFallback = true; // Flag para confirmación de precisión
+                        userStates.set(userId, stateData); // Persistir el auto-llenado
+                    }
+                }
+
+                // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---
+                if (check.amount && check.amount > 0) {
+                    try {
+                        const expectedTotal = stateData.total || 0;
+                        if (expectedTotal > 0 && check.amount !== expectedTotal) {
+                            console.log(`[PAYMENT AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) no coincide con el total esperado ($${expectedTotal}) para @${userId}. No se auto-validará.`);
+                        } else {
+                            const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min
+                            if (match) {
+                                console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
+
+                                // SI LA PLATAFORMA FUE AUTO-RELLENADA DE FORMA IMPLÍCITA (PORQUE EL RECIBO NO TENÍA LA PLATAFORMA), PEDIR CONFIRMACIÓN
+                                if (stateData.isImplicitFallback && stateData.items && stateData.items.length > 0) {
+                                    const targetPlat = (stateData.items[0].Streaming || "Servicio").toUpperCase();
+                                    let msg = `🤖 ¡Hola! He recibido tu comprobante de Nequi/Abono de *$${check.amount}*.\n\n` +
                                         `Veo que tienes una cuenta activa de *${targetPlat}*. ¿Este pago es para renovar tu servicio de *${targetPlat}* por un valor de *${check.amount}*? ¿Esta información es correcta para poder proceder? 😊\n\n` +
                                         `1 - Sí, renovar ${targetPlat} ✅\n` +
                                         `2 - No, es para un servicio nuevo u otro motivo ❌`;
-                              await message.reply(msg);
-                              
-                              userStates.set(userId, {
-                                  state: 'awaiting_payment_renewal_confirmation',
-                                  matchedAccount: stateData.items[0],
-                                  amount: check.amount,
-                                  bank: check.bank,
-                                  matchId: match.id,
-                                  subject: match.subject,
-                                  chatJid: originalChatJid,
-                                  nombre: foundName
-                              });
-                              return;
-                          }
+                                    await message.reply(msg);
 
-                          let hasNetflix = false;
-                          if (stateData.items && Array.isArray(stateData.items)) {
-                              hasNetflix = stateData.items.some(item => {
-                                  const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
-                                  return name.includes('netflix') && !name.includes('extra');
-                              });
-                          }
+                                    userStates.set(userId, {
+                                        state: 'awaiting_payment_renewal_confirmation',
+                                        matchedAccount: stateData.items[0],
+                                        amount: check.amount,
+                                        bank: check.bank,
+                                        matchId: match.id,
+                                        subject: match.subject,
+                                        chatJid: originalChatJid,
+                                        nombre: foundName
+                                    });
+                                    return;
+                                }
 
-                          if (hasNetflix && !stateData.isRenewal) {
-                              await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
-                              
-                              userStates.set(userId, { 
-                                  ...stateData, 
-                                  state: 'awaiting_netflix_operator_post_payment',
-                                  paymentMethod: check.bank || 'Transferencia',
-                                  checkAmount: check.amount,
-                                  gmailMatchId: match.id
-                              });
-                              
-                              return;
-                          }
+                                let hasNetflix = false;
+                                if (stateData.items && Array.isArray(stateData.items)) {
+                                    hasNetflix = stateData.items.some(item => {
+                                        const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                                        return name.includes('netflix') && !name.includes('extra');
+                                    });
+                                }
 
-                          // Ejecutar validación automática directa si todo coincide perfectamente
-                          const validationResult = await executePaymentValidation(userId, { ...stateData, total: check.amount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null, match.id);
-                          
-                          if (validationResult.success) {
-                              // Notificar al grupo administrativo del éxito automático
-                              try {
-                                  const groupChat = await client.getChatById(GROUP_ID);
-                                  if (groupChat) {
-                                      await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
-                                                     `Monto: $${check.amount}\n` +
-                                                     `Banco: ${check.bank || 'Bre-B'}\n` +
-                                                     `Asunto: ${match.subject}\n` +
-                                                     `ID Gmail: ${match.id}\n\n` +
-                                                     `El bot ya entregó el servicio automáticamente.`);
-                                  }
-                              } catch(e) {}
-                              return;
-                          }
-                      }
-                  }
-              } catch (autoErr) {
-                  console.error(`[PAYMENT AUTO-VALIDATE] ❌ Error crítico durante validación automática para ${userId}:`, autoErr.message);
-              }
-          }
+                                if (hasNetflix && !stateData.isRenewal) {
+                                    await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
 
-          // Si no hubo match automático, seguimos con el flujo manual
-          // Revisamos si en el carrito (items) hay un servicio de Netflix
-          let hasNetflix = false;
-          if (stateData.items && Array.isArray(stateData.items)) {
-              hasNetflix = stateData.items.some(item => {
-                  const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
-                  // Solo pedir operador si es Netflix pero NO es Extra
-                  return name.includes('netflix') && !name.includes('extra');
-              });
-          }
+                                    userStates.set(userId, {
+                                        ...stateData,
+                                        state: 'awaiting_netflix_operator_post_payment',
+                                        paymentMethod: check.bank || 'Transferencia',
+                                        checkAmount: check.amount,
+                                        gmailMatchId: match.id
+                                    });
 
-          if (hasNetflix && !stateData.isRenewal) {
-              await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
-              
-              userStates.set(userId, { 
-                  ...stateData, 
-                  state: 'awaiting_netflix_operator_post_payment',
-                  paymentMethod: check.bank || 'Transferencia',
-                  checkAmount: check.amount
-              });
-              
-              return;
-          }
+                                    return;
+                                }
 
-          userStates.set(userId, { 
-              ...stateData, 
-              state: 'awaiting_payment_confirmation',
-              paymentMethod: check.bank || 'Transferencia'
-          });
-          
-          globalLastPaymentUserId = userId; // Guardamos en memoria para que el admin solo diga "@bot confirmar"
+                                // Ejecutar validación automática directa si todo coincide perfectamente
+                                const validationResult = await executePaymentValidation(userId, { ...stateData, total: check.amount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null, match.id);
 
-          const replyText = `🤖 He recibido tu comprobante de pago. ¡Muchas gracias! 🎉
+                                if (validationResult.success) {
+                                    // Notificar al grupo administrativo del éxito automático
+                                    try {
+                                        const groupChat = await client.getChatById(GROUP_ID);
+                                        if (groupChat) {
+                                            await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
+                                                `Monto: $${check.amount}\n` +
+                                                `Banco: ${check.bank || 'Bre-B'}\n` +
+                                                `Asunto: ${match.subject}\n` +
+                                                `ID Gmail: ${match.id}\n\n` +
+                                                `El bot ya entregó el servicio automáticamente.`);
+                                        }
+                                    } catch (e) { }
+                                    return;
+                                }
+                            }
+                        }
+                    } catch (autoErr) {
+                        console.error(`[PAYMENT AUTO-VALIDATE] ❌ Error crítico durante validación automática para ${userId}:`, autoErr.message);
+                    }
+                }
+
+                // Si no hubo match automático, seguimos con el flujo manual
+                // Revisamos si en el carrito (items) hay un servicio de Netflix
+                let hasNetflix = false;
+                if (stateData.items && Array.isArray(stateData.items)) {
+                    hasNetflix = stateData.items.some(item => {
+                        const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                        // Solo pedir operador si es Netflix pero NO es Extra
+                        return name.includes('netflix') && !name.includes('extra');
+                    });
+                }
+
+                if (hasNetflix && !stateData.isRenewal) {
+                    await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
+
+                    userStates.set(userId, {
+                        ...stateData,
+                        state: 'awaiting_netflix_operator_post_payment',
+                        paymentMethod: check.bank || 'Transferencia',
+                        checkAmount: check.amount
+                    });
+
+                    return;
+                }
+
+                userStates.set(userId, {
+                    ...stateData,
+                    state: 'awaiting_payment_confirmation',
+                    paymentMethod: check.bank || 'Transferencia'
+                });
+
+                globalLastPaymentUserId = userId; // Guardamos en memoria para que el admin solo diga "@bot confirmar"
+
+                const replyText = `🤖 He recibido tu comprobante de pago. ¡Muchas gracias! 🎉
 
 ⚠️ *Nota:* Como enviaste el comprobante por un medio manual (Nequi/Daviplata tradicional), nuestro equipo humano tendrá que verificarlo de forma manual. Esto puede demorar un poco más. ⏳
 
 💡 *Recomendación para la próxima:* Si realizas tus transferencias utilizando nuestro *QR Negocios* o la *Llave Bre-V / Bre-B*, el bot validará tu pago automáticamente y te entregará el servicio en segundos sin esperar por humanos. ⚡🤖
 
 Un asesor ya está notificado y revisará tu transferencia lo más pronto posible. ¡Gracias por tu paciencia! 😊`;
-          
-          await message.reply(replyText);
 
-          // Notificar al grupo administrativo
-          try {
-              const groupChat = await client.getChatById(GROUP_ID);
-              if (groupChat) {
-                  let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
-                                 `Banco: ${check.bank || 'No identificado'}\n` +
-                                 `Monto: ${check.amount || 'No legible'}\n\n` +
-                                 `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
-                  
-                  await groupChat.sendMessage(adminMsg);
-                  const mediaToForward = await message.downloadMedia();
-                  await groupChat.sendMessage(mediaToForward);
-              }
+                await message.reply(replyText);
 
-              if (stateData.isRenewal && stateData.items && stateData.items.length > 0) {
-                  const { updateExcelData } = require('./apiService');
-                  for (const item of stateData.items) {
-                      if (item._rowNumber) {
-                          try {
-                              await updateExcelData(item._rowNumber, { observaciones: "⚠️ REVISAR COMPROBANTE EN CHAT" });
-                              console.log(`[PAYMENT] Excel actualizado con nota de revisión para la fila ${item._rowNumber}`);
-                          } catch(err) {
-                              console.error("Error actualizando observaciones en Excel para comprobante:", err.message);
-                          }
-                      }
-                  }
-              }
+                // Notificar al grupo administrativo
+                try {
+                    const groupChat = await client.getChatById(GROUP_ID);
+                    if (groupChat) {
+                        let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
+                            `Banco: ${check.bank || 'No identificado'}\n` +
+                            `Monto: ${check.amount || 'No legible'}\n\n` +
+                            `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
 
-          } catch (adminErr) {
-              console.error("Error notificando al grupo sobre pago interceptado:", adminErr.message);
-          }
-          return; // Salir, ya procesamos el mensaje
-      } else {
-          // --- NUEVO: DETECCIÓN DE FALLO PREMATURO ---
-          // Si mandó una imagen que NO es pago, revisamos si tiene cuentas activas
-          const lowerBatch = batchText.toLowerCase();
-          const errorKeywords = ['falla', 'error', 'funciona', 'caido', 'suspendid', 'problema', 'sale asi', 'sacó', 'mira lo que', 'no deja', 'qué pasó', 'que paso', 'bloquead', 'no sirve'];
-          const hasErrorText = errorKeywords.some(k => lowerBatch.includes(k));
+                        await groupChat.sendMessage(adminMsg);
+                        const mediaToForward = await message.downloadMedia();
+                        await groupChat.sendMessage(mediaToForward);
+                    }
 
-          if (hasErrorText) {
-              const { getAccountsByPhone } = require('./apiService');
-              const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
-              const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
-              const accounts = await getAccountsByPhone(phoneNumber);
-              
-              const activeAccountWithProblem = accounts.find(acc => {
-                  const expDate = getJsDateFromExcel(acc.deben);
-                  const today = getTodayInBogota();
-                  return expDate && expDate > today; // Cuenta sigue vigente en el papel
-              });
+                    if (stateData.isRenewal && stateData.items && stateData.items.length > 0) {
+                        const { updateExcelData } = require('./apiService');
+                        for (const item of stateData.items) {
+                            if (item._rowNumber) {
+                                try {
+                                    await updateExcelData(item._rowNumber, { observaciones: "⚠️ REVISAR COMPROBANTE EN CHAT" });
+                                    console.log(`[PAYMENT] Excel actualizado con nota de revisión para la fila ${item._rowNumber}`);
+                                } catch (err) {
+                                    console.error("Error actualizando observaciones en Excel para comprobante:", err.message);
+                                }
+                            }
+                        }
+                    }
 
-              if (activeAccountWithProblem) {
-                  const expD = getJsDateFromExcel(activeAccountWithProblem.deben);
-                  const dateStr = expD ? expD.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : activeAccountWithProblem.deben;
-                  console.log(`[FAULT DETECTOR] 🚨 Posible fallo prematuro detectado para @${userId}`);
-                  try {
-                      const groupChat = await client.getChatById(GROUP_ID);
-                      if (groupChat) {
-                          const adminMsg = `🚨 *POSIBLE FALLO PREMATURO* (@${userId.replace('@c.us', '')})\n` +
-                                         `El cliente reporta un error pero su cuenta de *${activeAccountWithProblem.Streaming}* vence hasta el *${dateStr}*.\n\n` +
-                                         `Favor revisar el chat de inmediato.`;
-                          await groupChat.sendMessage(adminMsg);
-                          const mediaToForward = await message.downloadMedia();
-                          await groupChat.sendMessage(mediaToForward);
-                      }
-                  } catch (e) {}
-              }
-          }
-      }
+                } catch (adminErr) {
+                    console.error("Error notificando al grupo sobre pago interceptado:", adminErr.message);
+                }
+                return; // Salir, ya procesamos el mensaje
+            } else {
+                // --- NUEVO: DETECCIÓN DE FALLO PREMATURO ---
+                // Si mandó una imagen que NO es pago, revisamos si tiene cuentas activas
+                const lowerBatch = batchText.toLowerCase();
+                const errorKeywords = ['falla', 'error', 'funciona', 'caido', 'suspendid', 'problema', 'sale asi', 'sacó', 'mira lo que', 'no deja', 'qué pasó', 'que paso', 'bloquead', 'no sirve'];
+                const hasErrorText = errorKeywords.some(k => lowerBatch.includes(k));
+
+                if (hasErrorText) {
+                    const { getAccountsByPhone } = require('./apiService');
+                    const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
+                    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+                    const accounts = await getAccountsByPhone(phoneNumber);
+
+                    const activeAccountWithProblem = accounts.find(acc => {
+                        const expDate = getJsDateFromExcel(acc.deben);
+                        const today = getTodayInBogota();
+                        return expDate && expDate > today; // Cuenta sigue vigente en el papel
+                    });
+
+                    if (activeAccountWithProblem) {
+                        const expD = getJsDateFromExcel(activeAccountWithProblem.deben);
+                        const dateStr = expD ? expD.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : activeAccountWithProblem.deben;
+                        console.log(`[FAULT DETECTOR] 🚨 Posible fallo prematuro detectado para @${userId}`);
+                        try {
+                            const groupChat = await client.getChatById(GROUP_ID);
+                            if (groupChat) {
+                                const adminMsg = `🚨 *POSIBLE FALLO PREMATURO* (@${userId.replace('@c.us', '')})\n` +
+                                    `El cliente reporta un error pero su cuenta de *${activeAccountWithProblem.Streaming}* vence hasta el *${dateStr}*.\n\n` +
+                                    `Favor revisar el chat de inmediato.`;
+                                await groupChat.sendMessage(adminMsg);
+                                const mediaToForward = await message.downloadMedia();
+                                await groupChat.sendMessage(mediaToForward);
+                            }
+                        } catch (e) { }
+                    }
+                }
+            }
+        }
+
+        // --- INTERCEPTOR DE TEXTO PARA PAGOS (Sin media) ---
+        // Si el usuario dice algo como "ya pagué" o "aquí el soporte" sin la imagen aún
+        const checkText = await isPaymentReceipt(combinedBody, `Contexto: El usuario está enviando un mensaje de texto. Evalúa si confirma un pago.`);
+        if (checkText.isReceipt) {
+            console.log(`[PAYMENT INTERCEPTOR] 📝 Texto de pago detectado para @${userId}`);
+
+            let replyText = "🤖 ¡Entendido! Quedo a la espera de la imagen de tu comprobante para que un asesor pueda validarlo rápidamente. 😊";
+
+            // Solo preguntar operador si es Netflix
+            const state = userStates.get(userId);
+            const isNetflix = state && state.items && state.items.some(it => (it.Streaming || "").toLowerCase().includes('netflix'));
+            if (isNetflix) {
+                replyText += "\n\nPor cierto, como es para Netflix, ¿podrías decirme tu localidad y operador de internet? Esto nos ayuda a asegurar la estabilidad de tu cuenta. 🏠";
+            }
+
+            await message.reply(replyText);
+            userStates.set(userId, { ...state, state: 'awaiting_payment_confirmation' });
+            return;
+        }
     }
 
-    // --- INTERCEPTOR DE TEXTO PARA PAGOS (Sin media) ---
-    // Si el usuario dice algo como "ya pagué" o "aquí el soporte" sin la imagen aún
-    const checkText = await isPaymentReceipt(combinedBody, `Contexto: El usuario está enviando un mensaje de texto. Evalúa si confirma un pago.`);
-    if (checkText.isReceipt) {
-        console.log(`[PAYMENT INTERCEPTOR] 📝 Texto de pago detectado para @${userId}`);
-        
-        let replyText = "🤖 ¡Entendido! Quedo a la espera de la imagen de tu comprobante para que un asesor pueda validarlo rápidamente. 😊";
-        
-        // Solo preguntar operador si es Netflix
-        const state = userStates.get(userId);
-        const isNetflix = state && state.items && state.items.some(it => (it.Streaming || "").toLowerCase().includes('netflix'));
-        if (isNetflix) {
-            replyText += "\n\nPor cierto, como es para Netflix, ¿podrías decirme tu localidad y operador de internet? Esto nos ayuda a asegurar la estabilidad de tu cuenta. 🏠";
-        }
-        
-        await message.reply(replyText);
-        userStates.set(userId, { ...state, state: 'awaiting_payment_confirmation' });
+    // Si no hay media, o no fue interceptado como pago, evaluamos el texto combinado
+    const inputToUse = combinedBody || message.body || "";
+
+    // --- CONTEXTO DE CLIENTE ---
+    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+    let userAccounts = [];
+    try {
+        userAccounts = await getAccountsByPhone(phoneNumber);
+    } catch (e) {
+        console.warn("[Context] Error fetching accounts for AI context:", e.message);
+    }
+
+    // 2. DETECCIÓN DE INTENCIÓN Y NOMBRE (Global para todos los estados)
+    const hist = await getChatHistoryText(message, 25);
+    const messageAgeMinutes = Math.floor((Date.now() / 1000 - message.timestamp) / 60);
+
+    // Construimos el contexto del lote actual para que la IA entienda la ráfaga de mensajes
+    const batchContext = messages.length > 1
+        ? `\n[MENSAJES EN ESTA RÁFAGA RECIENTE]:\n${messages.map(m => `- ${m.body || '[Media]'}`).join('\n')}\n`
+        : "";
+
+    // Añadimos el contexto de antigüedad al historial para que la IA se disculpe si es necesario
+    // --- COOLDOWN DE RESPUESTAS (Anti-Burst) ---
+    const now = Date.now();
+    const lastResp = lastResponseTimestamps.get(userId) || 0;
+    if (!isFromAdmin && (now - lastResp < RESPONSE_COOLDOWN)) {
+        console.log(`[Cooldown] Ignorando ráfaga para ${userId} (${now - lastResp}ms desde última respuesta)`);
         return;
     }
-  }
+    lastResponseTimestamps.set(userId, now);
 
-  // Si no hay media, o no fue interceptado como pago, evaluamos el texto combinado
-  const inputToUse = combinedBody || message.body || "";
+    const timedHist = `[ESTE MENSAJE LLEGÓ HACE ${messageAgeMinutes} MINUTOS]\n${hist}`;
+    const detection = await detectInitialIntent(inputToUse, timedHist, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
 
-  // --- CONTEXTO DE CLIENTE ---
-  const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
-  let userAccounts = [];
-  try {
-      userAccounts = await getAccountsByPhone(phoneNumber);
-  } catch(e) {
-      console.warn("[Context] Error fetching accounts for AI context:", e.message);
-  }
+    // 3. IDENTIDAD TERCERO: IA revisando historial o mensaje actual
+    if ((!foundName || foundName === 'Cliente') && detection.userName) {
+        foundName = detection.userName;
+        console.log(`[AI Discovery] Nombre hallado para @${userId.replace('@c.us', '')}: ${foundName}`);
 
-  // 2. DETECCIÓN DE INTENCIÓN Y NOMBRE (Global para todos los estados)
-  const hist = await getChatHistoryText(message, 25);
-  const messageAgeMinutes = Math.floor((Date.now() / 1000 - message.timestamp) / 60);
-  
-  // Construimos el contexto del lote actual para que la IA entienda la ráfaga de mensajes
-  const batchContext = messages.length > 1 
-    ? `\n[MENSAJES EN ESTA RÁFAGA RECIENTE]:\n${messages.map(m => `- ${m.body || '[Media]'}`).join('\n')}\n`
-    : "";
-
-  // Añadimos el contexto de antigüedad al historial para que la IA se disculpe si es necesario
-  // --- COOLDOWN DE RESPUESTAS (Anti-Burst) ---
-  const now = Date.now();
-  const lastResp = lastResponseTimestamps.get(userId) || 0;
-  if (!isFromAdmin && (now - lastResp < RESPONSE_COOLDOWN)) {
-      console.log(`[Cooldown] Ignorando ráfaga para ${userId} (${now - lastResp}ms desde última respuesta)`);
-      return;
-  }
-  lastResponseTimestamps.set(userId, now);
-
-  const timedHist = `[ESTE MENSAJE LLEGÓ HACE ${messageAgeMinutes} MINUTOS]\n${hist}`;
-  const detection = await detectInitialIntent(inputToUse, timedHist, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
-
-  // 3. IDENTIDAD TERCERO: IA revisando historial o mensaje actual
-  if ((!foundName || foundName === 'Cliente') && detection.userName) {
-      foundName = detection.userName;
-      console.log(`[AI Discovery] Nombre hallado para @${userId.replace('@c.us', '')}: ${foundName}`);
-      
-      // Actualizar estado en memoria si ya existe
-      if (currentStateData) {
-          userStates.set(userId, { ...currentStateData, nombre: foundName });
-      }
-  }
-
-  // 4.6 BREAKOUT DE FLUJOS (Si el usuario cambia de tema bruscamente o está frustrado)
-  const flowsRequiringBreakout = ['selecting_plans', 'awaiting_purchase_platforms', 'adding_platform', 'awaiting_payment_method', 'awaiting_name_for_contact', 'awaiting_churn_reason'];
-  
-  // Pivotar si detecta una plataforma distinta a la que estamos configurando
-  let isPivottingPlatform = false;
-  if (currentState === 'selecting_plans' && currentStateData.selected && currentStateData.currentIndex !== undefined) {
-      const currentPlatformName = currentStateData.selected[currentStateData.currentIndex].platform.name.toLowerCase();
-      if (detection.detectedPlatform && !currentPlatformName.includes(detection.detectedPlatform.toLowerCase())) {
-          isPivottingPlatform = true;
-          console.log(`[Flow Breakout] Pivotando plataforma: ${currentPlatformName} -> ${detection.detectedPlatform}`);
-      }
-  }
-
-  const isChangingTopic = detection.intent && !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar'].includes(detection.intent);
-  const isVeryFrustrated = detection.frustrationLevel >= 7;
-
-  // NUEVO breakout específico para awaiting_churn_reason cuando el usuario no quiere cancelar
-  let isChurnRefusal = false;
-  if (currentState === 'awaiting_churn_reason') {
-      const lowerBody = inputToUse.toLowerCase();
-      const hasRefusalText = lowerBody.includes('no quiero cancelar') || lowerBody.includes('no cancel') || lowerBody.includes('no voy a cancelar') || lowerBody.includes('error') || lowerBody.includes('solo preguntaba') || lowerBody.includes('solo estoy preguntando') || lowerBody.includes('cuanto me saldria') || lowerBody.includes('cuánto me saldría');
-      const isRefusalIntent = ['renovar', 'pagar', 'comprar'].includes(detection.intent);
-      if (hasRefusalText || isRefusalIntent) {
-          isChurnRefusal = true;
-          console.log(`[Churn Breakout] El cliente rechaza la cancelación. Intent: ${detection.intent}, Texto: "${inputToUse}"`);
-      }
-  }
-
-  if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform)) || isChurnRefusal) {
-      console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema ('+detection.intent+')' : 'Alta frustración'))}`);
-      
-      if (isVeryFrustrated) {
-          userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1 });
-          await message.reply("🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊");
-          return;
-      }
-
-      if (isChurnRefusal && currentStateData.rowNumber) {
-          // Limpiar el preventivo "cortar (bot ...)" que escribimos en Excel
-          const { updateExcelData } = require('./apiService');
-          updateExcelData(currentStateData.rowNumber, { "observaciones": "" })
-              .then(() => console.log(`[Churn Breakout] Observaciones limpiadas en fila ${currentStateData.rowNumber} (Rechazo de cancelación)`))
-              .catch(e => console.error("[Churn Breakout] Error al limpiar observaciones:", e.message));
-          
-          await message.reply("🤖 ¡Ah, entiendo perfectamente! Qué alegría que quieras continuar con nosotros. Permíteme ayudarte con eso...");
-      }
-      
-      // Si el usuario simplemente cambió de tema o plataforma
-      // Limpiamos el estado actual para que el mensaje sea procesado por la lógica global (case undefined)
-      currentState = undefined; 
-      currentStateData = undefined;
-  }
-
-  switch (currentState) {
-    case undefined:
-      const cleanInput = inputToUse.trim();
-      if (['1', '2', '3', '4', '5'].includes(cleanInput)) {
-         userStates.set(userId, { state: 'main_menu' });
-         await handleMainMenuSelection(message, userId, detection, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
-         return;
-      }
-
-      // 3. IDENTIDAD TERCERO movido arriba
-
-      // Determinar si el nombre es completo según la IA o si ya lo teníamos validado
-      const nameIsComplete = detection.isNameComplete || false;
-
-      // 4. RECUPERACIÓN DE ESTADO (Stateless Recovery)
-      if (detection.recoveredState) {
-          console.log(`[Flow Recovery] Recuperando estado: ${detection.recoveredState} para @${userId.replace('@c.us', '')}`);
-          const metadata = detection.metadata || {};
-          userStates.set(userId, { state: detection.recoveredState, nombre: foundName, ...metadata });
-          
-          if (detection.recoveredState === 'waiting_human') {
-              // Si la intención es soporte o compra con frustración, NO nos quedamos callados.
-              // Esto evita que el bot ignore fallas reales si un humano habló hace días.
-              const isCritical = ['soporte', 'comprar', 'pagar'].includes(detection.intent);
-              if (isCritical && (detection.frustrationLevel >= 4)) {
-                  console.log(`[Flow Recovery] 🚨 Detectada intención crítica (${detection.intent}) con frustración (${detection.frustrationLevel}). Rompiendo silencio para @${userId}.`);
-              } else {
-                  console.log(`[Flow Recovery] 🤫 Silenciando bot para @${userId.replace('@c.us', '')} por intervención humana detectada en historial.`);
-                  return; // Silencio absoluto si un humano estaba hablando y no hay urgencia
-              }
-          }
-
-          if (detection.recoveredState === 'awaiting_payment_method') {
-              if (['pagar', 'comprar', 'renovar'].includes(detection.intent) || (detection.metadata && detection.metadata.paymentMethod)) {
-                  await handleAwaitingPaymentMethod(message, userId, false, null, inputToUse);
-              } else {
-                  await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)`);
-              }
-              return;
-          }
-      }
-
-      // 4.5 DETECCIÓN DE FRUSTRACIÓN / INSISTENCIA (Startup/Unread handle)
-      const frustration = detection.frustrationLevel || 0;
-      const unreads = message._unreadCount || 0;
-      
-      const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
-      if ((frustration >= 7 || unreads >= 10) && !solvableIntents.includes(detection.intent)) {
-          console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
-          
-          // Inicializamos el contador en 1 para que no se autopise con el bucle de "seguimos ocupados"
-          userStates.set(userId, { 
-              state: 'waiting_human', 
-              nombre: foundName, 
-              waitingCount: 1 
-          });
-          await message.reply("🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊");
-          return;
-      }
-
-      // 5. MANEJO DE INTENCIONES
-      if (detection.intent === 'cancelar') {
-          console.log(`[Cierre] Intent 'cancelar' detectado para ${userId}. Pidiendo razón de churn.`);
-          
-          let rowNumberToCancel = null;
-          if (userAccounts && userAccounts.length > 0) {
-              let targetAccount = userAccounts[0];
-              if (detection.detectedPlatform) {
-                  const targetSearch = detection.detectedPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
-                  const match = userAccounts.find(a => (a.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetSearch));
-                  if (match) targetAccount = match;
-              }
-              rowNumberToCancel = targetAccount._rowNumber;
-          }
-
-          if (rowNumberToCancel) {
-              await message.reply("🤖 Oh, entiendo perfectamente. Lamento mucho que hoy no podamos continuar con tu servicio. 😔\n\nEn Sheerit siempre buscamos mejorar: ¿podrías contarnos brevemente la razón de tu decisión? Tu opinión nos ayuda mucho a ser mejores.");
-              userStates.set(userId, { 
-                  state: 'awaiting_churn_reason', 
-                  nombre: foundName,
-                  rowNumber: rowNumberToCancel 
-              });
-                            // Guardado inmediato preventivo ("cortar") en caso de que el cliente no responda a la pregunta.
-              const { updateExcelData } = require('./apiService');
-              const dateStr = new Date().toLocaleDateString('es-CO');
-              updateExcelData(rowNumberToCancel, { "observaciones": `cortar (bot ${dateStr})` }).catch(e => console.error("[Churn] Error guardado preventivo:", e.message));
-
-          } else {
-              await message.reply("🤖 Entiendo. ¡Aquí tienes tu casa para cuando decidas volver! 👋");
-              userStates.delete(userId);
-          }
-          return;
-      }
-      
-      if (detection.intent === 'cierre') {
-          console.log(`[Cierre] Intent 'cierre' detectado para ${userId}. Fin de charla natural.`);
-          // Si el usuario simplemente dice gracias, listo, ok, no necesitamos contestar ni asustarlo con la cancelación.
-          return;
-      }
-      
-       if (detection.intent === 'comprar') {
-           const existingState = userStates.get(userId) || {};
-           
-           // SI EL USUARIO TIENE CUENTAS Y NO MENCIONA UNA PLATAFORMA NUEVA, ASUMIMOS QUE ES RENOVACIÓN/PAGO
-           // Pero solo si el mensaje NO contiene palabras de compra explícitas (ej: "comprar", "nueva", "quiero una")
-           const isExplicitPurchase = inputToUse.toLowerCase().includes('comprar') || inputToUse.toLowerCase().includes('nueva');
-           
-           if (userAccounts.length > 0 && !detection.detectedPlatform && !isExplicitPurchase) {
-               const durationMonths = getDurationMonths(detection, inputToUse);
-               await processCheckPrices(message, userId, userStates, null, detection.detectedPlatform, durationMonths);
-               return;
-           }
-
-           // Priorizamos la venta: Si ya tenemos algún nombre (venga de contactos o de la IA), seguimos adelante.
-           if (!foundName) {
-               await message.reply(`🤖 ¡Hola! Con gusto te ayudo con tu compra. ¿Me podrías regalar tu nombre y apellido completo para registrarte oficialmente? 😊`);
-               userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
-               return;
-           }
-
-           // OPTIMIZACIÓN: Si el usuario ya especificó qué quiere desde el saludo (ej. "Hola, Netflix")
-           // Saltamos el menú de selección de plataformas y vamos directo a la cotización detallada.
-           if (detection.detectedPlatform) {
-               console.log(`[Flow Optimization] Saltando menú de plataformas para @${userId}. Plataforma detectada: ${detection.detectedPlatform}`);
-               
-               // Limpieza de seguridad: si el usuario cambió de idea respecto a lo que había en el carrito
-               if (existingState.items && existingState.items.length > 0) {
-                   const currentPlat = (existingState.items[0].Streaming || existingState.items[0].platform?.name || "").toLowerCase();
-                   const newPlat = detection.detectedPlatform.toLowerCase();
-                   if (!newPlat.includes(currentPlat) && !currentPlat.includes(newPlat)) {
-                       console.log(`[Flow Optimization] Detectado cambio de interés (${currentPlat} -> ${newPlat}). Limpiando carrito previo.`);
-                       existingState.items = [];
-                       existingState.total = 0;
-                   }
-               }
-
-               userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
-               await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
-               return;
-           }
-
-           // Flujo estándar con menú
-           userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
-           await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
-           await startPurchaseProcess(message, userId, userStates);
-           return;
-       } else if (detection.intent === 'renovar') {
-           const durationMonths = getDurationMonths(detection, inputToUse);
-           await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
-           return;
-       } else if (detection.intent === 'credenciales') {
-          if (!foundName) {
-              const existingState = userStates.get(userId) || {};
-              await message.reply(`🤖 ¡Hola! Con gusto te ayudo. Para buscar tus cuentas de forma segura, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
-              userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
-              return;
-          }
-          const { processCheckCredentials } = require('./billingService');
-          await processCheckCredentials(userId, client, message.body, "");
-          return;
-       } else if (detection.intent === 'catalogo') {
-            await message.reply("🤖 ¡Claro! Puedes ver nuestro catálogo actualizado con todos los precios y realizar tu compra directamente en nuestra página web: https://sheerit.com.co/ 🌐\n\nSi tienes alguna duda específica sobre un servicio, ¡cuéntame!");
-            return;
-       } else if (detection.intent === 'pagar') {
-           const stateData = userStates.get(userId) || {};
-           if (userAccounts.length === 0 && stateData.items && stateData.items.length > 0) {
-               await handleAwaitingPaymentMethod(message, userId, false, null, inputToUse);
-           } else {
-               const durationMonths = getDurationMonths(detection, inputToUse);
-               await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
-           }
-           return;
-       } else if (detection.intent === 'soporte') {
-           // Si el usuario pide soporte, le damos la bienvenida y le preguntamos el detalle (o lo escalamos si ya lo dio)
-           const history = await getChatHistoryText(message);
-           const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
-           if (fallback.replyMessage) {
-               await safeReply(message, fallback.replyMessage, userId);
-               if (fallback.needsEscalation) {
-                   userStates.set(userId, { state: 'waiting_human', waitingCount: 1 });
-               } else {
-                   userStates.set(userId, { state: 'main_menu', nombre: foundName });
-               }
-           }
-           return;
-       }
-
-      // 6. FLUJO POR DEFECTO (Más sutil y conversacional)
-      const historyForFallback = await getChatHistoryText(message);
-      
-      userAccounts = [];
-      try { userAccounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch(e){}
-      
-      const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
-      
-      // Si la respuesta es genérica o es un saludo, ahí sí mandamos el menú
-      const currentData = userStates.get(userId) || {};
-      if (foundName) {
-        userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
-        await safeReply(message, `🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*' }! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`, userId);
-      } else {
-        const welcomeMsg = "🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nPara poder ayudarte mejor, ¿cómo te llamas? O si lo prefieres, escoge una opción del menú:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)";
-        await safeReply(message, welcomeMsg, userId);
-        userStates.set(userId, { ...currentData, state: 'main_menu' });
-      }
-      break;
-    case 'awaiting_payment_renewal_confirmation':
-      const responseOption = (message.body || "").trim();
-      if (responseOption === '1') {
-          const stateInfo = currentStateData;
-          await message.reply("🤖 ¡Excelente! Estoy registrando tu renovación en el Excel y generando tus credenciales. Dame un momento... ⏳");
-          const tempState = {
-              nombre: stateInfo.nombre,
-              items: [stateInfo.matchedAccount],
-              total: stateInfo.amount,
-              chatJid: stateInfo.chatJid || userId
-          };
-          const valResult = await executePaymentValidation(userId, tempState, client, userStates, null, stateInfo.matchId);
-          if (!valResult.success) {
-              await message.reply("🤖 Hubo un problema al renovar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
-              userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
-          }
-      } else if (responseOption === '2') {
-          await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
-          userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
-          try {
-              const groupChat = await client.getChatById(GROUP_ID);
-              if (groupChat) {
-                  await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${userId.replace('@c.us', '')}\n` +
-                                 `Monto: $${currentStateData.amount}\n` +
-                                 `Banco: ${currentStateData.bank || 'Nequi'}\n` +
-                                 `Asunto: ${currentStateData.subject}\n` +
-                                 `El cliente indicó que el pago NO es para renovar su cuenta actual de ${(currentStateData.matchedAccount.Streaming || "Servicio").toUpperCase()}.`);
-              }
-          } catch(e) {}
-      } else {
-          await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, renovar) o *2* (No, servicio nuevo).");
-      }
-      break;
-    case 'awaiting_code_account_selection':
-      const selectionIdx = parseInt((message.body || "").trim()) - 1;
-      const candidates = currentStateData.candidates || [];
-      if (isNaN(selectionIdx) || selectionIdx < 0 || selectionIdx >= candidates.length) {
-          await message.reply("🤖 Por favor, responde únicamente con el número de la opción que deseas (ej. 1 o 2).");
-          return;
-      }
-      const selectedAccount = candidates[selectionIdx];
-      await processAccountVerificationCode(message, userId, selectedAccount, realPhone, client, userStates);
-      break;
-    case 'main_menu':
-      await handleMainMenuSelection(message, userId, detection, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
-      break;
-    case 'awaiting_apple_one_details':
-      const text = (message.body || "").trim();
-      const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-      const phoneRegex = /(?:57)?\s*3\d{2}\s*\d{7}|\d{10}/;
-      
-      const emailMatch = text.match(emailRegex);
-      const phoneMatch = text.match(phoneRegex);
-      
-      if (emailMatch && phoneMatch) {
-          const appleId = emailMatch[0].trim();
-          const phoneNumber = phoneMatch[0].replace(/\s+/g, '');
-          
-          await message.reply(`🤖 ¡Perfecto! He recibido tus datos:\n📱 *Número:* ${phoneNumber}\n📧 *Apple ID:* ${appleId}\n\nYa reporté la información al área encargada. Por favor, está al tanto de tu correo electrónico o de tus mensajes de texto, ya que por ahí recibirás las instrucciones e invitación para unerte. ¡Muchas gracias! 😊`);
-          
-          try {
-              const chats = await client.getChats();
-              const appleGroup = chats.find(c => c.isGroup && c.name.toLowerCase().includes('usuarios apple'));
-              if (appleGroup) {
-                  const groupMsg = `🚨 *NUEVO REGISTRO APPLE ONE* 🚨\n\n` +
-                                   `👤 *Cliente:* @${userId.replace('@c.us', '')}\n` +
-                                   `📱 *Celular:* ${phoneNumber}\n` +
-                                   `📧 *Apple ID:* ${appleId}\n\n` +
-                                   `Por favor, envíale la invitación familiar.`;
-                  await appleGroup.sendMessage(groupMsg);
-              } else {
-                  console.warn("No se encontró el grupo 'usuarios apple'. Notificando al grupo admin por defecto.");
-                  const adminGroup = await client.getChatById(GROUP_ID);
-                  if (adminGroup) {
-                      await adminGroup.sendMessage(`🚨 *NUEVO REGISTRO APPLE ONE* (Grupo 'usuarios apple' no encontrado)\n\n` +
-                                                   `👤 *Cliente:* @${userId.replace('@c.us', '')}\n` +
-                                                   `📱 *Celular:* ${phoneNumber}\n` +
-                                                   `📧 *Apple ID:* ${appleId}`);
-                  }
-              }
-          } catch (e) {
-              console.error("Error forwarding Apple One details to group:", e.message);
-          }
-          userStates.set(userId, { state: 'main_menu', nombre: foundName });
-      } else {
-          await message.reply("🤖 No pude identificar tu número de celular y/o tu correo (Apple ID).\n\nPor favor, envíamelos en un solo mensaje.\n*(Ejemplo: 3101234567, miusuario@icloud.com)*");
-      }
-      break;
-    case 'awaiting_netflix_operator_post_payment':
-      const ispInfo = (message.body || "").trim();
-      const st = userStates.get(userId) || {};
-      
-      userStates.set(userId, { ...st, state: 'awaiting_payment_confirmation', netflixIsp: ispInfo });
-
-      // Si tenemos un matchId de Gmail precargado, podemos autovalidar inmediatamente!
-      if (st.gmailMatchId) {
-          await message.reply("🤖 ¡Excelente! He validado tu comprobante y registrado tu información de operador. Estoy generando tus credenciales, dame un momento... ⏳");
-          const validationResult = await executePaymentValidation(
-              userId, 
-              { ...st, netflixIsp: ispInfo, total: st.checkAmount, paymentMethod: `Gmail Match (${st.paymentMethod || 'Bre-B'})` }, 
-              client, 
-              userStates, 
-              null, 
-              st.gmailMatchId
-          );
-          
-          if (validationResult.success) {
-              try {
-                  const groupChat = await client.getChatById(GROUP_ID);
-                  if (groupChat) {
-                      await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO CON OPERADOR* (@${userId.replace('@c.us', '')})\n` +
-                                     `Monto: $${st.checkAmount}\n` +
-                                     `Banco: ${st.paymentMethod || 'Bre-B'}\n` +
-                                     `Operador: ${ispInfo}\n` +
-                                     `ID Gmail: ${st.gmailMatchId}\n\n` +
-                                     `El bot ya entregó el servicio automáticamente.`);
-                  }
-              } catch(e) {}
-              return;
-          }
-      }
-
-      try {
-          const groupChat = await client.getChatById(GROUP_ID);
-          const matchData = await getNetflixMatchReport(ispInfo); // ahora retorna { rawReport, hasStock }
-          
-          if (!matchData.hasStock) {
-              await message.reply("🤖 En este momento no hay stock inmediato en tu misma red sugerido en el sistema, por lo que un asesor humano se encargará personalmente de crear la cuenta nueva para ti desde cero y validará tu comprobante. ¡Gracias por tu paciencia! 😊");
-          } else {
-              await message.reply("🤖 ¡Gracias por la información! Un asesor validará tu pago en un momento y te entregará tu cuenta. ¡Gracias por tu paciencia! 😊");
-          }
-
-          if (groupChat) {
-              const checkBank = st.paymentMethod || 'No identificado';
-              const checkAmount = st.checkAmount || 'No legible';
-              let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
-                             `Banco: ${checkBank}\n` +
-                             `Monto: ${checkAmount}\n\n` +
-                             `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
-              
-              adminMsg += `\n${matchData.rawReport}`;
-              await groupChat.sendMessage(adminMsg);
-          }
-      } catch (adminErr) {
-          await message.reply("🤖 ¡Gracias por la información! Un asesor validará tu pago en un momento y te entregará tu cuenta. ¡Gracias por tu paciencia! 😊");
-          console.error("Error notificando al grupo sobre operador de Netflix:", adminErr.message);
-      }
-      break;
-    case 'awaiting_payment_method':
-      await handleAwaitingPaymentMethod(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null, inputToUse);
-      break;
-    case 'awaiting_cobros_confirmation':
-      await handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client);
-      break;
-    case 'awaiting_payment_confirmation':
-      await handleAwaitingPaymentConfirmation(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
-      break;
-    case 'awaiting_advisor_reason':
-      try {
-          const reason = inputToUse.trim();
-          console.log(`[Advisor Flow] El usuario dio la razón de soporte: "${reason}"`);
-          
-          const { analyzeAdvisorReason } = require('./aiService');
-          const analysis = await analyzeAdvisorReason(reason, hist);
-          
-          console.log(`[Advisor Flow AI Analysis] Can resolve? ${analysis.canResolve}. Action: ${analysis.action}. Explanation: ${analysis.explanation}`);
-
-          if (analysis.canResolve && analysis.action) {
-              if (analysis.action === 'comprar') {
-                  userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
-                  await message.reply(`🤖 Entiendo que deseas adquirir un nuevo servicio (${analysis.explanation}). ¡Yo mismo puedo ayudarte con eso de inmediato!`);
-                  const { handleSubscriptionInterest } = require('./salesService');
-                  await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
-                  return;
-              } else if (analysis.action === 'pagar' || analysis.action === 'renovar') {
-                  userStates.set(userId, { state: 'main_menu', nombre: foundName });
-                  await message.reply(`🤖 Veo que deseas realizar un pago o renovar tus cuentas (${analysis.explanation}). ¡Puedo ayudarte con eso ahora mismo!`);
-                  const { processCheckPrices } = require('./billingService');
-                  await processCheckPrices(message, userId, userStates, reason, analysis.detectedPlatform, 1);
-                  return;
-              } else if (analysis.action === 'credenciales') {
-                  userStates.set(userId, { state: 'main_menu', nombre: foundName });
-                  await message.reply(`🤖 Veo que necesitas revisar tus credenciales o claves de acceso (${analysis.explanation}).`);
-                  const { processCheckCredentials } = require('./billingService');
-                  await processCheckCredentials(userId, client, reason, "");
-                  return;
-              } else if (analysis.action === 'soporte') {
-                  await message.reply("🤖 Entiendo que experimentas un problema técnico. Para ayudarte a solucionarlo de inmediato, por favor indícame con qué plataforma tienes el inconveniente o envíame una captura de pantalla del error.");
-                  userStates.set(userId, { state: 'main_menu', nombre: foundName });
-                  return;
-              }
-          }
-      } catch (err) {
-          console.error("Error in awaiting_advisor_reason flow:", err.message);
-      }
-
-      // Fallback: comunicar con humano
-      try {
-        const chat = await client.getChatById(GROUP_ID);
-        if (chat) {
-          let realPhone = userId.replace(/\D/g, '');
-          try {
-              const contact = await message.getContact();
-              if (contact && contact.number) realPhone = contact.number;
-          } catch(e) {}
-          await chat.sendMessage(`🚨 *Atención Asesor Requerida* (@${realPhone})\n\nMotivo del cliente: "${inputToUse}"`);
+        // Actualizar estado en memoria si ya existe
+        if (currentStateData) {
+            userStates.set(userId, { ...currentStateData, nombre: foundName });
         }
-      } catch (error) {
-        console.error('Error enviando mensaje al grupo:', error);
-      }
-      await message.reply("🤖 Entendido. He notificado a un asesor humano sobre tu solicitud. Un asesor te responderá por este chat lo más pronto posible. He silenciado mis respuestas automáticas de charla general para no interrumpir.");
-      userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
-      break;
-    case 'waiting_human':
-      console.log(`[DEBUG] Usuario ${userId} en modo waiting_human.`);
-      const currentSt = userStates.get(userId) || {};
-      const count = currentSt.waitingCount || 0;
-      
-      if (!global.supportQueue) global.supportQueue = [];
-      const qIdx = global.supportQueue.indexOf(userId);
-      if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
-      global.supportQueue.push(userId);
-      const pos = global.supportQueue.length;
+    }
 
-      if (count > 0) {
-          await message.reply(`🤖 Tu mensaje ha sido recibido y sigues en nuestra cola de soporte.\n\n⚠️ *Aviso automático:* Cada vez que envías un mensaje nuevo, el sistema te mueve al último lugar de la fila para dar prioridad a los chats más antiguos.\n\n📍 *Tu posición actual en la fila es la número ${pos}.*`);
-      }
-      
-      userStates.set(userId, { ...currentSt, waitingCount: count + 1 });
-      break;
-    case 'awaiting_purchase_platforms':
-      await handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID);
-      break;
-    case 'selecting_plans':
-      await handleSelectingPlans(message, userId, userStates);
-      break;
-    case 'adding_platform':
-      await handleAddingPlatform(message, userId, userStates);
-      break;
-    case 'awaiting_name_for_contact':
-      const name = (message.body || "").trim();
-      try {
-          const { addNewContact } = require('./googleContactsService');
-          // addNewContact ya tiene validación interna y caché local
-          await addNewContact(name, userId.replace('@c.us', ''));
-      } catch(e) {}
-      userStates.set(userId, { state: 'main_menu', nombre: name });
-      await message.reply("🤖 ¡Un placer conocerte, *" + name + "*! Ya quedaste agendado. Ahora sí, ¿en qué te puedo ayudar hoy?\n\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
-      break;
-    case 'awaiting_churn_reason':
-      const reason = (message.body || "").trim();
-      const cState = userStates.get(userId) || {};
-      if (cState.rowNumber) {
-          const { updateExcelData } = require('./apiService');
-          try {
-              const dateStr = new Date().toLocaleDateString('es-CO');
-              const finalReason = `cortar ${reason} (bot ${dateStr})`;
-              await updateExcelData(cState.rowNumber, { "observaciones": finalReason });
-              console.log(`[Churn] Razón guardada en fila ${cState.rowNumber}: ${finalReason}`);
-          } catch(e) {
-              console.error("[Churn] Error guardando razón en Excel:", e.message);
-          }
-      }
-      await message.reply("🤖 ¡Muchas gracias por tu comentario! Lo tendré muy en cuenta. ¡Aquí tienes tu casa para cuando decidas volver! 👋");
-      userStates.delete(userId);
-      break;
-    default:
-      const historyText = await getChatHistoryText(message);
-      await processFallbackWithEscalation(message, userId, isMedia, mediaData.length > 0 ? mediaData : null, historyText);
-      break;
-  }
+    // 4.6 BREAKOUT DE FLUJOS (Si el usuario cambia de tema bruscamente o está frustrado)
+    const flowsRequiringBreakout = ['selecting_plans', 'awaiting_purchase_platforms', 'adding_platform', 'awaiting_payment_method', 'awaiting_name_for_contact', 'awaiting_churn_reason'];
+
+    // Pivotar si detecta una plataforma distinta a la que estamos configurando
+    let isPivottingPlatform = false;
+    if (currentState === 'selecting_plans' && currentStateData.selected && currentStateData.currentIndex !== undefined) {
+        const currentPlatformName = currentStateData.selected[currentStateData.currentIndex].platform.name.toLowerCase();
+        if (detection.detectedPlatform && !currentPlatformName.includes(detection.detectedPlatform.toLowerCase())) {
+            isPivottingPlatform = true;
+            console.log(`[Flow Breakout] Pivotando plataforma: ${currentPlatformName} -> ${detection.detectedPlatform}`);
+        }
+    }
+
+    const isChangingTopic = detection.intent && !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar'].includes(detection.intent);
+    const isVeryFrustrated = detection.frustrationLevel >= 7;
+
+    // NUEVO breakout específico para awaiting_churn_reason cuando el usuario no quiere cancelar
+    let isChurnRefusal = false;
+    if (currentState === 'awaiting_churn_reason') {
+        const lowerBody = inputToUse.toLowerCase();
+        const hasRefusalText = lowerBody.includes('no quiero cancelar') || lowerBody.includes('no cancel') || lowerBody.includes('no voy a cancelar') || lowerBody.includes('error') || lowerBody.includes('solo preguntaba') || lowerBody.includes('solo estoy preguntando') || lowerBody.includes('cuanto me saldria') || lowerBody.includes('cuánto me saldría');
+        const isRefusalIntent = ['renovar', 'pagar', 'comprar'].includes(detection.intent);
+        if (hasRefusalText || isRefusalIntent) {
+            isChurnRefusal = true;
+            console.log(`[Churn Breakout] El cliente rechaza la cancelación. Intent: ${detection.intent}, Texto: "${inputToUse}"`);
+        }
+    }
+
+    if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform)) || isChurnRefusal) {
+        console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema (' + detection.intent + ')' : 'Alta frustración'))}`);
+
+        if (isVeryFrustrated) {
+            userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1 });
+            await message.reply("🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊");
+            return;
+        }
+
+        if (isChurnRefusal && currentStateData.rowNumber) {
+            // Limpiar el preventivo "cortar (bot ...)" que escribimos en Excel
+            const { updateExcelData } = require('./apiService');
+            updateExcelData(currentStateData.rowNumber, { "observaciones": "" })
+                .then(() => console.log(`[Churn Breakout] Observaciones limpiadas en fila ${currentStateData.rowNumber} (Rechazo de cancelación)`))
+                .catch(e => console.error("[Churn Breakout] Error al limpiar observaciones:", e.message));
+
+            await message.reply("🤖 ¡Ah, entiendo perfectamente! Qué alegría que quieras continuar con nosotros. Permíteme ayudarte con eso...");
+        }
+
+        // Si el usuario simplemente cambió de tema o plataforma
+        // Limpiamos el estado actual para que el mensaje sea procesado por la lógica global (case undefined)
+        currentState = undefined;
+        currentStateData = undefined;
+    }
+
+    switch (currentState) {
+        case undefined:
+            const cleanInput = inputToUse.trim();
+            if (['1', '2', '3', '4', '5'].includes(cleanInput)) {
+                userStates.set(userId, { state: 'main_menu' });
+                await handleMainMenuSelection(message, userId, detection, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
+                return;
+            }
+
+            // 3. IDENTIDAD TERCERO movido arriba
+
+            // Determinar si el nombre es completo según la IA o si ya lo teníamos validado
+            const nameIsComplete = detection.isNameComplete || false;
+
+            // 4. RECUPERACIÓN DE ESTADO (Stateless Recovery)
+            if (detection.recoveredState) {
+                console.log(`[Flow Recovery] Recuperando estado: ${detection.recoveredState} para @${userId.replace('@c.us', '')}`);
+                const metadata = detection.metadata || {};
+                userStates.set(userId, { state: detection.recoveredState, nombre: foundName, ...metadata });
+
+                if (detection.recoveredState === 'waiting_human') {
+                    // Si la intención es soporte o compra con frustración, NO nos quedamos callados.
+                    // Esto evita que el bot ignore fallas reales si un humano habló hace días.
+                    const isCritical = ['soporte', 'comprar', 'pagar'].includes(detection.intent);
+                    if (isCritical && (detection.frustrationLevel >= 4)) {
+                        console.log(`[Flow Recovery] 🚨 Detectada intención crítica (${detection.intent}) con frustración (${detection.frustrationLevel}). Rompiendo silencio para @${userId}.`);
+                    } else {
+                        console.log(`[Flow Recovery] 🤫 Silenciando bot para @${userId.replace('@c.us', '')} por intervención humana detectada en historial.`);
+                        return; // Silencio absoluto si un humano estaba hablando y no hay urgencia
+                    }
+                }
+
+                if (detection.recoveredState === 'awaiting_payment_method') {
+                    if (['pagar', 'comprar', 'renovar'].includes(detection.intent) || (detection.metadata && detection.metadata.paymentMethod)) {
+                        await handleAwaitingPaymentMethod(message, userId, false, null, inputToUse);
+                    } else {
+                        await message.reply(`🤖 ¡Hola${foundName ? ' ' + foundName : ''}! Veo que estábamos en proceso de pago. ¿Por cuál medio deseas realizar la transferencia? (Nequi, Daviplata, Bancolombia, etc.)`);
+                    }
+                    return;
+                }
+            }
+
+            // 4.5 DETECCIÓN DE FRUSTRACIÓN / INSISTENCIA (Startup/Unread handle)
+            const frustration = detection.frustrationLevel || 0;
+            const unreads = message._unreadCount || 0;
+
+            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
+            if ((frustration >= 7 || unreads >= 10) && !solvableIntents.includes(detection.intent)) {
+                console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
+
+                // Inicializamos el contador en 1 para que no se autopise con el bucle de "seguimos ocupados"
+                userStates.set(userId, {
+                    state: 'waiting_human',
+                    nombre: foundName,
+                    waitingCount: 1
+                });
+                await message.reply("🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊");
+                return;
+            }
+
+            // 5. MANEJO DE INTENCIONES
+            if (detection.intent === 'cancelar') {
+                console.log(`[Cierre] Intent 'cancelar' detectado para ${userId}. Pidiendo razón de churn.`);
+
+                let rowNumberToCancel = null;
+                if (userAccounts && userAccounts.length > 0) {
+                    let targetAccount = userAccounts[0];
+                    if (detection.detectedPlatform) {
+                        const targetSearch = detection.detectedPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const match = userAccounts.find(a => (a.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetSearch));
+                        if (match) targetAccount = match;
+                    }
+                    rowNumberToCancel = targetAccount._rowNumber;
+                }
+
+                if (rowNumberToCancel) {
+                    await message.reply("🤖 Oh, entiendo perfectamente. Lamento mucho que hoy no podamos continuar con tu servicio. 😔\n\nEn Sheerit siempre buscamos mejorar: ¿podrías contarnos brevemente la razón de tu decisión? Tu opinión nos ayuda mucho a ser mejores.");
+                    userStates.set(userId, {
+                        state: 'awaiting_churn_reason',
+                        nombre: foundName,
+                        rowNumber: rowNumberToCancel
+                    });
+                    // Guardado inmediato preventivo ("cortar") en caso de que el cliente no responda a la pregunta.
+                    const { updateExcelData } = require('./apiService');
+                    const dateStr = new Date().toLocaleDateString('es-CO');
+                    updateExcelData(rowNumberToCancel, { "observaciones": `cortar (bot ${dateStr})` }).catch(e => console.error("[Churn] Error guardado preventivo:", e.message));
+
+                } else {
+                    await message.reply("🤖 Entiendo. ¡Aquí tienes tu casa para cuando decidas volver! 👋");
+                    userStates.delete(userId);
+                }
+                return;
+            }
+
+            if (detection.intent === 'cierre') {
+                console.log(`[Cierre] Intent 'cierre' detectado para ${userId}. Fin de charla natural.`);
+                // Si el usuario simplemente dice gracias, listo, ok, no necesitamos contestar ni asustarlo con la cancelación.
+                return;
+            }
+
+            if (detection.intent === 'comprar') {
+                const existingState = userStates.get(userId) || {};
+
+                // SI EL USUARIO TIENE CUENTAS Y NO MENCIONA UNA PLATAFORMA NUEVA, ASUMIMOS QUE ES RENOVACIÓN/PAGO
+                // Pero solo si el mensaje NO contiene palabras de compra explícitas (ej: "comprar", "nueva", "quiero una")
+                const isExplicitPurchase = inputToUse.toLowerCase().includes('comprar') || inputToUse.toLowerCase().includes('nueva');
+
+                if (userAccounts.length > 0 && !detection.detectedPlatform && !isExplicitPurchase) {
+                    const durationMonths = getDurationMonths(detection, inputToUse);
+                    await processCheckPrices(message, userId, userStates, null, detection.detectedPlatform, durationMonths);
+                    return;
+                }
+
+                // Priorizamos la venta: Si ya tenemos algún nombre (venga de contactos o de la IA), seguimos adelante.
+                if (!foundName) {
+                    await message.reply(`🤖 ¡Hola! Con gusto te ayudo con tu compra. ¿Me podrías regalar tu nombre y apellido completo para registrarte oficialmente? 😊`);
+                    userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
+                    return;
+                }
+
+                // OPTIMIZACIÓN: Si el usuario ya especificó qué quiere desde el saludo (ej. "Hola, Netflix")
+                // Saltamos el menú de selección de plataformas y vamos directo a la cotización detallada.
+                if (detection.detectedPlatform) {
+                    console.log(`[Flow Optimization] Saltando menú de plataformas para @${userId}. Plataforma detectada: ${detection.detectedPlatform}`);
+
+                    // Limpieza de seguridad: si el usuario cambió de idea respecto a lo que había en el carrito
+                    if (existingState.items && existingState.items.length > 0) {
+                        const currentPlat = (existingState.items[0].Streaming || existingState.items[0].platform?.name || "").toLowerCase();
+                        const newPlat = detection.detectedPlatform.toLowerCase();
+                        if (!newPlat.includes(currentPlat) && !currentPlat.includes(newPlat)) {
+                            console.log(`[Flow Optimization] Detectado cambio de interés (${currentPlat} -> ${newPlat}). Limpiando carrito previo.`);
+                            existingState.items = [];
+                            existingState.total = 0;
+                        }
+                    }
+
+                    userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
+                    await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+                    return;
+                }
+
+                // Flujo estándar con menú
+                userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
+                await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
+                await startPurchaseProcess(message, userId, userStates);
+                return;
+            } else if (detection.intent === 'renovar') {
+                const durationMonths = getDurationMonths(detection, inputToUse);
+                await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
+                return;
+            } else if (detection.intent === 'credenciales') {
+                if (!foundName) {
+                    const existingState = userStates.get(userId) || {};
+                    await message.reply(`🤖 ¡Hola! Con gusto te ayudo. Para buscar tus cuentas de forma segura, ¿me podrías confirmar tu nombre y apellido completo? 😊`);
+                    userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'credenciales' });
+                    return;
+                }
+                const { processCheckCredentials } = require('./billingService');
+                await processCheckCredentials(userId, client, message.body, "");
+                return;
+            } else if (detection.intent === 'catalogo') {
+                await message.reply("🤖 ¡Claro! Puedes ver nuestro catálogo actualizado con todos los precios y realizar tu compra directamente en nuestra página web: https://sheerit.com.co/ 🌐\n\nSi tienes alguna duda específica sobre un servicio, ¡cuéntame!");
+                return;
+            } else if (detection.intent === 'pagar') {
+                const stateData = userStates.get(userId) || {};
+                if (userAccounts.length === 0 && stateData.items && stateData.items.length > 0) {
+                    await handleAwaitingPaymentMethod(message, userId, false, null, inputToUse);
+                } else {
+                    const durationMonths = getDurationMonths(detection, inputToUse);
+                    await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
+                }
+                return;
+            } else if (detection.intent === 'soporte') {
+                // Si el usuario pide soporte, le damos la bienvenida y le preguntamos el detalle (o lo escalamos si ya lo dio)
+                const history = await getChatHistoryText(message);
+                const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
+                if (fallback.replyMessage) {
+                    await safeReply(message, fallback.replyMessage, userId);
+                    if (fallback.needsEscalation) {
+                        userStates.set(userId, { state: 'waiting_human', waitingCount: 1 });
+                    } else {
+                        userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                    }
+                }
+                return;
+            }
+
+            // 6. FLUJO POR DEFECTO (Más sutil y conversacional)
+            const historyForFallback = await getChatHistoryText(message);
+
+            userAccounts = [];
+            try { userAccounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch (e) { }
+
+            const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
+
+            // Si la respuesta es genérica o es un saludo, ahí sí mandamos el menú
+            const currentData = userStates.get(userId) || {};
+            if (foundName) {
+                userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
+                await safeReply(message, `🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*'}! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`, userId);
+            } else {
+                const welcomeMsg = "🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nPara poder ayudarte mejor, ¿cómo te llamas? O si lo prefieres, escoge una opción del menú:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)";
+                await safeReply(message, welcomeMsg, userId);
+                userStates.set(userId, { ...currentData, state: 'main_menu' });
+            }
+            break;
+        case 'awaiting_payment_renewal_confirmation':
+            const responseOption = (message.body || "").trim();
+            if (responseOption === '1') {
+                const stateInfo = currentStateData;
+                await message.reply("🤖 ¡Excelente! Estoy registrando tu renovación en el Excel y generando tus credenciales. Dame un momento... ⏳");
+                const tempState = {
+                    nombre: stateInfo.nombre,
+                    items: [stateInfo.matchedAccount],
+                    total: stateInfo.amount,
+                    chatJid: stateInfo.chatJid || userId
+                };
+                const valResult = await executePaymentValidation(userId, tempState, client, userStates, null, stateInfo.matchId);
+                if (!valResult.success) {
+                    await message.reply("🤖 Hubo un problema al renovar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+                }
+            } else if (responseOption === '2') {
+                await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
+                userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+                try {
+                    const groupChat = await client.getChatById(GROUP_ID);
+                    if (groupChat) {
+                        await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${userId.replace('@c.us', '')}\n` +
+                            `Monto: $${currentStateData.amount}\n` +
+                            `Banco: ${currentStateData.bank || 'Nequi'}\n` +
+                            `Asunto: ${currentStateData.subject}\n` +
+                            `El cliente indicó que el pago NO es para renovar su cuenta actual de ${(currentStateData.matchedAccount.Streaming || "Servicio").toUpperCase()}.`);
+                    }
+                } catch (e) { }
+            } else {
+                await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, renovar) o *2* (No, servicio nuevo).");
+            }
+            break;
+        case 'awaiting_code_account_selection':
+            const selectionIdx = parseInt((message.body || "").trim()) - 1;
+            const candidates = currentStateData.candidates || [];
+            if (isNaN(selectionIdx) || selectionIdx < 0 || selectionIdx >= candidates.length) {
+                await message.reply("🤖 Por favor, responde únicamente con el número de la opción que deseas (ej. 1 o 2).");
+                return;
+            }
+            const selectedAccount = candidates[selectionIdx];
+            await processAccountVerificationCode(message, userId, selectedAccount, realPhone, client, userStates);
+            break;
+        case 'main_menu':
+            await handleMainMenuSelection(message, userId, detection, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
+            break;
+        case 'awaiting_apple_one_details':
+            const text = (message.body || "").trim();
+            const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+            const phoneRegex = /(?:57)?\s*3\d{2}\s*\d{7}|\d{10}/;
+
+            const emailMatch = text.match(emailRegex);
+            const phoneMatch = text.match(phoneRegex);
+
+            if (emailMatch && phoneMatch) {
+                const appleId = emailMatch[0].trim();
+                const phoneNumber = phoneMatch[0].replace(/\s+/g, '');
+
+                await message.reply(`🤖 ¡Perfecto! He recibido tus datos:\n📱 *Número:* ${phoneNumber}\n📧 *Apple ID:* ${appleId}\n\nYa reporté la información al área encargada. Por favor, está al tanto de tu correo electrónico o de tus mensajes de texto, ya que por ahí recibirás las instrucciones e invitación para unerte. ¡Muchas gracias! 😊`);
+
+                try {
+                    const chats = await client.getChats();
+                    const appleGroup = chats.find(c => c.isGroup && c.name.toLowerCase().includes('usuarios apple'));
+                    if (appleGroup) {
+                        const groupMsg = `🚨 *NUEVO REGISTRO APPLE ONE* 🚨\n\n` +
+                            `👤 *Cliente:* @${userId.replace('@c.us', '')}\n` +
+                            `📱 *Celular:* ${phoneNumber}\n` +
+                            `📧 *Apple ID:* ${appleId}\n\n` +
+                            `Por favor, envíale la invitación familiar.`;
+                        await appleGroup.sendMessage(groupMsg);
+                    } else {
+                        console.warn("No se encontró el grupo 'usuarios apple'. Notificando al grupo admin por defecto.");
+                        const adminGroup = await client.getChatById(GROUP_ID);
+                        if (adminGroup) {
+                            await adminGroup.sendMessage(`🚨 *NUEVO REGISTRO APPLE ONE* (Grupo 'usuarios apple' no encontrado)\n\n` +
+                                `👤 *Cliente:* @${userId.replace('@c.us', '')}\n` +
+                                `📱 *Celular:* ${phoneNumber}\n` +
+                                `📧 *Apple ID:* ${appleId}`);
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error forwarding Apple One details to group:", e.message);
+                }
+                userStates.set(userId, { state: 'main_menu', nombre: foundName });
+            } else {
+                await message.reply("🤖 No pude identificar tu número de celular y/o tu correo (Apple ID).\n\nPor favor, envíamelos en un solo mensaje.\n*(Ejemplo: 3101234567, miusuario@icloud.com)*");
+            }
+            break;
+        case 'awaiting_netflix_operator_post_payment':
+            const ispInfo = (message.body || "").trim();
+            const st = userStates.get(userId) || {};
+
+            userStates.set(userId, { ...st, state: 'awaiting_payment_confirmation', netflixIsp: ispInfo });
+
+            // Si tenemos un matchId de Gmail precargado, podemos autovalidar inmediatamente!
+            if (st.gmailMatchId) {
+                await message.reply("🤖 ¡Excelente! He validado tu comprobante y registrado tu información de operador. Estoy generando tus credenciales, dame un momento... ⏳");
+                const validationResult = await executePaymentValidation(
+                    userId,
+                    { ...st, netflixIsp: ispInfo, total: st.checkAmount, paymentMethod: `Gmail Match (${st.paymentMethod || 'Bre-B'})` },
+                    client,
+                    userStates,
+                    null,
+                    st.gmailMatchId
+                );
+
+                if (validationResult.success) {
+                    try {
+                        const groupChat = await client.getChatById(GROUP_ID);
+                        if (groupChat) {
+                            await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO CON OPERADOR* (@${userId.replace('@c.us', '')})\n` +
+                                `Monto: $${st.checkAmount}\n` +
+                                `Banco: ${st.paymentMethod || 'Bre-B'}\n` +
+                                `Operador: ${ispInfo}\n` +
+                                `ID Gmail: ${st.gmailMatchId}\n\n` +
+                                `El bot ya entregó el servicio automáticamente.`);
+                        }
+                    } catch (e) { }
+                    return;
+                }
+            }
+
+            try {
+                const groupChat = await client.getChatById(GROUP_ID);
+                const matchData = await getNetflixMatchReport(ispInfo); // ahora retorna { rawReport, hasStock }
+
+                if (!matchData.hasStock) {
+                    await message.reply("🤖 En este momento no hay stock inmediato en tu misma red sugerido en el sistema, por lo que un asesor humano se encargará personalmente de crear la cuenta nueva para ti desde cero y validará tu comprobante. ¡Gracias por tu paciencia! 😊");
+                } else {
+                    await message.reply("🤖 ¡Gracias por la información! Un asesor validará tu pago en un momento y te entregará tu cuenta. ¡Gracias por tu paciencia! 😊");
+                }
+
+                if (groupChat) {
+                    const checkBank = st.paymentMethod || 'No identificado';
+                    const checkAmount = st.checkAmount || 'No legible';
+                    let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
+                        `Banco: ${checkBank}\n` +
+                        `Monto: ${checkAmount}\n\n` +
+                        `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
+
+                    adminMsg += `\n${matchData.rawReport}`;
+                    await groupChat.sendMessage(adminMsg);
+                }
+            } catch (adminErr) {
+                await message.reply("🤖 ¡Gracias por la información! Un asesor validará tu pago en un momento y te entregará tu cuenta. ¡Gracias por tu paciencia! 😊");
+                console.error("Error notificando al grupo sobre operador de Netflix:", adminErr.message);
+            }
+            break;
+        case 'awaiting_payment_method':
+            await handleAwaitingPaymentMethod(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null, inputToUse);
+            break;
+        case 'awaiting_cobros_confirmation':
+            await handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client);
+            break;
+        case 'awaiting_payment_confirmation':
+            await handleAwaitingPaymentConfirmation(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
+            break;
+        case 'awaiting_advisor_reason':
+            try {
+                const reason = inputToUse.trim();
+                console.log(`[Advisor Flow] El usuario dio la razón de soporte: "${reason}"`);
+
+                const { analyzeAdvisorReason } = require('./aiService');
+                const analysis = await analyzeAdvisorReason(reason, hist);
+
+                console.log(`[Advisor Flow AI Analysis] Can resolve? ${analysis.canResolve}. Action: ${analysis.action}. Explanation: ${analysis.explanation}`);
+
+                if (analysis.canResolve && analysis.action) {
+                    if (analysis.action === 'comprar') {
+                        userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
+                        await message.reply(`🤖 Entiendo que deseas adquirir un nuevo servicio (${analysis.explanation}). ¡Yo mismo puedo ayudarte con eso de inmediato!`);
+                        const { handleSubscriptionInterest } = require('./salesService');
+                        await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+                        return;
+                    } else if (analysis.action === 'pagar' || analysis.action === 'renovar') {
+                        userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                        await message.reply(`🤖 Veo que deseas realizar un pago o renovar tus cuentas (${analysis.explanation}). ¡Puedo ayudarte con eso ahora mismo!`);
+                        const { processCheckPrices } = require('./billingService');
+                        await processCheckPrices(message, userId, userStates, reason, analysis.detectedPlatform, 1);
+                        return;
+                    } else if (analysis.action === 'credenciales') {
+                        userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                        await message.reply(`🤖 Veo que necesitas revisar tus credenciales o claves de acceso (${analysis.explanation}).`);
+                        const { processCheckCredentials } = require('./billingService');
+                        await processCheckCredentials(userId, client, reason, "");
+                        return;
+                    } else if (analysis.action === 'soporte') {
+                        await message.reply("🤖 Entiendo que experimentas un problema técnico. Para ayudarte a solucionarlo de inmediato, por favor indícame con qué plataforma tienes el inconveniente o envíame una captura de pantalla del error.");
+                        userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.error("Error in awaiting_advisor_reason flow:", err.message);
+            }
+
+            // Fallback: comunicar con humano
+            try {
+                const chat = await client.getChatById(GROUP_ID);
+                if (chat) {
+                    let realPhone = userId.replace(/\D/g, '');
+                    try {
+                        const contact = await message.getContact();
+                        if (contact && contact.number) realPhone = contact.number;
+                    } catch (e) { }
+                    await chat.sendMessage(`🚨 *Atención Asesor Requerida* (@${realPhone})\n\nMotivo del cliente: "${inputToUse}"`);
+                }
+            } catch (error) {
+                console.error('Error enviando mensaje al grupo:', error);
+            }
+            await message.reply("🤖 Entendido. He notificado a un asesor humano sobre tu solicitud. Un asesor te responderá por este chat lo más pronto posible. He silenciado mis respuestas automáticas de charla general para no interrumpir.");
+            userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+            break;
+        case 'waiting_human':
+            console.log(`[DEBUG] Usuario ${userId} en modo waiting_human.`);
+            const currentSt = userStates.get(userId) || {};
+            const count = currentSt.waitingCount || 0;
+
+            if (!global.supportQueue) global.supportQueue = [];
+            const qIdx = global.supportQueue.indexOf(userId);
+            if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
+            global.supportQueue.push(userId);
+            const pos = global.supportQueue.length;
+
+            if (count > 0) {
+                await message.reply(`🤖 Tu mensaje ha sido recibido y sigues en nuestra cola de soporte.\n\n⚠️ *Aviso automático:* Cada vez que envías un mensaje nuevo, el sistema te mueve al último lugar de la fila para dar prioridad a los chats más antiguos.\n\n📍 *Tu posición actual en la fila es la número ${pos}.*`);
+            }
+
+            userStates.set(userId, { ...currentSt, waitingCount: count + 1 });
+            break;
+        case 'awaiting_purchase_platforms':
+            await handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID);
+            break;
+        case 'selecting_plans':
+            await handleSelectingPlans(message, userId, userStates);
+            break;
+        case 'adding_platform':
+            await handleAddingPlatform(message, userId, userStates);
+            break;
+        case 'awaiting_name_for_contact':
+            const name = (message.body || "").trim();
+            try {
+                const { addNewContact } = require('./googleContactsService');
+                // addNewContact ya tiene validación interna y caché local
+                await addNewContact(name, userId.replace('@c.us', ''));
+            } catch (e) { }
+            userStates.set(userId, { state: 'main_menu', nombre: name });
+            await message.reply("🤖 ¡Un placer conocerte, *" + name + "*! Ya quedaste agendado. Ahora sí, ¿en qué te puedo ayudar hoy?\n\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
+            break;
+        case 'awaiting_churn_reason':
+            const reason = (message.body || "").trim();
+            const cState = userStates.get(userId) || {};
+            if (cState.rowNumber) {
+                const { updateExcelData } = require('./apiService');
+                try {
+                    const dateStr = new Date().toLocaleDateString('es-CO');
+                    const finalReason = `cortar ${reason} (bot ${dateStr})`;
+                    await updateExcelData(cState.rowNumber, { "observaciones": finalReason });
+                    console.log(`[Churn] Razón guardada en fila ${cState.rowNumber}: ${finalReason}`);
+                } catch (e) {
+                    console.error("[Churn] Error guardando razón en Excel:", e.message);
+                }
+            }
+            await message.reply("🤖 ¡Muchas gracias por tu comentario! Lo tendré muy en cuenta. ¡Aquí tienes tu casa para cuando decidas volver! 👋");
+            userStates.delete(userId);
+            break;
+        default:
+            const historyText = await getChatHistoryText(message);
+            await processFallbackWithEscalation(message, userId, isMedia, mediaData.length > 0 ? mediaData : null, historyText);
+            break;
+    }
 }
 
 /**
@@ -3509,305 +3509,305 @@ async function safeReply(message, content, userId) {
  * Event Listener principal
  */
 client.on('message', async (message) => {
-  // Manejo de mensajes antiguos
-  if (message.timestamp < BOT_START_TIME) {
-    if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) return;
-    const shouldProcess = await new Promise(resolve => {
-         startupLock = startupLock.then(async () => {
-             try {
-                const chat = await message.getChat();
-                const msgs = await chat.fetchMessages({ limit: 5 });
-                let isHuman = false;
-                for (const m of msgs) {
-                    if (m.fromMe && !m.body.includes('🤖')) { isHuman = true; break; }
-                }
-                if (isHuman) {
-                   userStates.set(message.from, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
-                   resolve(false);
+    // Manejo de mensajes antiguos
+    if (message.timestamp < BOT_START_TIME) {
+        if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) return;
+        const shouldProcess = await new Promise(resolve => {
+            startupLock = startupLock.then(async () => {
+                try {
+                    const chat = await message.getChat();
+                    const msgs = await chat.fetchMessages({ limit: 5 });
+                    let isHuman = false;
+                    for (const m of msgs) {
+                        if (m.fromMe && !m.body.includes('🤖')) { isHuman = true; break; }
+                    }
+                    if (isHuman) {
+                        userStates.set(message.from, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
+                        resolve(false);
+                    } else {
+                        await new Promise(r => setTimeout(r, 2500));
+                        resolve(true);
+                    }
+                } catch (e) { resolve(false); }
+            });
+        });
+        if (!shouldProcess) return;
+    }
+
+    // Ignorar propios
+    if (message.fromMe) return;
+
+    // Filtros de grupo
+    if (message.from.includes('@g.us')) {
+        // Los mensajes de grupo se procesan instantáneamente (normalmente no hay ráfagas de imágenes para el bot aquí)
+        if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
+            await processIncomingMessage([message]);
+        } else {
+            let groupState = userStates.get(message.from);
+            if (groupState && typeof groupState === 'object') groupState = groupState.state;
+            if (message.from === GROUP_ID && groupState === 'awaiting_cobros_confirmation') {
+                await processIncomingMessage([message]);
+            } else {
+                const b = message.body ? message.body.toLowerCase().trim() : '';
+                if (message.from === GROUP_ID && (b.includes('liberar masivo') || b.startsWith('!bot') || b.startsWith('!liberar') || b.startsWith('liberar ') || b.startsWith('confirmar_cobros '))) {
+                    // dejar pasar
                 } else {
-                   await new Promise(r => setTimeout(r, 2500));
-                   resolve(true);
+                    return;
                 }
-             } catch(e) { resolve(false); }
-         });
-    });
-    if (!shouldProcess) return;
-  }
+            }
+        }
+        return;
+    }
 
-  // Ignorar propios
-  if (message.fromMe) return;
+    if (message.from.includes('status@broadcast')) return;
+    if (globalBotSleep && message.from !== OPERATOR_NUMBER && message.from !== GROUP_ID) return;
 
-  // Filtros de grupo
-  if (message.from.includes('@g.us')) {
-      // Los mensajes de grupo se procesan instantáneamente (normalmente no hay ráfagas de imágenes para el bot aquí)
-      if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
-          await processIncomingMessage([message]);
-      } else {
-          let groupState = userStates.get(message.from);
-          if (groupState && typeof groupState === 'object') groupState = groupState.state;
-          if (message.from === GROUP_ID && groupState === 'awaiting_cobros_confirmation') {
-              await processIncomingMessage([message]);
-          } else {
-              const b = message.body ? message.body.toLowerCase().trim() : '';
-              if (message.from === GROUP_ID && (b.includes('liberar masivo') || b.startsWith('!bot') || b.startsWith('!liberar') || b.startsWith('liberar ') || b.startsWith('confirmar_cobros '))) {
-                 // dejar pasar
-              } else {
-                 return;
-              }
-          }
-      }
-      return;
-  }
+    // --- MECANISMO DE BATCHING PARA MENSAJES INDIVIDUALES ---
+    const userId = message.from;
+    if (!messageQueues.has(userId)) {
+        messageQueues.set(userId, { messages: [], timer: null });
+    }
 
-  if (message.from.includes('status@broadcast')) return;
-  if (globalBotSleep && message.from !== OPERATOR_NUMBER && message.from !== GROUP_ID) return;
+    const queue = messageQueues.get(userId);
+    if (queue.timer) clearTimeout(queue.timer);
 
-  // --- MECANISMO DE BATCHING PARA MENSAJES INDIVIDUALES ---
-  const userId = message.from;
-  if (!messageQueues.has(userId)) {
-      messageQueues.set(userId, { messages: [], timer: null });
-  }
+    queue.messages.push(message);
 
-  const queue = messageQueues.get(userId);
-  if (queue.timer) clearTimeout(queue.timer);
-
-  queue.messages.push(message);
-
-  queue.timer = setTimeout(async () => {
-      const batch = [...queue.messages];
-      messageQueues.delete(userId);
-      console.log(`[Batch Processor] Procesando lote de ${batch.length} mensajes para @${userId.replace('@c.us', '')}`);
-      await processIncomingMessage(batch);
-  }, BATCH_INTERVAL);
+    queue.timer = setTimeout(async () => {
+        const batch = [...queue.messages];
+        messageQueues.delete(userId);
+        console.log(`[Batch Processor] Procesando lote de ${batch.length} mensajes para @${userId.replace('@c.us', '')}`);
+        await processIncomingMessage(batch);
+    }, BATCH_INTERVAL);
 });
 
 
 // Funciones de manejo de estados
 async function handleMainMenuSelection(message, userId, detection, isMedia = false, singleMediaData = null) {
-  const userSelection = message.body.trim();
-  switch (userSelection) {
-    case '1':
-      const existing = userStates.get(userId) || {};
-      if (detection && detection.detectedPlatform) {
-          console.log(`[Menu Context] Usuario seleccionó 1 pero ya había mencionado: ${detection.detectedPlatform}`);
-          userStates.set(userId, { ...existing, state: 'awaiting_purchase_platforms', nombre: foundName });
-          await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
-      } else {
-          await startPurchaseProcess(message, userId, userStates);
-      }
-      break;
-    case '2':
-      await processCheckCredentials(userId, client, message.body, "");
-      break;
-    case '3':
-      await processCheckPrices(message, userId, userStates);
-      break;
-    case '4':
-          await message.reply("🤖 *Soporte Técnico Sheerit*\n\nPor favor describe tu problema detalladamente o envíame una captura de pantalla del error que estás experimentando. Te guiaré paso a paso para solucionarlo.\n\n⚠️ *Nota:* Nuestra atención es **exclusivamente por chat**, no atendemos llamadas.\n\nSi el problema es complejo, escribe *5* en cualquier momento para hablar con un asesor humano.");
+    const userSelection = message.body.trim();
+    switch (userSelection) {
+        case '1':
+            const existing = userStates.get(userId) || {};
+            if (detection && detection.detectedPlatform) {
+                console.log(`[Menu Context] Usuario seleccionó 1 pero ya había mencionado: ${detection.detectedPlatform}`);
+                userStates.set(userId, { ...existing, state: 'awaiting_purchase_platforms', nombre: foundName });
+                await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+            } else {
+                await startPurchaseProcess(message, userId, userStates);
+            }
+            break;
+        case '2':
+            await processCheckCredentials(userId, client, message.body, "");
+            break;
+        case '3':
+            await processCheckPrices(message, userId, userStates);
+            break;
+        case '4':
+            await message.reply("🤖 *Soporte Técnico Sheerit*\n\nPor favor describe tu problema detalladamente o envíame una captura de pantalla del error que estás experimentando. Te guiaré paso a paso para solucionarlo.\n\n⚠️ *Nota:* Nuestra atención es **exclusivamente por chat**, no atendemos llamadas.\n\nSi el problema es complejo, escribe *5* en cualquier momento para hablar con un asesor humano.");
 
-      break;
-    case '5':
-      await message.reply("🤖 Para poder ayudarte mejor y resolver tu solicitud lo antes posible, por favor escribe detalladamente qué necesitas consultar con el asesor (ej. dudas sobre un pago, cambio de plan, soporte técnico, etc.).\n\nEl bot analizará tu respuesta y, si es necesario, te comunicará con un asesor de inmediato.");
-      userStates.set(userId, { state: 'awaiting_advisor_reason', nombre: foundName });
-      break;
-    default:
-      if (detection) {
-          if (detection.intent === 'comprar') {
-              userStates.set(userId, { state: 'awaiting_purchase_platforms' });
-              await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
-              return;
-          } else if (detection.intent === 'pagar' || detection.intent === 'renovar') {
-              const durationMonths = getDurationMonths(detection, inputToUse);
-              await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
-              return;
-          } else if (detection.intent === 'credenciales') {
-              await processCheckCredentials(userId, client, message.body, "");
-              return;
-          }
-      }
+            break;
+        case '5':
+            await message.reply("🤖 Para poder ayudarte mejor y resolver tu solicitud lo antes posible, por favor escribe detalladamente qué necesitas consultar con el asesor (ej. dudas sobre un pago, cambio de plan, soporte técnico, etc.).\n\nEl bot analizará tu respuesta y, si es necesario, te comunicará con un asesor de inmediato.");
+            userStates.set(userId, { state: 'awaiting_advisor_reason', nombre: foundName });
+            break;
+        default:
+            if (detection) {
+                if (detection.intent === 'comprar') {
+                    userStates.set(userId, { state: 'awaiting_purchase_platforms' });
+                    await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+                    return;
+                } else if (detection.intent === 'pagar' || detection.intent === 'renovar') {
+                    const durationMonths = getDurationMonths(detection, inputToUse);
+                    await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
+                    return;
+                } else if (detection.intent === 'credenciales') {
+                    await processCheckCredentials(userId, client, message.body, "");
+                    return;
+                }
+            }
 
-      // Si no es un número, usamos la IA para ver si tiene una duda o comentario
-      const history = await getChatHistoryText(message);
-      
-      let accounts = [];
-      try { accounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch(e){}
-      
-      const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
-      
-      if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
-          await message.reply(fallback.replyMessage);
-          
-          if (fallback.needsEscalation) {
-              const chat = await client.getChatById(GROUP_ID);
-              if (chat) {
-                  let contact;
-                  try {
-                      contact = await message.getContact();
-                  } catch(e) {
-                      contact = { number: userId.replace(/\D/g, '') };
-                  }
-                  const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
-                  await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
-              }
-              userStates.set(userId, { state: 'waiting_human', waitingCount: 0 }); // No seteamos lastHumanInteraction para permitir reactivación por IA si el cliente pide otra cosa
-          }
-      } else {
-          await message.reply("🤖 Por favor, selecciona una opción válida del menú (1-5), o escribe tu duda para ayudarte.");
-      }
-      break;
-  }
+            // Si no es un número, usamos la IA para ver si tiene una duda o comentario
+            const history = await getChatHistoryText(message);
+
+            let accounts = [];
+            try { accounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch (e) { }
+
+            const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
+
+            if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
+                await message.reply(fallback.replyMessage);
+
+                if (fallback.needsEscalation) {
+                    const chat = await client.getChatById(GROUP_ID);
+                    if (chat) {
+                        let contact;
+                        try {
+                            contact = await message.getContact();
+                        } catch (e) {
+                            contact = { number: userId.replace(/\D/g, '') };
+                        }
+                        const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
+                        await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
+                    }
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0 }); // No seteamos lastHumanInteraction para permitir reactivación por IA si el cliente pide otra cosa
+                }
+            } else {
+                await message.reply("🤖 Por favor, selecciona una opción válida del menú (1-5), o escribe tu duda para ayudarte.");
+            }
+            break;
+    }
 }
 
 
 async function handleAwaitingPaymentMethod(message, userId, isMedia = false, singleMediaData = null, text = null) {
-  const textToUse = text || message.body || '';
-  await processPaymentSelection(message, userId, textToUse, isMedia, singleMediaData);
+    const textToUse = text || message.body || '';
+    await processPaymentSelection(message, userId, textToUse, isMedia, singleMediaData);
 }
 
 async function processPaymentSelection(message, userId, text, isMedia = false, singleMediaData = null) {
-  // Usar AI para detectar método de pago
-  const method = await detectPaymentMethod(text);
+    // Usar AI para detectar método de pago
+    const method = await detectPaymentMethod(text);
 
-  const paymentDetails = {
-    'nequi': "🤖 *Nequi (VALIDACIÓN MANUAL ⏳)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)\n\nSi prefieres transferir directamente a nuestro Nequi personal, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. ⏳",
-    'daviplata': "🤖 *Daviplata (VALIDACIÓN MANUAL ⏳)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)\n\nSi prefieres transferir directamente a nuestro Daviplata personal, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. ⏳",
-    'transfiya': "🤖 *Transfiya (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Transfiya con entrega inmediata, por favor utiliza nuestra *Llave Bre-V* oficial. De esta forma, el bot validará tu pago automáticamente al instante en segundos. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
-    'bancolombia': "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos sin esperar por humanos. ⚡",
-    'banco caja social': "🤖 *Banco Caja Social (VALIDACIÓN MANUAL ⏳)*\n\nNúmero de cuenta: 24111572331\nNombre: Esteban Avila\nCC: 1032936324\n\n📌 *Nota:* Este método requiere verificación manual por parte de un asesor, lo cual puede demorar un poco más. ⏳",
-    'llave': "🤖 *LLAVE Bre-V (ENTREGA INMEDIATA ⚡)*\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)\n\n💡 *Tip:* Si pagas usando nuestra Llave Bre-V oficial, el bot validará tu pago automáticamente al instante en segundos.",
-    'qr negocios': "🤖 *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** inmediata de tus servicios sin esperar por humanos. ⚡"
-  };
-  
-  const lowerText = text.toLowerCase();
-  const isQrRequest = lowerText.includes('qr') || lowerText.includes('código') || lowerText.includes('codigo') || lowerText.includes('consignar') || lowerText.includes('cuenta para');
+    const paymentDetails = {
+        'nequi': "🤖 *Nequi (VALIDACIÓN MANUAL ⏳)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)\n\nSi prefieres transferir directamente a nuestro Nequi personal, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. ⏳",
+        'daviplata': "🤖 *Daviplata (VALIDACIÓN MANUAL ⏳)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)\n\nSi prefieres transferir directamente a nuestro Daviplata personal, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. ⏳",
+        'transfiya': "🤖 *Transfiya (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Transfiya con entrega inmediata, por favor utiliza nuestra *Llave Bre-V* oficial. De esta forma, el bot validará tu pago automáticamente al instante en segundos. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
+        'bancolombia': "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos sin esperar por humanos. ⚡",
+        'banco caja social': "🤖 *Banco Caja Social (VALIDACIÓN MANUAL ⏳)*\n\nNúmero de cuenta: 24111572331\nNombre: Esteban Avila\nCC: 1032936324\n\n📌 *Nota:* Este método requiere verificación manual por parte de un asesor, lo cual puede demorar un poco más. ⏳",
+        'llave': "🤖 *LLAVE Bre-V (ENTREGA INMEDIATA ⚡)*\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)\n\n💡 *Tip:* Si pagas usando nuestra Llave Bre-V oficial, el bot validará tu pago automáticamente al instante en segundos.",
+        'qr negocios': "🤖 *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** inmediata de tus servicios sin esperar por humanos. ⚡"
+    };
 
-  if (isQrRequest) {
-    const { MessageMedia } = require('whatsapp-web.js');
-    const qrPath = path.join(__dirname, 'uploads', 'qr_pago.jpeg');
-    if (fs.existsSync(qrPath)) {
-        try {
-            const media = MessageMedia.fromFilePath(qrPath);
-            await message.reply(media, undefined, { caption: "🤖 Aquí tienes nuestro *QR de Negocios* oficial. Si pagas con este QR, tu pago será validado por el bot haciendo la entrega o renovación inmediata. ⚡" });
-        } catch(e) {
-            console.error("Error enviando QR:", e.message);
-            await message.reply("🤖 No pude enviar la imagen del QR en este momento, pero puedes usar los datos de texto abajo.");
+    const lowerText = text.toLowerCase();
+    const isQrRequest = lowerText.includes('qr') || lowerText.includes('código') || lowerText.includes('codigo') || lowerText.includes('consignar') || lowerText.includes('cuenta para');
+
+    if (isQrRequest) {
+        const { MessageMedia } = require('whatsapp-web.js');
+        const qrPath = path.join(__dirname, 'uploads', 'qr_pago.jpeg');
+        if (fs.existsSync(qrPath)) {
+            try {
+                const media = MessageMedia.fromFilePath(qrPath);
+                await message.reply(media, undefined, { caption: "🤖 Aquí tienes nuestro *QR de Negocios* oficial. Si pagas con este QR, tu pago será validado por el bot haciendo la entrega o renovación inmediata. ⚡" });
+            } catch (e) {
+                console.error("Error enviando QR:", e.message);
+                await message.reply("🤖 No pude enviar la imagen del QR en este momento, pero puedes usar los datos de texto abajo.");
+            }
+        } else {
+            await message.reply("🤖 Aún no tengo configurada la imagen del QR oficial, pero puedes usar estos datos para transferir (recuerda que el QR agiliza tu entrega):");
         }
-    } else {
-        await message.reply("🤖 Aún no tengo configurada la imagen del QR oficial, pero puedes usar estos datos para transferir (recuerda que el QR agiliza tu entrega):");
     }
-  }
 
-  // Mapeo dinámico para manejar 'llave' o 'llaves'
-  let methodToUse = method;
-  if (!methodToUse && (lowerText.includes('llave') || lowerText.includes('bre-v') || lowerText.includes('brev') || lowerText.includes('bre v') || lowerText.includes('bre-b') || lowerText.includes('breb') || lowerText.includes('bre b'))) methodToUse = 'llave';
+    // Mapeo dinámico para manejar 'llave' o 'llaves'
+    let methodToUse = method;
+    if (!methodToUse && (lowerText.includes('llave') || lowerText.includes('bre-v') || lowerText.includes('brev') || lowerText.includes('bre v') || lowerText.includes('bre-b') || lowerText.includes('breb') || lowerText.includes('bre b'))) methodToUse = 'llave';
 
-  if (methodToUse && paymentDetails[methodToUse]) {
-    const state = userStates.get(userId) || {};
-    let finalMsg = paymentDetails[methodToUse];
-    if (state.isRenewal) {
-        finalMsg += "\n\n💡 *Tip de Renovación:* Si pagas con un método automático (como el QR, la Llave Bre-V o Bancolombia), tu renovación se procesará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ni un solo día más, ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
-    }
-    await message.reply(finalMsg);
-    userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
-  } else {
-    // Fallback manual check
-    let foundKey = Object.keys(paymentDetails).find(key => lowerText.includes(key));
-    if (foundKey) {
-      const state = userStates.get(userId) || {};
-      let finalMsg = paymentDetails[foundKey];
-      if (state.isRenewal) {
-          finalMsg += "\n\n💡 *Tip de Renovación:* Si pagas con un método automático (como el QR, la Llave Bre-V o Bancolombia), tu renovación se procesará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ni un solo día más, ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
-      }
-      await message.reply(finalMsg);
-      userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
+    if (methodToUse && paymentDetails[methodToUse]) {
+        const state = userStates.get(userId) || {};
+        let finalMsg = paymentDetails[methodToUse];
+        if (state.isRenewal) {
+            finalMsg += "\n\n💡 *Tip de Renovación:* Si pagas con un método automático (como el QR, la Llave Bre-V o Bancolombia), tu renovación se procesará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ni un solo día más, ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
+        }
+        await message.reply(finalMsg);
+        userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
     } else {
-      // Usar la IA en vez del mensaje genérico terco (esto responde precios exactos gracias a aiService)
-      const historyTextForFallback = await getChatHistoryText(message);
-      await processFallbackWithEscalation(message, userId, isMedia, singleMediaData, historyTextForFallback);
+        // Fallback manual check
+        let foundKey = Object.keys(paymentDetails).find(key => lowerText.includes(key));
+        if (foundKey) {
+            const state = userStates.get(userId) || {};
+            let finalMsg = paymentDetails[foundKey];
+            if (state.isRenewal) {
+                finalMsg += "\n\n💡 *Tip de Renovación:* Si pagas con un método automático (como el QR, la Llave Bre-V o Bancolombia), tu renovación se procesará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ni un solo día más, ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
+            }
+            await message.reply(finalMsg);
+            userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
+        } else {
+            // Usar la IA en vez del mensaje genérico terco (esto responde precios exactos gracias a aiService)
+            const historyTextForFallback = await getChatHistoryText(message);
+            await processFallbackWithEscalation(message, userId, isMedia, singleMediaData, historyTextForFallback);
+        }
     }
-  }
 }
 
 async function handleAwaitingPaymentConfirmation(message, userId, isMedia = false, singleMediaData = null) {
-  const body = (message.body || '').toLowerCase().trim();
+    const body = (message.body || '').toLowerCase().trim();
 
-  // --- EVITAR DUPLICADO SI SE ACABA DE VALIDAR EL PAGO ---
-  const stateData = userStates.get(userId) || {};
-  const lastValidated = stateData.lastPaymentValidated || 0;
-  const timeSinceValidation = Date.now() - lastValidated;
+    // --- EVITAR DUPLICADO SI SE ACABA DE VALIDAR EL PAGO ---
+    const stateData = userStates.get(userId) || {};
+    const lastValidated = stateData.lastPaymentValidated || 0;
+    const timeSinceValidation = Date.now() - lastValidated;
 
-  if (timeSinceValidation < 1000 * 60 * 5) { // 5 minutos de gracia
-      await message.reply("🤖 ¡Así es! Ya registré tu pago al instante y te entregué tu cuenta. ¡Es un hecho! A disfrutar de tus pantallas. 😎🎬");
-      userStates.set(userId, { ...stateData, state: 'main_menu' });
-      return;
-  }
-
-  // Check if user is trying to switch payment method
-  const newMethodCheck = await detectPaymentMethod(message.body);
-  console.log(`[DEBUG] Payment switch check for '${message.body}': ${newMethodCheck}`);
-
-  // Evitar falsos positivos en preguntas o frases largas (más de 2 palabras)
-  const isQuestionOrLongPhrase = body.split(/\s+/).length > 2;
-
-  if (newMethodCheck && !isQuestionOrLongPhrase) {
-    await message.reply("🤖 Entendido, cambiamos el método de pago.");
-    await processPaymentSelection(message, userId, message.body, isMedia, singleMediaData);
-    return;
-  }
-
-  if (message.hasMedia || body.includes("ya pagu") || body.includes("listo") || body.includes("claro que si") || body.includes("enviado") || body.includes("transferencia") || body.includes("comprobante")) {
-    // Si envían imagen o confirman por texto, informamos al grupo y esperamos validación humana
-    try {
-      const chat = await client.getChatById(GROUP_ID);
-      if (chat) {
-        const type = message.hasMedia ? "📸 Comprobante" : "✅ Confirmación de pago u observación";
-        let contact;
-        try {
-            contact = await message.getContact();
-        } catch(e) {
-            contact = { number: userId.replace(/\D/g, '') };
-        }
-        const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
-        await chat.sendMessage(`🚨 ${type} recibido de @${realPhone}. Por favor revisar.\n\nPara validar, responde: *@bot confirmar ${realPhone}* o *si me llegó ${realPhone}*`);
-      }
-    } catch (error) {
-      console.error('Error enviando notificación de pago al grupo:', error);
-    }
-
-    // Revisar si en el carrito (items) hay un servicio de Netflix para solicitar operador
-    let hasNetflix = false;
-    if (stateData.items && Array.isArray(stateData.items)) {
-        hasNetflix = stateData.items.some(item => {
-            const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
-            return name.includes('netflix') && !name.includes('extra');
-        });
-    }
-
-    if (hasNetflix && !stateData.isRenewal) {
-        await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
-        userStates.set(userId, { 
-            ...stateData, 
-            state: 'awaiting_netflix_operator_post_payment',
-            checkAmount: stateData.total || null
-        });
+    if (timeSinceValidation < 1000 * 60 * 5) { // 5 minutos de gracia
+        await message.reply("🤖 ¡Así es! Ya registré tu pago al instante y te entregué tu cuenta. ¡Es un hecho! A disfrutar de tus pantallas. 😎🎬");
+        userStates.set(userId, { ...stateData, state: 'main_menu' });
         return;
     }
 
-    if (message.hasMedia) {
-      await message.reply("🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para entregarte tus accesos.");
-    } else {
-      await message.reply("🤖 Hemos recibido tu confirmación. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido.");
+    // Check if user is trying to switch payment method
+    const newMethodCheck = await detectPaymentMethod(message.body);
+    console.log(`[DEBUG] Payment switch check for '${message.body}': ${newMethodCheck}`);
+
+    // Evitar falsos positivos en preguntas o frases largas (más de 2 palabras)
+    const isQuestionOrLongPhrase = body.split(/\s+/).length > 2;
+
+    if (newMethodCheck && !isQuestionOrLongPhrase) {
+        await message.reply("🤖 Entendido, cambiamos el método de pago.");
+        await processPaymentSelection(message, userId, message.body, isMedia, singleMediaData);
+        return;
     }
 
-    // No registramos todavía. Guardamos el estado para que el admin lo confirme manualmente.
-    const newState = { ...stateData, state: 'waiting_admin_confirmation' };
-    userStates.set(userId, newState);
-  } else {
-    // En vez de repetir robóticamente, usamos IA para responder dudas si el usuario pregunta algo
-    const { getChatHistoryText } = require('./salesService');
-    const historyText = await getChatHistoryText(message);
-    await processFallbackWithEscalation(message, userId, isMedia, singleMediaData, historyText);
-  }
+    if (message.hasMedia || body.includes("ya pagu") || body.includes("listo") || body.includes("claro que si") || body.includes("enviado") || body.includes("transferencia") || body.includes("comprobante")) {
+        // Si envían imagen o confirman por texto, informamos al grupo y esperamos validación humana
+        try {
+            const chat = await client.getChatById(GROUP_ID);
+            if (chat) {
+                const type = message.hasMedia ? "📸 Comprobante" : "✅ Confirmación de pago u observación";
+                let contact;
+                try {
+                    contact = await message.getContact();
+                } catch (e) {
+                    contact = { number: userId.replace(/\D/g, '') };
+                }
+                const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
+                await chat.sendMessage(`🚨 ${type} recibido de @${realPhone}. Por favor revisar.\n\nPara validar, responde: *@bot confirmar ${realPhone}* o *si me llegó ${realPhone}*`);
+            }
+        } catch (error) {
+            console.error('Error enviando notificación de pago al grupo:', error);
+        }
+
+        // Revisar si en el carrito (items) hay un servicio de Netflix para solicitar operador
+        let hasNetflix = false;
+        if (stateData.items && Array.isArray(stateData.items)) {
+            hasNetflix = stateData.items.some(item => {
+                const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                return name.includes('netflix') && !name.includes('extra');
+            });
+        }
+
+        if (hasNetflix && !stateData.isRenewal) {
+            await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
+            userStates.set(userId, {
+                ...stateData,
+                state: 'awaiting_netflix_operator_post_payment',
+                checkAmount: stateData.total || null
+            });
+            return;
+        }
+
+        if (message.hasMedia) {
+            await message.reply("🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para entregarte tus accesos.");
+        } else {
+            await message.reply("🤖 Hemos recibido tu confirmación. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido.");
+        }
+
+        // No registramos todavía. Guardamos el estado para que el admin lo confirme manualmente.
+        const newState = { ...stateData, state: 'waiting_admin_confirmation' };
+        userStates.set(userId, newState);
+    } else {
+        // En vez de repetir robóticamente, usamos IA para responder dudas si el usuario pregunta algo
+        const { getChatHistoryText } = require('./salesService');
+        const historyText = await getChatHistoryText(message);
+        await processFallbackWithEscalation(message, userId, isMedia, singleMediaData, historyText);
+    }
 }
 
 
@@ -3840,11 +3840,11 @@ function getDurationMonths(detection, inputToUse) {
 
 // Esto evita que el bot se cierre si hay un error de código imprevisto
 process.on('uncaughtException', (err) => {
-  console.error('🔥 Error No Capturado (El bot sigue vivo):', err);
+    console.error('🔥 Error No Capturado (El bot sigue vivo):', err);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
+    console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
 });
 
 client.initialize().catch(err => console.error('Error al inicializar cliente:', err));
