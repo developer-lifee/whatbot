@@ -71,24 +71,24 @@ async function checkNewPayments() {
                 saveProcessedEmail(msg.id); // Guardar para no procesar de nuevo
                 continue;
             }
-            
+
             // 2. Extraer el valor (Monto: $ 6.000)
             const amountRegex = /Monto:\s*(?:\$)?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i;
             const amountMatches = body.match(amountRegex);
-            
+
             if (amountMatches) {
                 // Limpiar el valor para convertirlo a número puro (Ej: 6.000 -> 6000)
                 const rawValue = amountMatches[1];
                 const cleanValue = parseInt(rawValue.replace(/\./g, '').split(',')[0]);
 
                 console.log(`[GMAIL SCAN] ✅ Detectado pago de $${cleanValue} en correo ID: ${msg.id}`);
-                
+
                 newPayments.push({
                     id: msg.id,
                     amount: cleanValue,
                     date: fullMsg.data.internalDate
                 });
-                
+
                 saveProcessedEmail(msg.id);
             }
         }
@@ -106,7 +106,7 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
 
     const gmail = google.gmail({ version: 'v1', auth });
     const processedIds = loadProcessedEmails();
-    
+
     try {
         const res = await gmail.users.messages.list({
             userId: 'me',
@@ -205,7 +205,7 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
  */
 async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
     console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min...`);
-    
+
     // 1. Buscar en Jordi (Bre-B)
     const matchJordi = await findMatchingPaymentInAccount(
         PAYMENT_EMAIL,
@@ -244,7 +244,7 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
     if (!auth) return [];
 
     const gmail = google.gmail({ version: 'v1', auth });
-    
+
     try {
         const res = await gmail.users.messages.list({
             userId: 'me',
@@ -268,26 +268,26 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             if (diffMinutes > toleranceMinutes) continue;
 
             const snippet = fullMsg.data.snippet || '';
-            const bodyData = fullMsg.data.payload.body && fullMsg.data.payload.body.data 
-                ? Buffer.from(fullMsg.data.payload.body.data, 'base64').toString() 
+            const bodyData = fullMsg.data.payload.body && fullMsg.data.payload.body.data
+                ? Buffer.from(fullMsg.data.payload.body.data, 'base64').toString()
                 : (fullMsg.data.payload.parts ? fullMsg.data.payload.parts.map(p => p.body.data ? Buffer.from(p.body.data, 'base64').toString() : '').join(' ') : '');
-            
+
             const body = snippet + ' ' + bodyData;
             const subject = fullMsg.data.payload.headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';
-            
+
             // 1. Limpiar Quoted-Printable (saltos de línea raros y tildes como =C3=B3) y eliminar bloques <style> enteros
             const unquotedBody = body.replace(/=\r?\n/g, '').replace(/=C3=B3/g, 'ó').replace(/=C3=AD/g, 'í').replace(/=C3=A1/g, 'á').replace(/=C3=A9/g, 'é').replace(/=C3=BA/g, 'ú');
             const noStyleBody = unquotedBody.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
-            
+
             // 2. Limpiar etiquetas HTML y colores hexadecimales basura residuales
             const cleanBody = noStyleBody.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');
             const superCleanBody = cleanBody.replace(/\b(?:F9F9F9|FFFFFF|000000|E5E5E5|CCCCCC|DEDEDE)\b/gi, ' ');
-            
+
             let code = null;
             // Buscar la palabra "código" o "pin" y capturar el primer número de 4-8 dígitos o alfanumérico que aparezca cerca (hasta 250 caracteres de distancia).
             // Usamos [\s\S] para incluir cualquier salto de línea residual.
             const specificCodeMatch = superCleanBody.match(/(?:c[oó]digo|pin|code)[\s\S]{0,250}?\b([0-9]{4,8}|[A-Z0-9]{6,8})\b/i);
-            
+
             if (specificCodeMatch && /[0-9]/.test(specificCodeMatch[1])) {
                 code = specificCodeMatch[1].toUpperCase();
             } else {
@@ -356,11 +356,11 @@ function cleanHtml(html) {
     text = text.replace(/<\/p>/gi, '\n');
     text = text.replace(/<[^>]+>/g, '');
     text = text.replace(/&nbsp;/g, ' ')
-               .replace(/&amp;/g, '&')
-               .replace(/&lt;/g, '<')
-               .replace(/&gt;/g, '>')
-               .replace(/&quot;/g, '"')
-               .replace(/&#39;/g, "'");
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
     text = text.replace(/\n\s*\n+/g, '\n\n');
     return text.trim();
 }
