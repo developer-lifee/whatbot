@@ -198,6 +198,39 @@ app.post('/api/netflix/verify', async (req, res) => {
   }
 });
 
+// Public Endpoint to get recommended combo based on high stock (libres)
+app.get('/api/public/recommended-combo', async (req, res) => {
+  try {
+    const { fetchRawData } = require('./apiService');
+    const rawData = await fetchRawData();
+    
+    const stockMap = {};
+    rawData.forEach(row => {
+      const streaming = (row.Streaming || '').trim();
+      if (!streaming) return;
+      
+      const name = (row.Nombre || '').toLowerCase().trim();
+      const wa = (row.whatsapp || '').trim();
+      const isLibre = !wa && (name === 'libre' || name === '');
+      
+      if (isLibre) {
+        stockMap[streaming] = (stockMap[streaming] || 0) + 1;
+      }
+    });
+    
+    // Sort platforms by count of free spots descending
+    const sortedPlatforms = Object.entries(stockMap)
+      .sort((a, b) => b[1] - a[1])
+      .map(entry => entry[0]);
+      
+    res.json({ success: true, sortedPlatforms, stockMap });
+  } catch (e) {
+    console.error("[Recommended Combo API Error]:", e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 // Admin Dashboard Endpoints
 app.get('/api/admin/clients', async (req, res) => {
     try {
