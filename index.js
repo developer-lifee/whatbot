@@ -3653,6 +3653,25 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
       console.error('Error enviando notificación de pago al grupo:', error);
     }
 
+    // Revisar si en el carrito (items) hay un servicio de Netflix para solicitar operador
+    let hasNetflix = false;
+    if (stateData.items && Array.isArray(stateData.items)) {
+        hasNetflix = stateData.items.some(item => {
+            const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+            return name.includes('netflix') && !name.includes('extra');
+        });
+    }
+
+    if (hasNetflix && !stateData.isRenewal) {
+        await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
+        userStates.set(userId, { 
+            ...stateData, 
+            state: 'awaiting_netflix_operator_post_payment',
+            checkAmount: stateData.total || null
+        });
+        return;
+    }
+
     if (message.hasMedia) {
       await message.reply("🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para entregarte tus accesos.");
     } else {
@@ -3660,8 +3679,7 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
     }
 
     // No registramos todavía. Guardamos el estado para que el admin lo confirme manualmente.
-    const existing = userStates.get(userId);
-    const newState = typeof existing === 'object' ? { ...existing, state: 'waiting_admin_confirmation' } : { state: 'waiting_admin_confirmation' };
+    const newState = { ...stateData, state: 'waiting_admin_confirmation' };
     userStates.set(userId, newState);
   } else {
     // En vez de repetir robóticamente, usamos IA para responder dudas si el usuario pregunta algo
