@@ -329,43 +329,90 @@ app.post('/api/bold/webhook', async (req, res) => {
 
 app.get('/api/admin/stats', async (req, res) => {
     try {
-        const { fetchCustomersData } = require('./apiService');
+        const { fetchCustomersData, getJsDateFromExcel, fetchHistoricoData } = require('./apiService');
         const clients = await fetchCustomersData();
         const now = new Date();
+        now.setHours(0, 0, 0, 0);
         
         const stats = {
             totalClients: clients.length,
             byPlatform: {},
             byStatus: { active: 0, expired: 0, warning: 0 },
             expirations: { next7Days: 0, next15Days: 0, next30Days: 0 },
-            revenueEstimate: 0
+            revenueEstimate: 0,
+            historyTrend: []
         };
 
         clients.forEach(c => {
-            // Platform Stats
             const plat = (c.Streaming || 'Otros').split(' ')[0] || 'Otros';
             stats.byPlatform[plat] = (stats.byPlatform[plat] || 0) + 1;
 
-            // Date processing
-            if (c['Fecha Vencimiento']) {
-                const venc = new Date(c['Fecha Vencimiento']);
-                const diffTime = venc.getTime() - now.getTime();
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            const dateVal = c.deben || c.vencimiento;
+            if (dateVal) {
+                const venc = getJsDateFromExcel(dateVal);
+                if (venc && !isNaN(venc.getTime())) {
+                    venc.setHours(0, 0, 0, 0);
+                    const diffTime = venc.getTime() - now.getTime();
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-                if (diffDays < 0) {
-                    stats.byStatus.expired++;
-                } else if (diffDays <= 5) {
-                    stats.byStatus.warning++;
-                    stats.byStatus.active++;
-                } else {
-                    stats.byStatus.active++;
+                    if (diffDays < 0) {
+                        stats.byStatus.expired++;
+                    } else if (diffDays <= 5) {
+                        stats.byStatus.warning++;
+                        stats.byStatus.active++;
+                    } else {
+                        stats.byStatus.active++;
+                    }
+
+                    if (diffDays >= 0 && diffDays <= 7) stats.expirations.next7Days++;
+                    if (diffDays >= 0 && diffDays <= 15) stats.expirations.next15Days++;
+                    if (diffDays >= 0 && diffDays <= 30) stats.expirations.next30Days++;
                 }
-
-                if (diffDays >= 0 && diffDays <= 7) stats.expirations.next7Days++;
-                if (diffDays >= 0 && diffDays <= 15) stats.expirations.next15Days++;
-                if (diffDays >= 0 && diffDays <= 30) stats.expirations.next30Days++;
             }
         });
+
+        // Cargar tendencia histórica
+        try {
+            const historico = await fetchHistoricoData();
+            const monthCounts = {};
+
+            for (const phone in historico) {
+                const clientObj = historico[phone];
+                if (clientObj && Array.isArray(clientObj.historial)) {
+                    clientObj.historial.forEach(h => {
+                        const dateVal = h.deben || h.vencimiento || h.fecha_corte;
+                        if (dateVal) {
+                            const date = getJsDateFromExcel(dateVal);
+                            if (date && !isNaN(date.getTime())) {
+                                const monthName = date.toLocaleDateString('es-ES', { month: 'short' });
+                                const year = date.getFullYear();
+                                const key = `${monthName} ${year}`;
+                                monthCounts[key] = (monthCounts[key] || 0) + 1;
+                            }
+                        }
+                    });
+                }
+            }
+
+            const trend = Object.entries(monthCounts).map(([name, ventas]) => {
+                const parts = name.split(' ');
+                const months = {
+                    ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5,
+                    jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11
+                };
+                const m = months[parts[0].toLowerCase().substring(0, 3)] || 0;
+                const y = parseInt(parts[1]) || 2026;
+                const sortKey = y * 12 + m;
+                return { name, ventas, sortKey };
+            })
+            .sort((a, b) => a.sortKey - b.sortKey)
+            .slice(-8)
+            .map(({ name, ventas }) => ({ name, ventas }));
+
+            stats.historyTrend = trend;
+        } catch (histErr) {
+            console.error("[Stats API] Error computing history trend:", histErr.message);
+        }
 
         res.json(stats);
     } catch(e) {
