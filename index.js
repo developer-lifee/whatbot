@@ -3700,13 +3700,12 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
     const method = await detectPaymentMethod(text);
 
     const paymentDetails = {
-        'nequi': "🤖 *Nequi (VALIDACIÓN MANUAL ⏳)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)\n\nSi prefieres transferir directamente a nuestro Nequi personal, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. ⏳",
-        'daviplata': "🤖 *Daviplata (VALIDACIÓN MANUAL ⏳)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)\n\nSi prefieres transferir directamente a nuestro Daviplata personal, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. ⏳",
-        'transfiya': "🤖 *Transfiya (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Transfiya con entrega inmediata, por favor utiliza nuestra *Llave Bre-V* oficial. De esta forma, el bot validará tu pago automáticamente al instante en segundos. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
-        'bancolombia': "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos sin esperar por humanos. ⚡",
-        'banco caja social': "🤖 *Banco Caja Social (VALIDACIÓN MANUAL ⏳)*\n\nNúmero de cuenta: 24111572331\nNombre: Esteban Avila\nCC: 1032936324\n\n📌 *Nota:* Este método requiere verificación manual por parte de un asesor, lo cual puede demorar un poco más. ⏳",
-        'llave': "🤖 *LLAVE Bre-V (ENTREGA INMEDIATA ⚡)*\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)\n\n💡 *Tip:* Si pagas usando nuestra Llave Bre-V oficial, el bot validará tu pago automáticamente al instante en segundos.",
-        'qr negocios': "🤖 *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n\nPor favor, escanea el código que te envío a continuación. Este es nuestro método preferido ya que permite la **activación automática** inmediata de tus servicios sin esperar por humanos. ⚡"
+        'nequi': "🤖 *Nequi (AUTOMÁTICA ⚡)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
+        'daviplata': "🤖 *Daviplata (AUTOMÁTICA ⚡)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
+        'transfiya': "🤖 *Transfiya (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Transfiya con entrega inmediata, por favor utiliza nuestra *Llave Bre-V* oficial. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
+        'bancolombia': "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos. ⚡",
+        'llave': "🤖 *LLAVE Bre-V (ENTREGA INMEDIATA ⚡)*\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
+        'qr negocios': "🤖 *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n\nPor favor, escanea el código que te envío a continuación para la **activación automática** inmediata. ⚡"
     };
 
     const lowerText = text.toLowerCase();

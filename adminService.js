@@ -296,12 +296,23 @@ async function executePaymentValidation(userId, userState, client, userStates, a
         try {
             let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nAquí tienes tus credenciales:\n\n";
             let hasAnyCredentials = false;
+            const { getMaskedAccessData } = require('./aiService');
             results.forEach(res => {
                 if (res.status === 'success' && res.correo) {
                     hasAnyCredentials = true;
+                    // res contiene la fila/datos de la cuenta en Excel. getMaskedAccessData espera los mismos campos.
+                    const masked = getMaskedAccessData({
+                        Streaming: res.name,
+                        correo: res.correo,
+                        contraseña: res.contraseña
+                    });
+                    
+                    const labelPin = (res.name || "").toLowerCase().includes('spotify') ? "DIRECCIÓN/LINK" : "PIN";
+                    const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";
                     const vencStr = formatVencimientoDate(res.vencimiento);
                     const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
-                    credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n${vencLine}\n`;
+                    
+                    credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}\n`;
                 }
             });
 
@@ -808,12 +819,22 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         } else {
             let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nAquí tienes tus credenciales:\n\n";
             let hasAnyCredentials = false;
+            const { getMaskedAccessData } = require('./aiService');
             results.forEach(res => {
                 if (res.status === 'success' && res.correo) {
                     hasAnyCredentials = true;
+                    const masked = getMaskedAccessData({
+                        Streaming: res.name,
+                        correo: res.correo,
+                        contraseña: res.contraseña
+                    });
+                    
+                    const labelPin = (res.name || "").toLowerCase().includes('spotify') ? "DIRECCIÓN/LINK" : "PIN";
+                    const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";
                     const vencStr = formatVencimientoDate(res.vencimiento);
                     const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
-                    credentialsMsg += `📺 *${res.name}*\n📧 Usuario: \`${res.correo}\`\n🔑 Contraseña: \`${res.contraseña}\`\n📌 PIN: \`${res.pin || 'Sin PIN'}\`\n${vencLine}\n`;
+                    
+                    credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}\n`;
                 }
             });
 
