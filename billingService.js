@@ -297,17 +297,8 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
     
     let name = '';
     let phone = '';
-    let platformsMatched = '';
 
-    // 1. Extraer plataformas opcionales entre paréntesis al final de la línea: "(AMAZON, DISNEY)"
-    const parenRegex = /\(([^)]+)\)$/;
-    const parenMatch = line.match(parenRegex);
-    if (parenMatch) {
-      platformsMatched = parenMatch[1].trim();
-      line = line.replace(parenRegex, '').trim(); // Quitar los paréntesis de la línea
-    }
-
-    // 2. Intentar buscar el delimitador del teléfono (ej. "Tel:", "Celular:", "Telefono:")
+    // 1. Intentar buscar el delimitador del teléfono (ej. "Tel:", "Celular:", "Telefono:")
     const telIndicatorRegex = /(?:tel|celular|telefono|teléfono):\s*(\d+)/i;
     const telMatch = line.match(telIndicatorRegex);
     
@@ -317,7 +308,7 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
       const namePart = line.split(telIndicatorRegex)[0].replace(/[\-,\s]+$/, '').trim();
       name = namePart;
     } else {
-      // 3. Fallback al formato tradicional separado por coma o guion: "Nombre, Tel" o "Nombre - Tel"
+      // 2. Fallback al formato tradicional separado por coma o guion: "Nombre, Tel" o "Nombre - Tel"
       const parts = line.includes(',') ? line.split(',') : line.split('-');
       name = (parts[0] || '').trim();
       const rest = (parts.slice(1).join(',') || '').trim();
@@ -329,11 +320,7 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
         if (phone.length === 10) phone = '57' + phone;
       }
       
-      const record = { name, phone };
-      if (platformsMatched) {
-        record.textToShow = platformsMatched;
-      }
-      records.push(record);
+      records.push({ name, phone });
     }
   }
 
@@ -352,7 +339,7 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
   
   let confirmationText = `Recibí los siguientes cargos parseados de forma automática:\n\n`;
   records.forEach(r => {
-    confirmationText += `• *${r.name}* (Tel: ${r.phone})${r.textToShow ? ` - Servicios: _${r.textToShow}_` : ''}\n`;
+    confirmationText += `• *${r.name}* (Tel: ${r.phone})\n`;
   });
   confirmationText += `\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`;
 
