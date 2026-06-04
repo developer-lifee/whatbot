@@ -280,7 +280,7 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
   }
 
   const lines = payload.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-  const records = [];
+  const parsedLines = [];
   
   for (let line of lines) {
     line = line.replace(/\t/g, ' ').trim();
@@ -307,21 +307,89 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
       if (!phone.startsWith('57') && !phone.startsWith('52')) {
         if (phone.length === 10) phone = '57' + phone;
       }
-      records.push({ name, phone });
+      parsedLines.push({ name, phone });
     }
   }
 
-  if (records.length === 0) {
+  if (parsedLines.length === 0) {
     await message.reply('🤖 No pude parsear ninguna línea de números de la lista. Verifica el formato e intenta nuevamente.');
     return;
   }
 
+  const finalRecords = [];
+  const skippedList = [];
+  
+  // Buscar en base de datos de Excel para verificar servicios actuales y saltar si ya pagaron
+  for (const item of parsedLines) {
+    try {
+      const destId = item.phone + '@c.us';
+      const userState = userStates.get(destId);
+      const stateStr = (typeof userState === 'object') ? userState.state : userState;
+
+      // 1. Si el chat está pendiente de validación manual o confirmación de pago por el admin, lo saltamos
+      if (stateStr === 'waiting_admin_confirmation' || stateStr === 'awaiting_payment_confirmation') {
+        skippedList.push({ name: item.name, phone: item.phone, reason: 'Ya hay un pago en validación.' });
+        continue;
+      }
+
+      // 2. Buscar cuentas del cliente en el Excel
+      const userAccounts = await getAccountsByPhone(item.phone);
+      if (userAccounts.length === 0) {
+        // Si no tiene cuentas vigentes asociadas, no sabemos qué cobrarle
+        skippedList.push({ name: item.name, phone: item.phone, reason: 'No tiene cuentas registradas.' });
+        continue;
+      }
+
+      // Extraer los nombres de las plataformas reales asociadas al cliente
+      const services = userAccounts.map(acc => (acc.Streaming || acc.streaming || '').toString().trim()).filter(s => s.length > 0);
+      if (services.length === 0) {
+        skippedList.push({ name: item.name, phone: item.phone, reason: 'Servicios sin nombre en base de datos.' });
+        continue;
+      }
+
+      // Añadir al registro de cobro con las plataformas reales del Excel
+      finalRecords.push({
+        name: item.name,
+        phone: item.phone,
+        textToShow: services.join(', ')
+      });
+
+    } catch (err) {
+      console.error(`Error validando cuenta para ${item.phone}:`, err);
+      // Fallback: lo añadimos igual con genérico por si falla la llamada
+      finalRecords.push({
+        name: item.name,
+        phone: item.phone,
+        textToShow: 'tus servicios'
+      });
+    }
+  }
+
+  if (finalRecords.length === 0) {
+    let report = '🤖 Revisé los números en la base de datos y todos fueron omitidos:\n\n';
+    skippedList.forEach(s => {
+      report += `• *${s.name}* (Tel: ${s.phone}) - Omitido: _${s.reason}_\n`;
+    });
+    await message.reply(report);
+    return;
+  }
+
   const client = message._client || global.client; 
-  await message.reply(`🚀 *Iniciando envío de cobros directo sin confirmación...*\nTotal detectados: ${records.length} destinatarios.`);
+  
+  // Avisar al admin sobre el análisis inicial
+  let alertMsg = `🚀 *Iniciando envío directo...*\n`;
+  alertMsg += `✅ A cobrar: ${finalRecords.length} destinatarios.\n`;
+  if (skippedList.length > 0) {
+    alertMsg += `⚠️ Omitidos (salteados): ${skippedList.length}\n`;
+    skippedList.forEach(s => {
+      alertMsg += ` • *${s.name}* (${s.phone}): _${s.reason}_\n`;
+    });
+  }
+  await message.reply(alertMsg);
 
   try {
-    const exitosos = await sendBulkCharges(client, records, userId);
-    await message.reply(`🤖 *PROCESO COMPLETADO EXCELENTE*\n- Total en lista: ${records.length}\n- Enviados con éxito: ${exitosos}\n- Fallidos: ${records.length - exitosos}`);
+    const exitosos = await sendBulkCharges(client, finalRecords, userId, userStates);
+    await message.reply(`🤖 *PROCESO COMPLETADO EXCELENTE*\n- Total en lista: ${parsedLines.length}\n- Enviados con éxito: ${exitosos}\n- Omitidos: ${skippedList.length}\n- Fallidos: ${finalRecords.length - exitosos}`);
   } catch (error) {
     console.error("Error enviando cobros directos:", error);
     await message.reply("⚠️ Hubo un error al procesar el envío masivo de cobros directos.");
