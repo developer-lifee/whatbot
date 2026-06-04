@@ -1101,10 +1101,22 @@ client.on('auth_failure', (msg) => {
 
 // Manejo de llamadas automáticas
 client.on('call', async (call) => {
-    console.log(`[CALL] ✨ Llamada entrante de ${call.from}. Rechazando y enviando aviso.`);
+    console.log(`[CALL] ✨ Llamada entrante detectada. ID: ${call.id}, De: ${call.from}`);
     try {
         await call.reject();
-        await client.sendMessage(call.from, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
+        console.log(`[CALL] 🚫 Llamada ${call.id} rechazada con éxito.`);
+        
+        // Determinar el JID de destino correcto (debe incluir @c.us)
+        let destJid = call.from;
+        if (destJid && !destJid.includes('@')) {
+            destJid = destJid.replace(/\D/g, '') + '@c.us';
+        }
+        
+        // Pausa de 1.5s para permitir que Puppeteer se desature tras colgar
+        await new Promise(res => setTimeout(res, 1500));
+        
+        await client.sendMessage(destJid, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
+        console.log(`[CALL] ✉️ Aviso de chat enviado a ${destJid}`);
     } catch (e) {
         console.error('Error al rechazar llamada:', e);
     }
@@ -1112,10 +1124,21 @@ client.on('call', async (call) => {
 
 // Implement incoming_call para compatibilidad con diferentes versiones
 client.on('incoming_call', async (call) => {
-    console.log(`[INCOMING_CALL] ✨ Llamada entrante de ${call.from}. Rechazando y enviando aviso.`);
+    console.log(`[INCOMING_CALL] ✨ Llamada entrante detectada. ID: ${call.id}, De: ${call.from}`);
     try {
         await call.reject();
-        await client.sendMessage(call.from, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
+        console.log(`[INCOMING_CALL] 🚫 Llamada ${call.id} rechazada con éxito.`);
+        
+        let destJid = call.from;
+        if (destJid && !destJid.includes('@')) {
+            destJid = destJid.replace(/\D/g, '') + '@c.us';
+        }
+        
+        // Pausa de 1.5s para permitir que Puppeteer se desature tras colgar
+        await new Promise(res => setTimeout(res, 1500));
+        
+        await client.sendMessage(destJid, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
+        console.log(`[INCOMING_CALL] ✉️ Aviso de chat enviado a ${destJid}`);
     } catch (e) {
         console.error('Error al rechazar llamada (incoming_call):', e);
     }
