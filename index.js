@@ -1713,7 +1713,8 @@ async function processIncomingMessage(messages) {
         message.body.toLowerCase().startsWith('@bot haz los cobros de:')
     );
     if (isManualChargesCommand) {
-        await handleCobrosParser(message, userId, userStates, pendingConfirmations);
+        // Usar originalChatJid (el JID del chat del grupo o el chat directo) para evitar discrepancias con userId (el emisor)
+        await handleCobrosParser(message, originalChatJid, userStates, pendingConfirmations);
         return;
     }
 
@@ -3378,7 +3379,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             await handleAwaitingPaymentMethod(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null, inputToUse);
             break;
         case 'awaiting_cobros_confirmation':
-            await handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client);
+            await handleAwaitingCobrosConfirmation(message, originalChatJid || userId, userStates, pendingConfirmations, client);
             break;
         case 'awaiting_payment_confirmation':
             await handleAwaitingPaymentConfirmation(message, userId, message.hasMedia, (mediaData && mediaData.length > 0) ? mediaData[0] : null);
