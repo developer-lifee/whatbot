@@ -275,7 +275,6 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
   if (bodyText.includes(':')) {
     payload = bodyText.substring(bodyText.indexOf(':') + 1);
   } else {
-    // Si se usó '@bot cobra estos' sin dos puntos, tomamos a partir del final del comando
     const commandRegex = /^@bot\s+(cobra\s+estos|porfa\s+haz\s+los\s+cobros\s+para\s+hoy\s+de|haz\s+los\s+cobros\s+de)\s*/i;
     payload = bodyText.replace(commandRegex, '');
   }
@@ -284,31 +283,20 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
   const records = [];
   
   for (let line of lines) {
-    // Normalizar tabuladores
     line = line.replace(/\t/g, ' ').trim();
-    
-    // Quitar la viñeta inicial si tiene (ej: "* ", "- ", "• ")
     line = line.replace(/^[\*\-\•]\s*/, '').trim();
-
-    // Intentar emparejar el formato: "Nombre - Tel: Número (Plataformas)" o similar
-    // Ej: "michael - Tel: 5214491046180 (AMAZON, DISNEY, HBO)"
-    // Ej: "Nicolle - Tel: 573002174214 (AMAZON, NETFLIX)"
-    // Ej: "camilo, 573118828588"
     
     let name = '';
     let phone = '';
 
-    // 1. Intentar buscar el delimitador del teléfono (ej. "Tel:", "Celular:", "Telefono:")
     const telIndicatorRegex = /(?:tel|celular|telefono|teléfono):\s*(\d+)/i;
     const telMatch = line.match(telIndicatorRegex);
     
     if (telMatch) {
       phone = telMatch[1].trim();
-      // El nombre es todo lo que está antes del teléfono o de un separador como "-" o ","
       const namePart = line.split(telIndicatorRegex)[0].replace(/[\-,\s]+$/, '').trim();
       name = namePart;
     } else {
-      // 2. Fallback al formato tradicional separado por coma o guion: "Nombre, Tel" o "Nombre - Tel"
       const parts = line.includes(',') ? line.split(',') : line.split('-');
       name = (parts[0] || '').trim();
       const rest = (parts.slice(1).join(',') || '').trim();
@@ -319,31 +307,25 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
       if (!phone.startsWith('57') && !phone.startsWith('52')) {
         if (phone.length === 10) phone = '57' + phone;
       }
-      
       records.push({ name, phone });
     }
   }
 
   if (records.length === 0) {
-    await message.reply('No pude parsear las líneas. Recuerda usar el formato del reporte o "Nombre, Teléfono". Vuelve a intentarlo.');
+    await message.reply('🤖 No pude parsear ninguna línea de números de la lista. Verifica el formato e intenta nuevamente.');
     return;
   }
 
-  const names = records.map(r => r.name);
-  const summary = records.length > 1
-    ? `Al día de hoy tienes vencidas las cuentas de ${names.join(', ')}. ¿Deseas renovar?`
-    : `Al día de hoy tienes vencida la cuenta de ${names[0]}. ¿Deseas renovar?`;
+  const client = message._client || global.client; 
+  await message.reply(`🚀 *Iniciando envío de cobros directo sin confirmación...*\nTotal detectados: ${records.length} destinatarios.`);
 
-  pendingConfirmations.set(userId, records);
-  userStates.set(userId, 'awaiting_cobros_confirmation');
-  
-  let confirmationText = `Recibí los siguientes cargos parseados de forma automática:\n\n`;
-  records.forEach(r => {
-    confirmationText += `• *${r.name}* (Tel: ${r.phone})\n`;
-  });
-  confirmationText += `\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`;
-
-  await message.reply(confirmationText);
+  try {
+    const exitosos = await sendBulkCharges(client, records, userId);
+    await message.reply(`🤖 *PROCESO COMPLETADO EXCELENTE*\n- Total en lista: ${records.length}\n- Enviados con éxito: ${exitosos}\n- Fallidos: ${records.length - exitosos}`);
+  } catch (error) {
+    console.error("Error enviando cobros directos:", error);
+    await message.reply("⚠️ Hubo un error al procesar el envío masivo de cobros directos.");
+  }
 }
 
 async function handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client) {
