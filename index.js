@@ -612,9 +612,9 @@ app.get('/api/admin/tickets', async (req, res) => {
                         const accounts = await getAccountsByPhone(phone);
                         if (accounts && accounts.length > 0) {
                             const firstAcc = accounts[0];
-                            const first = firstAcc.Nombre || firstAcc.nombre || "";
-                            const last = firstAcc.apellido || firstAcc.Apellido || "";
-                            if (first.trim()) {
+                            const first = (typeof (firstAcc.Nombre || firstAcc.nombre) === 'string') ? (firstAcc.Nombre || firstAcc.nombre) : "";
+                            const last = (typeof (firstAcc.apellido || firstAcc.Apellido) === 'string') ? (firstAcc.apellido || firstAcc.Apellido) : "";
+                            if (first && first.trim()) {
                                 resolvedName = `${first} ${last}`.trim();
                             }
                         }
