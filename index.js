@@ -1705,8 +1705,14 @@ async function processIncomingMessage(messages) {
     // Log de procesamiento movido arriba
 
 
-    // --- Cobros parser: mensaje especial ---
-    if (message.body && message.body.toLowerCase().startsWith('@bot porfa haz los cobros para hoy de:')) {
+    // --- Cobros parser: mensaje especial flexible ---
+    const isManualChargesCommand = message.body && (
+        message.body.toLowerCase().startsWith('@bot porfa haz los cobros para hoy de:') ||
+        message.body.toLowerCase().startsWith('@bot cobra estos:') ||
+        message.body.toLowerCase().startsWith('@bot cobra estos') ||
+        message.body.toLowerCase().startsWith('@bot haz los cobros de:')
+    );
+    if (isManualChargesCommand) {
         await handleCobrosParser(message, userId, userStates, pendingConfirmations);
         return;
     }

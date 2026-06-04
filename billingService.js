@@ -268,28 +268,77 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
 }
 
 async function handleCobrosParser(message, userId, userStates, pendingConfirmations) {
-  const payload = message.body.split(':')[1] || '';
+  // Obtener todo el texto que va después de la llamada al bot
+  const bodyText = message.body || '';
+  let payload = '';
+  
+  if (bodyText.includes(':')) {
+    payload = bodyText.substring(bodyText.indexOf(':') + 1);
+  } else {
+    // Si se usó '@bot cobra estos' sin dos puntos, tomamos a partir del final del comando
+    const commandRegex = /^@bot\s+(cobra\s+estos|porfa\s+haz\s+los\s+cobros\s+para\s+hoy\s+de|haz\s+los\s+cobros\s+de)\s*/i;
+    payload = bodyText.replace(commandRegex, '');
+  }
+
   const lines = payload.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   const records = [];
   
   for (let line of lines) {
-    line = line.replace(/\t/g, ' ');
-    const parts = line.split(',');
-    const name = (parts[0] || '').trim();
-    const rest = (parts.slice(1).join(',') || '').trim();
+    // Normalizar tabuladores
+    line = line.replace(/\t/g, ' ').trim();
     
-    const digits = (rest.match(/\d+/g) || []).join('');
-    if (name && digits) {
-      let phone = digits;
-      if (!phone.startsWith('57')) {
+    // Quitar la viñeta inicial si tiene (ej: "* ", "- ", "• ")
+    line = line.replace(/^[\*\-\•]\s*/, '').trim();
+
+    // Intentar emparejar el formato: "Nombre - Tel: Número (Plataformas)" o similar
+    // Ej: "michael - Tel: 5214491046180 (AMAZON, DISNEY, HBO)"
+    // Ej: "Nicolle - Tel: 573002174214 (AMAZON, NETFLIX)"
+    // Ej: "camilo, 573118828588"
+    
+    let name = '';
+    let phone = '';
+    let platformsMatched = '';
+
+    // 1. Extraer plataformas opcionales entre paréntesis al final de la línea: "(AMAZON, DISNEY)"
+    const parenRegex = /\(([^)]+)\)$/;
+    const parenMatch = line.match(parenRegex);
+    if (parenMatch) {
+      platformsMatched = parenMatch[1].trim();
+      line = line.replace(parenRegex, '').trim(); // Quitar los paréntesis de la línea
+    }
+
+    // 2. Intentar buscar el delimitador del teléfono (ej. "Tel:", "Celular:", "Telefono:")
+    const telIndicatorRegex = /(?:tel|celular|telefono|teléfono):\s*(\d+)/i;
+    const telMatch = line.match(telIndicatorRegex);
+    
+    if (telMatch) {
+      phone = telMatch[1].trim();
+      // El nombre es todo lo que está antes del teléfono o de un separador como "-" o ","
+      const namePart = line.split(telIndicatorRegex)[0].replace(/[\-,\s]+$/, '').trim();
+      name = namePart;
+    } else {
+      // 3. Fallback al formato tradicional separado por coma o guion: "Nombre, Tel" o "Nombre - Tel"
+      const parts = line.includes(',') ? line.split(',') : line.split('-');
+      name = (parts[0] || '').trim();
+      const rest = (parts.slice(1).join(',') || '').trim();
+      phone = (rest.match(/\d+/g) || []).join('');
+    }
+
+    if (name && phone) {
+      if (!phone.startsWith('57') && !phone.startsWith('52')) {
         if (phone.length === 10) phone = '57' + phone;
       }
-      records.push({ name, phone });
+      
+      const record = { name, phone };
+      if (platformsMatched) {
+        record.textToShow = platformsMatched;
+      }
+      records.push(record);
     }
   }
 
   if (records.length === 0) {
-    await message.reply('No pude parsear las líneas. Verifica el formato y vuelve a intentarlo.');
+    await message.reply('No pude parsear las líneas. Recuerda usar el formato del reporte o "Nombre, Teléfono". Vuelve a intentarlo.');
     return;
   }
 
@@ -300,7 +349,14 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
 
   pendingConfirmations.set(userId, records);
   userStates.set(userId, 'awaiting_cobros_confirmation');
-  await message.reply(`Recibí los siguientes cargos (tal cual los enviaste):\n\n${lines.join('\n')}\n\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`);
+  
+  let confirmationText = `Recibí los siguientes cargos parseados de forma automática:\n\n`;
+  records.forEach(r => {
+    confirmationText += `• *${r.name}* (Tel: ${r.phone})${r.textToShow ? ` - Servicios: _${r.textToShow}_` : ''}\n`;
+  });
+  confirmationText += `\n${summary}\nResponde *SI* para confirmar o *NO* para cancelar.`;
+
+  await message.reply(confirmationText);
 }
 
 async function handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client) {
