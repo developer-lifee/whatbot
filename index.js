@@ -1034,6 +1034,7 @@ const client = new Client({
     takeoverOnConflict: true,
     takeoverTimeoutMs: 15000
 });
+global.client = client;
 
 // Manejo de cierres limpios
 async function shutdown() {
