@@ -84,7 +84,7 @@ async function fetchCustomersData(retries = 3, delay = 2000) {
     return data.map((cliente, index) => {
         cliente._rowNumber = index + 2;
         return cliente;
-    }).filter(cliente => cliente.Nombre && cliente.Nombre.trim() !== "");
+    }).filter(cliente => typeof cliente.Nombre === 'string' && cliente.Nombre.trim() !== "");
   } catch (err) {
     throw err;
   }
