@@ -3823,10 +3823,33 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
             return;
         }
 
-        if (message.hasMedia) {
-            await message.reply("🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para entregarte tus accesos.");
+        const { getPlatformAvailability } = require('./availabilityService');
+        let nonImmediatePlats = [];
+        if (stateData.items && Array.isArray(stateData.items)) {
+            for (const item of stateData.items) {
+                const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
+                if (name) {
+                    const avail = await getPlatformAvailability(name);
+                    if (!avail.immediate) {
+                        nonImmediatePlats.push(name);
+                    }
+                }
+            }
+        }
+
+        if (nonImmediatePlats.length > 0) {
+            const uniquePlats = [...new Set(nonImmediatePlats)];
+            if (message.hasMedia) {
+                await message.reply(`🤖 Hemos recibido tu comprobante. Ten en cuenta que para *${uniquePlats.join(', ')}* la entrega/activación tomará un poco más de lo habitual y no será de inmediato. Un asesor validará tu pago y te entregará tus accesos lo antes posible. ¡Gracias por tu paciencia! 😊`);
+            } else {
+                await message.reply(`🤖 Hemos recibido tu confirmación. Ten en cuenta que para *${uniquePlats.join(', ')}* la entrega/activación tomará un poco más de lo habitual y no será de inmediato. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido. ¡Gracias por tu paciencia! 😊`);
+            }
         } else {
-            await message.reply("🤖 Hemos recibido tu confirmación. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido.");
+            if (message.hasMedia) {
+                await message.reply("🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para entregarte tus accesos.");
+            } else {
+                await message.reply("🤖 Hemos recibido tu confirmación. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido.");
+            }
         }
 
         // No registramos todavía. Guardamos el estado para que el admin lo confirme manualmente.

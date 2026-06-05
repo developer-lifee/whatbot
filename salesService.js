@@ -305,6 +305,20 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     consolidatedResponse += `\n\n⚠️ Noté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
   }
 
+  // Verificar disponibilidad general
+  const { getPlatformAvailability } = require('./availabilityService');
+  let nonImmediatePlats = [];
+  for (const s of selectedItems) {
+    const avail = await getPlatformAvailability(s.platform.name);
+    if (!avail.immediate) {
+      nonImmediatePlats.push(s.platform.name);
+    }
+  }
+  if (nonImmediatePlats.length > 0) {
+    const uniquePlats = [...new Set(nonImmediatePlats)];
+    consolidatedResponse += `\n\n⚠️ *Nota:* Para *${uniquePlats.join(', ')}*, la entrega/activación demorará un poco más de lo habitual y no será de inmediato. ¡Agradecemos tu paciencia! 😊`;
+  }
+
   consolidatedResponse += "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **QR Negocios** (RECOMENDADO: entrega inmediata ⚡)\n⭐ **Llave Bre-V** (entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Nequi, Daviplata o Banco Caja Social directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊";
 
   await message.reply(consolidatedResponse);
@@ -447,23 +461,22 @@ async function showPlanSelection(message, userId, userStates) {
 
   let reply = `Selecciona el plan para ${platform.name}:\n`;
   
-  // STOCK CHECK PARA NETFLIX EXTRA
-  let hasExtraStock = true;
-  if (platform.name.toLowerCase().includes('netflix')) {
-      hasExtraStock = await checkNetflixExtraStock();
+  const { getPlatformAvailability } = require('./availabilityService');
+  let warnings = [];
+  for (const plan of platform.plans) {
+      const planFullName = `${platform.name} ${plan.name}`;
+      const avail = await getPlatformAvailability(planFullName);
+      if (!avail.immediate) {
+          warnings.push(plan.name);
+      }
   }
 
   platform.plans.forEach((plan, idx) => {
-    const isExtra = plan.name.toLowerCase().includes('extra');
-    if (isExtra && !hasExtraStock) {
-        reply += `${idx + 1}. ~~${plan.name} - $${plan.price}~~ (SIN STOCK ❌)\n`;
-    } else {
-        reply += `${idx + 1}. ${plan.name} - $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
-    }
+      reply += `${idx + 1}. ${plan.name} - $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
   });
   
-  if (!hasExtraStock && platform.name.toLowerCase().includes('netflix')) {
-      reply += `\n⚠️ *Nota:* De momento no tenemos disponibilidad de cuentas "Extra" (correo personalizado). Solo contamos con el plan estándar de $13.000. 😊`;
+  if (warnings.length > 0) {
+      reply += `\n⚠️ *Nota:* Para el plan *${warnings.join(', ')}*, la entrega/activación tomará un poco más de lo habitual y no será de inmediato. 😊`;
   }
 
   reply += `\n🤖 Responde con el número del plan, o 'agregar' para añadir otra plataforma.`;
@@ -502,17 +515,6 @@ async function handleSelectingPlans(message, userId, userStates) {
   if (isNaN(selection) || selection < 0 || selection >= current.platform.plans.length) {
     await message.reply('🤖 No te entendí. Por favor dime el número del plan (ej: 1), di su nombre o escribe "agregar" si quieres algo más.');
     return;
-  }
-
-  const chosenPlan = current.platform.plans[selection];
-  const isExtra = chosenPlan.name.toLowerCase().includes('extra');
-  
-  if (isExtra && current.platform.name.toLowerCase().includes('netflix')) {
-      const hasStock = await checkNetflixExtraStock();
-      if (!hasStock) {
-          await message.reply('🤖 Lo siento, se nos acaba de agotar el stock de Netflix Extra. Por favor selecciona el plan de $13.000 para continuar con tu compra. 😊');
-          return;
-      }
   }
 
   selected[currentIndex].chosenPlan = chosenPlan;
@@ -644,6 +646,20 @@ async function calculateAndShowPrice(message, userId, userStates) {
   }
 
   responseText += `\nTotal (${subscriptionType}): $${totalPrice}${periodText}`;
+
+  // Verificar disponibilidad general
+  const { getPlatformAvailability } = require('./availabilityService');
+  let nonImmediatePlats = [];
+  for (const s of selected) {
+    const avail = await getPlatformAvailability(s.platform.name);
+    if (!avail.immediate) {
+      nonImmediatePlats.push(s.platform.name);
+    }
+  }
+  if (nonImmediatePlats.length > 0) {
+    const uniquePlats = [...new Set(nonImmediatePlats)];
+    responseText += `\n\n⚠️ *Nota:* Para *${uniquePlats.join(', ')}*, la entrega/activación demorará un poco más de lo habitual y no será de inmediato. ¡Agradecemos tu paciencia! 😊`;
+  }
 
   responseText += "\n\n🤖 *Aviso:* He sumado los precios estándar. Si tienes dudas sobre el total o crees que aplicas a un descuento especial, no te preocupes, puedes esperar a que un asesor humano revise tu solicitud. 😊";
 

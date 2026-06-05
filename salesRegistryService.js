@@ -236,6 +236,15 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             }
 
             // 3. CASO VENTA NUEVA: Buscar cupo
+            // Verificar disponibilidad manual o por stock
+            const { getPlatformAvailability } = require('./availabilityService');
+            const availability = await getPlatformAvailability(platformName);
+            if (!availability.immediate) {
+                console.log(`[Sales Registry] ${platformName} no tiene entrega inmediata (${availability.reason}). Saltando registro automático.`);
+                results.push({ name: platformName, status: 'manual_invitation_required' });
+                continue;
+            }
+
             // Verificamos si es un PLAN FAMILIAR (Saltar si es venta nueva, pero NO si es renovación)
             const isFamilyPlan = FAMILY_KEYWORDS.some(key => lowerName.includes(key));
 

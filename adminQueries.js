@@ -47,6 +47,98 @@ async function processAdminQuery(message, query, userStates, client, adminState 
 
         // --- SHORTCUTS DIRECTOS ---
         const cleanQuery = query.toLowerCase().replace('@bot', '').trim();
+        
+        // --- COMANDOS DE DISPONIBILIDAD ---
+        if (cleanQuery.startsWith('disponibilidad') || cleanQuery.startsWith('pausar ') || cleanQuery.startsWith('activar ') || cleanQuery.startsWith('desactivar ')) {
+            const { getAvailabilityConfig, saveAvailabilityConfig, getPlatformAvailability } = require('./availabilityService');
+            const { getPlatforms } = require('./salesService');
+            const config = getAvailabilityConfig();
+
+            // Comando: pausar [plataforma] o desactivar [plataforma]
+            if (cleanQuery.startsWith('pausar ') || cleanQuery.startsWith('desactivar ')) {
+                const target = cleanQuery.replace('pausar ', '').replace('desactivar ', '').trim();
+                const platforms = await getPlatforms();
+                const match = platforms.find(p => p.name.toLowerCase().includes(target.toLowerCase()));
+                if (!match) {
+                    await message.reply(`❌ No encontré ninguna plataforma que coincida con "${target}".`);
+                    return;
+                }
+                config[match.name] = { immediate: false, reason: "Deshabilitado manualmente por el administrador." };
+                saveAvailabilityConfig(config);
+                await message.reply(`✅ *${match.name}* ha sido configurada con entrega *demorada/no inmediata* manualmente.`);
+                return;
+            }
+
+            // Comando: activar [plataforma]
+            if (cleanQuery.startsWith('activar ')) {
+                const target = cleanQuery.replace('activar ', '').trim();
+                const platforms = await getPlatforms();
+                const match = platforms.find(p => p.name.toLowerCase().includes(target.toLowerCase()));
+                if (!match) {
+                    await message.reply(`❌ No encontré ninguna plataforma que coincida con "${target}".`);
+                    return;
+                }
+                if (config[match.name]) {
+                    delete config[match.name];
+                    saveAvailabilityConfig(config);
+                }
+                await message.reply(`✅ *${match.name}* ha sido restablecida a su estado de disponibilidad estándar.`);
+                return;
+            }
+
+            // Comando: disponibilidad [plataforma] demorado/inmediato/no inmediata
+            if (cleanQuery.startsWith('disponibilidad ')) {
+                const params = cleanQuery.replace('disponibilidad ', '').trim();
+                const words = params.split(' ');
+                const statusWord = words[words.length - 1];
+                
+                if (['demorado', 'inmediata', 'inmediato', 'normal', 'no'].includes(statusWord)) {
+                    const target = words.slice(0, -1).join(' ').trim();
+                    const platforms = await getPlatforms();
+                    const match = platforms.find(p => p.name.toLowerCase().includes(target.toLowerCase()));
+                    if (!match) {
+                        await message.reply(`❌ No encontré ninguna plataforma que coincida con "${target}".`);
+                        return;
+                    }
+
+                    if (statusWord === 'demorado' || statusWord === 'no') {
+                        config[match.name] = { immediate: false, reason: "Deshabilitado manualmente por el administrador." };
+                        saveAvailabilityConfig(config);
+                        await message.reply(`✅ *${match.name}* configurada como *demorada* manualmente.`);
+                    } else {
+                        if (config[match.name]) {
+                            delete config[match.name];
+                            saveAvailabilityConfig(config);
+                        }
+                        await message.reply(`✅ *${match.name}* restablecida a disponibilidad *inmediata* estándar.`);
+                    }
+                    return;
+                }
+            }
+
+            // Comando general: @bot disponibilidad (lista general)
+            const platforms = await getPlatforms();
+            let response = `📊 *ESTADO DE DISPONIBILIDAD Y STOCK* 📊\n\n`;
+            for (const p of platforms) {
+                const avail = await getPlatformAvailability(p.name);
+                const manualConfig = config[p.name];
+                
+                let statusIcon = avail.immediate ? "⚡" : "⏳";
+                let detail = avail.immediate ? "Inmediata" : "Demorada";
+                
+                if (manualConfig && manualConfig.immediate === false) {
+                    detail = `Demorada (Manual 🚫)`;
+                } else if (!avail.immediate) {
+                    detail = `Demorada (Falta Stock 📉 / Familiar 👥)`;
+                }
+                
+                response += `${statusIcon} *${p.name}*: ${detail}\n`;
+            }
+            response += `\n_Usa:\n- *@bot pausar [plataforma]* para demorar la entrega.\n- *@bot activar [plataforma]* para restablecerla._`;
+            await message.reply(response);
+            return;
+        }
+
         if (cleanQuery === 'haz los cobros' || cleanQuery === 'inicia cobranza' || cleanQuery === 'cobros automáticos') {
             const { handleAutoCobros } = require('./billingService');
             const GROUP_ID = '120363102144405222@g.us'; // ID del grupo admin
