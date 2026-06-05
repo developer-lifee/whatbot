@@ -594,8 +594,14 @@ app.get('/api/admin/tickets', async (req, res) => {
 
                 try {
                     if (client && client.info) {
-                        const chat = await client.getChatById(userId);
-                        const messages = await chat.fetchMessages({ limit: 1 });
+                        const chat = await Promise.race([
+                            client.getChatById(userId),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout client.getChatById")), 2500))
+                        ]);
+                        const messages = await Promise.race([
+                            chat.fetchMessages({ limit: 1 }),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout chat.fetchMessages")), 2000))
+                        ]);
                         if (messages && messages.length > 0) {
                             lastMessage = messages[0].body || "";
                             lastMessageTime = messages[0].timestamp * 1000;
@@ -638,7 +644,10 @@ app.get('/api/admin/tickets', async (req, res) => {
                 if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
                     try {
                         if (client && client.info) {
-                            const contact = await client.getContactById(userId);
+                            const contact = await Promise.race([
+                                client.getContactById(userId),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout client.getContactById")), 2000))
+                            ]);
                             if (contact) {
                                 resolvedName = contact.pushname || contact.name || "Cliente WhatsApp";
                             }
@@ -698,6 +707,32 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         const userId = phone.includes('@') ? phone : phone + '@c.us';
         userStates.delete(userId);
         res.json({ success: true, message: 'Ticket resuelto y bot reactivado' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Endpoint to read manual stock/platform availability configuration
+app.get('/api/admin/availability', (req, res) => {
+    try {
+        const { getAvailabilityConfig } = require('./availabilityService');
+        const config = getAvailabilityConfig();
+        res.json(config);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Endpoint to write manual stock/platform availability configuration
+app.post('/api/admin/availability/save', (req, res) => {
+    try {
+        const { config, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!config || typeof config !== 'object') return res.status(400).json({ success: false, message: 'Configuración inválida' });
+
+        const { saveAvailabilityConfig } = require('./availabilityService');
+        saveAvailabilityConfig(config);
+        res.json({ success: true, message: 'Disponibilidad de stock actualizada' });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -3005,7 +3040,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         }
     }
 
-    const isChangingTopic = detection.intent && !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar'].includes(detection.intent);
+    const isSingleDigit = /^\d+$/.test(inputToUse.trim());
+    const statesExpectingNumbers = ['selecting_plans', 'adding_platform', 'awaiting_code_account_selection', 'awaiting_payment_renewal_confirmation'];
+    const isChangingTopic = detection.intent && 
+                            !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar'].includes(detection.intent) &&
+                            !(isSingleDigit && statesExpectingNumbers.includes(currentState));
     const isVeryFrustrated = detection.frustrationLevel >= 7;
 
     // NUEVO breakout específico para awaiting_churn_reason cuando el usuario no quiere cancelar
