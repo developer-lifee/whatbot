@@ -81,7 +81,7 @@ async function addNewContact(name, phone) {
         });
 
         console.log(`✅ Contacto [${name} - ${formattedPhone}] creado exitosamente en Google Contacts.`);
-        contactCache.set(coreNumber, name); // Guardar en caché para evitar lag de indexación
+        contactCache.set(coreNumber, { name, timestamp: Date.now() }); // Guardar en caché para evitar lag de indexación
         return true;
     } catch (error) {
         const errorMsg = error.message || "";
@@ -110,17 +110,25 @@ async function searchContactByPhone(phone) {
     if (!personasAPI) return null;
 
     try {
-        const digitsOnly = phone.toString().replace(/\D/g, '');
+        // 1. Extraer número del JID y limpiar caracteres
+        const rawPhone = phone.toString().split('@')[0];
+        const digitsOnly = rawPhone.replace(/\D/g, '');
         const coreNumber = digitsOnly.slice(-10);
 
         if (coreNumber.length < 10) return null;
 
-        // Verificar en caché local primero
+        // Verificar en caché local primero (2 horas de expiración)
         if (contactCache.has(coreNumber)) {
-            console.log(`[Google Contacts Cache] 🚀 Match encontrado en caché para: ${coreNumber} -> ${contactCache.get(coreNumber)}`);
-            return contactCache.get(coreNumber);
+            const cacheEntry = contactCache.get(coreNumber);
+            if (Date.now() - cacheEntry.timestamp < 1000 * 60 * 60 * 2) {
+                if (cacheEntry.name === '__NOT_FOUND__') {
+                    return null;
+                }
+                return cacheEntry.name;
+            }
         }
 
+        // Búsqueda 1: Número completo
         let response = await personasAPI.people.searchContacts({
             query: coreNumber,
             readMask: 'names,phoneNumbers',
@@ -128,10 +136,20 @@ async function searchContactByPhone(phone) {
 
         let results = response.data.results || [];
         
-        // Si no hay resultados, intentamos con los últimos 7 dígitos por si está guardado con formato raro
+        // Búsqueda 2: Últimos 7 dígitos (ej: 1234567)
         if (results.length === 0) {
             response = await personasAPI.people.searchContacts({
                 query: coreNumber.slice(-7),
+                readMask: 'names,phoneNumbers',
+            });
+            results = response.data.results || [];
+        }
+
+        // Búsqueda 3: Últimos 7 dígitos con espacio (ej: "123 4567" para coincidir con "+57 300 123 4567")
+        if (results.length === 0) {
+            const formattedSeven = coreNumber.slice(-7, -4) + ' ' + coreNumber.slice(-4);
+            response = await personasAPI.people.searchContacts({
+                query: formattedSeven,
                 readMask: 'names,phoneNumbers',
             });
             results = response.data.results || [];
@@ -148,13 +166,18 @@ async function searchContactByPhone(phone) {
 
             if (matches && person.names && person.names.length > 0) {
                 const foundName = person.names[0].displayName || person.names[0].givenName;
-                contactCache.set(coreNumber, foundName); // Guardar en caché para futuras llamadas rápidas
+                contactCache.set(coreNumber, { name: foundName, timestamp: Date.now() }); // Guardar en caché
                 return foundName;
             }
         }
+
+        // Registrar lookup negativo para no volver a preguntar en 2 horas
+        contactCache.set(coreNumber, { name: '__NOT_FOUND__', timestamp: Date.now() });
         return null;
     } catch (error) {
         console.error('❌ Error al buscar contacto en Google:', error.message);
+        // Si hay error (como quota limit), cacheamos por 5 minutos para silenciar ráfagas de logs
+        contactCache.set(coreNumber, { name: '__NOT_FOUND__', timestamp: Date.now() - (1000 * 60 * 115) }); // Expira en 5 mins
         return null;
     }
 }
