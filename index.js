@@ -3815,7 +3815,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const pos = getQueuePosition(userId, userStates) || 1;
 
             if (count > 0) {
-                await message.reply(`🤖 ¡Claro que sí te vamos a solucionar! Tu mensaje ha sido recibido y sigues en nuestra cola de soporte.\n\nEn este momento aún no ha llegado tu turno, pero si estamos dentro del horario laboral, ¡estamos trabajando durísimo para llegar a atenderte lo más pronto posible! 💪✨\n\n⚠️ *Aviso automático:* Cada vez que envías un mensaje nuevo, el sistema te mueve al último lugar de la fila para dar prioridad a los chats que llevan más tiempo esperando.\n\n📍 *Tu posición actual en la fila es la número ${pos}.*`);
+                await message.reply(`🤖 ¡Claro que sí te vamos a solucionar! Tu mensaje ha sido recibido y sigues en nuestra cola de soporte.\n\nEn este momento aún no ha llegado tu turno, pero si estamos dentro del horario laboral, ¡estamos trabajando durísimo para llegar a atenderte lo más pronto posible! 💪✨\n\n⚠️ *Aviso automático:* Cada vez que envías un mensaje nuevo, el sistema te mueve al último lugar de la fila para dar prioridad a los chats que llevan más tiempo esperando (¡entre más mensajes envíes, más se retrasará tu atención y más difícil será llegar a tu turno!).\n\n📍 *Tu posición actual en la fila es la número ${pos}.*`);
             }
             break;
         case 'awaiting_purchase_platforms':
