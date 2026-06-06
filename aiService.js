@@ -675,7 +675,7 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
   }
 }
 
-async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = []) {
+async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = [], userId = null, userStates = null) {
   const accountSummary = summarizeAccounts(userAccounts);
   const platformDocs = await getPlatformKnowledge();
   const wisdomData = await getWisdomKnowledge();
@@ -688,6 +688,24 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
   const { getActiveIncidentsText, getSpecificAccountsIncidentsText } = require('./availabilityService');
   const activeIncidents = getActiveIncidentsText();
   const specificAccountIncidents = getSpecificAccountsIncidentsText(userAccounts);
+
+  const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
+  const supportStatus = isSupportOpen();
+  const queuePos = (userId && userStates) ? getQueuePosition(userId, userStates) : null;
+  const supportScheduleConfig = getSupportScheduleConfig();
+
+  const supportStatusText = `
+ESTADO ACTUAL DEL SOPORTE HUMANO EN ESTE MOMENTO:
+- Horario de Atención Asesores: Lunes a Viernes de ${supportScheduleConfig.weekday_start} a ${supportScheduleConfig.weekday_end}, Sábado y Domingo de ${supportScheduleConfig.weekend_start} a ${supportScheduleConfig.weekend_end}.
+- Estado del Canal de Soporte Humano: ${supportStatus.open ? 'ONLINE / ABIERTO' : 'OFFLINE / CERRADO'}
+- Contexto del Estado: ${supportStatus.reason}
+- Mensaje Fuera de Horario: "${supportScheduleConfig.offline_message}"
+${queuePos ? `- Turno actual del cliente en la cola de espera: #${queuePos}\n` : ''}
+
+REGLAS DE ATENCIÓN DE SOPORTE HUMANO:
+1. Si el cliente pide hablar con un asesor o requiere soporte que requiere escalamiento, y el soporte está OFFLINE/CERRADO, infórmale con amabilidad y calidez que en este momento no hay asesores activos, indicando el horario de soporte y pidiéndole que tenga paciencia, ya que su ticket fue guardado.
+2. Si el soporte está ONLINE/ABIERTO y el cliente está en la cola, menciónale amablemente que ya tiene el turno #${queuePos || 'X'} en la cola y que un asesor lo atenderá muy pronto.
+`;
 
   let template = "";
   try {
@@ -713,7 +731,7 @@ NUNCA menciones números de Nequi o Daviplata manuales tradicionales (como el 31
   const prompt = template
     .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
     .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
-    .replace('{{WISDOM_CONTEXT}}', wisdomContext + "\n" + paymentContext + (activeIncidents ? "\n" + activeIncidents : "") + (specificAccountIncidents ? "\n" + specificAccountIncidents : ""))
+    .replace('{{WISDOM_CONTEXT}}', wisdomContext + "\n" + paymentContext + (activeIncidents ? "\n" + activeIncidents : "") + (specificAccountIncidents ? "\n" + specificAccountIncidents : "") + "\n" + supportStatusText)
     .replace('{{PLATFORM_CONTEXT}}', platformContext)
     .replace('{{SUPPORT_CONTEXT}}', supportContext)
     .replace('{{ACCOUNT_SUMMARY}}', accountSummary)

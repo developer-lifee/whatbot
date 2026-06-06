@@ -39,7 +39,24 @@ const { processCheckCredentials } = require('./billingService');
 
 // --- CONSTANTES Y ESTADOS GLOBALES ---
 const USER_STATES_FILE = path.join(__dirname, 'user_states.json');
-let userStates = new Map();
+
+function decorateMap(mapInstance) {
+    const originalSet = mapInstance.set;
+    mapInstance.set = function(key, value) {
+        if (value && typeof value === 'object') {
+            const stateStr = value.state;
+            if (stateStr === 'waiting_human') {
+                if (!value.waitingTimestamp) {
+                    value.waitingTimestamp = Date.now();
+                }
+            }
+        }
+        return originalSet.call(this, key, value);
+    };
+    return mapInstance;
+}
+
+let userStates = decorateMap(new Map());
 
 // Deduplicador de mensajes para evitar doble procesamiento (Batch vs PendingChats)
 const processedMessageIds = new Set();
@@ -50,7 +67,7 @@ try {
     if (fs.existsSync(USER_STATES_FILE)) {
         const data = fs.readFileSync(USER_STATES_FILE, 'utf8');
         const parsed = JSON.parse(data);
-        userStates = new Map(Object.entries(parsed));
+        userStates = decorateMap(new Map(Object.entries(parsed)));
         console.log(`[System] ${userStates.size} estados de usuario cargados desde el disco.`);
     }
 } catch (e) {
@@ -823,6 +840,33 @@ app.post('/api/admin/availability/save', (req, res) => {
     }
 });
 
+// Endpoint to read human support schedule configuration
+app.get('/api/admin/support-schedule', (req, res) => {
+    try {
+        const { getSupportScheduleConfig } = require('./supportScheduleService');
+        const config = getSupportScheduleConfig();
+        res.json(config);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Endpoint to write human support schedule configuration
+app.post('/api/admin/support-schedule/save', (req, res) => {
+    try {
+        const { config, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!config || typeof config !== 'object') return res.status(400).json({ success: false, message: 'Configuración inválida' });
+
+        const { saveSupportScheduleConfig } = require('./supportScheduleService');
+        saveSupportScheduleConfig(config);
+        res.json({ success: true, message: 'Configuración de horario de soporte actualizada con éxito.' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
 app.get('/api/admin/gpt-accounts', (req, res) => {
     try {
         const { loadSecrets } = require('./totpService');
@@ -1456,7 +1500,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
     }
 
     // Si isMedia y no hay texto, body podría estar vacío, igual se pasa.
-    const fallbackResult = await generateEmpatheticFallback(message.body || "", isMedia, historyText, mediaData, userAccounts);
+    const fallbackResult = await generateEmpatheticFallback(message.body || "", isMedia, historyText, mediaData, userAccounts, userId, userStates);
 
     // Puede que devuelva solo string si algo falló gravemente, por precaución validamos
     if (typeof fallbackResult === 'string') {
@@ -1464,11 +1508,34 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
         return;
     }
 
-    if (fallbackResult.replyMessage) {
-        await message.reply(fallbackResult.replyMessage);
-    }
-
     if (fallbackResult.needsEscalation) {
+        const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
+        const supportStatus = isSupportOpen();
+        
+        // Registrar primero la espera humana para que el usuario sea contado en la cola
+        userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+
+        if (!supportStatus.open) {
+            const config = getSupportScheduleConfig();
+            const queuePos = getQueuePosition(userId, userStates);
+            let offlineMsg = config.offline_message || "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos.";
+            if (queuePos) {
+                offlineMsg += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}.\n⚠️ _(Nota: Dado que estamos fuera de nuestro horario de atención, tu turno no avanzará hasta que nuestros asesores inicien labores de nuevo)._`;
+            }
+            await message.reply(offlineMsg + " 🤖");
+        } else {
+            let replyText = fallbackResult.replyMessage || "";
+            const queuePos = getQueuePosition(userId, userStates);
+            if (queuePos) {
+                if (!replyText.includes('turno') && !replyText.includes('cola')) {
+                    replyText += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}. Te atenderemos lo antes posible. ¡Gracias por tu paciencia!`;
+                }
+            }
+            if (replyText) {
+                await message.reply(replyText);
+            }
+        }
+
         try {
             const chat = await client.getChatById(GROUP_ID);
             if (chat) {
@@ -1483,8 +1550,11 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                 await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
         } catch (e) { console.error('Error enviando escalamiento:', e); }
-        userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
         globalLastPaymentUserId = userId;
+    } else {
+        if (fallbackResult.replyMessage) {
+            await message.reply(fallbackResult.replyMessage);
+        }
     }
 }
 
@@ -3231,13 +3301,33 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             if ((frustration >= 7 || unreads >= 10) && !solvableIntents.includes(detection.intent)) {
                 console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
 
-                // Inicializamos el contador en 1 para que no se autopise con el bucle de "seguimos ocupados"
+                const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
+                const supportStatus = isSupportOpen();
+
                 userStates.set(userId, {
                     state: 'waiting_human',
                     nombre: foundName,
                     waitingCount: 1
                 });
-                await message.reply("🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊");
+
+                if (!supportStatus.open) {
+                    const config = getSupportScheduleConfig();
+                    const queuePos = getQueuePosition(userId, userStates);
+                    let offlineMsg = config.offline_message || "Hola, he detectado que necesitas soporte personalizado. En este momento estamos fuera de nuestro horario de atención humana y no hay asesores activos.";
+                    if (queuePos) {
+                        offlineMsg += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}.\n⚠️ _(Nota: Dado que estamos fuera de nuestro horario de atención, tu turno no avanzará hasta que nuestros asesores inicien labores de nuevo)._`;
+                    }
+                    await message.reply(offlineMsg + " 🤖");
+                } else {
+                    const queuePos = getQueuePosition(userId, userStates);
+                    let replyText = "🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**.";
+                    if (queuePos) {
+                        replyText += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊`;
+                    } else {
+                        replyText += "\n\nEn un momento te atenderemos. ¡Gracias por tu paciencia! 😊";
+                    }
+                    await message.reply(replyText);
+                }
                 return;
             }
 
