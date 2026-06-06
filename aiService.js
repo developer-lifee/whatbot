@@ -832,7 +832,10 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
         "userName": string | null,
         "isNameComplete": boolean,
         "detectedPlatform": string | null, 
-        "metadata": object | null 
+        "metadata": {
+            "duration_months": number | null, // Si detectas una solicitud de renovación o precio y el cliente menciona un periodo de tiempo o duración específica (ej. "anualidad", "un año", "anual", "6 meses"), incluye la cantidad de meses correspondiente aquí.
+            ...
+        } | null 
     }
 
     Si el mensaje actual es una imagen o el texto menciona un pago, revisa si es un comprobante. Si lo es, pon intent: "pagar".

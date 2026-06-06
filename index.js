@@ -4113,9 +4113,20 @@ function getDurationMonths(detection, inputToUse) {
             if (match) durationMonths = parseInt(match[0]) || 1;
         }
     }
-    const monthsMatch = (inputToUse || "").match(/(\d+)\s*(mes|month)/i);
+    const lowerInput = (inputToUse || "").toLowerCase();
+    const monthsMatch = lowerInput.match(/(\d+)\s*(mes|month)/i);
     if (monthsMatch && durationMonths === 1) {
         durationMonths = parseInt(monthsMatch[1]) || 1;
+    }
+    // Robust fallbacks for annual / years
+    if (durationMonths === 1) {
+        if (lowerInput.includes("anual") || lowerInput.includes("anualidad") || lowerInput.includes("año") || lowerInput.includes("year")) {
+            durationMonths = 12;
+        } else if (lowerInput.includes("semestral") || lowerInput.includes("semestre") || lowerInput.includes("6 meses")) {
+            durationMonths = 6;
+        } else if (lowerInput.includes("trimestral") || lowerInput.includes("trimestre") || lowerInput.includes("3 meses")) {
+            durationMonths = 3;
+        }
     }
     return durationMonths;
 }
