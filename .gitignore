@@ -11,3 +11,6 @@ token_*.json
 pending_charges.json
 payment_config.json
 support_schedule.json
+platform_availability.json
+tokens/gpt_secrets.json
+tokens/gpt_usage.json
