@@ -4071,7 +4071,10 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
                     if (config[configKey].sub_methods) {
                         const activeSubs = config[configKey].sub_methods.filter(s => s.enabled);
                         if (activeSubs.length > 0) {
-                            const keysMsg = "\n\n🔑 *Llave Bre-V:* " + activeSubs.map(s => `\`${s.value}\` (${s.label})`).join(' o ') + " (AUTOMÁTICA ⚡)";
+                            const keysMsg = "\n\n🔑 *Llave Bre-V:* " + activeSubs.map(s => {
+                                const tag = s.automatic ? " (AUTOMÁTICA ⚡)" : " (VERIFICACIÓN MANUAL)";
+                                return `\`${s.value}\` (${s.label})${tag}`;
+                            }).join(' o ');
                             desc = desc + keysMsg;
                         }
                     }

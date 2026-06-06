@@ -15,13 +15,15 @@
         "id": "llave_bot",
         "label": "Llave Principal",
         "value": "0087387259",
-        "enabled": true
+        "enabled": true,
+        "automatic": true
       },
       {
         "id": "llave_esteban",
         "label": "Llave Esteban",
         "value": "1032936324",
-        "enabled": true
+        "enabled": true,
+        "automatic": false
       }
     ]
   },
@@ -35,7 +37,7 @@
     "enabled": true,
     "automatic": false,
     "label": "Daviplata",
-    "description": "🤖 *Daviplata*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* para recibir entrega inmediata. ⚡"
+    "description": "🤖 *Daviplata*\n\nNúmero de celular: `3107946794`\nCC: 1032936324\n\n💡 *Nota:* Ten en cuenta que el registro de este pago será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊"
   },
   "bancolombia": {
     "enabled": true,

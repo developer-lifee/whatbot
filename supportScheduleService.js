@@ -13,6 +13,11 @@ const DEFAULT_CONFIG = {
   offline_message: "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos. Te responderemos tan pronto regresemos."
 };
 
+function getNowInBogota() {
+  const dateStr = new Date().toLocaleString("en-US", {timeZone: "America/Bogota"});
+  return new Date(dateStr);
+}
+
 function getSupportScheduleConfig() {
   if (!fs.existsSync(SCHEDULE_FILE)) {
     saveSupportScheduleConfig(DEFAULT_CONFIG);
@@ -49,7 +54,7 @@ function isSupportOpen() {
   }
 
   // Auto mode: check BOG schedule
-  const today = getTodayInBogota();
+  const today = getNowInBogota();
   const day = today.getDay(); // 0 = Sunday, 6 = Saturday
   const isWeekend = (day === 0 || day === 6);
 

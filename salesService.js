@@ -685,33 +685,34 @@ function getDynamicPaymentMessage() {
       
       let msg = "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n";
       
-      // Automatic methods
-      const auto = enabled.filter(k => config[k].automatic);
-      auto.forEach(k => {
-        let label = config[k].label;
-        if (config[k].sub_methods) {
-          const activeSubs = config[k].sub_methods.filter(s => s.enabled);
-          if (activeSubs.length > 0) {
-            label += ` (${activeSubs.map(s => s.label).join(' / ')})`;
+      const paymentLines = [];
+      const manualLabels = [];
+
+      enabled.forEach(k => {
+        const method = config[k];
+        if (method.sub_methods) {
+          const activeSubs = method.sub_methods.filter(s => s.enabled);
+          activeSubs.forEach(sub => {
+            const isAuto = sub.automatic !== undefined ? sub.automatic : method.automatic;
+            if (isAuto) {
+              paymentLines.push(`⭐ **${method.label} ${sub.label}** (RECOMENDADO: entrega inmediata ⚡)`);
+            } else {
+              paymentLines.push(`⭐ **${method.label} ${sub.label}**`);
+              manualLabels.push(`${method.label} ${sub.label}`);
+            }
+          });
+        } else {
+          if (method.automatic) {
+            paymentLines.push(`⭐ **${method.label}** (RECOMENDADO: entrega inmediata ⚡)`);
+          } else {
+            paymentLines.push(`⭐ **${method.label}**`);
+            manualLabels.push(method.label);
           }
         }
-        msg += `⭐ **${label}** (RECOMENDADO: entrega inmediata ⚡)\n`;
       });
+
+      msg += paymentLines.join('\n') + '\n';
       
-      // Manual methods
-      const manual = enabled.filter(k => !config[k].automatic);
-      manual.forEach(k => {
-        let label = config[k].label;
-        if (config[k].sub_methods) {
-          const activeSubs = config[k].sub_methods.filter(s => s.enabled);
-          if (activeSubs.length > 0) {
-            label += ` (${activeSubs.map(s => s.label).join(' / ')})`;
-          }
-        }
-        msg += `⭐ **${label}**\n`;
-      });
-      
-      const manualLabels = manual.map(k => config[k].label);
       if (manualLabels.length > 0) {
         msg += `\n💡 *Nota:* Si prefieres pagar por ${manualLabels.join(', ')} directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊`;
       }
