@@ -419,8 +419,23 @@ app.get('/api/admin/stats', async (req, res) => {
             byStatus: { active: 0, expired: 0, warning: 0 },
             expirations: { next7Days: 0, next15Days: 0, next30Days: 0 },
             revenueEstimate: 0,
-            historyTrend: []
+            historyTrend: [],
+            newsCount: 0,
+            renewalsCount: 0,
+            churnedCount: 0
         };
+
+        let historico = {};
+        try {
+            historico = await fetchHistoricoData();
+        } catch (hErr) {
+            console.error("[Stats API] Failed to fetch historico for calculations:", hErr.message);
+        }
+
+        const activePhones = new Set(clients.map(c => {
+            const num = (c.numero || c.Numero || "").toString().replace(/\D/g, "");
+            return num.slice(-10);
+        }).filter(Boolean));
 
         clients.forEach(c => {
             const plat = (c.Streaming || 'Otros').split(' ')[0] || 'Otros';
@@ -448,11 +463,57 @@ app.get('/api/admin/stats', async (req, res) => {
                     if (diffDays >= 0 && diffDays <= 30) stats.expirations.next30Days++;
                 }
             }
+
+            // Calculate New vs Renewal
+            const cleanPhone = (c.numero || c.Numero || "").toString().replace(/\D/g, "");
+            const targetTail = cleanPhone.slice(-10);
+            const histKey = Object.keys(historico).find(k => k.endsWith(targetTail));
+            const histRecord = histKey ? historico[histKey] : null;
+
+            if (histRecord && histRecord.historial && histRecord.historial.length > 0) {
+                const currentPlat = (c.Streaming || "").toLowerCase().trim();
+                const hasPriorPurchase = histRecord.historial.some(h => {
+                    const prevPlat = (h.streaming || "").toLowerCase().trim();
+                    return prevPlat.includes(currentPlat) || currentPlat.includes(prevPlat);
+                });
+                if (hasPriorPurchase) {
+                    stats.renewalsCount++;
+                } else {
+                    stats.newsCount++;
+                }
+            } else {
+                stats.newsCount++;
+            }
         });
+
+        // Calculate Churn (Desistidos) - Active in the last 45 days of history but not in current list
+        const fortyFiveDaysAgo = new Date();
+        fortyFiveDaysAgo.setDate(now.getDate() - 45);
+
+        for (const phone in historico) {
+            const tail = phone.slice(-10);
+            if (!activePhones.has(tail)) {
+                const clientObj = historico[phone];
+                if (clientObj && Array.isArray(clientObj.historial) && clientObj.historial.length > 0) {
+                    let latestDate = null;
+                    clientObj.historial.forEach(h => {
+                        const d = getJsDateFromExcel(h.vencimiento || h.fecha_corte);
+                        if (d && !isNaN(d.getTime())) {
+                            if (!latestDate || d > latestDate) {
+                                latestDate = d;
+                            }
+                        }
+                    });
+                    
+                    if (latestDate && latestDate >= fortyFiveDaysAgo && latestDate <= now) {
+                        stats.churnedCount++;
+                    }
+                }
+            }
+        }
 
         // Cargar tendencia histórica
         try {
-            const historico = await fetchHistoricoData();
             const monthCounts = {};
 
             for (const phone in historico) {
@@ -494,6 +555,30 @@ app.get('/api/admin/stats', async (req, res) => {
         }
 
         res.json(stats);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Endpoint to retrieve specific client history by phone number
+app.get('/api/admin/client-history', async (req, res) => {
+    try {
+        const { phone } = req.query;
+        if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
+
+        const { fetchHistoricoData } = require('./apiService');
+        const historico = await fetchHistoricoData();
+        const cleanPhone = phone.toString().replace(/\D/g, '');
+
+        if (cleanPhone.length < 7) {
+            return res.json({ nombre: "", apellido: "", historial: [] });
+        }
+
+        const targetTail = cleanPhone.slice(-10);
+        const histKey = Object.keys(historico).find(k => k.endsWith(targetTail));
+        const clientHistory = histKey ? historico[histKey] : null;
+
+        res.json(clientHistory || { nombre: "", apellido: "", historial: [] });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
