@@ -108,7 +108,7 @@ Los endpoints que ejecutan acciones de escritura o envío de mensajes de WhatsAp
 *   `POST /api/admin/tickets/claim`: Asigna un asesor (ej. `"Katherine"`) a un ticket para evitar colisiones.
 *   `POST /api/admin/tickets/resolve`: Libera la conversación de la memoria del bot para que la IA retome el control automático.
 
-#### 🔑 Cuentas GPT / Netflix (Autenticador 2FA/TOTP)
+#### 🔑 Cuentas 2FA / TOTP (GPT, Amazon, etc.)
 *   `GET /api/admin/gpt-accounts`: Lista las cuentas que usan 2FA y genera sus códigos TOTP activos con los segundos restantes para expirar.
 *   `POST /api/admin/gpt-accounts/save`: Agrega o actualiza una clave secreta (semilla/seed TOTP) para un correo.
 *   `POST /api/admin/gpt-accounts/delete`: Elimina una cuenta y su semilla del archivo `gpt_secrets.json`.
@@ -121,8 +121,13 @@ Los endpoints que ejecutan acciones de escritura o envío de mensajes de WhatsAp
 #### 👥 Clientes & Ventas
 *   `GET /api/admin/clients`: Obtiene y mapea los datos de los clientes desde la base de datos o Excel Graph.
 *   `POST /api/admin/sales/create`: Registra una nueva venta directamente en el Excel.
-*   `GET /api/admin/stats`: Genera estadísticas financieras y de vencimiento (clientes activos, vencidos, alertas y proyecciones a 7, 15 y 30 días).
+*   `GET /api/admin/stats`: Genera estadísticas financieras y de vencimiento (clientes activos, vencidos, alertas y proyecciones a 7, 15 y 30 días, además del cálculo cruzado de clientes Nuevos, Renovaciones y Desistidos/Churn).
 *   `POST /api/admin/actions/send-info`: Envía credenciales (`credentials`) o recordatorios de pago (`payment`) de forma manual por WhatsApp.
+*   `GET /api/admin/client-history`: Obtiene la línea de tiempo de compras e historial completo de un número celular desde el histórico.
+
+#### 📦 Disponibilidad de Stock
+*   `GET /api/admin/availability`: Retorna el estado actual de los bloqueos manuales de entrega inmediata para plataformas y planes.
+*   `POST /api/admin/availability/save`: Guarda la configuración de disponibilidad manual (requiere `password`).
 
 ---
 
@@ -132,4 +137,4 @@ El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`con
 1.  **Estampa de Tiempo Local:** Todos los logs generados en el servidor imprimen automáticamente un prefijo con la hora de Colombia (`America/Bogota`), ej: `[02/06/2026 18:40:00] [System] Estado cargado...`.
 2.  **Monitoreo del Navegador (Heartbeat):** Cada 5 minutos se ejecuta y registra un reporte de salud del navegador (Puppeteer) para detectar cuelgues (estados zombies), reiniciando el proceso en caso de fallo crítico para que PM2 lo levante de nuevo.
 
-*(Documentación actualizada al 2 de Junio de 2026)*
+*(Documentación actualizada al 6 de Junio de 2026)*
