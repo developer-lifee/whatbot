@@ -108,7 +108,7 @@ function getActiveIncidentsText() {
     const config = getAvailabilityConfig();
     const incidents = [];
     for (const [platform, value] of Object.entries(config)) {
-        if (value && value.incident && value.incident.trim() !== '') {
+        if (!platform.includes('@') && value && value.incident && value.incident.trim() !== '') {
             incidents.push(`- **${platform}**: ${value.incident.trim()}`);
         }
     }
@@ -118,11 +118,39 @@ function getActiveIncidentsText() {
     return "\n⚠️ SITUACIÓN / INCIDENTES DE PLATAFORMAS EN ESTE MOMENTO:\n" + incidents.join("\n") + "\n(Informa amablemente al usuario sobre este incidente si pregunta por este servicio o tiene fallas relacionadas, para que esté al tanto y no se preocupe ni intente reiniciar o reclamar repetidamente. Pide su paciencia mientras se soluciona).";
 }
 
+function getSpecificAccountsIncidentsText(userAccounts) {
+    if (!userAccounts || !Array.isArray(userAccounts) || userAccounts.length === 0) {
+        return "";
+    }
+    const config = getAvailabilityConfig();
+    const clientEmails = userAccounts.map(acc => {
+        const email = acc.correo || acc.Correo || acc["E-mail"] || "";
+        return email.toLowerCase().trim();
+    }).filter(Boolean);
+
+    const matchAlerts = [];
+    for (const [key, value] of Object.entries(config)) {
+        if (key.includes('@')) {
+            const normalizedKey = key.toLowerCase().trim();
+            if (clientEmails.includes(normalizedKey) && value && value.incident && value.incident.trim() !== '') {
+                matchAlerts.push(`- **Cuenta (${key})**: ${value.incident.trim()}`);
+            }
+        }
+    }
+
+    if (matchAlerts.length === 0) {
+        return "";
+    }
+    return "\n⚠️ SITUACIÓN / FALLA CON LA(S) CUENTA(S) DE ESTE CLIENTE:\n" + matchAlerts.join("\n") + "\n(IMPORTANTE: Explícale al cliente sobre este problema con su cuenta/correo específico para que esté enterado de la situación y no se desespere. Sé directo pero muy empático).";
+}
+
 module.exports = {
     getAvailabilityConfig,
     saveAvailabilityConfig,
     getPlatformAvailability,
     checkSpreadsheetStock,
-    getActiveIncidentsText
+    getActiveIncidentsText,
+    getSpecificAccountsIncidentsText
 };
+
 

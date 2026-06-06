@@ -465,8 +465,9 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
     }
   }
 
-  const { getActiveIncidentsText } = require('./availabilityService');
+  const { getActiveIncidentsText, getSpecificAccountsIncidentsText } = require('./availabilityService');
   const activeIncidents = getActiveIncidentsText();
+  const specificAccountIncidents = getSpecificAccountsIncidentsText(userAccounts);
 
   const prompt = `
   Eres un agente humano y empático de servicio al cliente de "Sheerit".
@@ -475,6 +476,7 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
   Aquí están los datos de sus plataformas:
   ${cuentasTexto}
   ${activeIncidents ? `\nALERTAS DE INCIDENTES / FALLAS ACTIVAS EN ESTE MOMENTO:\n${activeIncidents}\n(IMPORTANTE: Si el cliente tiene alguno de estos servicios o tiene problemas con ellos, infórmale de inmediato sobre esta falla general / incidente con amabilidad para que no se preocupe, y pídele que por favor tenga paciencia mientras lo resolvemos. No le ocultes la información, sé directo pero empático).\n` : ''}
+  ${specificAccountIncidents ? `\nALERTAS ESPECÍFICAS DE LAS CUENTAS DE ESTE CLIENTE:\n${specificAccountIncidents}\n(IMPORTANTE: Si la cuenta específica del cliente tiene un reporte / advertencia, infórmale inmediatamente con claridad para que entienda por qué no puede ingresar o qué ocurrió, y pídele paciencia mientras se resuelve).\n` : ''}
 
   HISTORIAL RECIENTE:
   ${chatHistory}
@@ -683,8 +685,9 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
   const wisdomContext = summarizeWisdom(wisdomData);
   const supportContext = summarizeSupportKnowledge(supportDocs);
 
-  const { getActiveIncidentsText } = require('./availabilityService');
+  const { getActiveIncidentsText, getSpecificAccountsIncidentsText } = require('./availabilityService');
   const activeIncidents = getActiveIncidentsText();
+  const specificAccountIncidents = getSpecificAccountsIncidentsText(userAccounts);
 
   let template = "";
   try {
@@ -710,7 +713,7 @@ NUNCA menciones números de Nequi o Daviplata manuales tradicionales (como el 31
   const prompt = template
     .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
     .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
-    .replace('{{WISDOM_CONTEXT}}', wisdomContext + "\n" + paymentContext + (activeIncidents ? "\n" + activeIncidents : ""))
+    .replace('{{WISDOM_CONTEXT}}', wisdomContext + "\n" + paymentContext + (activeIncidents ? "\n" + activeIncidents : "") + (specificAccountIncidents ? "\n" + specificAccountIncidents : ""))
     .replace('{{PLATFORM_CONTEXT}}', platformContext)
     .replace('{{SUPPORT_CONTEXT}}', supportContext)
     .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
