@@ -613,12 +613,18 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                             const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
                             // PRIORIDAD: 'deben' es el vencimiento del cliente. 'vencimiento' es el de la cuenta principal.
                             const expDate = getJsDateFromExcel(row['deben'] || row['vencimiento']);
-                            if (expDate && !isMassiveToPlatform) { 
-                                const diffDays = (getTodayInBogota() - expDate) / (1000 * 60 * 60 * 24);
-                                // Para broadcasts específicos, permitimos un margen mayor (30 días) para recuperar clientes recientes
-                                const threshold = filters.include_expired ? 999 : 30;
-                                if (diffDays > threshold) {
-                                    return null; 
+                            if (expDate) {
+                                const today = getTodayInBogota();
+                                if (expDate < today && !filters.include_expired) {
+                                    return null;
+                                }
+                                if (!isMassiveToPlatform) {
+                                    const diffDays = (today - expDate) / (1000 * 60 * 60 * 24);
+                                    // Para broadcasts específicos, permitimos un margen mayor (30 días) para recuperar clientes recientes
+                                    const threshold = filters.include_expired ? 999 : 30;
+                                    if (diffDays > threshold) {
+                                        return null; 
+                                    }
                                 }
                             }
 
