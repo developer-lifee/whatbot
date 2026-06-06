@@ -117,10 +117,10 @@ async function searchContactByPhone(phone) {
 
         if (coreNumber.length < 10) return null;
 
-        // Verificar en caché local primero (2 horas de expiración)
+        // Verificar en caché local primero (24 horas de expiración para búsquedas exitosas o negativas)
         if (contactCache.has(coreNumber)) {
             const cacheEntry = contactCache.get(coreNumber);
-            if (Date.now() - cacheEntry.timestamp < 1000 * 60 * 60 * 2) {
+            if (Date.now() - cacheEntry.timestamp < 1000 * 60 * 60 * 24) {
                 if (cacheEntry.name === '__NOT_FOUND__') {
                     return null;
                 }
@@ -171,13 +171,13 @@ async function searchContactByPhone(phone) {
             }
         }
 
-        // Registrar lookup negativo para no volver a preguntar en 2 horas
+        // Registrar lookup negativo para no volver a preguntar en 24 horas
         contactCache.set(coreNumber, { name: '__NOT_FOUND__', timestamp: Date.now() });
         return null;
     } catch (error) {
         console.error('❌ Error al buscar contacto en Google:', error.message);
-        // Si hay error (como quota limit), cacheamos por 5 minutos para silenciar ráfagas de logs
-        contactCache.set(coreNumber, { name: '__NOT_FOUND__', timestamp: Date.now() - (1000 * 60 * 115) }); // Expira en 5 mins
+        // Si hay error (como quota limit), cacheamos por 15 minutos para silenciar ráfagas de logs
+        contactCache.set(coreNumber, { name: '__NOT_FOUND__', timestamp: Date.now() - (1000 * 60 * 60 * 24 - 1000 * 60 * 15) }); // Expira en 15 mins
         return null;
     }
 }
