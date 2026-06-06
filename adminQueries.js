@@ -546,29 +546,43 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                     'sheerit6': 'sheerit6@gmail.com',
                     'sheerit102': 'sheerit102@gmail.com'
                 };
-                const sourceQuery = emailAliases[sourceQueryRaw] || sourceQueryRaw;
 
-                // Función de normalización para matches "gordos"
+                const sourceQueriesRaw = sourceQueryRaw.replace(/\by\b/g, ',').split(',').map(q => q.trim().toLowerCase()).filter(Boolean);
                 const cln = (s) => (s || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
 
-                // 1. BUSCAR LA CUENTA FUENTE (De dónde sacamos las credenciales)
-                const sourceMatch = rawData.find(row => {
-                    const correoStr = (row['correo'] || row['Correo'] || '').toString();
-                    const nombreStr = (row['Nombre'] || row['nombre'] || '').toString();
-                    const platStr = (row['Streaming'] || row['streaming'] || '').toString();
-                    
-                    const accountMatch = cln(correoStr).includes(cln(sourceQuery)) || cln(nombreStr).includes(cln(sourceQuery));
-                    const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
-                    return accountMatch && platMatch;
+                const sourceEmails = [];
+                const sourcePasses = [];
+                const matchedSourceNames = [];
+
+                sourceQueriesRaw.forEach(sqRaw => {
+                    const sq = emailAliases[sqRaw] || sqRaw;
+                    const clnSq = cln(sq);
+
+                    // Buscar la cuenta fuente
+                    const sourceMatch = rawData.find(row => {
+                        const correoStr = (row['correo'] || row['Correo'] || '').toString();
+                        const nombreStr = (row['Nombre'] || row['nombre'] || '').toString();
+                        const platStr = (row['Streaming'] || row['streaming'] || '').toString();
+                        
+                        const accountMatch = cln(correoStr).includes(clnSq) || cln(nombreStr).includes(clnSq);
+                        const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
+                        return accountMatch && platMatch;
+                    });
+
+                    if (sourceMatch) {
+                        const email = (sourceMatch['correo'] || sourceMatch['Correo'] || '').toString().trim();
+                        const pass = (sourceMatch['contraseña'] || sourceMatch['clave'] || sourceMatch['Clave'] || '').toString().trim();
+                        if (email && !sourceEmails.includes(email.toLowerCase())) {
+                            sourceEmails.push(email.toLowerCase());
+                            sourcePasses.push(pass);
+                            matchedSourceNames.push(sqRaw);
+                        }
+                    }
                 });
 
-                if (!sourceMatch && !filters.new_password) {
-                    filteredData = { status: "error", message: `No encontré ninguna cuenta que coincida con "${sourceQuery}" para usar como fuente de las credenciales.` };
+                if (sourceEmails.length === 0 && !isMassiveToPlatform && !filters.new_password) {
+                    filteredData = { status: "error", message: `No encontré ninguna cuenta que coincida con "${sourceQueryRaw}" para usar como fuente de las credenciales.` };
                 } else {
-                    // Extraer datos de la fuente de forma segura (soporta 'correo' o 'Correo', etc)
-                    const sourceEmail = sourceMatch ? (sourceMatch['correo'] || sourceMatch['Correo']) : null;
-                    const sourcePass = sourceMatch ? (sourceMatch['contraseña'] || sourceMatch['clave'] || sourceMatch['Clave']) : null;
-
                     // 2. BUSCAR LOS DESTINATARIOS
                     let recipients = [];
                     const filterRecipients = (rows) => {
@@ -579,8 +593,8 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                             const isLibre = nombreStr === 'libre' || nombreStr === '';
                             const isOwner = platStr.includes('owner');
                             
-                            const rowEmail = row['correo'] || row['Correo'];
-                            const emailMatch = sourceEmail ? cln(rowEmail) === cln(sourceEmail) : true;
+                            const rowEmail = (row['correo'] || row['Correo'] || '').toString().toLowerCase().trim();
+                            const emailMatch = isMassiveToPlatform ? true : (sourceEmails.length > 0 ? sourceEmails.includes(rowEmail) : true);
                             const platMatch = platformFilter ? cln(platStr).includes(cln(platformFilter)) : true;
                             
                             // --- REGLAS PREDETERMINADAS (DEFAULTS) ---
@@ -633,7 +647,9 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                                     pin_perfil: row['pin perfil'] || row['pin_perfil'] || null,
                                     vencimiento: row['deben'] || row['vencimiento'] || null,
                                     is_owner: isOwner,
-                                    streaming: row['Streaming'] || row['streaming']
+                                    streaming: row['Streaming'] || row['streaming'],
+                                    account_email: rowEmail,
+                                    password: row['contraseña'] || row['clave'] || row['Clave']
                                 };
                             }
                             return null;
@@ -643,13 +659,13 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                     if (isMassiveToPlatform && platformFilter) {
                         recipients = filterRecipients(rawData.filter(row => cln(row['Streaming'] || row['streaming']).includes(cln(platformFilter))));
                     } else {
-                        recipients = filterRecipients(rawData.filter(row => cln(row['correo'] || row['Correo']) === cln(sourceEmail)));
+                        recipients = filterRecipients(rawData);
                     }
 
                     if (recipients.length > 0) {
-                        const uniqueAccount = sourceEmail || "Nueva Cuenta";
-                        const platFound = platformFilter || (sourceMatch ? sourceMatch['Streaming'] : 'Streaming');
-                        const passToSend = filters.new_password || sourcePass || 'La actual';
+                        const uniqueAccount = sourceEmails.length > 0 ? sourceEmails.join(', ') : (isMassiveToPlatform ? "Todas las de " + (platformFilter || "").toUpperCase() : "Nueva Cuenta");
+                        const platFound = platformFilter || "Streaming";
+                        const passToSend = filters.new_password || (sourcePasses.length > 0 ? sourcePasses.join(', ') : 'La actual');
                         
                         filteredData = {
                             status: "pending_confirmation",
@@ -667,7 +683,9 @@ async function processAdminQuery(message, query, userStates, client, adminState 
                                 vencimiento: m.vencimiento,
                                 is_owner: m.is_owner,
                                 customer_mail: m.customer_mail,
-                                streaming: m.streaming
+                                streaming: m.streaming,
+                                account_email: m.account_email,
+                                password: m.password
                             }))
                         };
                     } else {

@@ -2051,7 +2051,7 @@ async function processIncomingMessage(messages) {
                     const shouldHide = isExtra || isExpired;
                     const hideReason = isExtra ? "[Exclusivo Cuenta Principal]" : "[Oculto por falta de pago]";
 
-                    const finalClave = shouldHide ? hideReason : payload.new_password;
+                    const finalClave = shouldHide ? hideReason : (payload.new_password && payload.new_password !== 'La actual' ? payload.new_password : (r.password || payload.new_password));
                     const finalPin = shouldHide ? hideReason : r.pin_perfil;
 
                     const pinPerfilLine = (r.pin_perfil && isPinPerfil) ? `\n📍 *Pin Perfil:* ${finalPin}` : "";
@@ -2079,7 +2079,7 @@ async function processIncomingMessage(messages) {
                         if (isClave) title = "ACTUALIZACIÓN DE CLAVE";
                     }
 
-                    const displayEmail = isSharedPlatform ? (r.customer_mail || payload.target_account) : (payload.target_account || r.customer_mail);
+                    const displayEmail = r.account_email || (isSharedPlatform ? (r.customer_mail || payload.target_account) : (payload.target_account || r.customer_mail));
 
                     let msg = payload.is_prerendered
                         ? (r.pin_perfil || payload.custom_message)
@@ -2390,18 +2390,42 @@ async function processIncomingMessage(messages) {
                     message.body.toLowerCase().includes('solo') ||
                     message.body.toLowerCase().includes('solamente'));
 
-            // Caso A: El destinatario es una cuenta de correo (ej: sheerpremium@gmail.com)
-            if (adminAI.target_user && adminAI.target_user.includes('@') && adminAI.target_user.includes('.')) {
-                const targetEmail = adminAI.target_user.toLowerCase().trim();
-                const { fetchRawData } = require('./apiService');
+            // Caso A: El destinatario es una o varias cuentas de correo/plataformas (ej: sheerpremium@gmail.com, elizabetdiagama, sheerit6)
+            let isEmailOrAccountTarget = false;
+            let targetUserStr = (adminAI.target_user || '').toLowerCase().trim();
+            let targetAccounts = targetUserStr.replace(/\by\b/g, ',').split(',').map(t => t.trim()).filter(t => t.length > 0);
+            
+            const { fetchRawData } = require('./apiService');
+            let rawData = [];
+            try {
+                rawData = await fetchRawData();
+            } catch (err) {
+                console.error('Error fetching raw data for programar_mensaje:', err.message);
+            }
+
+            if (targetAccounts.length > 0 && rawData.length > 0) {
+                isEmailOrAccountTarget = targetAccounts.some(acc => {
+                    if (acc.includes('@')) return true;
+                    return rawData.some(row => {
+                        const email = (row.correo || row.Correo || '').toString().toLowerCase();
+                        return email.includes(acc) && acc.length >= 4;
+                    });
+                });
+            }
+
+            if (isEmailOrAccountTarget) {
                 try {
-                    const rawData = await fetchRawData();
                     const matchingRows = rawData.filter(row => {
                         const rowEmail = (row.correo || row.Correo || '').toString().toLowerCase().trim();
                         const rowPlat = (row.Streaming || row.streaming || '').toString().toLowerCase();
                         const platFilter = adminAI.target_platform ? adminAI.target_platform.toLowerCase().trim() : '';
 
-                        const emailMatch = rowEmail === targetEmail;
+                        const emailMatch = targetAccounts.some(acc => {
+                            if (acc.includes('@') && acc.includes('.')) {
+                                return rowEmail === acc;
+                            }
+                            return rowEmail.includes(acc) && acc.length >= 4;
+                        });
                         const platMatch = platFilter ? rowPlat.includes(platFilter) : true;
                         const hasPhone = row.numero || row.whatsapp;
 
@@ -2412,7 +2436,7 @@ async function processIncomingMessage(messages) {
                     });
 
                     if (matchingRows.length === 0) {
-                        await message.reply(`❌ Jefe, no encontré a ningún cliente asignado a la cuenta *${targetEmail}* en el Excel.`);
+                        await message.reply(`❌ Jefe, no encontré a ningún cliente asignado a las cuentas *${targetAccounts.join(', ')}* en el Excel.`);
                         return;
                     }
 
