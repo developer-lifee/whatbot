@@ -960,13 +960,9 @@ app.post('/api/admin/gpt-accounts/save', (req, res) => {
 
 app.get('/api/admin/payment-config', (req, res) => {
     try {
-        const configPath = path.join(__dirname, 'payment_config.json');
-        if (fs.existsSync(configPath)) {
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            res.json(config);
-        } else {
-            res.status(404).json({ error: 'Configuración no encontrada' });
-        }
+        const { getPaymentConfig } = require('./paymentConfigService');
+        const config = getPaymentConfig();
+        res.json(config);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -978,8 +974,8 @@ app.post('/api/admin/payment-config', (req, res) => {
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!config) return res.status(400).json({ error: 'Falta configuración en la solicitud' });
 
-        const configPath = path.join(__dirname, 'payment_config.json');
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        const { savePaymentConfig } = require('./paymentConfigService');
+        savePaymentConfig(config);
         res.json({ success: true, message: 'Configuración de pagos guardada con éxito' });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -4051,38 +4047,35 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
 
     let enabledDetails = {};
     try {
-        const configPath = path.join(__dirname, 'payment_config.json');
-        if (fs.existsSync(configPath)) {
-            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-            
-            // Map keys
-            const keyMap = {
-                'nequi': 'nequi',
-                'daviplata': 'daviplata',
-                'bancolombia': 'bancolombia',
-                'llave': 'llave',
-                'qr negocios': 'qr_negocios'
-            };
+        const { getPaymentConfig } = require('./paymentConfigService');
+        const config = getPaymentConfig();
+        
+        // Map keys
+        const keyMap = {
+            'nequi': 'nequi',
+            'daviplata': 'daviplata',
+            'bancolombia': 'bancolombia',
+            'llave': 'llave',
+            'qr negocios': 'qr_negocios'
+        };
 
-            for (const key of Object.keys(paymentDetails)) {
-                const configKey = keyMap[key];
-                if (config[configKey] && config[configKey].enabled) {
-                    let desc = config[configKey].description || paymentDetails[key];
-                    if (config[configKey].sub_methods) {
-                        const activeSubs = config[configKey].sub_methods.filter(s => s.enabled);
-                        if (activeSubs.length > 0) {
-                            const keysMsg = "\n\n🔑 *Llave Bre-V:* " + activeSubs.map(s => {
-                                const tag = s.automatic ? " (AUTOMÁTICA ⚡)" : " (VERIFICACIÓN MANUAL)";
-                                return `\`${s.value}\` (${s.label})${tag}`;
-                            }).join(' o ');
-                            desc = desc + keysMsg;
-                        }
+        for (const key of Object.keys(paymentDetails)) {
+            const configKey = keyMap[key];
+            if (config[configKey] && config[configKey].enabled) {
+                let desc = config[configKey].description || paymentDetails[key];
+                
+                if (config[configKey].sub_methods) {
+                    const activeSubs = config[configKey].sub_methods.filter(s => s.enabled);
+                    if (activeSubs.length > 0) {
+                        const keysMsg = "\n\n🔑 *Llave Bre-V:* " + activeSubs.map(s => {
+                            const tag = s.automatic ? " (AUTOMÁTICA ⚡)" : " (VERIFICACIÓN MANUAL)";
+                            return `\`${s.value}\` (${s.label})${tag}`;
+                        }).join(' o ');
+                        desc = desc + keysMsg;
                     }
-                    enabledDetails[key] = desc;
                 }
+                enabledDetails[key] = desc;
             }
-        } else {
-            enabledDetails = paymentDetails;
         }
     } catch (e) {
         console.error("Error loading payment config in processPaymentSelection:", e.message);

@@ -678,10 +678,9 @@ async function calculateAndShowPrice(message, userId, userStates) {
 
 function getDynamicPaymentMessage() {
   try {
-    const configPath = path.join(__dirname, 'payment_config.json');
-    if (fs.existsSync(configPath)) {
-      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-      const enabled = Object.keys(config).filter(k => config[k].enabled);
+    const { getPaymentConfig } = require('./paymentConfigService');
+    const config = getPaymentConfig();
+    const enabled = Object.keys(config).filter(k => config[k].enabled);
       
       let msg = "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n";
       

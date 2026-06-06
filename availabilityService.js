@@ -33,12 +33,18 @@ async function checkSpreadsheetStock(platformName) {
     try {
         const data = await fetchRawData();
         const targetSearch = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const config = getAvailabilityConfig();
         
         const matchingLibres = data.filter(row => {
             const rowStreaming = (row.Streaming || row.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
             if (!rowStreaming || rowStreaming.trim() === "") return false;
             
             if (rowStreaming.includes(targetSearch) || targetSearch.includes(rowStreaming)) {
+                const email = (row.correo || row.Correo || "").toString().toLowerCase().trim();
+                if (email && config[email] && config[email].immediate === false) {
+                    return false;
+                }
+
                 const whatsapp = (row.whatsapp || "").toString().trim();
                 const nombre = (row.Nombre || "").toString().trim();
                 return !whatsapp && (!nombre || nombre.toLowerCase() === 'libre');

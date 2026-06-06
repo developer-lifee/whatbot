@@ -1,4 +1,5 @@
 const { updateExcelData, fetchRawData } = require('./apiService');
+const { getAvailabilityConfig } = require('./availabilityService');
 
 const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify individual', 'spotify personal', 'spotify familiar', 'familiar', 'family', 'xbox', 'netflix extra', 'extra', 'individual', 'personal', 'correo propio', 'tu correo'];
 
@@ -87,6 +88,7 @@ function parseExcelDate(dateStr) {
  */
 function findAvailableSlot(platformName, allRows) {
     let targetPlatform = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const config = getAvailabilityConfig();
 
     // Normalizar marcas de HBO/Max para evitar cruces
     if (targetPlatform.includes('hbomax')) {
@@ -109,6 +111,11 @@ function findAvailableSlot(platformName, allRows) {
 
         // Si la plataforma coincide
         if (rowStreaming.includes(targetPlatform) || targetPlatform.includes(rowStreaming)) {
+            const email = (row.correo || row.Correo || "").toString().toLowerCase().trim();
+            if (email && config[email] && config[email].immediate === false) {
+                continue;
+            }
+
             const whatsapp = (row.whatsapp || row.whatsapp || "").toString().trim();
             const nombre = (row.Nombre || row.nombre || "").toString().trim();
             const debenStr = row.deben || row.Deben || "";
