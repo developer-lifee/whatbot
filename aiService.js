@@ -414,10 +414,9 @@ function summarizeAccounts(userAccounts) {
   if (!userAccounts || userAccounts.length === 0) return "El usuario NO tiene servicios activos registrados.";
 
   return userAccounts.map(acc => {
-    const streaming = (acc.Streaming || "Servicio").toUpperCase();
-    const correo = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
+    const { streamingName, correo, clave } = getMaskedAccessData(acc);
     const vence = acc.deben && !isNaN(parseFloat(acc.deben)) ? getJsDateFromExcel(acc.deben).toLocaleDateString() : (acc.vencimiento || "N/A");
-    return `- ${streaming} (${correo}) - Vence: ${vence}`;
+    return `- ${streamingName} (Usuario/Correo de acceso: ${correo}) - Vence: ${vence} - Contraseña/Método: ${clave}`;
   }).join("\n");
 }
 

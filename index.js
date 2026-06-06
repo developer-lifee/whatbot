@@ -46,7 +46,10 @@ function decorateMap(mapInstance) {
         if (value && typeof value === 'object') {
             const stateStr = value.state;
             if (stateStr === 'waiting_human') {
-                if (!value.waitingTimestamp) {
+                const existing = mapInstance.get(key);
+                if (existing && typeof existing === 'object' && existing.state === 'waiting_human' && existing.waitingTimestamp) {
+                    value.waitingTimestamp = existing.waitingTimestamp;
+                } else if (!value.waitingTimestamp) {
                     value.waitingTimestamp = Date.now();
                 }
             }
@@ -1918,7 +1921,9 @@ async function processIncomingMessage(messages) {
 
             if (solvableIntents.includes(detection.intent) || isMenuSelection) {
                 console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA o selección de menú. Intent: ${detection.intent}`);
-                userStates.delete(userId);
+                if (detection.intent !== 'soporte') {
+                    userStates.delete(userId);
+                }
                 currentState = undefined;
                 // Continúa el flujo
             } else {
@@ -3446,7 +3451,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             } else if (detection.intent === 'soporte') {
                 // Si el usuario pide soporte, le damos la bienvenida y le preguntamos el detalle (o lo escalamos si ya lo dio)
                 const history = await getChatHistoryText(message);
-                const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
+                const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
                 if (fallback.replyMessage) {
                     await safeReply(message, fallback.replyMessage, userId);
                     if (fallback.needsEscalation) {
@@ -3464,7 +3469,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             userAccounts = [];
             try { userAccounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch (e) { }
 
-            const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
+            const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
 
             // Si la respuesta es genérica o es un saludo, ahí sí mandamos el menú
             const currentData = userStates.get(userId) || {};

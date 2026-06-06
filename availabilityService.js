@@ -123,10 +123,13 @@ function getSpecificAccountsIncidentsText(userAccounts) {
         return "";
     }
     const config = getAvailabilityConfig();
-    const clientEmails = userAccounts.map(acc => {
+    const clientEmails = [];
+    userAccounts.forEach(acc => {
         const email = acc.correo || acc.Correo || acc["E-mail"] || "";
-        return email.toLowerCase().trim();
-    }).filter(Boolean);
+        if (email) clientEmails.push(email.toLowerCase().trim());
+        const customerMail = acc["customer mail"] || acc["Customer Mail"] || "";
+        if (customerMail) clientEmails.push(customerMail.toLowerCase().trim());
+    });
 
     const matchAlerts = [];
     for (const [key, value] of Object.entries(config)) {
