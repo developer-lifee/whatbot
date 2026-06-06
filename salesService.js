@@ -517,6 +517,7 @@ async function handleSelectingPlans(message, userId, userStates) {
     return;
   }
 
+  const chosenPlan = current.platform.plans[selection];
   selected[currentIndex].chosenPlan = chosenPlan;
   state.currentIndex++;
 
