@@ -2697,7 +2697,7 @@ async function processIncomingMessage(messages) {
         } else if (command.startsWith('enviale medios') || command.startsWith('medios')) {
             await handleSendManualPaymentMethods(message, command, client, userStates);
             return;
-        } else if (command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales')) {
+        } else if ((command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales') || command.startsWith('enviales credenciales')) && !command.includes('todos') && !command.includes('los de')) {
             const { handleSendBulkCredentials } = require('./adminService');
             const { getAccountsByPhone } = require('./apiService');
             await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
