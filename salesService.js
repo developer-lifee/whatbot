@@ -319,7 +319,8 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     consolidatedResponse += `\n\n⚠️ *Nota:* Para *${uniquePlats.join(', ')}*, la entrega/activación demorará un poco más de lo habitual y no será de inmediato. ¡Agradecemos tu paciencia! 😊`;
   }
 
-  consolidatedResponse += "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **QR Negocios** (RECOMENDADO: entrega inmediata ⚡)\n⭐ **Llave Bre-V** (entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Nequi, Daviplata o Banco Caja Social directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊";
+  const { getDynamicPaymentMessage } = require('./salesService');
+  consolidatedResponse += getDynamicPaymentMessage();
 
   await message.reply(consolidatedResponse);
 
@@ -666,13 +667,60 @@ async function calculateAndShowPrice(message, userId, userStates) {
 
   await message.reply('🤖 ' + responseText);
 
-  let paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?\n\n⭐ **QR Negocios** (RECOMENDADO: entrega inmediata ⚡)\n⭐ **Llave Bre-V** (entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Nequi, Daviplata o Banco Caja Social directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊";
+  const paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?" + getDynamicPaymentMessage().replace("\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?", "");
   await message.reply(paymentOptions);
   const existing = userStates.get(userId);
   const stateData = typeof existing === 'object'
     ? { ...existing, state: 'awaiting_payment_method', total: totalPrice, items: selected, subscriptionType }
     : { state: 'awaiting_payment_method', total: totalPrice, items: selected, subscriptionType };
   userStates.set(userId, stateData);
+}
+
+function getDynamicPaymentMessage() {
+  try {
+    const configPath = path.join(__dirname, 'payment_config.json');
+    if (fs.existsSync(configPath)) {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      const enabled = Object.keys(config).filter(k => config[k].enabled);
+      
+      let msg = "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n";
+      
+      // Automatic methods
+      const auto = enabled.filter(k => config[k].automatic);
+      auto.forEach(k => {
+        let label = config[k].label;
+        if (config[k].sub_methods) {
+          const activeSubs = config[k].sub_methods.filter(s => s.enabled);
+          if (activeSubs.length > 0) {
+            label += ` (${activeSubs.map(s => s.label).join(' / ')})`;
+          }
+        }
+        msg += `⭐ **${label}** (RECOMENDADO: entrega inmediata ⚡)\n`;
+      });
+      
+      // Manual methods
+      const manual = enabled.filter(k => !config[k].automatic);
+      manual.forEach(k => {
+        let label = config[k].label;
+        if (config[k].sub_methods) {
+          const activeSubs = config[k].sub_methods.filter(s => s.enabled);
+          if (activeSubs.length > 0) {
+            label += ` (${activeSubs.map(s => s.label).join(' / ')})`;
+          }
+        }
+        msg += `⭐ **${label}**\n`;
+      });
+      
+      const manualLabels = manual.map(k => config[k].label);
+      if (manualLabels.length > 0) {
+        msg += `\n💡 *Nota:* Si prefieres pagar por ${manualLabels.join(', ')} directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊`;
+      }
+      return msg;
+    }
+  } catch (e) {
+    console.error("Error reading payment config in salesService:", e.message);
+  }
+  return "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V** (RECOMENDADO: entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Daviplata, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊";
 }
 
 module.exports = {
@@ -686,5 +734,6 @@ module.exports = {
   handleAddingPlatform,
   calculateAndShowPrice,
   getChatHistoryText,
-  safeFetchMessages
+  safeFetchMessages,
+  getDynamicPaymentMessage
 };

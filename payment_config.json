@@ -1,0 +1,46 @@
+{
+  "qr_negocios": {
+    "enabled": false,
+    "automatic": true,
+    "label": "QR Negocios",
+    "description": "🤖 *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n\nPor favor, escanea el código que te envío a continuación para la **activación automática** inmediata. ⚡"
+  },
+  "llave": {
+    "enabled": true,
+    "automatic": true,
+    "label": "Llave Bre-V",
+    "description": "🤖 *LLAVE Bre-V (ENTREGA INMEDIATA ⚡)*",
+    "sub_methods": [
+      {
+        "id": "llave_bot",
+        "label": "Llave Principal",
+        "value": "0087387259",
+        "enabled": true
+      },
+      {
+        "id": "llave_esteban",
+        "label": "Llave Esteban",
+        "value": "1032936324",
+        "enabled": true
+      }
+    ]
+  },
+  "nequi": {
+    "enabled": false,
+    "automatic": false,
+    "label": "Nequi",
+    "description": "🤖 *Nequi*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* para recibir entrega inmediata. ⚡"
+  },
+  "daviplata": {
+    "enabled": true,
+    "automatic": false,
+    "label": "Daviplata",
+    "description": "🤖 *Daviplata*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* para recibir entrega inmediata. ⚡"
+  },
+  "bancolombia": {
+    "enabled": true,
+    "automatic": true,
+    "label": "Bancolombia",
+    "description": "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos. ⚡"
+  }
+}

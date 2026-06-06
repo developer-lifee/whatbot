@@ -211,7 +211,41 @@ app.post('/api/netflix/verify', async (req, res) => {
             }
         }
 
-        res.json({ success: true, message: `Código de Hogar enviado para la cuenta: ${netflixAcct.correo}`, account: netflixAcct.correo, ip: clientIp });
+        // Automated Netflix code/link extraction with retry loop
+        let code = null;
+        let link = null;
+        try {
+            const { findRecentCodes } = require('./gmailService');
+            for (let attempt = 0; attempt < 3; attempt++) {
+                console.log(`[NETFLIX API] Checking recent codes for ${netflixAcct.correo} (Attempt ${attempt + 1})...`);
+                const recentCodes = await findRecentCodes(netflixAcct.correo, 15);
+                const netflixMail = recentCodes.find(item => 
+                    (item.subject || "").toLowerCase().includes('netflix') || 
+                    (item.snippet || "").toLowerCase().includes('netflix')
+                );
+                
+                if (netflixMail && (netflixMail.code || netflixMail.link)) {
+                    code = netflixMail.code;
+                    link = netflixMail.link;
+                    console.log(`[NETFLIX API] Found Netflix code/link for ${netflixAcct.correo}: Code=${code}, Link=${link}`);
+                    break;
+                }
+                if (attempt < 2) {
+                    await new Promise(r => setTimeout(r, 3000));
+                }
+            }
+        } catch (mailErr) {
+            console.error(`[NETFLIX API] Failed to search Netflix codes for ${netflixAcct.correo}:`, mailErr.message);
+        }
+
+        res.json({ 
+            success: true, 
+            message: `IP del Hogar registrada y actualizada en la base de datos para la cuenta: ${netflixAcct.correo}`, 
+            account: netflixAcct.correo, 
+            ip: clientIp,
+            code,
+            link
+        });
     } catch (e) {
         console.error("[NETFLIX API Error]:", e);
         res.status(500).json({ error: e.message });
@@ -606,30 +640,35 @@ app.get('/api/admin/client-history', async (req, res) => {
 
 app.post('/api/admin/actions/send-info', async (req, res) => {
     try {
-        const { phone, type, password } = req.body;
+        const { phone, type, password, message: customMessage } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const { getAccountsByPhone } = require('./apiService');
-        const accounts = await getAccountsByPhone(phone);
-        if (!accounts || accounts.length === 0) return res.status(404).json({ success: false, message: 'Client not found' });
-
-        const clientData = accounts[0];
         let message = "";
 
-        if (type === 'credentials') {
-            message = `*Tus Credenciales de Sheer IT*\n\n` +
-                `🍿 *Servicio:* ${clientData.Streaming}\n` +
-                `📧 *Usuario:* ${clientData.correo}\n` +
-                `🔑 *Contraseña:* ${clientData['pin perfil'] || 'N/A'}\n` +
-                `👤 *Perfil:* ${clientData.Nombre}\n\n` +
-                `📅 *Vence:* ${clientData['Fecha Vencimiento']}\n\n` +
-                `¡Disfruta tu servicio!`;
-        } else if (type === 'payment') {
-            message = `¡Hola ${clientData.Nombre}! 👋\n\n` +
-                `Te recordamos que tu suscripción de *${clientData.Streaming}* está próxima a vencer (${clientData['Fecha Vencimiento']}).\n\n` +
-                `Puedes renovar realizando tu transferencia aquí:\n` +
-                `*Nequi/Daviplata:* 3133866170\n\n` +
-                `Una vez realizado, envíanos el comprobante por este medio. ¡Gracias!`;
+        if (type === 'custom') {
+            message = customMessage || "";
+        } else {
+            const { getAccountsByPhone } = require('./apiService');
+            const accounts = await getAccountsByPhone(phone);
+            if (!accounts || accounts.length === 0) return res.status(404).json({ success: false, message: 'Client not found' });
+
+            const clientData = accounts[0];
+
+            if (type === 'credentials') {
+                message = `*Tus Credenciales de Sheer IT*\n\n` +
+                    `🍿 *Servicio:* ${clientData.Streaming}\n` +
+                    `📧 *Usuario:* ${clientData.correo}\n` +
+                    `🔑 *Contraseña:* ${clientData['pin perfil'] || 'N/A'}\n` +
+                    `👤 *Perfil:* ${clientData.Nombre}\n\n` +
+                    `📅 *Vence:* ${clientData['Fecha Vencimiento']}\n\n` +
+                    `¡Disfruta tu servicio!`;
+            } else if (type === 'payment') {
+                message = `¡Hola ${clientData.Nombre}! 👋\n\n` +
+                    `Te recordamos que tu suscripción de *${clientData.Streaming}* está próxima a vencer (${clientData['Fecha Vencimiento']}).\n\n` +
+                    `Puedes renovar realizando tu transferencia aquí:\n` +
+                    `*Nequi/Daviplata:* 3133866170\n\n` +
+                    `Una vez realizado, envíanos el comprobante por este medio. ¡Gracias!`;
+            }
         }
 
         const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
@@ -914,6 +953,53 @@ app.post('/api/admin/gpt-accounts/save', (req, res) => {
         const { saveSecret } = require('./totpService');
         saveSecret(email, secret, service || 'ChatGPT');
         res.json({ success: true, message: 'Cuenta GPT guardada con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/payment-config', (req, res) => {
+    try {
+        const configPath = path.join(__dirname, 'payment_config.json');
+        if (fs.existsSync(configPath)) {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            res.json(config);
+        } else {
+            res.status(404).json({ error: 'Configuración no encontrada' });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/payment-config', (req, res) => {
+    try {
+        const { config, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!config) return res.status(400).json({ error: 'Falta configuración en la solicitud' });
+
+        const configPath = path.join(__dirname, 'payment_config.json');
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        res.json({ success: true, message: 'Configuración de pagos guardada con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/groups', async (req, res) => {
+    try {
+        if (!client || !client.info) {
+            return res.status(503).json({ error: 'WhatsApp client is not ready' });
+        }
+        const chats = await client.getChats();
+        const groups = chats
+            .filter(chat => chat && chat.isGroup)
+            .map(chat => ({
+                id: chat.id._serialized,
+                name: chat.name || 'Sin Nombre',
+                unreadCount: chat.unreadCount || 0
+            }));
+        res.json(groups);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -3954,19 +4040,56 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
     // Usar AI para detectar método de pago
     const method = await detectPaymentMethod(text);
 
-    const paymentDetails = {
+    // Cargar config dinámica de pagos
+    let paymentDetails = {
         'nequi': "🤖 *Nequi (AUTOMÁTICA ⚡)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
         'daviplata': "🤖 *Daviplata (AUTOMÁTICA ⚡)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
-        'transfiya': "🤖 *Transfiya (ENTREGA INMEDIATA ⚡)*\n\nPara transferencias desde Transfiya con entrega inmediata, por favor utiliza nuestra *Llave Bre-V* oficial. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
         'bancolombia': "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos. ⚡",
-        'llave': "🤖 *LLAVE Bre-V (ENTREGA INMEDIATA ⚡)*\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
+        'llave': "🤖 *LLAVE Bre-V (ENTREGA INMEDIATA ⚡)*\n\n🔑 *Llave Bre-V:* `0087387259` o `1032936324` (AUTOMÁTICA ⚡)",
         'qr negocios': "🤖 *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n\nPor favor, escanea el código que te envío a continuación para la **activación automática** inmediata. ⚡"
     };
+
+    let enabledDetails = {};
+    try {
+        const configPath = path.join(__dirname, 'payment_config.json');
+        if (fs.existsSync(configPath)) {
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            
+            // Map keys
+            const keyMap = {
+                'nequi': 'nequi',
+                'daviplata': 'daviplata',
+                'bancolombia': 'bancolombia',
+                'llave': 'llave',
+                'qr negocios': 'qr_negocios'
+            };
+
+            for (const key of Object.keys(paymentDetails)) {
+                const configKey = keyMap[key];
+                if (config[configKey] && config[configKey].enabled) {
+                    let desc = config[configKey].description || paymentDetails[key];
+                    if (config[configKey].sub_methods) {
+                        const activeSubs = config[configKey].sub_methods.filter(s => s.enabled);
+                        if (activeSubs.length > 0) {
+                            const keysMsg = "\n\n🔑 *Llave Bre-V:* " + activeSubs.map(s => `\`${s.value}\` (${s.label})`).join(' o ') + " (AUTOMÁTICA ⚡)";
+                            desc = desc + keysMsg;
+                        }
+                    }
+                    enabledDetails[key] = desc;
+                }
+            }
+        } else {
+            enabledDetails = paymentDetails;
+        }
+    } catch (e) {
+        console.error("Error loading payment config in processPaymentSelection:", e.message);
+        enabledDetails = paymentDetails;
+    }
 
     const lowerText = text.toLowerCase();
     const isQrRequest = lowerText.includes('qr') || lowerText.includes('código') || lowerText.includes('codigo') || lowerText.includes('consignar') || lowerText.includes('cuenta para');
 
-    if (isQrRequest) {
+    if (isQrRequest && enabledDetails['qr negocios']) {
         const { MessageMedia } = require('whatsapp-web.js');
         const qrPath = path.join(__dirname, 'uploads', 'qr_pago.jpeg');
         if (fs.existsSync(qrPath)) {
@@ -3980,26 +4103,32 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
         } else {
             await message.reply("🤖 Aún no tengo configurada la imagen del QR oficial, pero puedes usar estos datos para transferir (recuerda que el QR agiliza tu entrega):");
         }
+    } else if (isQrRequest && !enabledDetails['qr negocios']) {
+        const activeLabels = Object.keys(enabledDetails).map(k => k.toUpperCase());
+        await message.reply(`🤖 El *QR de Negocios* no está activo en este momento. Por favor utiliza uno de los siguientes medios activos: *${activeLabels.join(', ')}*.`);
     }
 
     // Mapeo dinámico para manejar 'llave' o 'llaves'
     let methodToUse = method;
     if (!methodToUse && (lowerText.includes('llave') || lowerText.includes('bre-v') || lowerText.includes('brev') || lowerText.includes('bre v') || lowerText.includes('bre-b') || lowerText.includes('breb') || lowerText.includes('bre b'))) methodToUse = 'llave';
 
-    if (methodToUse && paymentDetails[methodToUse]) {
+    if (methodToUse && enabledDetails[methodToUse]) {
         const state = userStates.get(userId) || {};
-        let finalMsg = paymentDetails[methodToUse];
+        let finalMsg = enabledDetails[methodToUse];
         if (state.isRenewal) {
             finalMsg += "\n\n💡 *Tip de Renovación:* Si pagas con un método automático (como el QR, la Llave Bre-V o Bancolombia), tu renovación se procesará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ni un solo día más, ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
         }
         await message.reply(finalMsg);
         userStates.set(userId, typeof state === 'string' ? { state: 'awaiting_payment_confirmation' } : { ...state, state: 'awaiting_payment_confirmation' });
+    } else if (methodToUse && !enabledDetails[methodToUse]) {
+        const activeLabels = Object.keys(enabledDetails).map(k => k.toUpperCase());
+        await message.reply(`🤖 El método de pago *${methodToUse.toUpperCase()}* no está disponible temporalmente. Puedes realizar la transferencia por: *${activeLabels.join(', ')}*.`);
     } else {
         // Fallback manual check
-        let foundKey = Object.keys(paymentDetails).find(key => lowerText.includes(key));
+        let foundKey = Object.keys(enabledDetails).find(key => lowerText.includes(key));
         if (foundKey) {
             const state = userStates.get(userId) || {};
-            let finalMsg = paymentDetails[foundKey];
+            let finalMsg = enabledDetails[foundKey];
             if (state.isRenewal) {
                 finalMsg += "\n\n💡 *Tip de Renovación:* Si pagas con un método automático (como el QR, la Llave Bre-V o Bancolombia), tu renovación se procesará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ni un solo día más, ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
             }
