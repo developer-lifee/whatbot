@@ -104,9 +104,25 @@ async function getPlatformAvailability(platformName) {
     };
 }
 
+function getActiveIncidentsText() {
+    const config = getAvailabilityConfig();
+    const incidents = [];
+    for (const [platform, value] of Object.entries(config)) {
+        if (value && value.incident && value.incident.trim() !== '') {
+            incidents.push(`- **${platform}**: ${value.incident.trim()}`);
+        }
+    }
+    if (incidents.length === 0) {
+        return "";
+    }
+    return "\n⚠️ SITUACIÓN / INCIDENTES DE PLATAFORMAS EN ESTE MOMENTO:\n" + incidents.join("\n") + "\n(Informa amablemente al usuario sobre este incidente si pregunta por este servicio o tiene fallas relacionadas, para que esté al tanto y no se preocupe ni intente reiniciar o reclamar repetidamente. Pide su paciencia mientras se soluciona).";
+}
+
 module.exports = {
     getAvailabilityConfig,
     saveAvailabilityConfig,
     getPlatformAvailability,
-    checkSpreadsheetStock
+    checkSpreadsheetStock,
+    getActiveIncidentsText
 };
+
