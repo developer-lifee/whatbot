@@ -198,13 +198,13 @@ app.post('/api/netflix/verify', async (req, res) => {
 
         // Capture the IP natively into Microsoft Graph Excels (Operador column)
         if (netflixAcct._rowNumber) {
-            const oldOperador = (netflixAcct.Operador || "").toString();
+            const oldOperador = (netflixAcct.operador || netflixAcct.Operador || "").toString();
             let newOperadorRecord = oldOperador;
 
             // Only append IP if it's not already recorded
             if (!oldOperador.includes(clientIp)) {
                 newOperadorRecord = oldOperador ? `${oldOperador} | IP: ${clientIp}` : `IP: ${clientIp}`;
-                await updateExcelData(netflixAcct._rowNumber, { "Operador": newOperadorRecord });
+                await updateExcelData(netflixAcct._rowNumber, { "operador": newOperadorRecord });
                 console.log(`[NETFLIX API] Saved IP ${clientIp} for @${phone} (Row ${netflixAcct._rowNumber})`);
             } else {
                 console.log(`[NETFLIX API] IP ${clientIp} was already recorded for @${phone}`);
