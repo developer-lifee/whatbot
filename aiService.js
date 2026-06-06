@@ -715,16 +715,32 @@ REGLAS DE ATENCIÓN DE SOPORTE HUMANO:
     template = "Responde de forma amable a: {{MESSAGE_CONTENT}}";
   }
 
+  let paymentLines = [];
+  try {
+    const { getPaymentConfig } = require('./paymentConfigService');
+    const config = getPaymentConfig();
+    for (const [key, method] of Object.entries(config)) {
+      if (method.enabled) {
+        if (method.sub_methods) {
+          const activeSubs = method.sub_methods.filter(s => s.enabled);
+          activeSubs.forEach(sub => {
+            paymentLines.push(`- ${method.label} (${sub.label}): Valor/Número \`${sub.value}\` (${sub.automatic ? 'AUTOMÁTICO ⚡' : 'VERIFICACIÓN MANUAL'})`);
+          });
+        } else {
+          paymentLines.push(`- ${method.label}: ${method.description.replace(/\n/g, ' ')} (${method.automatic ? 'AUTOMÁTICO ⚡' : 'VERIFICACIÓN MANUAL'})`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error building dynamic paymentContext for AI fallback:", err.message);
+  }
+
   const paymentContext = `
-MÉTODOS DE PAGO DE LA EMPRESA (Reales y Oficiales - AUTOMÁTICOS ⚡):
-- QR de Negocios (Enviar imagen de QR si la solicitan)
-- Llaves Bre-V: 0087387259 (Para Nequi/Daviplata/Ahorro a la mano)
-- Llaves Bre-B: 3118587974 (Para Nequi/Daviplata)
-- Bancolombia (Ahorros): Cuenta 46772753713, CC 1032936324
-- Banco Caja Social: Cuenta 24111572331, Nombre Esteban Avila, CC 1032936324
+MÉTODOS DE PAGO DE LA EMPRESA (Reales y Oficiales actualmente ACTIVOS):
+${paymentLines.length > 0 ? paymentLines.join('\n') : '- QR de Negocios\n- Llave Bre-V: 0087387259'}
 
 INSTRUCCIÓN DE SEGURIDAD ABSOLUTA:
-NUNCA menciones números de Nequi o Daviplata manuales tradicionales (como el 3118587974 o el 3107946794 de forma directa). Promociona ÚNICAMENTE las Llaves Bre-V, Bre-B, el QR de Negocios y la cuenta de Bancolombia/Caja Social, ya que son los únicos métodos de validación automática inmediata del bot. Queda estrictamente prohibido usar corchetes o inventar números.
+Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. Queda estrictamente prohibido inventar o sugerir cualquier otro número de cuenta, método de pago o Llave que no esté explícitamente listado en la sección anterior.
 `;
 
   const prompt = template
