@@ -832,13 +832,25 @@ app.get('/api/admin/gpt-accounts', (req, res) => {
         for (const email of Object.keys(secrets)) {
             let code = "";
             let timeRemaining = 30;
+            const secretVal = secrets[email];
+            const secret = typeof secretVal === 'object' ? secretVal.secret : secretVal;
+            let service = typeof secretVal === 'object' ? secretVal.service : null;
+            if (!service) {
+                if (email.toLowerCase().includes('amazon') || email.toLowerCase().includes('prime')) {
+                    service = 'Amazon';
+                } else if (email.toLowerCase().includes('netflix')) {
+                    service = 'Netflix';
+                } else {
+                    service = 'ChatGPT';
+                }
+            }
             try {
-                code = authenticator.generate(secrets[email]);
+                code = authenticator.generate(secret);
                 timeRemaining = authenticator.timeRemaining();
             } catch (e) {
                 code = "Error";
             }
-            list.push({ email, code, timeRemaining });
+            list.push({ email, code, timeRemaining, service });
         }
         res.json(list);
     } catch (e) {
@@ -848,12 +860,12 @@ app.get('/api/admin/gpt-accounts', (req, res) => {
 
 app.post('/api/admin/gpt-accounts/save', (req, res) => {
     try {
-        const { email, secret, password } = req.body;
+        const { email, secret, service, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!email || !secret) return res.status(400).json({ error: 'Faltan campos obligatorios' });
 
         const { saveSecret } = require('./totpService');
-        saveSecret(email, secret);
+        saveSecret(email, secret, service || 'ChatGPT');
         res.json({ success: true, message: 'Cuenta GPT guardada con éxito' });
     } catch (e) {
         res.status(500).json({ error: e.message });

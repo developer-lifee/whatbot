@@ -17,8 +17,10 @@ if (!fs.existsSync(path.join(__dirname, 'tokens'))) {
  */
 function generateGPTCode(email) {
     const secrets = loadSecrets();
-    const secret = secrets[email.toLowerCase().trim()];
-    if (!secret) return null;
+    const secretVal = secrets[email.toLowerCase().trim()];
+    if (!secretVal) return null;
+
+    const secret = typeof secretVal === 'object' ? secretVal.secret : secretVal;
 
     try {
         return authenticator.generate(secret);
@@ -64,10 +66,14 @@ function resetAllUsage() {
  * Saves a secret for an email.
  * @param {string} email 
  * @param {string} secret 
+ * @param {string} service 
  */
-function saveSecret(email, secret) {
+function saveSecret(email, secret, service = 'ChatGPT') {
     const secrets = loadSecrets();
-    secrets[email.toLowerCase().trim()] = secret.replace(/\s/g, ''); // Remove spaces
+    secrets[email.toLowerCase().trim()] = {
+        secret: secret.replace(/\s/g, ''),
+        service: service
+    };
     fs.writeFileSync(SECRETS_FILE, JSON.stringify(secrets, null, 2));
 }
 

@@ -107,14 +107,16 @@ function startMonitor() {
         console.log(`⏱️ Última actualización: ${now.toLocaleTimeString('es-CO')}\n`);
 
         emails.forEach(email => {
-            const secret = secrets[email];
+            const secretVal = secrets[email];
+            const secret = typeof secretVal === 'object' ? secretVal.secret : secretVal;
+            const service = typeof secretVal === 'object' ? secretVal.service : 'ChatGPT';
             try {
                 const code = authenticator.generate(secret);
                 const timeRemaining = authenticator.timeRemaining();
-                console.log(`📧 Cuenta: ${email}`);
+                console.log(`📧 Cuenta: ${email} (${service})`);
                 console.log(`🔢 Código: \x1b[32m${code}\x1b[0m (Válido por ${timeRemaining}s)\n`);
             } catch (error) {
-                console.log(`📧 Cuenta: ${email} - Error generando código.\n`);
+                console.log(`📧 Cuenta: ${email} (${service}) - Error generando código.\n`);
             }
         });
     };
