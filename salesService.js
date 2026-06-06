@@ -716,7 +716,6 @@ function getDynamicPaymentMessage() {
         msg += `\n💡 *Nota:* Si prefieres pagar por ${manualLabels.join(', ')} directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊`;
       }
       return msg;
-    }
   } catch (e) {
     console.error("Error reading payment config in salesService:", e.message);
   }
