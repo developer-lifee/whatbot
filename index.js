@@ -47,10 +47,12 @@ function decorateMap(mapInstance) {
             const stateStr = value.state;
             if (stateStr === 'waiting_human') {
                 const existing = mapInstance.get(key);
-                if (existing && typeof existing === 'object' && existing.state === 'waiting_human' && existing.waitingTimestamp) {
-                    value.waitingTimestamp = existing.waitingTimestamp;
-                } else if (!value.waitingTimestamp) {
-                    value.waitingTimestamp = Date.now();
+                if (!value.waitingTimestamp) {
+                    if (existing && typeof existing === 'object' && existing.state === 'waiting_human' && existing.waitingTimestamp) {
+                        value.waitingTimestamp = existing.waitingTimestamp;
+                    } else {
+                        value.waitingTimestamp = Date.now();
+                    }
                 }
             }
         }
@@ -3806,17 +3808,15 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const currentSt = userStates.get(userId) || {};
             const count = currentSt.waitingCount || 0;
 
-            if (!global.supportQueue) global.supportQueue = [];
-            const qIdx = global.supportQueue.indexOf(userId);
-            if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
-            global.supportQueue.push(userId);
-            const pos = global.supportQueue.length;
+            // Update user state first so they are placed at the end of the queue
+            userStates.set(userId, { ...currentSt, waitingCount: count + 1, waitingTimestamp: Date.now() });
+
+            const { getQueuePosition } = require('./supportScheduleService');
+            const pos = getQueuePosition(userId, userStates) || 1;
 
             if (count > 0) {
                 await message.reply(`🤖 Tu mensaje ha sido recibido y sigues en nuestra cola de soporte.\n\n⚠️ *Aviso automático:* Cada vez que envías un mensaje nuevo, el sistema te mueve al último lugar de la fila para dar prioridad a los chats más antiguos.\n\n📍 *Tu posición actual en la fila es la número ${pos}.*`);
             }
-
-            userStates.set(userId, { ...currentSt, waitingCount: count + 1 });
             break;
         case 'awaiting_purchase_platforms':
             await handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID);
