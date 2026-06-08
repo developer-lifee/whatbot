@@ -67,6 +67,9 @@ let userStates = decorateMap(new Map());
 const processedMessageIds = new Set();
 setInterval(() => processedMessageIds.clear(), 5 * 60 * 1000); // Limpiar cada 5 min
 
+// Control de usuarios en procesamiento activo para evitar ejecuciones simultáneas / duplicadas
+const activeProcessingUsers = new Set();
+
 // Cargar estados al iniciar
 try {
     if (fs.existsSync(USER_STATES_FILE)) {
@@ -1684,8 +1687,6 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
         const tokenExists = fs.existsSync(path.join(__dirname, 'tokens', `token_${accountEmail}.json`));
 
         if (tokenExists) {
-            await message.reply(`🤖 🔍 *Buscando código para tu cuenta de ${streamingName}:* ${accountEmail}...\nPor favor espera un momento.`);
-
             const { findRecentCodes } = require('./gmailService');
             const codes = await findRecentCodes(accountEmail, 10);
 
@@ -1737,10 +1738,36 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
 
 /**
+ * Procesa un lote de mensajes de un mismo usuario con bloqueo a nivel de usuario.
+ */
+async function processIncomingMessage(messages) {
+    if (messages.length === 0) return;
+
+    const firstMsg = messages[0];
+    let userId = firstMsg.from;
+
+    if (firstMsg.fromMe && firstMsg.to && firstMsg.to !== (client.info ? client.info.wid._serialized : '')) {
+        userId = firstMsg.to;
+    }
+
+    if (activeProcessingUsers.has(userId)) {
+        console.log(`[Deduplicator] ⏳ El usuario @${userId.replace('@c.us', '')} ya tiene una petición en proceso activo. Omitiendo lote duplicado.`);
+        return;
+    }
+
+    activeProcessingUsers.add(userId);
+    try {
+        await baseProcessIncomingMessage(messages);
+    } finally {
+        activeProcessingUsers.delete(userId);
+    }
+}
+
+/**
  * Procesa un lote de mensajes de un mismo usuario.
  * @param {Message[]} messages 
  */
-async function processIncomingMessage(messages) {
+async function baseProcessIncomingMessage(messages) {
     if (messages.length === 0) return;
 
     const batchId = messages.map(m => m.id ? m.id._serialized : '').join(',');
