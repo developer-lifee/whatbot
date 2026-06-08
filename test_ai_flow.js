@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { parsePurchaseIntent, detectPaymentMethod } = require('./aiService');
+const { parsePurchaseIntent, detectPaymentMethod, detectInitialIntent } = require('./aiService');
 
 async function test() {
     console.log("--- Testing AI Service ---");
@@ -24,6 +24,17 @@ async function test() {
     // This might be handled by regex in index.js, but let's see if detectPaymentMethod picks up anything weird or just null
     const result3 = await detectPaymentMethod(msg3);
     console.log("Result 3 (Payment Method - Should be null?):", result3);
+
+    // Test Case 4: Name extraction restriction test
+    const msg4 = "Si acá me dijeron que ya me actualizaban en la base de datos.";
+    console.log(`\nInput 4 (No name provided): "${msg4}"`);
+    const result4 = await detectInitialIntent(msg4, "Historial previo: el cliente se quejó de Apple One.");
+    console.log("Result 4 (userName should be null):", result4.userName);
+
+    const msg5 = "Hola, me llamo Mateo. ¿Cómo estás?";
+    console.log(`\nInput 5 (Name explicitly provided): "${msg5}"`);
+    const result5 = await detectInitialIntent(msg5, "");
+    console.log("Result 5 (userName should be Mateo):", result5.userName);
 }
 
 test();

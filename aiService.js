@@ -478,6 +478,27 @@ async function detectPaymentMethod(messageContent) {
  * @param {Array} userAccounts - The accounts found for the user.
  * @returns {Promise<string>}
  */
+function formatVencimientoDate(venceVal) {
+  if (!venceVal) return "N/A";
+  const strVal = venceVal.toString().trim();
+  if (!isNaN(parseFloat(strVal))) {
+    const jsDate = getJsDateFromExcel(parseFloat(strVal));
+    if (jsDate) {
+      return jsDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+  }
+  
+  if (typeof venceVal === 'string') {
+      // Intentar limpiar espacios residuales
+      const cleanVal = venceVal.trim();
+      const parsed = new Date(cleanVal.includes('T') ? cleanVal : cleanVal + 'T12:00:00');
+      if (!isNaN(parsed.getTime())) {
+          return parsed.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+      }
+  }
+  return venceVal;
+}
+
 /**
  * Generates a text summary of the user's accounts for prompt context.
  */
@@ -486,7 +507,7 @@ function summarizeAccounts(userAccounts) {
 
   return userAccounts.map(acc => {
     const { streamingName, correo, clave } = getMaskedAccessData(acc);
-    const vence = acc.deben && !isNaN(parseFloat(acc.deben)) ? getJsDateFromExcel(acc.deben).toLocaleDateString() : (acc.vencimiento || "N/A");
+    const vence = formatVencimientoDate(acc.deben || acc.vencimiento);
     return `- ${streamingName} (Usuario/Correo de acceso: ${correo}) - Vence: ${vence} - Contraseña/Método: ${clave}`;
   }).join("\n");
 }
@@ -944,7 +965,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
         "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "catalogo" | "desconocido",
         "recoveredState": string | null,
         "frustrationLevel": number, // 0 a 10
-        "userName": string | null,
+        "userName": string | null, // ÚNICAMENTE el nombre de pila o nombre completo del usuario SI Y SOLO SI lo menciona de forma explícita en el "Mensaje actual" (ej: "Hola, me llamo Juan" -> "Juan"). Si el usuario NO menciona su nombre explícitamente en el "Mensaje actual", pon obligatoriamente null. Queda estrictamente prohibido inventar, deducir o adivinar el nombre a partir del historial o de suposiciones.
         "isNameComplete": boolean,
         "detectedPlatform": string | null, 
         "metadata": {
