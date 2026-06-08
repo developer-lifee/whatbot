@@ -268,9 +268,7 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             if (diffMinutes > toleranceMinutes) continue;
 
             const snippet = fullMsg.data.snippet || '';
-            const bodyData = fullMsg.data.payload.body && fullMsg.data.payload.body.data
-                ? Buffer.from(fullMsg.data.payload.body.data, 'base64').toString()
-                : (fullMsg.data.payload.parts ? fullMsg.data.payload.parts.map(p => p.body.data ? Buffer.from(p.body.data, 'base64').toString() : '').join(' ') : '');
+            const bodyData = getMessageBody(fullMsg.data.payload);
 
             const body = snippet + ' ' + bodyData;
             const subject = fullMsg.data.payload.headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';
@@ -291,9 +289,12 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             if (specificCodeMatch && /[0-9]/.test(specificCodeMatch[1])) {
                 code = specificCodeMatch[1].toUpperCase();
             } else {
-                // Fallback 1: Buscar explícitamente 6 dígitos (típico en Disney+ y Netflix)
+                // Fallback 1: Buscar explícitamente 6 dígitos o formato con guion 3-3 (típico en Amazon/Disney+/Netflix)
+                const hyphenMatch = superCleanBody.match(/\b([0-9]{3})-([0-9]{3})\b/);
                 const sixDigitMatch = superCleanBody.match(/\b([0-9]{6})\b/);
-                if (sixDigitMatch) {
+                if (hyphenMatch) {
+                    code = hyphenMatch[1] + hyphenMatch[2];
+                } else if (sixDigitMatch) {
                     code = sixDigitMatch[1];
                 } else {
                     // Fallback 2: Código alfanumérico mixto (Max)

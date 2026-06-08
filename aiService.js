@@ -274,11 +274,39 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
       // Forzamos v1beta para todos para evitar el error 400 de "Unknown name systemInstruction"
       const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
 
-      const response = await fetch(`${API_URL}?key=${GEMINI_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      let attempts = 3;
+      let delay = 1000;
+      let response;
+
+      for (let attempt = 1; attempt <= attempts; attempt++) {
+        try {
+          response = await fetch(`${API_URL}?key=${GEMINI_API_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          // Si es un error temporal, reintentamos
+          if (response.status === 429 || response.status === 503 || response.status === 502 || response.status === 504) {
+            if (attempt === attempts) {
+              console.warn(`⚠️ Gemini API temporary error ${response.status} on last attempt (${attempt}/${attempts}).`);
+              break;
+            }
+            console.warn(`⚠️ Gemini API temporary error ${response.status} on attempt ${attempt}/${attempts}. Retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            delay *= 2;
+            continue;
+          }
+          break; // éxito u otro código de error no reintentable (400, 403, 404)
+        } catch (fetchErr) {
+          if (attempt === attempts) {
+            throw fetchErr;
+          }
+          console.warn(`⚠️ Network/fetch error on attempt ${attempt}/${attempts}: ${fetchErr.message}. Retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          delay *= 2;
+        }
+      }
 
       if (response.status === 404) {
         console.warn(`⚠️ Model ${modelName} not found (404). Check API availability. Trying next...`);
