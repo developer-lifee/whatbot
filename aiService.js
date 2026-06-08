@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
 
 /**
  * Convierte el JSON de sabiduría en un texto legible para el prompt de la IA.
@@ -106,11 +108,7 @@ function getMaskedAccessData(acc) {
 
 // List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-flash-latest",
-  "gemini-2.5-pro",
-  "gemini-1.5-flash" // Red de seguridad indispensable
+  "gemini-3.1-flash-lite" // Solo el modelo Lite ultra económico y rápido
 ];
 
 /**
@@ -144,7 +142,7 @@ async function detectAdminIntent(messageContent) {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un analista de comandos administrativos. Responde solo con JSON.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un analista de comandos administrativos. Responde solo con JSON.", true);
     return JSON.parse(jsonString);
   } catch (error) {
     return { intent: "desconocido", target: null, months: null };
@@ -177,7 +175,7 @@ async function generateReactivationResponse(chatHistory) {
   `;
 
   try {
-    return await callGemini(prompt, "Eres un asistente de atención al cliente empático y eficiente.");
+    return await callDeepSeek(prompt, "Eres un asistente de atención al cliente empático y eficiente.", false);
   } catch (error) {
     return "🤖 ¡Hola! He vuelto para ayudarte. Un asesor me ha pedido retomar la atención automática en este chat. ¿En qué puedo ayudarte hoy?";
   }
@@ -320,6 +318,79 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 }
 
 /**
+ * Realiza una llamada a la API de DeepSeek para razonamiento y respuestas de texto.
+ * Compatible con el formato de la API de OpenAI Chat Completions.
+ */
+async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true) {
+  if (!DEEPSEEK_API_KEY) {
+    console.error("DEEPSEEK_API_KEY is missing in .env");
+    throw new Error("DEEPSEEK_API_KEY not configured");
+  }
+
+  const messages = [
+    { role: 'system', content: systemInstruction },
+    { role: 'user', content: prompt }
+  ];
+
+  const payload = {
+    model: "deepseek-chat",
+    messages: messages,
+    temperature: 0.1
+  };
+
+  if (isJson) {
+    payload.response_format = { type: "json_object" };
+  }
+
+  const API_URL = `${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`;
+
+  try {
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`DeepSeek API Error: ${response.status} ${response.statusText} - ${errText}`);
+    }
+
+    const data = await response.json();
+    const text = data.choices?.[0]?.message?.content;
+
+    if (!text) {
+      return isJson ? "{}" : "";
+    }
+
+    return text;
+  } catch (error) {
+    console.error("Error in callDeepSeek:", error.message);
+    console.warn("⚠️ DeepSeek failed. Falling back to Gemini as backup...");
+    try {
+      return await callGemini(prompt, systemInstruction, isJson);
+    } catch (fallbackError) {
+      console.error("❌ Gemini fallback also failed:", fallbackError.message);
+      throw fallbackError;
+    }
+  }
+}
+
+/**
+ * Utiliza Gemini para describir un comprobante de pago/imagen.
+ * @param {object} mediaData
+ * @returns {Promise<string>} La descripción de la imagen.
+ */
+async function describeImageWithGemini(mediaData) {
+  const prompt = "Analiza detalladamente esta imagen de comprobante de pago o transferencia. Realiza una extracción precisa (OCR) y detalla todo el texto visible, nombres de bancos (Nequi, Daviplata, Bancolombia, etc.), montos transferidos, fecha y hora de la transacción, número/ID de referencia o transacción, nombre del remitente/destinatario y el estado final de la transacción (exitoso, pendiente, fallido). No inventes datos, sé descriptivo.";
+  return await callGemini(prompt, "Eres un lector OCR y descriptor de imágenes de comprobantes bancarios extremadamente preciso.", false, mediaData);
+}
+
+
+/**
  * Parses a user's purchase intent using Gemini.
  * @param {string} messageContent The user's message.
  * @returns {Promise<{items: Array, statedPrice: number|null, subscriptionType: string}>}
@@ -368,7 +439,7 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un asistente que extrae datos estructurados de pedidos.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un asistente que extrae datos estructurados de pedidos.", true);
     return JSON.parse(jsonString);
   } catch (error) {
     console.error("Error parsing purchase intent:", error);
@@ -393,7 +464,7 @@ async function detectPaymentMethod(messageContent) {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un clasificador de métodos de pago. Responde solo con JSON.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un clasificador de métodos de pago. Responde solo con JSON.", true);
     const result = JSON.parse(jsonString);
     return result.method; // Puede ser null
   } catch (error) {
@@ -498,7 +569,7 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
   `;
 
   try {
-    const responseText = await callGemini(prompt, "Eres un asesor de servicio al cliente en WhatsApp para Sheerit. Escribe de forma humana, directa y empática.", false);
+    const responseText = await callDeepSeek(prompt, "Eres un asesor de servicio al cliente en WhatsApp para Sheerit. Escribe de forma humana, directa y empática.", false);
     return responseText.trim();
   } catch (error) {
     console.error("Error generating credentials response:", error);
@@ -617,7 +688,7 @@ async function parsePlanSelection(messageContent, availablePlans) {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un asistente que identifica la opción elegida por el usuario. Responde solo con JSON.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un asistente que identifica la opción elegida por el usuario. Responde solo con JSON.", true);
     const result = JSON.parse(jsonString);
     return result.selectedIndex;
   } catch (error) {
@@ -635,33 +706,41 @@ async function parsePlanSelection(messageContent, availablePlans) {
 async function isPaymentReceipt(mediaData, chatHistory = "") {
   if (!mediaData) return { isReceipt: false, amount: null, bank: null };
 
-  const prompt = `
-    Analiza esta imagen adjunta y determina si es un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
-    Contexto de la charla (puede que el usuario ya sepa el precio): ${chatHistory}
-
-    Debes responder en formato JSON:
-    {
-      "isReceipt": boolean, // true si es claramente un recibo de banco (Nequi, Daviplata, Bancolombia, etc.)
-      "amount": number | null, // El valor EXACTO de la transferencia (solo números) si es legible. Es vital para la validación automática.
-      "bank": string | null, // Nombre del banco detectado (Nequi, Daviplata, etc.)
-      "confidence": number, // 0 a 1
-      "extractedDetails": string | null, // Cualquier texto extra como ID de transacción o fecha/hora visible.
-      "inferredPlatform": string | null // Según el historial, ¿qué plataforma está pagando? (ej. 'Netflix', 'Spotify'). null si no es evidente.
-    }
-
-    Reglas:
-    - Solo marca isReceipt: true si es una confirmación de envío/transferencia exitosa.
-    - **IMPORTANTE**: Si la imagen muestra un ERROR, una CUENTA SUSPENDIDA, un MENSAJE DE REINICIO DE MEMBRESÍA o cualquier fallo de la plataforma de streaming, marca isReceipt: false. No confundas un fallo con un pago.
-    - Sé muy riguroso con el 'amount'. Si hay varios números, busca el que diga 'Monto', 'Valor', 'Total' o esté resaltado.
-    - No lo confundas con una foto de la plataforma de streaming.
-    - Si el banco es Nequi, Daviplata, Bancolombia, dale prioridad.
-    - Analiza el historial reciente: si el bot le estaba cobrando Netflix, o el usuario dijo "pago de Netflix", inferredPlatform DEBE ser "Netflix".
-  `;
-
   try {
-    const jsonString = await callGemini(prompt, "Eres un validador de comprobantes de pago bancarios.", true, mediaData);
+    // 1. Pre-procesar la imagen con Gemini para extraer la descripción visual / OCR
+    const imageDescription = await describeImageWithGemini(mediaData);
+
+    // 2. Pasar la descripción a DeepSeek para la clasificación estructurada
+    const prompt = `
+      Analiza la siguiente descripción textual de una imagen/comprobante y determina si corresponde a un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
+      Contexto de la charla (puede que el usuario ya sepa el precio): ${chatHistory}
+
+      DESCRIPCIÓN DE LA IMAGEN DE PAGO:
+      """
+      ${imageDescription}
+      """
+
+      Debes responder en formato JSON:
+      {
+        "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco (Nequi, Daviplata, Bancolombia, etc.) con una transferencia exitosa.
+        "amount": number | null, // El valor EXACTO de la transferencia (solo números) si es legible en la descripción. Es vital para la validación automática.
+        "bank": string | null, // Nombre del banco detectado (Nequi, Daviplata, Bancolombia, etc.)
+        "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
+        "extractedDetails": string | null, // Detalles extra como ID de transacción o fecha/hora mencionada.
+        "inferredPlatform": string | null // Según el historial de charla, ¿qué plataforma está pagando? (ej. 'Netflix', 'Spotify'). null si no es evidente.
+      }
+
+      Reglas:
+      - Solo marca isReceipt: true si la descripción indica una confirmación de envío/transferencia exitosa.
+      - Si la descripción indica un ERROR, una CUENTA SUSPENDIDA o fallos en general, marca isReceipt: false.
+      - Sé muy riguroso con el 'amount'. Si la descripción contiene varios montos, busca el que corresponda al valor de la transferencia/envío.
+      - Analiza el historial reciente: si el bot le estaba cobrando Netflix, o el usuario dijo "pago de Netflix", inferredPlatform DEBE ser "Netflix".
+    `;
+
+    const jsonString = await callDeepSeek(prompt, "Eres un validador de comprobantes de pago bancarios.", true);
     const result = JSON.parse(jsonString);
-    console.log("[PAYMENT RECEIPT DEBUG] Resultado IA Raw:", JSON.stringify(result, null, 2));
+    console.log("[PAYMENT RECEIPT DEBUG] Resultado IA (DeepSeek + Gemini) Raw:", JSON.stringify(result, null, 2));
+
     return {
       isReceipt: result.isReceipt && result.confidence > 0.7,
       amount: result.amount,
@@ -743,6 +822,15 @@ INSTRUCCIÓN DE SEGURIDAD ABSOLUTA:
 Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. Queda estrictamente prohibido inventar o sugerir cualquier otro número de cuenta, método de pago o Llave que no esté explícitamente listado en la sección anterior.
 `;
 
+  let mediaDescription = "";
+  if (isMedia && mediaData) {
+    try {
+      mediaDescription = await describeImageWithGemini(mediaData);
+    } catch (e) {
+      console.error("Error generating media description in fallback:", e);
+    }
+  }
+
   const prompt = template
     .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
     .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
@@ -752,10 +840,10 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
     .replace('{{CHAT_HISTORY}}', chatHistory)
     .replace('{{MESSAGE_CONTENT}}', messageContent)
-    .replace('{{MEDIA_STATUS}}', isMedia ? "[El usuario envió una imagen/archivo]" : "");
+    .replace('{{MEDIA_STATUS}}', isMedia ? `[El usuario envió una imagen/archivo. Descripción visual de la imagen extraída por OCR: ${mediaDescription}]` : "");
 
   try {
-    const response = await callGemini(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false, mediaData);
+    const response = await callDeepSeek(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false);
     let replyText = response.trim();
     if (!replyText.includes('🤖')) {
       replyText += ' 🤖';
@@ -784,8 +872,19 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
   const platformDocs = await getPlatformKnowledge();
   const platformContext = summarizePlatformKnowledge(platformDocs);
 
+  let mediaDescription = "";
+  if (mediaData) {
+    try {
+      mediaDescription = await describeImageWithGemini(mediaData);
+    } catch (e) {
+      console.error("Error generating media description in detectInitialIntent:", e);
+    }
+  }
+
   const prompt = `
     Analiza el primer mensaje del usuario para identificar qué desea hacer.
+
+    ${mediaDescription ? `DESCRIPCIÓN DE LA IMAGEN ENVIADA POR EL USUARIO (OCR/VISIÓN): \n"""\n${mediaDescription}\n"""\n` : ""}
     
     GUÍA DE FUNCIONAMIENTO DE PLATAFORMAS:
     ${platformContext}
@@ -875,7 +974,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
   else if (txt === "3") keywordIntent = "pagar";
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true, mediaData);
+    const jsonString = await callDeepSeek(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true);
     const parsed = JSON.parse(jsonString);
 
     // Si la IA devuelve desconocido pero tenemos un keywordIntent, lo usamos
@@ -891,7 +990,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
 
     return parsed;
   } catch (error) {
-    console.error("Error detecting initial intent (Gemini fail):", error.message);
+    console.error("Error detecting initial intent (DeepSeek fail):", error.message);
 
     // Devolvemos el intent detectado por palabras clave si la IA falló
     return {
@@ -972,7 +1071,7 @@ async function parseAdminQueryIntent(query, previousContext = "") {
     - 'only_fields': Si el admin especifica qué partes de las credenciales enviar (ej: "solo la contraseña", "únicamente el pin", "no mandes el correo, solo clave y perfil", "pasa solo el vencimiento"), llena este arreglo con las palabras clave ("clave", "contraseña", "pin", "pin perfil", "perfil", "vencimiento", "fecha", "deben"). Si debe enviar todo, déjalo null o vacío.
   `;
   try {
-    const jsonString = await callGemini(prompt, "Eres un extractor de parámetros para consultas de base de datos JSON.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un extractor de parámetros para consultas de base de datos JSON.", true);
     return JSON.parse(jsonString);
   } catch (error) {
     console.error("Error parsing admin query intent:", error);
@@ -1016,7 +1115,7 @@ async function generateAdminReport(query, dataContext) {
 
   try {
     // Para esta tarea grande, si hay muchisimos datos forzamos modelo gemini-2.0-flash por si a caso.
-    const responseText = await callGemini(prompt, "Eres un asistente analítico para WhatsApp. Responde en texto legible y estético.", false);
+    const responseText = await callDeepSeek(prompt, "Eres un asistente analítico para WhatsApp. Responde en texto legible y estético.", false);
     return responseText.trim();
   } catch (error) {
     console.error("Error generating admin report:", error);
@@ -1055,7 +1154,7 @@ async function suggestAdminActions(query, context = "") {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un asistente administrativo transparente y proactivo. Responde solo con JSON.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un asistente administrativo transparente y proactivo. Responde solo con JSON.", true);
     return JSON.parse(jsonString);
   } catch (error) {
     console.error("Error in suggestAdminActions:", error);
@@ -1093,7 +1192,7 @@ async function editBroadcastPayload(query, currentPayload) {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un editor JSON experto.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un editor JSON experto.", true);
     const result = JSON.parse(jsonString);
 
     return {
@@ -1129,7 +1228,7 @@ async function detectPaymentPromise(messageContent, chatHistory = "") {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un analista de intenciones de pago. Responde solo con JSON.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un analista de intenciones de pago. Responde solo con JSON.", true);
     return JSON.parse(jsonString);
   } catch (error) {
     console.error("Error en detectPaymentPromise:", error);
@@ -1164,7 +1263,7 @@ async function analyzeAdvisorReason(reason, chatHistory = "") {
   `;
 
   try {
-    const jsonString = await callGemini(prompt, "Eres un clasificador de intenciones de soporte. Responde solo con JSON.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un clasificador de intenciones de soporte. Responde solo con JSON.", true);
     return JSON.parse(jsonString);
   } catch (error) {
     console.error("Error en analyzeAdvisorReason:", error);
