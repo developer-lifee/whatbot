@@ -735,6 +735,7 @@ app.get('/api/admin/tickets', async (req, res) => {
     try {
         const tickets = [];
         for (const [userId, state] of userStates.entries()) {
+            if (!state) continue;
             const stateStr = typeof state === 'object' ? state.state : state;
             if (stateStr === 'waiting_human') {
                 const phone = userId.replace('@c.us', '');
@@ -760,22 +761,22 @@ app.get('/api/admin/tickets', async (req, res) => {
                     console.warn(`[Tickets API] No se pudo obtener el último mensaje para ${userId}:`, err.message);
                 }
 
+                let accounts = [];
                 let resolvedName = typeof state === 'object' ? state.nombre : "Cliente";
-                if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
-                    try {
-                        const { getAccountsByPhone } = require('./apiService');
-                        const accounts = await getAccountsByPhone(phone);
-                        if (accounts && accounts.length > 0) {
-                            const firstAcc = accounts[0];
-                            const first = (typeof (firstAcc.Nombre || firstAcc.nombre) === 'string') ? (firstAcc.Nombre || firstAcc.nombre) : "";
-                            const last = (typeof (firstAcc.apellido || firstAcc.Apellido) === 'string') ? (firstAcc.apellido || firstAcc.Apellido) : "";
-                            if (first && first.trim()) {
-                                resolvedName = `${first} ${last}`.trim();
-                            }
+                
+                try {
+                    const { getAccountsByPhone } = require('./apiService');
+                    accounts = await getAccountsByPhone(phone);
+                    if ((!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") && accounts && accounts.length > 0) {
+                        const firstAcc = accounts[0];
+                        const first = (typeof (firstAcc.Nombre || firstAcc.nombre) === 'string') ? (firstAcc.Nombre || firstAcc.nombre) : "";
+                        const last = (typeof (firstAcc.apellido || firstAcc.Apellido) === 'string') ? (firstAcc.apellido || firstAcc.Apellido) : "";
+                        if (first && first.trim()) {
+                            resolvedName = `${first} ${last}`.trim();
                         }
-                    } catch (err) {
-                        console.warn(`[Tickets API] Error buscando nombre en base de datos para ${phone}:`, err.message);
                     }
+                } catch (err) {
+                    console.warn(`[Tickets API] Error buscando cuentas para ${phone}:`, err.message);
                 }
 
                 if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
@@ -812,7 +813,13 @@ app.get('/api/admin/tickets', async (req, res) => {
                     lastHumanInteraction: typeof state === 'object' ? state.lastHumanInteraction : null,
                     agent: typeof state === 'object' ? state.agent : null,
                     lastMessage,
-                    lastMessageTime
+                    lastMessageTime,
+                    waitingHumanMode: typeof state === 'object' ? (state.waiting_human_mode || 'bot') : 'bot',
+                    accounts: accounts.map(a => ({
+                        streaming: a.Streaming || a.streaming || '',
+                        correo: a.correo || a.Correo || '',
+                        nombrePerfil: a.Nombre || a.nombre || ''
+                    }))
                 });
             }
         }
@@ -835,14 +842,15 @@ app.post('/api/admin/tickets/claim', async (req, res) => {
         }
 
         let updatedState = {};
+        const newMode = agent ? 'advisor' : 'bot';
         if (typeof currentState === 'string') {
-            updatedState = { state: currentState, agent: agent };
+            updatedState = { state: currentState, agent: agent, waiting_human_mode: newMode };
         } else {
-            updatedState = { ...currentState, agent: agent };
+            updatedState = { ...currentState, agent: agent, waiting_human_mode: newMode };
         }
 
         userStates.set(userId, updatedState);
-        res.json({ success: true, message: `Ticket asignado a ${agent}` });
+        res.json({ success: true, message: agent ? `Ticket asignado a ${agent}` : 'Ticket liberado' });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -854,8 +862,53 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const userId = phone.includes('@') ? phone : phone + '@c.us';
+        const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
+
+        // Obtener correos asociados a este teléfono
+        let targetEmails = [];
+        try {
+            const { getAccountsByPhone } = require('./apiService');
+            const userAccs = await getAccountsByPhone(cleanPhone);
+            targetEmails = userAccs.map(a => (a.correo || a.Correo || '').toLowerCase().trim()).filter(Boolean);
+        } catch (e) {
+            console.error('[Tickets Resolve] Error obteniendo cuentas para:', cleanPhone, e.message);
+        }
+
+        // Resolver el ticket actual
         userStates.delete(userId);
-        res.json({ success: true, message: 'Ticket resuelto y bot reactivado' });
+
+        // Auto-resolver tickets de otras personas que tengan las mismas cuentas/correos
+        let resolvedOthersCount = 0;
+        if (targetEmails.length > 0) {
+            const { getAccountsByPhone } = require('./apiService');
+            for (const [otherUserId, otherState] of userStates.entries()) {
+                if (!otherState) continue;
+                const otherStateStr = typeof otherState === 'object' ? otherState.state : otherState;
+                if (otherStateStr === 'waiting_human' && otherUserId !== userId) {
+                    const otherPhone = otherUserId.replace('@c.us', '');
+                    try {
+                        const otherAccs = await getAccountsByPhone(otherPhone);
+                        const hasSharedEmail = otherAccs.some(a => {
+                            const email = (a.correo || a.Correo || '').toLowerCase().trim();
+                            return email && targetEmails.includes(email);
+                        });
+                        if (hasSharedEmail) {
+                            userStates.delete(otherUserId);
+                            resolvedOthersCount++;
+                        }
+                    } catch (e) {
+                        console.error('[Tickets Resolve] Error al emparejar otro teléfono:', otherPhone, e.message);
+                    }
+                }
+            }
+        }
+
+        let message = 'Ticket resuelto y bot reactivado';
+        if (resolvedOthersCount > 0) {
+            message += `. También se resolvieron automáticamente ${resolvedOthersCount} ticket(s) con la misma cuenta compartida.`;
+        }
+
+        res.json({ success: true, message });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -1497,10 +1550,11 @@ client.on('message_create', async (msg) => {
             if (typeof st === 'object' && st.state === 'waiting_human') {
                 // Ya estaba silenciado, renovamos el temporizador de mute absoluto (30 min extra)
                 st.lastHumanInteraction = Date.now();
+                st.waiting_human_mode = 'advisor';
                 userStates.set(targetId, st);
             } else {
                 console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot por 30 mins.`);
-                userStates.set(targetId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
+                userStates.set(targetId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor' });
             }
 
             // Si el asesor intervino manualmente, lo sacamos de la cola de espera
@@ -1603,7 +1657,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
         const supportStatus = isSupportOpen();
         
         // Registrar primero la espera humana para que el usuario sea contado en la cola
-        userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+        userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 
         if (!supportStatus.open) {
             const config = getSupportScheduleConfig();
@@ -1718,7 +1772,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
         await message.reply(`🤖 ¡Hola! Encontré tu cuenta de *${streamingName}* (${accountEmail}), pero aún no está vinculada a nuestro sistema de códigos automáticos 2FA.\n\nHe notificado a tu asesor para que te entregue tu código manualmente en un momento. Además, vincularemos tu cuenta para que en futuras ocasiones puedas obtener tus códigos en segundos de forma automática. ¡Gracias por tu paciencia!`);
 
         // Silenciar bot para este cliente y poner en cola de espera humana
-        userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
+        userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'bot' });
         if (!global.supportQueue) global.supportQueue = [];
         const qIdx = global.supportQueue.indexOf(userId);
         if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
@@ -1944,7 +1998,7 @@ async function baseProcessIncomingMessage(messages) {
                 console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
             }
             const existingData = typeof currentStateData === 'object' ? currentStateData : {};
-            userStates.set(userId, { ...existingData, state: 'waiting_human', nombre: foundName, waitingCount: 0, lastHumanInteraction: Date.now() });
+            userStates.set(userId, { ...existingData, state: 'waiting_human', nombre: foundName, waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor' });
             return;
         }
     }
@@ -1989,28 +2043,16 @@ async function baseProcessIncomingMessage(messages) {
     }
 
     if (currentState === 'waiting_human') {
-        // Reactivación rápida
+        const mode = (currentStateData && typeof currentStateData === 'object') ? (currentStateData.waiting_human_mode || 'bot') : 'bot';
         const cleanInput = (message.body || '').trim().toLowerCase();
-        if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot') || ['1', '2', '3'].includes(cleanInput)) {
+
+        // Reactivación rápida explícita para ambos modos
+        if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot')) {
             console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por intención explícita: ${cleanInput}`);
             userStates.delete(userId);
             currentState = undefined;
-
-        } else {
-            let sData = typeof currentStateData === 'object' ? currentStateData : { state: 'waiting_human', lastHumanInteraction: 0 };
-            const lastHumanMsg = sData.lastHumanInteraction || 0;
-            const timeSinceLastHuman = Date.now() - lastHumanMsg;
-
-            // Si el asesor (humano) envió un mensaje en los últimos 30 min, asumimos que
-            // están en una conversación activa. El bot guarda SILENCIO ABSOLUTO.
-            if (timeSinceLastHuman < 1000 * 60 * 30) {
-                console.log(`[DEBUG] Mute activo para @${userId.replace('@c.us', '')} - Conversación humana reciente.`);
-                return;
-            }
-
-            // Si pasó más de media hora sin que el admin responda, el bot usará la IA 
-            // SOLAMENTE para capturar si el cliente está enviando un comprobante de pago o quiere comprar algo nuevo.
-            // Si es soporte o charla, seguirá en silencio sin molestar.
+        } else if (mode === 'bot') {
+            // El modo 'bot' permite reactivación automática si la IA detecta que el bot puede resolverlo
             let mediaData = null;
             if (message.hasMedia) {
                 try {
@@ -2022,25 +2064,26 @@ async function baseProcessIncomingMessage(messages) {
             }
 
             const { detectInitialIntent } = require('./aiService');
-            const hist = await getChatHistoryText(message, 15); // Historial más largo para capturar contexto humano y LID
+            const hist = await getChatHistoryText(message, 15);
             const detection = await detectInitialIntent(message.body, hist, mediaData);
 
             const cleanBody = (message.body || "").trim();
-            // Añadimos 'soporte' para que el bot no ignore al cliente si el asesor se fue hace más de 30 min.
-            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "soporte"];
+            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
             const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
 
             if (solvableIntents.includes(detection.intent) || isMenuSelection) {
-                console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por detección de IA o selección de menú. Intent: ${detection.intent}`);
-                if (detection.intent !== 'soporte') {
-                    userStates.delete(userId);
-                }
+                console.log(`[DEBUG] Reactivando bot desde waiting_human (modo bot) para @${userId} por detección de IA o selección de menú. Intent: ${detection.intent}`);
+                userStates.delete(userId);
                 currentState = undefined;
                 // Continúa el flujo
             } else {
                 // Silencio absoluto
                 return;
             }
+        } else {
+            // Modo 'advisor': Silencio absoluto, conserva el estado y detiene procesamiento
+            console.log(`[DEBUG] Usuario @${userId.replace('@c.us', '')} está en waiting_human (modo advisor). Manteniendo silencio absoluto.`);
+            return;
         }
     }
 
@@ -3370,7 +3413,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema (' + detection.intent + ')' : 'Alta frustración'))}`);
 
         if (isVeryFrustrated) {
-            userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1 });
+            userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1, waiting_human_mode: 'bot' });
             await message.reply("🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**. En un momento te atenderemos. ¡Gracias por tu paciencia! 😊");
             return;
         }
@@ -3472,7 +3515,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 userStates.set(userId, {
                     state: 'waiting_human',
                     nombre: foundName,
-                    waitingCount: 1
+                    waitingCount: 1,
+                    waiting_human_mode: 'bot'
                 });
 
                 if (!supportStatus.open) {
@@ -3615,7 +3659,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 if (fallback.replyMessage) {
                     await safeReply(message, fallback.replyMessage, userId);
                     if (fallback.needsEscalation) {
-                        userStates.set(userId, { state: 'waiting_human', waitingCount: 1 });
+                        userStates.set(userId, { state: 'waiting_human', waitingCount: 1, waiting_human_mode: 'bot' });
                     } else {
                         userStates.set(userId, { state: 'main_menu', nombre: foundName });
                     }
@@ -3656,11 +3700,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 const valResult = await executePaymentValidation(userId, tempState, client, userStates, null, stateInfo.matchId);
                 if (!valResult.success) {
                     await message.reply("🤖 Hubo un problema al renovar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
-                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
                 }
             } else if (responseOption === '2') {
                 await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
-                userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+                userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
                 try {
                     const groupChat = await client.getChatById(GROUP_ID);
                     if (groupChat) {
@@ -3853,7 +3897,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 console.error('Error enviando mensaje al grupo:', error);
             }
             await message.reply("🤖 Entendido. He notificado a un asesor humano sobre tu solicitud. Un asesor te responderá por este chat lo más pronto posible. He silenciado mis respuestas automáticas de charla general para no interrumpir.");
-            userStates.set(userId, { state: 'waiting_human', waitingCount: 0 });
+            userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
             break;
         case 'waiting_human':
             console.log(`[DEBUG] Usuario ${userId} en modo waiting_human.`);
@@ -3942,7 +3986,7 @@ client.on('message', async (message) => {
                         if (m.fromMe && !m.body.includes('🤖')) { isHuman = true; break; }
                     }
                     if (isHuman) {
-                        userStates.set(message.from, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now() });
+                        userStates.set(message.from, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor' });
                         resolve(false);
                     } else {
                         await new Promise(r => setTimeout(r, 2500));
@@ -4071,7 +4115,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                         const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
                         await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
                     }
-                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0 }); // No seteamos lastHumanInteraction para permitir reactivación por IA si el cliente pide otra cosa
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' }); // No seteamos lastHumanInteraction para permitir reactivación por IA si el cliente pide otra cosa
                 }
             } else {
                 await message.reply("🤖 Por favor, selecciona una opción válida del menú (1-5), o escribe tu duda para ayudarte.");
