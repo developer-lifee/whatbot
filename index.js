@@ -3380,6 +3380,31 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
             // 4. RECUPERACIÓN DE ESTADO (Stateless Recovery)
             if (detection.recoveredState) {
+                if (detection.recoveredState === 'waiting_human') {
+                    try {
+                        const chat = await message.getChat();
+                        const recentMsgs = await chat.fetchMessages({ limit: 15 });
+                        const lastHumanMsg = [...recentMsgs].reverse().find(m => m.fromMe && m.body && !m.body.includes('🤖'));
+                        if (lastHumanMsg) {
+                            const lastHumanTimeMs = lastHumanMsg.timestamp * 1000;
+                            const timeSinceLastHumanMs = Date.now() - lastHumanTimeMs;
+                            const hoursSinceLastHuman = timeSinceLastHumanMs / (1000 * 60 * 60);
+                            console.log(`[Flow Recovery Debug] Último mensaje humano detectado hace ${hoursSinceLastHuman.toFixed(2)} horas.`);
+                            if (hoursSinceLastHuman > 2) {
+                                console.log(`[Flow Recovery] 🕒 El último mensaje del asesor fue hace más de 2 horas. Ignorando 'waiting_human' recuperado por la IA.`);
+                                detection.recoveredState = null;
+                            }
+                        } else {
+                            console.log(`[Flow Recovery Debug] No se encontró mensaje humano previo en los últimos 15 mensajes. Ignorando 'waiting_human'.`);
+                            detection.recoveredState = null;
+                        }
+                    } catch (e) {
+                        console.error("[Flow Recovery Error] Error al verificar último mensaje humano:", e.message);
+                    }
+                }
+            }
+
+            if (detection.recoveredState) {
                 console.log(`[Flow Recovery] Recuperando estado: ${detection.recoveredState} para @${userId.replace('@c.us', '')}`);
                 const metadata = detection.metadata || {};
                 userStates.set(userId, { state: detection.recoveredState, nombre: foundName, ...metadata });
