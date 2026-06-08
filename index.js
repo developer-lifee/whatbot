@@ -4067,7 +4067,7 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
     let paymentDetails = {
         'nequi': "🤖 *Nequi (AUTOMÁTICA ⚡)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
         'daviplata': "🤖 *Daviplata (AUTOMÁTICA ⚡)*\n\nPor favor realiza tu transferencia usando nuestra *Llave Bre-V* o *QR de Negocios* para recibir entrega inmediata. ⚡\n\n🔑 *Llave Bre-V:* `0087387259` (AUTOMÁTICA ⚡)",
-        'bancolombia': "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* Si pagas a esta cuenta, el bot valida tu transferencia automáticamente en segundos. ⚡",
+        'bancolombia': "🤖 *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*\n\nNúmero de cuenta: 46772753713\nTipo: Ahorros\nCC: 1032936324\n\n💡 *Tip:* La validación es automática (sujeta a que Bancolombia envíe la notificación a tiempo; de lo contrario, un asesor validará manualmente).",
         'llave': "🤖 *LLAVE Bre-V (ENTREGA INMEDIATA ⚡)*\n\n🔑 *Llave Bre-V:* `0087387259` o `1032936324` (AUTOMÁTICA ⚡)",
         'qr negocios': "🤖 *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n\nPor favor, escanea el código que te envío a continuación para la **activación automática** inmediata. ⚡"
     };
