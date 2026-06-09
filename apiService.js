@@ -60,6 +60,7 @@ function getJsDateFromExcel(excelDate) {
  */
 
 async function fetchRawData(retries = 3, delay = 2000) {
+  const localCachePath = path.join(__dirname, 'excel_cache.json');
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(AZURE_API_URL);
@@ -67,11 +68,30 @@ async function fetchRawData(retries = 3, delay = 2000) {
       
       const json = await response.json();
       const data = json.data || [];
+      
+      // Guardar en caché local tras obtener con éxito
+      try {
+        fs.writeFileSync(localCachePath, JSON.stringify(data, null, 2), 'utf8');
+      } catch (err) {
+        console.error('[API Service] Error guardando cache de excel:', err.message);
+      }
+      
       return data;
       
     } catch (error) {
       console.error(`[API Service] Error al obtener datos (Intento ${i + 1}/${retries}):`, error.message);
-      if (i === retries - 1) throw error;
+      if (i === retries - 1) {
+        console.warn('[API Service] La API de Azure no responde. Intentando fallback a excel_cache.json...');
+        try {
+          if (fs.existsSync(localCachePath)) {
+            const cachedData = fs.readFileSync(localCachePath, 'utf8');
+            return JSON.parse(cachedData);
+          }
+        } catch (cacheError) {
+          console.error('[API Service] Error crítico cargando excel_cache.json:', cacheError.message);
+        }
+        throw error;
+      }
       await new Promise(res => setTimeout(res, delay));
     }
   }
@@ -120,6 +140,7 @@ async function getAccountsByPhone(phoneNumber) {
  * @returns {Promise<Object>} - Objeto JSON con el historial estructurado por número.
  */
 async function fetchHistoricoData(retries = 3, delay = 2000) {
+  const localCachePath = path.join(__dirname, 'historico_cache.json');
   for (let i = 0; i < retries; i++) {
     try {
       const response = await fetch(AZURE_HISTORICO_API_URL);
@@ -134,11 +155,28 @@ async function fetchHistoricoData(retries = 3, delay = 2000) {
         throw new Error("Formato de datos no válido desde Azure Histórico");
       }
 
+      // Guardar en caché local
+      try {
+        fs.writeFileSync(localCachePath, JSON.stringify(matriz2D, null, 2), 'utf8');
+      } catch (err) {
+        console.error('[API Service] Error guardando cache de histórico:', err.message);
+      }
+
       return procesarHistoricoArray(matriz2D);
 
     } catch (error) {
       console.error(`[API Service] Error al obtener datos históricos (Intento ${i + 1}/${retries}):`, error.message);
       if (i === retries - 1) {
+        console.warn('[API Service] La API de Azure Histórico no responde. Intentando fallback a historico_cache.json...');
+        try {
+          if (fs.existsSync(localCachePath)) {
+            const cachedData = fs.readFileSync(localCachePath, 'utf8');
+            const matriz2D = JSON.parse(cachedData);
+            return procesarHistoricoArray(matriz2D);
+          }
+        } catch (cacheError) {
+          console.error('[API Service] Error crítico cargando historico_cache.json:', cacheError.message);
+        }
         throw new Error("Fallaron todos los intentos de conexión a la API de Azure Histórico.");
       }
       await new Promise(res => setTimeout(res, delay));
