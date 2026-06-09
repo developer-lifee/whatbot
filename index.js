@@ -1258,6 +1258,82 @@ app.post('/api/admin/gmail-inboxes/delete', (req, res) => {
     }
 });
 
+app.get('/api/admin/streaming/tokens', async (req, res) => {
+    try {
+        const TOKENS_FILE = '/opt/mediamtx-auth/tokens.json';
+        if (!fs.existsSync(TOKENS_FILE)) {
+            return res.json([]);
+        }
+        const tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
+        res.json(tokens);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/streaming/tokens/add', async (req, res) => {
+    try {
+        const { token, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!token) return res.status(400).json({ success: false, message: 'Token is required' });
+
+        const TOKENS_FILE = '/opt/mediamtx-auth/tokens.json';
+        let tokens = [];
+        if (fs.existsSync(TOKENS_FILE)) {
+            tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
+        }
+        
+        const cleanToken = token.trim().toLowerCase().replace(/\s+/g, '_');
+        if (!tokens.includes(cleanToken)) {
+            tokens.push(cleanToken);
+            fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
+        }
+        res.json({ success: true, tokens });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/streaming/tokens/delete', async (req, res) => {
+    try {
+        const { token, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!token) return res.status(400).json({ success: false, message: 'Token is required' });
+
+        const TOKENS_FILE = '/opt/mediamtx-auth/tokens.json';
+        let tokens = [];
+        if (fs.existsSync(TOKENS_FILE)) {
+            tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
+        }
+        tokens = tokens.filter(t => t !== token);
+        fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
+        res.json({ success: true, tokens });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/streaming/sessions', async (req, res) => {
+    try {
+        const http = require('http');
+        http.get('http://localhost:5000/sessions', (resp) => {
+            let data = '';
+            resp.on('data', (chunk) => { data += chunk; });
+            resp.on('end', () => {
+                try {
+                    res.json(JSON.parse(data));
+                } catch(e) {
+                    res.status(500).json({ error: "Failed to parse sessions" });
+                }
+            });
+        }).on("error", (err) => {
+            res.status(500).json({ error: err.message });
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Legacy PHP logic migration: Support Management
 app.get('/api/support', (req, res) => {
     try {
