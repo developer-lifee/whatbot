@@ -4209,6 +4209,7 @@ client.on('message', async (message) => {
 
 // Funciones de manejo de estados
 async function handleMainMenuSelection(message, userId, detection, isMedia = false, singleMediaData = null) {
+    const inputToUse = message.body || "";
     const existingState = userStates.get(userId) || {};
     const foundName = existingState.nombre || null;
     const userSelection = message.body.trim();

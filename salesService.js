@@ -299,7 +299,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     const factor = durationRule.factor || 1.0;
     
     // Ponderar el precio unitario base mensual descontando la parte proporcional del combo
-    const itemMonthlyPrice = s.plan.price - discountPerItem;
+    const itemMonthlyPrice = s.chosenPlan.price - discountPerItem;
     finalCalculatedTotal += (itemMonthlyPrice * months) * factor;
   }
 
