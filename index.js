@@ -789,6 +789,7 @@ app.get('/api/admin/tickets', async (req, res) => {
     try {
         const ticketsPromises = Array.from(userStates.entries()).map(async ([userId, state]) => {
             if (!state) return null;
+            const stateStr = typeof state === 'object' ? state.state : state;
             const pendingStates = ['waiting_human', 'awaiting_payment_confirmation', 'waiting_admin_confirmation'];
             if (!pendingStates.includes(stateStr)) return null;
 
