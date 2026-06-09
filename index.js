@@ -3249,9 +3249,14 @@ async function baseProcessIncomingMessage(messages) {
 
                 globalLastPaymentUserId = userId; // Guardamos en memoria para que el admin solo diga "@bot confirmar"
 
+                const isAutoMethod = check.bank && ['bancolombia', 'bre-b', 'breb'].includes(check.bank.toLowerCase());
+                const notaTexto = isAutoMethod
+                    ? `Aunque ${check.bank} cuenta con validación automática, no logramos detectar la notificación de tu transferencia en nuestro sistema (a veces el banco tarda en notificar). Por esta razón, nuestro equipo validará tu comprobante de forma manual. Esto puede demorar un poco más. ⏳`
+                    : `Como enviaste el comprobante por un medio manual (Nequi/Daviplata tradicional), nuestro equipo humano tendrá que verificarlo de forma manual. Esto puede demorar un poco más. ⏳`;
+
                 const replyText = `🤖 He recibido tu comprobante de pago. ¡Muchas gracias! 🎉
 
-⚠️ *Nota:* Como enviaste el comprobante por un medio manual (Nequi/Daviplata tradicional), nuestro equipo humano tendrá que verificarlo de forma manual. Esto puede demorar un poco más. ⏳
+⚠️ *Nota:* ${notaTexto}
 
 💡 *Recomendación para la próxima:* Si realizas tus transferencias utilizando nuestro *QR Negocios* o la *Llave Bre-V / Bre-B*, el bot validará tu pago automáticamente y te entregará el servicio en segundos sin esperar por humanos. ⚡🤖
 

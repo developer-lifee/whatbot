@@ -85,7 +85,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             };
             for (const [alias, real] of Object.entries(aliasMap)) {
                 if (mappedStreaming.includes(alias)) {
-                    mappedStreaming = real;
+                    mappedStreaming = mappedStreaming.replace(alias, real);
                     break;
                 }
             }
