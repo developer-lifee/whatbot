@@ -873,6 +873,9 @@ app.get('/api/admin/tickets', async (req, res) => {
                 }
             }
 
+            const { getQueuePosition } = require('./supportScheduleService');
+            const queuePosition = getQueuePosition(userId, userStates);
+
             return {
                 userId,
                 phone,
@@ -884,6 +887,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                 lastMessageTime,
                 summary,
                 waitingHumanMode: typeof state === 'object' ? (state.waiting_human_mode || 'bot') : 'bot',
+                queuePosition,
                 accounts: accounts.map(a => ({
                     streaming: a.Streaming || a.streaming || '',
                     correo: a.correo || a.Correo || '',
