@@ -243,9 +243,30 @@ app.post('/api/netflix/verify', async (req, res) => {
             console.error(`[NETFLIX API] Failed to search Netflix codes for ${netflixAcct.correo}:`, mailErr.message);
         }
 
+        if (!code && !link) {
+            const tokenPath = path.resolve(__dirname, 'tokens', `token_${netflixAcct.correo.toLowerCase().trim()}.json`);
+            if (!fs.existsSync(tokenPath)) {
+                return res.json({
+                    success: false,
+                    message: `Se registró tu conexión (IP: ${clientIp}), pero la bandeja de correo de la cuenta (${netflixAcct.correo}) no está vinculada al bot. Por favor, solicita el código al soporte técnico de Sheerit para recibirlo manualmente.`,
+                    account: netflixAcct.correo,
+                    ip: clientIp
+                });
+            } else {
+                return res.json({
+                    success: false,
+                    message: `Se registró tu conexión (IP: ${clientIp}), pero no pudimos extraer ningún código o enlace reciente de Netflix para la cuenta ${netflixAcct.correo}. Por favor, asegúrate de presionar 'Actualizar Hogar' en tu TV para enviar el correo y refresca esta página en unos momentos.`,
+                    account: netflixAcct.correo,
+                    ip: clientIp
+                });
+            }
+        }
+
         res.json({ 
             success: true, 
-            message: `IP del Hogar registrada y actualizada en la base de datos para la cuenta: ${netflixAcct.correo}`, 
+            message: link 
+                ? `¡Conexión verificada! Haz clic en el botón rojo de abajo para autorizar este dispositivo.`
+                : `¡Conexión verificada! Ingresa el código mostrado a continuación en tu pantalla de Netflix.`, 
             account: netflixAcct.correo, 
             ip: clientIp,
             code,
