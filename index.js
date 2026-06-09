@@ -754,97 +754,95 @@ app.get('/api/admin/match', async (req, res) => {
 
 app.get('/api/admin/tickets', async (req, res) => {
     try {
-        const tickets = [];
-        for (const [userId, state] of userStates.entries()) {
-            if (!state) continue;
+        const ticketsPromises = Array.from(userStates.entries()).map(async ([userId, state]) => {
+            if (!state) return null;
             const stateStr = typeof state === 'object' ? state.state : state;
-            if (stateStr === 'waiting_human') {
-                const phone = userId.replace('@c.us', '');
-                let lastMessage = "";
-                let lastMessageTime = null;
+            if (stateStr !== 'waiting_human') return null;
 
+            const phone = userId.replace('@c.us', '');
+            let lastMessage = typeof state === 'object' ? (state.lastMessage || "") : "";
+            let lastMessageTime = typeof state === 'object' ? (state.lastMessageTime || null) : null;
+
+            // Try to fetch last message from Puppeteer, but with a very short timeout and in parallel
+            try {
+                if (client && client.info) {
+                    const chat = await Promise.race([
+                        client.getChatById(userId),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout client.getChatById")), 1500))
+                    ]);
+                    const messages = await Promise.race([
+                        chat.fetchMessages({ limit: 1 }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout chat.fetchMessages")), 1000))
+                    ]);
+                    if (messages && messages.length > 0) {
+                        lastMessage = messages[0].body || "";
+                        lastMessageTime = messages[0].timestamp * 1000;
+                    }
+                }
+            } catch (err) {
+                // Keep the cached values on timeout
+            }
+
+            let accounts = [];
+            let resolvedName = typeof state === 'object' ? state.nombre : "Cliente";
+
+            try {
+                const { getAccountsByPhone } = require('./apiService');
+                accounts = await getAccountsByPhone(phone);
+                if ((!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") && accounts && accounts.length > 0) {
+                    const firstAcc = accounts[0];
+                    const first = (typeof (firstAcc.Nombre || firstAcc.nombre) === 'string') ? (firstAcc.Nombre || firstAcc.nombre) : "";
+                    const last = (typeof (firstAcc.apellido || firstAcc.Apellido) === 'string') ? (firstAcc.apellido || firstAcc.Apellido) : "";
+                    if (first && first.trim()) {
+                        resolvedName = `${first} ${last}`.trim();
+                    }
+                }
+            } catch (err) { }
+
+            if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
+                try {
+                    const { searchContactByPhone } = require('./googleContactsService');
+                    const contactName = await searchContactByPhone(phone);
+                    if (contactName) {
+                        resolvedName = contactName;
+                    }
+                } catch (e) { }
+            }
+
+            if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
                 try {
                     if (client && client.info) {
-                        const chat = await Promise.race([
-                            client.getChatById(userId),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout client.getChatById")), 2500))
+                        const contact = await Promise.race([
+                            client.getContactById(userId),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1000))
                         ]);
-                        const messages = await Promise.race([
-                            chat.fetchMessages({ limit: 1 }),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout chat.fetchMessages")), 2000))
-                        ]);
-                        if (messages && messages.length > 0) {
-                            lastMessage = messages[0].body || "";
-                            lastMessageTime = messages[0].timestamp * 1000;
+                        if (contact) {
+                            resolvedName = contact.pushname || contact.name || "Cliente WhatsApp";
                         }
                     }
-                } catch (err) {
-                    console.warn(`[Tickets API] No se pudo obtener el último mensaje para ${userId}:`, err.message);
-                }
-
-                let accounts = [];
-                let resolvedName = typeof state === 'object' ? state.nombre : "Cliente";
-                
-                try {
-                    const { getAccountsByPhone } = require('./apiService');
-                    accounts = await getAccountsByPhone(phone);
-                    if ((!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") && accounts && accounts.length > 0) {
-                        const firstAcc = accounts[0];
-                        const first = (typeof (firstAcc.Nombre || firstAcc.nombre) === 'string') ? (firstAcc.Nombre || firstAcc.nombre) : "";
-                        const last = (typeof (firstAcc.apellido || firstAcc.Apellido) === 'string') ? (firstAcc.apellido || firstAcc.Apellido) : "";
-                        if (first && first.trim()) {
-                            resolvedName = `${first} ${last}`.trim();
-                        }
-                    }
-                } catch (err) {
-                    console.warn(`[Tickets API] Error buscando cuentas para ${phone}:`, err.message);
-                }
-
-                if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
-                    try {
-                        const { searchContactByPhone } = require('./googleContactsService');
-                        const contactName = await searchContactByPhone(phone);
-                        if (contactName) {
-                            resolvedName = contactName;
-                        }
-                    } catch (e) {
-                        console.warn(`[Tickets API] Error buscando nombre en Google Contacts para ${phone}:`, e.message);
-                    }
-                }
-
-                if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
-                    try {
-                        if (client && client.info) {
-                            const contact = await Promise.race([
-                                client.getContactById(userId),
-                                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout client.getContactById")), 2000))
-                            ]);
-                            if (contact) {
-                                resolvedName = contact.pushname || contact.name || "Cliente WhatsApp";
-                            }
-                        }
-                    } catch (e) { }
-                }
-
-                tickets.push({
-                    userId,
-                    phone,
-                    nombre: resolvedName,
-                    state: stateStr,
-                    lastHumanInteraction: typeof state === 'object' ? state.lastHumanInteraction : null,
-                    agent: typeof state === 'object' ? state.agent : null,
-                    lastMessage,
-                    lastMessageTime,
-                    waitingHumanMode: typeof state === 'object' ? (state.waiting_human_mode || 'bot') : 'bot',
-                    accounts: accounts.map(a => ({
-                        streaming: a.Streaming || a.streaming || '',
-                        correo: a.correo || a.Correo || '',
-                        nombrePerfil: a.Nombre || a.nombre || ''
-                    }))
-                });
+                } catch (e) { }
             }
-        }
-        res.json(tickets);
+
+            return {
+                userId,
+                phone,
+                nombre: resolvedName,
+                state: stateStr,
+                lastHumanInteraction: typeof state === 'object' ? state.lastHumanInteraction : null,
+                agent: typeof state === 'object' ? state.agent : null,
+                lastMessage,
+                lastMessageTime,
+                waitingHumanMode: typeof state === 'object' ? (state.waiting_human_mode || 'bot') : 'bot',
+                accounts: accounts.map(a => ({
+                    streaming: a.Streaming || a.streaming || '',
+                    correo: a.correo || a.Correo || '',
+                    nombrePerfil: a.Nombre || a.nombre || ''
+                }))
+            };
+        });
+
+        const resolvedTickets = await Promise.all(ticketsPromises);
+        res.json(resolvedTickets.filter(Boolean));
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -4021,6 +4019,16 @@ client.on('message', async (message) => {
 
     // Ignorar propios
     if (message.fromMe) return;
+
+    // Guardar último mensaje en el estado del usuario para evitar llamadas lentas a Puppeteer en el dashboard
+    if (!message.from.includes('@g.us') && !message.from.includes('status@broadcast')) {
+        let st = userStates.get(message.from);
+        if (st && typeof st === 'object') {
+            st.lastMessage = message.body || "";
+            st.lastMessageTime = message.timestamp * 1000;
+            userStates.set(message.from, st);
+        }
+    }
 
     // Filtros de grupo
     if (message.from.includes('@g.us')) {
