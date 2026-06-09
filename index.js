@@ -857,6 +857,22 @@ app.get('/api/admin/tickets', async (req, res) => {
                 } catch (e) { }
             }
 
+            let summary = "";
+            if (typeof state === 'object') {
+                if (state.state === 'awaiting_payment_confirmation') {
+                    summary = `💰 Pago Manual: ${state.bank || 'N/A'} - $${state.amount || 'N/A'}`;
+                } else if (state.advisorReason) {
+                    summary = `🚨 Motivo: "${state.advisorReason}"`;
+                } else if (state.items && state.items.length > 0) {
+                    const itemNames = state.items.map(it => {
+                        const platName = it.platform?.name || it.platformName || '';
+                        const planName = it.chosenPlan?.name || '';
+                        return planName ? `${platName} (${planName})` : platName;
+                    }).filter(Boolean).join(', ');
+                    summary = `🛒 Interés: ${itemNames} - Total: $${state.total || 'N/A'}`;
+                }
+            }
+
             return {
                 userId,
                 phone,
@@ -866,6 +882,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                 agent: typeof state === 'object' ? state.agent : null,
                 lastMessage,
                 lastMessageTime,
+                summary,
                 waitingHumanMode: typeof state === 'object' ? (state.waiting_human_mode || 'bot') : 'bot',
                 accounts: accounts.map(a => ({
                     streaming: a.Streaming || a.streaming || '',
@@ -4049,7 +4066,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 console.error('Error enviando mensaje al grupo:', error);
             }
             await message.reply("🤖 Entendido. He notificado a un asesor humano sobre tu solicitud. Un asesor te responderá por este chat lo más pronto posible. He silenciado mis respuestas automáticas de charla general para no interrumpir.");
-            userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+            userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', advisorReason: inputToUse.trim() });
             break;
         case 'waiting_human':
             console.log(`[DEBUG] Usuario ${userId} en modo waiting_human.`);
@@ -4278,7 +4295,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                         const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
                         await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
                     }
-                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' }); // No seteamos lastHumanInteraction para permitir reactivación por IA si el cliente pide otra cosa
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', advisorReason: fallback.escalationSummary }); // No seteamos lastHumanInteraction para permitir reactivación por IA si el cliente pide otra cosa
                 }
             } else {
                 await message.reply("🤖 Por favor, selecciona una opción válida del menú (1-5), o escribe tu duda para ayudarte.");
