@@ -37,6 +37,10 @@ function formatVencimientoDate(vencimiento) {
 async function processPendingChats(client, userStates, processIncomingMessage) {
     let count = 0;
     try {
+        if (!client || !client.info) {
+            console.log('[BATCH] Escaneo omitido: El cliente de WhatsApp no está listo.');
+            return count;
+        }
         const chats = await client.getChats();
         console.log(`[BATCH] Escaneo iniciado. Total chats recuperados: ${chats.length}`);
 
