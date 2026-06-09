@@ -1278,7 +1278,6 @@ app.post('/api/admin/gmail-inboxes/delete', (req, res) => {
 
         const safeEmail = email.toLowerCase().trim();
         const tokenPath = path.join(__dirname, 'tokens', `token_${safeEmail}.json`);
-
         if (fs.existsSync(tokenPath)) {
             fs.unlinkSync(tokenPath);
             res.json({ success: true, message: 'Bandeja desvinculada con éxito' });
@@ -1310,9 +1309,22 @@ app.post('/api/admin/streaming/tokens/add', async (req, res) => {
         if (!token) return res.status(400).json({ success: false, message: 'Token is required' });
 
         const TOKENS_FILE = '/opt/mediamtx-auth/tokens.json';
+        const dir = path.dirname(TOKENS_FILE);
+        if (!fs.existsSync(dir)) {
+            try {
+                fs.mkdirSync(dir, { recursive: true });
+            } catch (err) {
+                console.error("Failed to create tokens directory:", err.message);
+            }
+        }
+
         let tokens = [];
         if (fs.existsSync(TOKENS_FILE)) {
-            tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
+            try {
+                tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
+            } catch (e) {
+                tokens = [];
+            }
         }
         
         const cleanToken = token.trim().toLowerCase().replace(/\s+/g, '_');
@@ -1335,7 +1347,11 @@ app.post('/api/admin/streaming/tokens/delete', async (req, res) => {
         const TOKENS_FILE = '/opt/mediamtx-auth/tokens.json';
         let tokens = [];
         if (fs.existsSync(TOKENS_FILE)) {
-            tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
+            try {
+                tokens = JSON.parse(fs.readFileSync(TOKENS_FILE, 'utf8'));
+            } catch (e) {
+                tokens = [];
+            }
         }
         tokens = tokens.filter(t => t !== token);
         fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2));
@@ -1348,21 +1364,23 @@ app.post('/api/admin/streaming/tokens/delete', async (req, res) => {
 app.get('/api/admin/streaming/sessions', async (req, res) => {
     try {
         const http = require('http');
-        http.get('http://localhost:5000/sessions', (resp) => {
+        const request = http.get('http://localhost:5000/sessions', (resp) => {
             let data = '';
             resp.on('data', (chunk) => { data += chunk; });
             resp.on('end', () => {
                 try {
                     res.json(JSON.parse(data));
                 } catch(e) {
-                    res.status(500).json({ error: "Failed to parse sessions" });
+                    res.json({});
                 }
             });
-        }).on("error", (err) => {
-            res.status(500).json({ error: err.message });
+        });
+        request.on('error', (err) => {
+            console.warn("[Streaming API] MediaMTX is offline or port 5000 is unreachable:", err.message);
+            res.json({});
         });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        res.json({});
     }
 });
 
