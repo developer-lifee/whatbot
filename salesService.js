@@ -219,6 +219,17 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     }
   });
 
+  // Verificar disponibilidad general antes de armar la respuesta
+  const { getPlatformAvailability } = require('./availabilityService');
+  let nonImmediatePlats = [];
+  for (const s of selectedItems) {
+    const planName = s.chosenPlan ? `${s.platform.name} ${s.chosenPlan.name}` : s.platform.name;
+    const avail = await getPlatformAvailability(planName);
+    if (!avail.immediate) {
+      nonImmediatePlats.push(s.platform.name);
+    }
+  }
+
   let consolidatedResponse = "";
 
   if (invalidElements.length > 0) {
@@ -231,7 +242,10 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     }
     consolidatedResponse += `\nPero ¡buena noticia! Sí podemos ayudarte con el resto de tu pedido:\n\n`;
   } else {
-    consolidatedResponse = empathyGreeting ? `🤖 ${empathyGreeting}\n\nEntendido, buscas:\n` : "🤖 Entendido, buscas:\n";
+    // Si hay plataformas no inmediatas/sin stock, apagamos el saludo optimista de la IA
+    consolidatedResponse = (empathyGreeting && nonImmediatePlats.length === 0) 
+      ? `🤖 ${empathyGreeting}\n\nEntendido, buscas:\n` 
+      : "🤖 Entendido, buscas:\n";
   }
 
   let calculatedTotal = 0;
@@ -305,22 +319,13 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     consolidatedResponse += `\n\n⚠️ Noté que mencionaste un precio de $${statedPrice}, pero según mis cálculos el total es $${calculatedTotal}. ¿Deseas continuar con el precio de $${calculatedTotal}?`;
   }
 
-  // Verificar disponibilidad general
-  const { getPlatformAvailability } = require('./availabilityService');
-  let nonImmediatePlats = [];
-  for (const s of selectedItems) {
-    const avail = await getPlatformAvailability(s.platform.name);
-    if (!avail.immediate) {
-      nonImmediatePlats.push(s.platform.name);
-    }
-  }
   if (nonImmediatePlats.length > 0) {
     const uniquePlats = [...new Set(nonImmediatePlats)];
     consolidatedResponse += `\n\n⚠️ *Nota:* Para *${uniquePlats.join(', ')}*, la entrega/activación demorará un poco más de lo habitual y no será de inmediato. ¡Agradecemos tu paciencia! 😊`;
   }
 
   const { getDynamicPaymentMessage } = require('./salesService');
-  consolidatedResponse += getDynamicPaymentMessage();
+  consolidatedResponse += getDynamicPaymentMessage(nonImmediatePlats.length > 0);
 
   await message.reply(consolidatedResponse);
 
@@ -347,7 +352,22 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
   const intent = await parsePurchaseIntent(mensaje, chatHistoryText);
   const { items, subscriptionType, empathyGreeting } = intent;
 
-  if (empathyGreeting) {
+  // Verificar si alguno de los planes del mensaje no está disponible de inmediato
+  const { getPlatformAvailability: getAvail } = require('./availabilityService');
+  let hasManualPlatform = false;
+  if (items && items.length > 0) {
+    for (const item of items) {
+      if (!item || !item.platform) continue;
+      const planName = item.plan ? `${item.platform} ${item.plan}` : item.platform;
+      const avail = await getAvail(planName);
+      if (!avail.immediate) {
+        hasManualPlatform = true;
+        break;
+      }
+    }
+  }
+
+  if (empathyGreeting && !hasManualPlatform) {
     await message.reply(`🤖 ${empathyGreeting}`);
   }
 
@@ -649,11 +669,12 @@ async function calculateAndShowPrice(message, userId, userStates) {
 
   responseText += `\nTotal (${subscriptionType}): $${totalPrice}${periodText}`;
 
-  // Verificar disponibilidad general
+  // Verificar disponibilidad general usando plan completo
   const { getPlatformAvailability } = require('./availabilityService');
   let nonImmediatePlats = [];
   for (const s of selected) {
-    const avail = await getPlatformAvailability(s.platform.name);
+    const planName = s.chosenPlan ? `${s.platform.name} ${s.chosenPlan.name}` : s.platform.name;
+    const avail = await getPlatformAvailability(planName);
     if (!avail.immediate) {
       nonImmediatePlats.push(s.platform.name);
     }
@@ -667,7 +688,7 @@ async function calculateAndShowPrice(message, userId, userStates) {
 
   await message.reply('🤖 ' + responseText);
 
-  const paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?" + getDynamicPaymentMessage().replace("\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?", "");
+  const paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?" + getDynamicPaymentMessage(nonImmediatePlats.length > 0).replace("\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?", "");
   await message.reply(paymentOptions);
   const existing = userStates.get(userId);
   const stateData = typeof existing === 'object'
@@ -676,7 +697,7 @@ async function calculateAndShowPrice(message, userId, userStates) {
   userStates.set(userId, stateData);
 }
 
-function getDynamicPaymentMessage() {
+function getDynamicPaymentMessage(hasManual = false) {
   try {
     const { getPaymentConfig } = require('./paymentConfigService');
     const config = getPaymentConfig();
@@ -693,7 +714,7 @@ function getDynamicPaymentMessage() {
           const activeSubs = method.sub_methods.filter(s => s.enabled);
           activeSubs.forEach(sub => {
             const isAuto = sub.automatic !== undefined ? sub.automatic : method.automatic;
-            if (isAuto) {
+            if (isAuto && !hasManual) {
               paymentLines.push(`⭐ **${method.label} ${sub.label}** (RECOMENDADO: entrega inmediata ⚡)`);
             } else {
               paymentLines.push(`⭐ **${method.label} ${sub.label}**`);
@@ -701,7 +722,7 @@ function getDynamicPaymentMessage() {
             }
           });
         } else {
-          if (method.automatic) {
+          if (method.automatic && !hasManual) {
             paymentLines.push(`⭐ **${method.label}** (RECOMENDADO: entrega inmediata ⚡)`);
           } else {
             paymentLines.push(`⭐ **${method.label}**`);
@@ -712,14 +733,18 @@ function getDynamicPaymentMessage() {
 
       msg += paymentLines.join('\n') + '\n';
       
-      if (manualLabels.length > 0) {
+      if (hasManual) {
+        msg += `\n💡 *Nota:* Dado que tu pedido contiene servicios que requieren activación manual o están temporalmente sin cupos automáticos, el registro y la entrega de tus credenciales serán realizados de forma **manual por un asesor** tras verificar tu pago. ¡Agradecemos tu paciencia! 😊`;
+      } else if (manualLabels.length > 0) {
         msg += `\n💡 *Nota:* Si prefieres pagar por ${manualLabels.join(', ')} directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊`;
       }
       return msg;
   } catch (e) {
     console.error("Error reading payment config in salesService:", e.message);
   }
-  return "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V** (RECOMENDADO: entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Daviplata, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊";
+  return hasManual
+    ? "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V**\n\n💡 *Nota:* Dado que tu pedido requiere activación manual o está sin stock automático, un asesor verificará y entregará tu cuenta de forma manual. ¡Agradecemos tu paciencia! 😊"
+    : "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V** (RECOMENDADO: entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Daviplata, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊";
 }
 
 module.exports = {
