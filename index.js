@@ -928,7 +928,7 @@ app.post('/api/admin/tickets/claim', async (req, res) => {
 
 app.post('/api/admin/tickets/resolve', async (req, res) => {
     try {
-        const { phone, password } = req.body;
+        const { phone, password, resolveAll } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const userId = phone.includes('@') ? phone : phone + '@c.us';
@@ -949,7 +949,7 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
 
         // Auto-resolver tickets de otras personas que tengan las mismas cuentas/correos
         let resolvedOthersCount = 0;
-        if (targetEmails.length > 0) {
+        if (resolveAll && targetEmails.length > 0) {
             const { getAccountsByPhone } = require('./apiService');
             for (const [otherUserId, otherState] of userStates.entries()) {
                 if (!otherState) continue;
