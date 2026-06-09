@@ -556,10 +556,11 @@ async function getNetflixMatchReport(ispInfo = '') {
     const { fetchRawData } = require('./apiService');
     try {
         const data = await fetchRawData();
-        const netflixLibres = data.filter(row => {
+        const netflixLibres = data.filter((row, idx) => {
             const plat = (row['Streaming'] || '').toString().toLowerCase();
             const status = (row['Estado'] || row['estado'] || '').toString().toLowerCase();
             const nombre = (row['Nombre'] || '').toString().toLowerCase();
+            row._rowNumber = idx + 2; // store row index
             return plat.includes('netflix') && (status.includes('libre') || nombre === 'libre' || nombre === '');
         });
 
@@ -573,16 +574,44 @@ async function getNetflixMatchReport(ispInfo = '') {
 
         report = `📺 *CUENTAS NETFLIX DISPONIBLES*\n\n`;
         if (ispInfo) {
-            report += `*🔍 Referencia operador cliente: ${ispInfo}*\n\n`;
+            report += `*🔍 Referencia operador cliente buscado: ${ispInfo}*\n\n`;
         }
 
         netflixLibres.forEach(c => {
-            report += `- ${c.correo} (${c['pin perfil'] || 'Sin PIN'})\n`;
+            const currentEmail = (c.correo || '').toString().trim().toLowerCase();
+            report += `📧 *Cuenta: ${c.correo}* (PIN/Perfil Libre: ${c['pin perfil'] || c['perfil'] || 'Sin PIN'})\n`;
+            
+            // Find other active profiles in this same account
+            const compañeros = data.filter((row, idx) => {
+                const rowMail = (row['correo'] || row['Correo'] || '').toString().trim().toLowerCase();
+                const rowPlat = (row['Streaming'] || row['streaming'] || '').toString().toLowerCase();
+                const rowName = (row['Nombre'] || row['nombre'] || '').toString().trim().toLowerCase();
+                const rowNum = idx + 2;
+                return rowMail === currentEmail && 
+                       rowPlat.includes('netflix') && 
+                       rowName !== '' && 
+                       rowName !== 'libre' &&
+                       rowNum !== c._rowNumber;
+            });
+            
+            if (compañeros.length > 0) {
+                report += `   👥 *Compañeros activos en esta cuenta:*\n`;
+                compañeros.forEach(comp => {
+                    const compName = comp.Nombre || comp.nombre || 'Desconocido';
+                    const compPhone = comp.numero || comp.Numero || 'Sin celular';
+                    const compProfile = comp['pin perfil'] || comp['perfil'] || 'Sin Perfil';
+                    const compIsp = comp.operador || comp.Operador || 'Sin operador/IP';
+                    report += `   • Perfil: ${compProfile} | ${compName} (${compPhone}) | ISP: ${compIsp}\n`;
+                });
+            } else {
+                report += `   👥 *Compañeros:* Ninguno activo aún en el Excel.\n`;
+            }
+            report += `\n`;
         });
 
         return { rawReport: report, hasStock: true };
     } catch (e) {
-        return { rawReport: "Error buscando cuentas de Netflix.", hasStock: false };
+        return { rawReport: "Error buscando cuentas de Netflix: " + e.message, hasStock: false };
     }
 }
 
