@@ -724,7 +724,8 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
                 });
                 message += `\n` +
                     `Puedes renovar realizando tu transferencia aquí:\n` +
-                    `*Nequi/Daviplata:* 3133866170\n\n` +
+                    `*Nequi:* 3118587974\n` +
+                    `*Daviplata:* 3107946794\n\n` +
                     `Una vez realizado, envíanos el comprobante por este medio. ¡Gracias!`;
             }
         }
