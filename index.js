@@ -669,40 +669,72 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
         const { phone, type, password, message: customMessage } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
+        const cleanPhone = phone ? phone.toString().replace(/\D/g, '') : '';
+        if (!cleanPhone) {
+            return res.status(400).json({ success: false, error: 'Número de teléfono inválido', message: 'Número de teléfono inválido' });
+        }
+
+        const formatExcelDate = (excelDate) => {
+            if (!excelDate) return '-';
+            const str = excelDate.toString().trim();
+            if (isNaN(str)) {
+                return str;
+            }
+            try {
+                const serial = parseFloat(str);
+                const date = new Date((serial - 25569) * 86400 * 1000);
+                if (!isNaN(date.getTime())) {
+                    const year = date.getUTCFullYear();
+                    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+                    const day = String(date.getUTCDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
+                }
+            } catch (e) {}
+            return str;
+        };
+
         let message = "";
 
         if (type === 'custom') {
             message = customMessage || "";
         } else {
             const { getAccountsByPhone } = require('./apiService');
-            const accounts = await getAccountsByPhone(phone);
-            if (!accounts || accounts.length === 0) return res.status(404).json({ success: false, message: 'Client not found' });
-
-            const clientData = accounts[0];
+            const accounts = await getAccountsByPhone(cleanPhone);
+            if (!accounts || accounts.length === 0) return res.status(404).json({ success: false, message: 'Client not found', error: 'Client not found' });
 
             if (type === 'credentials') {
-                message = `*Tus Credenciales de Sheer IT*\n\n` +
-                    `🍿 *Servicio:* ${clientData.Streaming}\n` +
-                    `📧 *Usuario:* ${clientData.correo}\n` +
-                    `🔑 *Contraseña:* ${clientData['pin perfil'] || 'N/A'}\n` +
-                    `👤 *Perfil:* ${clientData.Nombre}\n\n` +
-                    `📅 *Vence:* ${clientData['Fecha Vencimiento']}\n\n` +
-                    `¡Disfruta tu servicio!`;
+                message = `*Tus Credenciales de Sheer IT*\n\n`;
+                accounts.forEach((clientData) => {
+                    const pass = clientData['pin perfil'] || clientData.contraseña || clientData.Clave || clientData.clave || clientData.password || 'N/A';
+                    const venc = formatExcelDate(clientData['Fecha Vencimiento'] || clientData.deben || clientData.vencimiento);
+                    message += `🍿 *Servicio:* ${clientData.Streaming || 'N/A'}\n` +
+                               `📧 *Usuario:* ${clientData.correo || 'N/A'}\n` +
+                               `🔑 *Contraseña:* ${pass}\n` +
+                               `👤 *Perfil:* ${clientData.Nombre || 'N/A'}\n` +
+                               `📅 *Vence:* ${venc}\n\n`;
+                });
+                message += `¡Disfruta tu servicio!`;
             } else if (type === 'payment') {
-                message = `¡Hola ${clientData.Nombre}! 👋\n\n` +
-                    `Te recordamos que tu suscripción de *${clientData.Streaming}* está próxima a vencer (${clientData['Fecha Vencimiento']}).\n\n` +
+                const clientName = accounts[0].Nombre || 'Cliente';
+                message = `¡Hola ${clientName}! 👋\n\n` +
+                    `Te recordamos que tus siguientes servicios están próximos a vencer:\n\n`;
+                accounts.forEach((clientData) => {
+                    const venc = formatExcelDate(clientData['Fecha Vencimiento'] || clientData.deben || clientData.vencimiento);
+                    message += `• *${clientData.Streaming || 'N/A'}* - Vence: ${venc}\n`;
+                });
+                message += `\n` +
                     `Puedes renovar realizando tu transferencia aquí:\n` +
                     `*Nequi/Daviplata:* 3133866170\n\n` +
                     `Una vez realizado, envíanos el comprobante por este medio. ¡Gracias!`;
             }
         }
 
-        const chatId = phone.includes('@') ? phone : `${phone}@c.us`;
+        const chatId = cleanPhone.includes('@') ? cleanPhone : `${cleanPhone}@c.us`;
         await client.sendMessage(chatId, message);
 
         res.json({ success: true, message: 'Message sent via WhatsApp' });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ success: false, error: e.message, message: e.message });
     }
 });
 
