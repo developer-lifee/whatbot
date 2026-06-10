@@ -2214,9 +2214,93 @@ async function baseProcessIncomingMessage(messages) {
         const mode = (currentStateData && typeof currentStateData === 'object') ? (currentStateData.waiting_human_mode || 'bot') : 'bot';
         const cleanInput = (message.body || '').trim().toLowerCase();
 
-        // Reactivación rápida explícita para ambos modos
-        if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot')) {
-            console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} por intención explícita: ${cleanInput}`);
+        // Verificar si el modo advisor ha expirado por inactividad del asesor (más de 2 horas)
+        let isAdvisorExpired = false;
+        if (mode === 'advisor') {
+            const lastInteraction = (currentStateData && currentStateData.lastHumanInteraction) || 0;
+            if (lastInteraction > 0) {
+                const timeSinceLastHumanMs = Date.now() - lastInteraction;
+                const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
+
+                if (minutesSinceLastHuman > 120) {
+                    console.log(`[BOT MUTE EXPIRE] El asesor no ha interactuado en ${minutesSinceLastHuman.toFixed(1)} minutos con @${userId}. Expirando modo advisor.`);
+                    isAdvisorExpired = true;
+                } else if (minutesSinceLastHuman > 30) {
+                    // El cliente lleva más de 30 minutos esperando sin respuesta del asesor.
+                    // Verificamos si el bot es capaz de resolver la consulta actual antes de alertar
+                    let mediaData = null;
+                    if (message.hasMedia) {
+                        try {
+                            const media = await message.downloadMedia();
+                            if (media && media.data && media.mimetype) {
+                                mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
+                            }
+                        } catch (e) { }
+                    }
+
+                    const { detectInitialIntent } = require('./aiService');
+                    const hist = await getChatHistoryText(message, 15);
+                    const detection = await detectInitialIntent(message.body, hist, mediaData);
+
+                    const cleanBody = (message.body || "").trim();
+                    const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
+                    const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
+                    
+                    const wantsCodeKeywords = [
+                        'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código',
+                        'enviar código', 'enviar codigo', 'el código', 'el codigo',
+                        'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
+                    ];
+                    const isCodeRequest = wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) || cleanBody === '?';
+
+                    if (solvableIntents.includes(detection.intent) || isMenuSelection || isCodeRequest) {
+                        // SI ES ALGO QUE EL BOT PUEDE RESOLVER: Reactivamos el bot directamente sin enviar alertas de inactividad
+                        console.log(`[BOT MUTE REACTIVATE 30M] Reactivando bot porque el mensaje es resoluble: Intent=${detection.intent}, isCode=${isCodeRequest}`);
+                        userStates.delete(userId);
+                        currentState = undefined;
+                    } else {
+                        // SI EL BOT NO PUEDE RESOLVERLO: Alertar al administrador y dar turno de cola
+                        if (!global.supportQueue) global.supportQueue = [];
+                        let turnIdx = global.supportQueue.indexOf(userId);
+                        if (turnIdx === -1) {
+                            global.supportQueue.push(userId);
+                            turnIdx = global.supportQueue.length - 1;
+                        }
+                        const turnNumber = turnIdx + 1;
+
+                        const lastWarning = (currentStateData && currentStateData.lastWarningTime) || 0;
+                        if (Date.now() - lastWarning > 15 * 60 * 1000) {
+                            await message.reply(`🤖 Hola, lamentamos la demora. Nuestro equipo de soporte ha estado muy ocupado, pero sigues en nuestra lista de espera.\n\n📍 *Tu turno actual es el #${turnNumber}*.\n\nUn asesor se comunicará contigo lo antes posible. ¡Agradecemos mucho tu paciencia! ⏳`);
+                            
+                            try {
+                                const groupChat = await client.getChatById(GROUP_ID);
+                                if (groupChat) {
+                                    await groupChat.sendMessage(`⏳ *ALERTA DE INACTIVIDAD DE ASESOR* ⏳\n\nEl cliente *${foundName || 'Cliente'}* (@${realPhone}) lleva más de *30 minutos* esperando respuesta del asesor y requiere atención humana.\n\n📍 *Turno en cola:* #${turnNumber}\n\nPor favor, atiende este chat lo antes posible.`);
+                                }
+                            } catch (err) {
+                                console.error("Error notificando al grupo sobre inactividad del asesor:", err.message);
+                            }
+
+                            userStates.set(userId, { 
+                                ...currentStateData, 
+                                lastWarningTime: Date.now() 
+                            });
+                        }
+                        return; // Mantener silencio absoluto del bot de cara a resolver intenciones, solo avisa de la espera
+                    }
+                }
+            } else {
+                const stateAgeMs = Date.now() - (currentStateData.timestamp || Date.now());
+                if (stateAgeMs > 2 * 60 * 60 * 1000) {
+                    console.log(`[BOT MUTE EXPIRE] Estado de advisor muy antiguo sin timestamp de interacción. Expirando.`);
+                    isAdvisorExpired = true;
+                }
+            }
+        }
+
+        // Reactivación rápida explícita para ambos modos o si el modo advisor expiró
+        if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot') || isAdvisorExpired) {
+            console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} (expirado o explícito).`);
             userStates.delete(userId);
             currentState = undefined;
         } else if (mode === 'bot') {
