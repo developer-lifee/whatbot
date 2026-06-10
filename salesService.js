@@ -5,6 +5,32 @@ const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
 const fs = require('fs');
 const path = require('path');
 
+function findPlatformByName(platformName, platforms) {
+  if (!platformName) return null;
+  let targetPlatform = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  
+  const PLATFORM_ALIASES = {
+    'amazon': 'prime video',
+    'prime': 'prime video',
+    'amazon prime': 'prime video',
+    'amazonprime': 'prime video',
+    'hbo': 'max',
+    'hbomax': 'max',
+    'disney': 'disney+',
+    'disney premium': 'disney+',
+    'star': 'disney+',
+    'm365': 'microsoft 365',
+    'office': 'microsoft 365'
+  };
+
+  if (PLATFORM_ALIASES[targetPlatform]) {
+    targetPlatform = PLATFORM_ALIASES[targetPlatform].toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  return platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
+    platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
+}
+
 async function getPlatforms() {
   const localPath = path.join(__dirname, 'platforms.json');
   try {
@@ -184,28 +210,9 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   let selectedItems = [];
   let invalidElements = [];
 
-  const PLATFORM_ALIASES = {
-    'amazon': 'prime video',
-    'prime': 'prime video',
-    'hbo': 'max',
-    'hbomax': 'max',
-    'disney': 'disney+',
-    'star': 'disney+',
-    'm365': 'microsoft 365',
-    'office': 'microsoft 365'
-  };
-
   items.forEach(item => {
     if (!item || !item.platform) return;
-    let targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
-    
-    // Aplicar alias
-    if (PLATFORM_ALIASES[targetPlatform]) {
-      targetPlatform = PLATFORM_ALIASES[targetPlatform].toLowerCase().replace(/[^a-z0-9]/g, '');
-    }
-
-    const platform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
-      platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    const platform = findPlatformByName(item.platform, platforms);
 
     if (platform) {
       let plan = null;
@@ -385,9 +392,7 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
 
   items.forEach(item => {
     if (!item || !item.platform) return;
-    const targetPlatform = item.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const platform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
-      platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
+    const platform = findPlatformByName(item.platform, platforms);
 
     if (platform) {
       let chosenPlan = null;

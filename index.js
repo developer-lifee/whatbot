@@ -3656,6 +3656,12 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
     const isSingleDigit = /^\d+$/.test(inputToUse.trim());
     const statesExpectingNumbers = ['selecting_plans', 'adding_platform', 'awaiting_code_account_selection', 'awaiting_payment_renewal_confirmation'];
+    const isMenuDigit = ['1', '2', '3', '4', '5'].includes(inputToUse.trim());
+    let isForcedMenuBreakout = false;
+    if (isMenuDigit && currentState && !statesExpectingNumbers.includes(currentState)) {
+        isForcedMenuBreakout = true;
+    }
+
     const isChangingTopic = detection.intent && 
                             !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar'].includes(detection.intent) &&
                             !(isSingleDigit && statesExpectingNumbers.includes(currentState));
@@ -3673,8 +3679,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         }
     }
 
-    if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform)) || isChurnRefusal) {
-        console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema (' + detection.intent + ')' : 'Alta frustración'))}`);
+    if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform || isForcedMenuBreakout)) || isChurnRefusal) {
+        console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isForcedMenuBreakout ? 'Fuerza de menú numérico' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema (' + detection.intent + ')' : 'Alta frustración')))}`);
 
         if (isVeryFrustrated) {
             userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1, waiting_human_mode: 'bot' });

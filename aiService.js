@@ -1021,6 +1021,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
   } else if (txt === "1") keywordIntent = "comprar";
   else if (txt === "2") keywordIntent = "credenciales";
   else if (txt === "3") keywordIntent = "pagar";
+  else if (txt === "4" || txt === "5") keywordIntent = "soporte";
 
   try {
     const jsonString = await callDeepSeek(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true);
