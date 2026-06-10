@@ -565,6 +565,18 @@ async function handleSelectingPlans(message, userId, userStates) {
       return !(configKey && config[configKey].immediate === false);
   });
 
+  // Si el usuario pregunta de forma general por precios, planes o qué ofrecemos
+  const wantsPrices = ['planes', 'costo', 'precio', 'catalogo', 'catálogo', 'que ofrecen', 'qué ofrecen', 'servicios', 'cuanto cuesta', 'cuánto cuesta', 'info'].some(k => body.includes(k));
+  if (wantsPrices) {
+    let reply = `🤖 ¡Claro! Para *${platform.name}* tenemos disponibles estos planes:\n\n`;
+    availablePlans.forEach((plan, idx) => {
+      reply += `*${idx + 1}* - ${plan.name}: **$${plan.price}**\n`;
+    });
+    reply += `\nRespóndeme únicamente con el **número del plan** (ej: *1*) para seleccionarlo.\n\n🌐 Si prefieres ver todo el catálogo y armar tu combo, ingresa a: https://sheerit.com.co`;
+    await message.reply(reply);
+    return;
+  }
+
   let selection = parseInt(body) - 1;
 
   // Si no es un número directo, intentar con IA para entender la opción
