@@ -16,3 +16,8 @@ tokens/gpt_secrets.json
 tokens/gpt_usage.json
 recommended_combo.json
 platforms.json
+uploads/
+excel_cache.json
+historico_cache.json
+user_states.json
+

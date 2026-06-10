@@ -82,7 +82,105 @@ Permite al administrador programar envíos de mensajes de forma natural a cualqu
 
 ---
 
+## 📊 Base de Datos y Diagrama ER (Entidad-Relación)
+
+Para soportar la bandeja de entrada multi-agente, la gestión de tickets, checklist de tareas y la auditoría de copias de seguridad en Google Drive, el sistema utiliza una base de datos relacional local (MariaDB) estructurada bajo el siguiente modelo:
+
+```mermaid
+erDiagram
+    agents {
+        int id PK
+        string username
+        string fullname
+        string email
+        enum role
+        enum status
+    }
+    customers {
+        string phone PK
+        string fullname
+        string email
+        text notes
+    }
+    subscriptions {
+        int id PK
+        string customer_phone FK
+        string streaming_platform
+        string account_email
+        string account_password
+        string profile_pin
+        date expiration_date
+        enum status
+    }
+    chats {
+        string chat_id PK
+        string customer_phone FK
+        enum status
+        int assigned_agent_id FK
+        int unread_count
+        text last_message_text
+        timestamp last_message_time
+    }
+    messages {
+        int id PK
+        string message_id UK
+        string chat_id FK
+        string sender_id
+        string sender_name
+        enum direction
+        enum message_type
+        text body
+        text media_path
+        string media_mime
+        text drive_url
+        string quoted_msg_id
+        string bot_intent
+    }
+    tickets {
+        int id PK
+        string chat_id FK
+        string title
+        text description
+        enum status
+        enum priority
+        int assigned_agent_id FK
+        timestamp resolved_at
+    }
+    tasks {
+        int id PK
+        int ticket_id FK
+        string chat_id FK
+        string title
+        text description
+        enum status
+        int assigned_agent_id FK
+        timestamp due_date
+        timestamp completed_at
+    }
+    drive_backups {
+        int id PK
+        string file_name
+        text original_path
+        string drive_file_id
+        text drive_url
+        bigint file_size
+    }
+
+    agents ||--o{ chats : "assigned"
+    agents ||--o{ tickets : "assigned"
+    agents ||--o{ tasks : "assigned"
+    customers ||--o{ subscriptions : "has"
+    customers ||--o{ chats : "has"
+    chats ||--o{ messages : "contains"
+    chats ||--o{ tickets : "has"
+    chats ||--o{ tasks : "has"
+    tickets ||--o{ tasks : "has"
+```
+
+---
+
 # 🚀 Roadmap de Modernización
+
 
 ## 📌 Estado del Proyecto
 - [x] **Fase 1:** Estabilización y Deduplicación (Completado)
