@@ -2203,6 +2203,18 @@ async function baseProcessIncomingMessage(messages) {
         const { addNewContact } = require('./googleContactsService');
         // addNewContact ya tiene validación interna y caché local para evitar duplicados
         await addNewContact(foundName, realPhone);
+
+        try {
+            const { pool } = require('./database');
+            await pool.query(
+                `INSERT INTO customers (phone, fullname) VALUES (?, ?)
+                 ON DUPLICATE KEY UPDATE fullname = VALUES(fullname)`,
+                [realPhone, foundName]
+            );
+            console.log(`[Database] Cliente ${foundName} guardado/actualizado en la base de datos.`);
+        } catch (dbErr) {
+            console.error("[Database] Error al guardar cliente en BD:", dbErr.message);
+        }
     }
 
     // --- IDENTIFICADOR DE ESTADO INICIAL ---
@@ -4185,7 +4197,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             }
             break;
         case 'awaiting_purchase_platforms':
-            await handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID);
+            await handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID, detection);
             break;
         case 'selecting_plans':
             await handleSelectingPlans(message, userId, userStates);

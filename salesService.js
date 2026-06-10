@@ -352,7 +352,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   userStates.set(userId, stateData);
 }
 
-async function handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID) {
+async function handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID, detection = null) {
   const mensaje = message.body;
 
   const chatHistoryText = await getChatHistoryText(message);
@@ -379,6 +379,11 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
   }
 
   if (!items || items.length === 0) {
+    if (detection && detection.userName) {
+      const firstName = detection.userName.split(' ')[0];
+      await message.reply(`🤖 ¡Hola, ${firstName}! Qué gusto saludarte. 😊\n\nCuéntame, ¿qué plataformas o servicios te interesaría adquirir hoy? (Por ejemplo: Netflix, Disney+, Prime Video).`);
+      return;
+    }
     await message.reply("🤖 No pude identificar las plataformas. Por favor intenta escribiendo los nombres claros, por ejemplo: Netflix, Disney.");
     return;
   }
@@ -404,8 +409,6 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
       // --- MEJORA: Si la IA no detectó plan pero el usuario respondió a una aclaración ---
       if (!chosenPlan && lastPlats.some(lp => lp.toLowerCase().includes(platform.name.toLowerCase()))) {
           const lowerBody = mensaje.toLowerCase().trim();
-          // Intentamos buscar si alguna palabra del mensaje coincide con un plan de esta plataforma
-          // O si el nombre del plan contiene el mensaje del usuario (ej: "Apple One" contenido en "Apple One (345GB)")
           chosenPlan = platform.plans.find(p => 
               lowerBody.includes(p.name.toLowerCase().trim()) || 
               p.name.toLowerCase().includes(lowerBody)
@@ -470,16 +473,32 @@ async function showPlanSelection(message, userId, userStates) {
   }
 
   const current = selected[currentIndex];
+  const platform = current.platform;
+
+  // Filtrar planes deshabilitados según platform_availability.json
+  const { getAvailabilityConfig } = require('./availabilityService');
+  const config = getAvailabilityConfig();
+  const availablePlans = platform.plans.filter(plan => {
+      const planFullName = `${platform.name} ${plan.name}`;
+      const normalizedName = planFullName.toLowerCase().trim();
+      let configKey = Object.keys(config).find(key => key.toLowerCase().trim() === normalizedName);
+      if (!configKey) {
+          configKey = Object.keys(config).find(key => {
+              const k = key.toLowerCase().trim();
+              return k.includes(normalizedName) || normalizedName.includes(k);
+          });
+      }
+      return !(configKey && config[configKey].immediate === false);
+  });
+
   if (current.chosenPlan) {
     state.currentIndex++;
     await showPlanSelection(message, userId, userStates); 
     return;
   }
 
-  const platform = current.platform;
-
-  if (platform.plans.length === 1) {
-    selected[currentIndex].chosenPlan = platform.plans[0];
+  if (availablePlans.length === 1) {
+    selected[currentIndex].chosenPlan = availablePlans[0];
     state.currentIndex++;
     await showPlanSelection(message, userId, userStates);
     return;
@@ -489,7 +508,7 @@ async function showPlanSelection(message, userId, userStates) {
   
   const { getPlatformAvailability } = require('./availabilityService');
   let warnings = [];
-  for (const plan of platform.plans) {
+  for (const plan of availablePlans) {
       const planFullName = `${platform.name} ${plan.name}`;
       const avail = await getPlatformAvailability(planFullName);
       if (!avail.immediate) {
@@ -497,7 +516,7 @@ async function showPlanSelection(message, userId, userStates) {
       }
   }
 
-  platform.plans.forEach((plan, idx) => {
+  availablePlans.forEach((plan, idx) => {
       reply += `${idx + 1}. ${plan.name} - $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
   });
   
@@ -528,22 +547,40 @@ async function handleSelectingPlans(message, userId, userStates) {
   }
 
   const current = selected[currentIndex];
+  const platform = current.platform;
+
+  // Filtrar planes deshabilitados según platform_availability.json
+  const { getAvailabilityConfig } = require('./availabilityService');
+  const config = getAvailabilityConfig();
+  const availablePlans = platform.plans.filter(plan => {
+      const planFullName = `${platform.name} ${plan.name}`;
+      const normalizedName = planFullName.toLowerCase().trim();
+      let configKey = Object.keys(config).find(key => key.toLowerCase().trim() === normalizedName);
+      if (!configKey) {
+          configKey = Object.keys(config).find(key => {
+              const k = key.toLowerCase().trim();
+              return k.includes(normalizedName) || normalizedName.includes(k);
+          });
+      }
+      return !(configKey && config[configKey].immediate === false);
+  });
+
   let selection = parseInt(body) - 1;
 
   // Si no es un número directo, intentar con IA para entender la opción
   if (isNaN(selection) || selection < 0) {
-    const aiSelection = await parsePlanSelection(message.body, current.platform.plans);
+    const aiSelection = await parsePlanSelection(message.body, availablePlans);
     if (aiSelection !== null) {
       selection = aiSelection - 1;
     }
   }
 
-  if (isNaN(selection) || selection < 0 || selection >= current.platform.plans.length) {
+  if (isNaN(selection) || selection < 0 || selection >= availablePlans.length) {
     await message.reply('🤖 No te entendí. Por favor dime el número del plan (ej: 1), di su nombre o escribe "agregar" si quieres algo más.');
     return;
   }
 
-  const chosenPlan = current.platform.plans[selection];
+  const chosenPlan = availablePlans[selection];
   selected[currentIndex].chosenPlan = chosenPlan;
   state.currentIndex++;
 

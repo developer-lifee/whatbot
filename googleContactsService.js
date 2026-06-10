@@ -64,20 +64,30 @@ async function addNewContact(name, phone) {
             formattedPhone = '+57' + formattedPhone;
         }
 
+        const nameParts = name.trim().split(/\s+/);
+        const givenName = nameParts[0];
+        const familyName = nameParts.slice(1).join(' ');
+
+        const requestBody = {
+            names: [
+                {
+                    givenName: givenName,
+                }
+            ],
+            phoneNumbers: [
+                {
+                    value: formattedPhone,
+                    type: 'mobile'
+                }
+            ]
+        };
+
+        if (familyName) {
+            requestBody.names[0].familyName = familyName;
+        }
+
         const response = await personasAPI.people.createContact({
-            requestBody: {
-                names: [
-                    {
-                        givenName: name,
-                    }
-                ],
-                phoneNumbers: [
-                    {
-                        value: formattedPhone,
-                        type: 'mobile'
-                    }
-                ]
-            }
+            requestBody
         });
 
         console.log(`✅ Contacto [${name} - ${formattedPhone}] creado exitosamente en Google Contacts.`);
