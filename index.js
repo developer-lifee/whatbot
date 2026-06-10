@@ -3161,7 +3161,14 @@ async function baseProcessIncomingMessage(messages) {
                     });
                 }
 
-                // 2. Si no hay coincidencia directa, pero solo tiene 1 cuenta, usar esa
+                // Si especificó una plataforma pero no está entre sus cuentas activas, no usar fallbacks
+                if (matchedPlatform && !targetAccount) {
+                    const activePlats = Array.from(new Set(userAccounts.map(a => (a.Streaming || "").toUpperCase()).filter(Boolean))).join(', ');
+                    await message.reply(`🤖 Veo que solicitas un código para *${matchedPlatform.toUpperCase()}*, pero no tienes una cuenta activa de esa plataforma vinculada a tu número de WhatsApp. ${activePlats ? `Actualmente solo tienes activo: *${activePlats}*` : 'No tienes servicios activos con nosotros'}.\n\nSi deseas renovar o adquirir tu cuenta de *${matchedPlatform.toUpperCase()}*, por favor indícalo para ayudarte. 😊`);
+                    return;
+                }
+
+                // 2. Si no hay coincidencia directa (y no se especificó plataforma ajena), pero solo tiene 1 cuenta, usar esa
                 if (!targetAccount && userAccounts.length === 1) {
                     targetAccount = userAccounts[0];
                 }
