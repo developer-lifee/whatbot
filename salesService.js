@@ -755,7 +755,16 @@ function getDynamicPaymentMessage(hasManual = false) {
   try {
     const { getPaymentConfig } = require('./paymentConfigService');
     const config = getPaymentConfig();
-    const enabled = Object.keys(config).filter(k => config[k].enabled);
+    
+    const isQrActive = config.qr_negocios && config.qr_negocios.enabled;
+    const isLlavePrincipalActive = config.llave && config.llave.enabled && 
+      (config.llave.sub_methods && config.llave.sub_methods.some(s => s.id === 'llave_bot' && s.enabled));
+      
+    const limitToAuto = isQrActive && isLlavePrincipalActive;
+    let enabled = Object.keys(config).filter(k => config[k].enabled);
+    if (limitToAuto) {
+      enabled = ['qr_negocios', 'llave'];
+    }
       
       let msg = "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n";
       
@@ -765,7 +774,10 @@ function getDynamicPaymentMessage(hasManual = false) {
       enabled.forEach(k => {
         const method = config[k];
         if (method.sub_methods) {
-          const activeSubs = method.sub_methods.filter(s => s.enabled);
+          let activeSubs = method.sub_methods.filter(s => s.enabled);
+          if (limitToAuto && k === 'llave') {
+            activeSubs = activeSubs.filter(s => s.id === 'llave_bot');
+          }
           activeSubs.forEach(sub => {
             const isAuto = sub.automatic !== undefined ? sub.automatic : method.automatic;
             if (isAuto && !hasManual) {
