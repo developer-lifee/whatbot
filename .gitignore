@@ -6,6 +6,7 @@ node_modules
 # Credentials
 credentials.json
 credentials_pagos.json
+credentials_drive.json
 token.json
 token_*.json
 pending_charges.json

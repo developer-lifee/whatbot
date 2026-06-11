@@ -7,7 +7,8 @@ const CREDENTIALS_PATH = path.join(__dirname, 'credentials.json');
 // Scopes específicos por servicio
 const SERVICE_SCOPES = {
     'contacts': ['https://www.googleapis.com/auth/contacts'],
-    'gmail': ['https://www.googleapis.com/auth/gmail.readonly']
+    'gmail': ['https://www.googleapis.com/auth/gmail.readonly'],
+    'drive': ['https://www.googleapis.com/auth/drive.file']
 };
 
 const cachedClients = new Map();
@@ -27,13 +28,19 @@ async function getOAuth2Client(serviceName = 'contacts', code = null, email = nu
     const cacheKey = email ? `${serviceName}_${email}` : serviceName;
     if (cachedClients.has(cacheKey) && !code) return cachedClients.get(cacheKey);
 
-    // Permitir archivo de credenciales específico por servicio (ej: credentials_pagos.json para gmail)
+    // Permitir archivo de credenciales específico por servicio
     let activeCredentialsPath = CREDENTIALS_PATH;
     if (serviceName === 'gmail') {
         const specificGmailCreds = path.join(__dirname, 'credentials_pagos.json');
         if (fs.existsSync(specificGmailCreds)) {
             activeCredentialsPath = specificGmailCreds;
             console.log(`[GOOGLE AUTH] Usando credenciales específicas de PAGOS para GMAIL: ${activeCredentialsPath}`);
+        }
+    } else if (serviceName === 'drive') {
+        const specificDriveCreds = path.join(__dirname, 'credentials_drive.json');
+        if (fs.existsSync(specificDriveCreds)) {
+            activeCredentialsPath = specificDriveCreds;
+            console.log(`[GOOGLE AUTH] Usando credenciales específicas para DRIVE: ${activeCredentialsPath}`);
         }
     }
 
