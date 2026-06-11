@@ -3920,7 +3920,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     return;
                 }
                 const { processCheckCredentials } = require('./billingService');
-                await processCheckCredentials(userId, client, message.body, "");
+                await processCheckCredentials(userId, client, message.body, "", userStates);
                 return;
             } else if (detection.intent === 'catalogo') {
                 await message.reply("🤖 ¡Claro! Puedes ver nuestro catálogo actualizado con todos los precios y realizar tu compra directamente en nuestra página web: https://sheerit.com.co/ 🌐\n\nSi tienes alguna duda específica sobre un servicio, ¡cuéntame!");
@@ -4356,7 +4356,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
             }
             break;
         case '2':
-            await processCheckCredentials(userId, client, message.body, "");
+            await processCheckCredentials(userId, client, message.body, "", userStates);
             break;
         case '3':
             await processCheckPrices(message, userId, userStates);
@@ -4380,7 +4380,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
                     return;
                 } else if (detection.intent === 'credenciales') {
-                    await processCheckCredentials(userId, client, message.body, "");
+                    await processCheckCredentials(userId, client, message.body, "", userStates);
                     return;
                 }
             }

@@ -7,7 +7,7 @@ const fs = require('fs');
 /**
  * Procesa la solicitud de credenciales de un usuario.
  */
-async function processCheckCredentials(userId, client, triggerMessage = "", history = "") {
+async function processCheckCredentials(userId, client, triggerMessage = "", history = "", userStates = null) {
     try {
         const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); 
         let userAccounts = await getAccountsByPhone(phoneNumber);
@@ -17,10 +17,52 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             return;
         }
 
-        let aiResponse = await generateCredentialsResponse(userAccounts, triggerMessage, history);
+        // Detectar si alguna de las cuentas no tiene credenciales asignadas aún
+        const pendingAccounts = userAccounts.filter(acc => {
+            const correoOriginal = (acc.correo || acc.Correo || acc["E-mail"] || "").toString().trim().toLowerCase();
+            const claveOriginal = (acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"] || "").toString().trim().toLowerCase();
+            
+            return !correoOriginal || !claveOriginal || 
+                   correoOriginal === "n/a" || claveOriginal === "n/a" ||
+                   correoOriginal.includes("pendiente") || claveOriginal.includes("pendiente") ||
+                   correoOriginal.includes("por asignar") || claveOriginal.includes("por asignar") ||
+                   correoOriginal.includes("por_asignar") || claveOriginal.includes("por_asignar");
+        });
+
+        const assignedAccounts = userAccounts.filter(acc => !pendingAccounts.includes(acc));
+
+        let waitingTimeText = "";
+        const existingState = userStates ? userStates.get(userId) : null;
+        if (existingState && existingState.waitingTimestamp) {
+            const diffMs = Date.now() - existingState.waitingTimestamp;
+            const diffMins = Math.floor(diffMs / (1000 * 60));
+            if (diffMins < 60) {
+                waitingTimeText = ` por más de ${diffMins} minutos`;
+            } else {
+                const diffHours = Math.floor(diffMins / 60);
+                const remainingMins = diffMins % 60;
+                waitingTimeText = ` por más de ${diffHours} horas y ${remainingMins} minutos`;
+            }
+        }
+
+        if (assignedAccounts.length === 0) {
+            // Todas las cuentas están pendientes de asignar
+            const platformsStr = userAccounts.map(a => (a.Streaming || "Servicio").toUpperCase()).join(", ");
+            await client.sendMessage(userId, `🤖 Veo que tus credenciales de *${platformsStr}* aún no se han asignado. Ya le recordé a un asesor humano que has estado esperando${waitingTimeText} para que te las entregue lo antes posible. ¡Gracias por tu paciencia! 😊`);
+            return;
+        }
+
+        let aiResponse = await generateCredentialsResponse(assignedAccounts, triggerMessage, history);
         if (aiResponse && !aiResponse.includes('🤖')) {
             aiResponse += '\n\n🤖';
         }
+
+        // Si además tiene cuentas pendientes, le agregamos una aclaración al final de la respuesta
+        if (pendingAccounts.length > 0) {
+            const pendingPlatformsStr = pendingAccounts.map(a => (a.Streaming || "Servicio").toUpperCase()).join(", ");
+            aiResponse += `\n\n⚠️ *Nota:* Tus credenciales de *${pendingPlatformsStr}* aún no se han asignado. Ya le recordé a un asesor que has estado esperando${waitingTimeText} para que te las entregue.`;
+        }
+
         await client.sendMessage(userId, aiResponse);
 
     } catch (error) {

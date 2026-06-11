@@ -609,10 +609,11 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
   
   ⚠️ REGLAS CRÍTICAS:
   1. Muestra SIEMPRE el Correo, la Clave y el Perfil/PIN para CADA cuenta de la lista. NUNCA resumas u omitas esta información.
-  2. **IMPORTANTE (Cuentas Familiares/Extras)**: Si en los datos dice que la clave es "(Acceso por invitación/perfil propio)", explica amablemente al usuario que para ese servicio (ej. YouTube, Microsoft, Netflix Extra) no se usa una clave compartida, sino que él accede con su propio correo o mediante una invitación que le llegará.
-  3. Si la cuenta está vencida, mantén el aviso de que la clave está oculta por seguridad.
-  4. Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
-  5. Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.
+  2. **PROHIBIDO INVENTAR / ALUCINAR**: Transcribe EXACTAMENTE el Correo y la Clave proporcionados en la lista de arriba. Queda estrictamente prohibido inventar correos ficticios (como sheeritstorecol@gmail.com u otros) o contraseñas (como Sheerit2025* u otras) que no estén tal cual en la lista. Si el dato dice "N/A" o está vacío, indícalo tal cual y pídele al usuario esperar a que el asesor lo asigne.
+  3. **IMPORTANTE (Cuentas Familiares/Extras)**: Si en los datos dice que la clave es "(Acceso por invitación/perfil propio)", explica amablemente al usuario que para ese servicio (ej. YouTube, Microsoft, Netflix Extra) no se usa una clave compartida, sino que él accede con su propio correo o mediante una invitación que le llegará.
+  4. Si la cuenta está vencida, mantén el aviso de que la clave está oculta por seguridad.
+  5. Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
+  6. Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.
   
   No incluyas saludos genéricos como "[Tu Nombre]". Puedes despedirte en nombre del equipo de Sheerit.
   `;
