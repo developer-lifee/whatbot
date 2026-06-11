@@ -80,9 +80,9 @@ async function getOAuth2Client(serviceName = 'contacts', code = null, email = nu
             return oAuth2Client;
         }
 
-        // Si no existe el token específico, probamos con el token genérico
+        // Si no existe el token específico, probamos con el token genérico (solo para el servicio contacts)
         let activeTokenPath = tokenPath;
-        if (!fs.existsSync(tokenPath) && fs.existsSync(legacyTokenPath)) {
+        if (serviceName === 'contacts' && !fs.existsSync(tokenPath) && fs.existsSync(legacyTokenPath)) {
             console.log(`[GOOGLE AUTH] No hay token específico para ${serviceName}, usando token.json genérico.`);
             activeTokenPath = legacyTokenPath;
         }
