@@ -448,7 +448,7 @@ async function executeTestMode(message, client) {
 /**
  * Maneja el reporte de próximas expiraciones.
  */
-async function getUpcomingExpirationsReport() {
+async function getUpcomingExpirationsReport(providerPhoneFilter = null) {
     const { fetchCustomersData, getTodayInBogota, getJsDateFromExcel } = require('./apiService');
     const today = getTodayInBogota();
 
@@ -496,6 +496,25 @@ async function getUpcomingExpirationsReport() {
         }
     }
 
+    let providerEmails = [];
+    if (providerPhoneFilter) {
+        const providerEmailsPath = path.join(__dirname, 'provider_emails.json');
+        if (fs.existsSync(providerEmailsPath)) {
+            try {
+                const content = fs.readFileSync(providerEmailsPath, 'utf8');
+                const data = JSON.parse(content);
+                if (Array.isArray(data)) {
+                    const cleanFilter = providerPhoneFilter.replace(/\D/g, '');
+                    providerEmails = data
+                        .filter(item => (item.providerNumber || '').replace(/\D/g, '') === cleanFilter)
+                        .map(item => item.email.toLowerCase().trim());
+                }
+            } catch (err) {
+                console.error("Error reading provider_emails.json for report:", err.message);
+            }
+        }
+    }
+
     try {
         const data = await fetchCustomersData();
 
@@ -507,6 +526,8 @@ async function getUpcomingExpirationsReport() {
 
             const clientEmail = (c.correo || "").toString().toLowerCase().trim();
             if (managedEmails.includes(clientEmail)) return false;
+
+            if (providerPhoneFilter && !providerEmails.includes(clientEmail)) return false;
 
             const streaming = (c.Streaming || "").toString().toUpperCase();
             const paymentMethod = (c['Metodo de pago'] || "").toString().toLowerCase().trim();
@@ -941,11 +962,10 @@ async function handleSendManualPaymentMethods(message, command, client, userStat
  */
 async function notifyProviderExpiringAccounts(client) {
     try {
-        const report = await getUpcomingExpirationsReport();
-        if (report.includes("No hay cuentas próximas a vencer")) return;
-
-        // Número del proveedor (ejemplo, ajustar si es necesario)
         const providerNumber = "573027892574@c.us";
+        const report = await getUpcomingExpirationsReport("573027892574");
+        if (report.includes("No hay vencimientos programados") || report.includes("Error generando reporte")) return;
+
         const msg = `🤖 *AVISO DE RENOVACIONES PRÓXIMAS*\n\nHola, te paso el reporte de las cuentas que vencen pronto para gestionar las renovaciones:\n\n${report}`;
 
         await client.sendMessage(providerNumber, msg);

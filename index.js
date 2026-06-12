@@ -1188,6 +1188,73 @@ app.post('/api/admin/accounts/add', async (req, res) => {
     }
 });
 
+app.get('/api/admin/provider-emails', (req, res) => {
+    try {
+        const file = path.join(__dirname, 'provider_emails.json');
+        if (fs.existsSync(file)) {
+            const data = fs.readFileSync(file, 'utf8');
+            return res.json(JSON.parse(data));
+        }
+        res.json([]);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/provider-emails/save', (req, res) => {
+    try {
+        const { email, providerNumber, notes, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!email || !providerNumber) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+
+        const file = path.join(__dirname, 'provider_emails.json');
+        let data = [];
+        if (fs.existsSync(file)) {
+            data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        }
+
+        const cleanEmail = email.toLowerCase().trim();
+        const index = data.findIndex(item => item.email.toLowerCase().trim() === cleanEmail);
+        const newItem = {
+            email: cleanEmail,
+            providerNumber: providerNumber.trim(),
+            notes: (notes || "").trim()
+        };
+
+        if (index !== -1) {
+            data[index] = newItem;
+        } else {
+            data.push(newItem);
+        }
+
+        fs.writeFileSync(file, JSON.stringify(data, null, 2));
+        res.json({ success: true, message: 'Correo de proveedor guardado con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/provider-emails/delete', (req, res) => {
+    try {
+        const { email, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!email) return res.status(400).json({ error: 'Faltan campos obligatorios' });
+
+        const file = path.join(__dirname, 'provider_emails.json');
+        if (fs.existsSync(file)) {
+            let data = JSON.parse(fs.readFileSync(file, 'utf8'));
+            const cleanEmail = email.toLowerCase().trim();
+            const filtered = data.filter(item => item.email.toLowerCase().trim() !== cleanEmail);
+            fs.writeFileSync(file, JSON.stringify(filtered, null, 2));
+            res.json({ success: true, message: 'Correo de proveedor eliminado con éxito' });
+        } else {
+            res.status(404).json({ success: false, message: 'Archivo no encontrado' });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/admin/gmail-inboxes', (req, res) => {
     try {
         const tokensDir = path.join(__dirname, 'tokens');
