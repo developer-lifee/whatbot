@@ -2659,8 +2659,8 @@ async function baseProcessIncomingMessage(messages) {
             ];
             const isCodeRequest = wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) || cleanBody === '?';
 
-            if (solvableIntents.includes(detection.intent) || isMenuSelection || isCodeRequest) {
-                console.log(`[BOT MUTE REACTIVATE IMMEDIATE] Reactivando bot porque el mensaje de @${userId} es resoluble de inmediato. Intent=${detection.intent}, isCode=${isCodeRequest}`);
+            if (isMenuSelection || isCodeRequest) {
+                console.log(`[BOT MUTE REACTIVATE IMMEDIATE] Reactivando bot porque el mensaje de @${userId} es resoluble de inmediato (Menú/Código). isCode=${isCodeRequest}`);
                 userStates.delete(userId);
                 currentState = undefined;
                 isSolvable = true;
