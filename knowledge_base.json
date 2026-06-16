@@ -22,9 +22,10 @@
     "Spotify": "Si la cuenta vuelve a 'Free', debe reportarlo con una foto para enviarle una nueva invitación familiar. REGLA DE PRECIO: Solo los 'Owners' (dueños que proveen el plan familiar) pagan $8,000. Las cuentas normales (invitados) pagan el precio estándar de cuenta propia."
   },
   "general_policies": {
-    "refunds": "No hay reembolsos en efectivo, pero se garantiza la reposición del servicio o el saldo a favor para otras plataformas en caso de fallas masivas.",
+    "refunds": "Los reembolsos aprobados se efectuarán 24 horas después de la disponibilidad de los agentes, ya que el equipo prioriza resolver problemas de soporte técnico urgentes. No se reembolsa dinero en efectivo por no funcionamiento o demoras en la entrega de productos si estos ya han sido efectivamente entregados al cliente; en su lugar, la diferencia de valor o saldo restante se guarda en su totalidad como un saldo a favor en la cuenta del cliente para comprar o renovar cualquier otra plataforma en Sheerit Store.",
     "renewals": "Apreciamos que confirmes tu renovación con antelación para mantener tus perfiles y listas intactos.",
-    "payments": "El método preferido y más rápido es QR Negocios para validación automática 24/7."
+    "payments": "El método preferido y más rápido es QR Negocios para validación automática 24/7.",
+    "data_privacy": "Al comprar en Sheerit Store, el cliente autoriza el tratamiento de sus datos personales (nombre, apellido, WhatsApp, localidad y operador telefónico) bajo la Ley 1581 de 2012 de Habeas Data de Colombia, únicamente para la gestión de su compra, validación de pagos y soporte técnico."
   },
   "support_protocol": {
     "first_step": "Si el usuario reporta un error o caída sin dar detalles, pídele una foto o pantallazo del error. SIN EMBARGO, si el usuario especifica claramente que es un problema de 'contraseña incorrecta', 'credenciales' o se niega a enviar la foto, NO insistas con la foto y procede a revisar o actualizar sus credenciales.",

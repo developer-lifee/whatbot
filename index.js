@@ -1520,6 +1520,66 @@ app.post('/api/support/upload', upload.single('image'), (req, res) => {
     }
 });
 
+app.get('/api/admin/policies', (req, res) => {
+    try {
+        const policiesPath = path.join(__dirname, 'policies.json');
+        if (fs.existsSync(policiesPath)) {
+            const data = fs.readFileSync(policiesPath, 'utf8');
+            return res.json(JSON.parse(data));
+        }
+        res.status(404).json({ error: 'Archivo de políticas no encontrado' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/policies/save', (req, res) => {
+    try {
+        const { password, policies } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+        if (!policies) return res.status(400).json({ success: false, message: 'Datos de políticas ausentes' });
+
+        const policiesPath = path.join(__dirname, 'policies.json');
+        fs.writeFileSync(policiesPath, JSON.stringify(policies, null, 2), 'utf8');
+
+        // Sincronizar automáticamente con knowledge_base.json del bot
+        const kbPath = path.join(__dirname, 'knowledge_base.json');
+        if (fs.existsSync(kbPath)) {
+            try {
+                const kb = JSON.parse(fs.readFileSync(kbPath, 'utf8'));
+                if (kb.general_policies) {
+                    const tcRefunds = policies.terms_and_conditions.find(s => s.title.toLowerCase().includes('reembolso'));
+                    if (tcRefunds && tcRefunds.paragraphs && tcRefunds.paragraphs.length > 0) {
+                        kb.general_policies.refunds = tcRefunds.paragraphs.join(' ');
+                    }
+                    const tcHabeas = policies.terms_and_conditions.find(s => s.title.toLowerCase().includes('datos personales') || s.title.toLowerCase().includes('habeas data'));
+                    if (tcHabeas && tcHabeas.paragraphs && tcHabeas.paragraphs.length > 0) {
+                        kb.general_policies.data_privacy = tcHabeas.paragraphs.join(' ');
+                    }
+                    fs.writeFileSync(kbPath, JSON.stringify(kb, null, 2), 'utf8');
+                }
+            } catch (err) {
+                console.error('[Policies Save] Error syncing knowledge base:', err.message);
+            }
+        }
+
+        // Ejecutar script python para regenerar PDFs
+        const { exec } = require('child_process');
+        const scriptPath = path.join(__dirname, 'scratch', 'generate_pdfs.py');
+        exec(`python3 "${scriptPath}"`, (error, stdout, stderr) => {
+            if (error) {
+                console.error(`[Policies Save] Error regenerando PDFs: ${error.message}`);
+                return res.json({ success: true, warning: 'Políticas guardadas y bot actualizado, pero falló la generación de PDFs.', error: error.message });
+            }
+            console.log(`[Policies Save] PDFs regenerados con éxito: ${stdout}`);
+            res.json({ success: true, message: 'Políticas guardadas, bot actualizado y PDFs regenerados con éxito.' });
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+
 const server = http.createServer(app);
 const port = process.env.PORT || 3000;
 

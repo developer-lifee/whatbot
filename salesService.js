@@ -799,18 +799,21 @@ function getDynamicPaymentMessage(hasManual = false) {
 
       msg += paymentLines.join('\n') + '\n';
       
+      const tcClause = "\n\n📝 *Términos y Condiciones:* Al realizar tu transferencia y continuar con la compra, confirmas que aceptas nuestros *Términos y Condiciones*, nuestras *Políticas de Reembolso y Cambios* (reembolsos en 24h tras disponibilidad de agentes; cambios de plataforma acumulados como saldo a favor, sin devoluciones en efectivo si ya fue entregado) y autorizas el *Tratamiento de tus Datos Personales* (Ley 1581 de 2012 Habeas Data). Puedes consultarlos en sheerit.com.co. 🌐";
+      
       if (hasManual) {
         msg += `\n💡 *Nota:* Dado que tu pedido contiene servicios que requieren activación manual o están temporalmente sin cupos automáticos, el registro y la entrega de tus credenciales serán realizados de forma **manual por un asesor** tras verificar tu pago. ¡Agradecemos tu paciencia! 😊`;
       } else if (manualLabels.length > 0) {
         msg += `\n💡 *Nota:* Si prefieres pagar por ${manualLabels.join(', ')} directo, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊`;
       }
-      return msg;
+      return msg + tcClause;
   } catch (e) {
     console.error("Error reading payment config in salesService:", e.message);
   }
+  const fallbackTc = "\n\n📝 *Términos y Condiciones:* Al realizar tu transferencia y continuar con la compra, confirmas que aceptas nuestros *Términos y Condiciones*, nuestras *Políticas de Reembolso y Cambios* (reembolsos en 24h tras disponibilidad de agentes; cambios de plataforma acumulados como saldo a favor, sin devoluciones en efectivo si ya fue entregado) y autorizas el *Tratamiento de tus Datos Personales* (Ley 1581 de 2012 Habeas Data). Puedes consultarlos en sheerit.com.co. 🌐";
   return hasManual
-    ? "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V**\n\n💡 *Nota:* Dado que tu pedido requiere activación manual o está sin stock automático, un asesor verificará y entregará tu cuenta de forma manual. ¡Agradecemos tu paciencia! 😊"
-    : "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V** (RECOMENDADO: entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Daviplata, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊";
+    ? "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V**\n\n💡 *Nota:* Dado que tu pedido requiere activación manual o está sin stock automático, un asesor verificará y entregará tu cuenta de forma manual. ¡Agradecemos tu paciencia! 😊" + fallbackTc
+    : "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V** (RECOMENDADO: entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Daviplata, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊" + fallbackTc;
 }
 
 module.exports = {

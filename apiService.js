@@ -130,9 +130,11 @@ async function fetchCustomersData(retries = 3, delay = 2000) {
     const data = await fetchRawData(retries, delay);
     if (!Array.isArray(data)) return [];
     return data.map((cliente, index) => {
-        cliente._rowNumber = index + 2;
+        if (cliente) {
+            cliente._rowNumber = index + 2;
+        }
         return cliente;
-    }).filter(cliente => typeof cliente.Nombre === 'string' && cliente.Nombre.trim() !== "");
+    }).filter(cliente => cliente !== null && cliente !== undefined);
   } catch (err) {
     throw err;
   }
