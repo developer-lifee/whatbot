@@ -899,10 +899,15 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
       replyText += ' 🤖';
     }
 
-    const needsEscalation = replyText.toLowerCase().includes('asesor') ||
-      replyText.toLowerCase().includes('humano') ||
-      replyText.toLowerCase().includes('soporte técnico') ||
-      replyText.toLowerCase().includes('revisar tu caso');
+    let needsEscalation = false;
+    if (replyText.includes('[ESCALAR]')) {
+      needsEscalation = true;
+      replyText = replyText.replace('[ESCALAR]', '').trim();
+      // Ensure the bot icon 🤖 is still appended nicely at the end if we stripped it
+      if (!replyText.includes('🤖')) {
+        replyText += ' 🤖';
+      }
+    }
 
     return {
       replyMessage: replyText,

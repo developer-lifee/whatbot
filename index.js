@@ -121,6 +121,11 @@ function saveUserStates() {
 // Sobrescribir Map.set y Map.delete para auto-guardar
 const originalSet = userStates.set.bind(userStates);
 userStates.set = function (key, value) {
+    if (value && typeof value === 'object' && value.state === 'waiting_human') {
+        if (!value.waitingTimestamp) {
+            value.waitingTimestamp = Date.now();
+        }
+    }
     const result = originalSet(key, value);
     saveUserStates();
     return result;
@@ -4386,8 +4391,15 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 }
 
                 try {
-                    const chats = await client.getChats();
-                    const appleGroup = chats.find(c => c.isGroup && c.name.toLowerCase().includes('usuarios apple'));
+                    let appleGroup = null;
+                    try {
+                        appleGroup = await client.getChatById('120363401686024541@g.us');
+                    } catch (chatErr) {
+                        console.warn("No se pudo obtener el grupo por ID, buscando por nombre...", chatErr.message);
+                        const chats = await client.getChats();
+                        appleGroup = chats.find(c => c.isGroup && c.name.toLowerCase().includes('usuarios apple'));
+                    }
+
                     if (appleGroup) {
                         const groupMsg = `🚨 *NUEVO REGISTRO APPLE ONE* 🚨\n\n` +
                             `👤 *Cliente:* @${userId.replace('@c.us', '')}\n` +
