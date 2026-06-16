@@ -229,10 +229,27 @@ Los endpoints que ejecutan acciones de escritura o envío de mensajes de WhatsAp
 
 ---
 
+## 🛠️ Actualizaciones Recientes (16 de Junio de 2026)
+
+### 1. 💾 Migración y Persistencia
+- **Migración a Base de Datos Local**: Base de datos MySQL migrada en su totalidad desde Freehostia a una instancia local de MariaDB en el VPS (`127.0.0.1`), garantizando tiempos de respuesta ultrarrápidos y eliminando límites de cuotas.
+- **Persistencia de Ventas PSE**: Las ventas pendientes validadas vía webhook de Bold se guardan localmente en `pending_sales.json`, evitando la pérdida de transacciones pendientes si el bot se reinicia.
+
+### 2. 📧 Bandeja y Enlaces de Restablecimiento
+- **Lectura Ampliada de Enlaces**: El lector de Gmail en `gmailService.js` se actualizó con soporte de regex para extraer enlaces de recuperación complejos con subdominios (Crunchyroll, Paramount+, etc.).
+- **Interactividad del Panel de Correos**: En el frontend (`ManagedEmailsView.tsx`), se corrigió el cierre accidental de las tarjetas de correo al interactuar con ellas, permitiendo copiar códigos 2FA y pulsar en enlaces sin contraer la interfaz.
+
+### 3. 👥 Gestión de Tickets y Control de Soporte
+- **Notificación por ID de "Usuarios Apple"**: Envío directo de activaciones de Apple One al ID exacto del grupo `120363401686024541@g.us`, anexando automáticamente la cuenta libre encontrada en el Excel y su respectiva fila.
+- **Controles de Modo y Liberación**: Agregados botones interactivos en la bandeja del chat administrativo (`TicketsView.tsx`) y endpoints (`/api/admin/tickets/update-mode` y `/api/admin/tickets/release`) para cambiar de manera manual/automática el estado de soporte del bot o liberar el chat por completo.
+- **Escalación Directa**: Eliminación de falsos positivos en la auto-resolución de tickets por IA, derivando cualquier solicitud de soporte directamente a cola humana y formateando la posición (`waitingTimestamp`) de manera precisa.
+
+---
+
 ## 🪵 Formato de Logueo del Servidor (Logs)
 
 El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`console.log`) integrado al arranque:
 1.  **Estampa de Tiempo Local:** Todos los logs generados en el servidor imprimen automáticamente un prefijo con la hora de Colombia (`America/Bogota`), ej: `[02/06/2026 18:40:00] [System] Estado cargado...`.
 2.  **Monitoreo del Navegador (Heartbeat):** Cada 5 minutos se ejecuta y registra un reporte de salud del navegador (Puppeteer) para detectar cuelgues (estados zombies), reiniciando el proceso en caso de fallo crítico para que PM2 lo levante de nuevo.
 
-*(Documentación actualizada al 6 de Junio de 2026)*
+*(Documentación actualizada al 16 de Junio de 2026)*

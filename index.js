@@ -1059,6 +1059,50 @@ app.post('/api/admin/tickets/claim', async (req, res) => {
     }
 });
 
+app.post('/api/admin/tickets/update-mode', async (req, res) => {
+    try {
+        const { phone, mode, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        const currentState = userStates.get(userId);
+
+        if (!currentState) {
+            userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: mode });
+            return res.json({ success: true, message: `Estado creado y modo configurado a ${mode}` });
+        }
+
+        let updatedState = {};
+        if (typeof currentState === 'string') {
+            updatedState = { state: currentState, waiting_human_mode: mode };
+        } else {
+            updatedState = { ...currentState, waiting_human_mode: mode };
+        }
+
+        if (mode === 'advisor') {
+            updatedState.lastHumanInteraction = Date.now();
+        }
+
+        userStates.set(userId, updatedState);
+        res.json({ success: true, message: `Modo actualizado a ${mode}` });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/tickets/release', async (req, res) => {
+    try {
+        const { phone, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        userStates.delete(userId);
+        res.json({ success: true, message: 'Bot reactivado y chat liberado' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.post('/api/admin/tickets/resolve', async (req, res) => {
     try {
         const { phone, password, resolveAll } = req.body;
