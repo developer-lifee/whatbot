@@ -428,22 +428,37 @@ function getMessageBody(payload) {
     return body;
 }
 
+
 function cleanHtml(html) {
     if (!html) return "";
     let text = html.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
     text = text.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
     text = text.replace(/<br\s*\/?>/gi, '\n');
     text = text.replace(/<\/p>/gi, '\n');
+    text = text.replace(/<\/tr>/gi, '\n');
+    text = text.replace(/<\/div>/gi, '\n');
+    // Preservar URLs de enlaces: convierte <a href="URL">Texto</a> → Texto (URL)
+    text = text.replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (match, url, linkText) => {
+        const cleanLinkText = linkText.replace(/<[^>]+>/g, '').trim();
+        // Solo mostrar la URL si es un link real (http) y diferente al texto
+        if (/^https?:\/\//i.test(url) && cleanLinkText.toLowerCase() !== url.toLowerCase()) {
+            return `${cleanLinkText} (${url})`;
+        }
+        return cleanLinkText || url;
+    });
     text = text.replace(/<[^>]+>/g, '');
     text = text.replace(/&nbsp;/g, ' ')
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
         .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
+        .replace(/&#39;/g, "'")
+        .replace(/&iquest;/g, '¿')
+        .replace(/&#[0-9]+;/g, '');
     text = text.replace(/\n\s*\n+/g, '\n\n');
     return text.trim();
 }
+
 
 async function getEmailsFromInbox(email, maxResults = 15) {
     const auth = await getOAuth2Client('gmail', null, email);
