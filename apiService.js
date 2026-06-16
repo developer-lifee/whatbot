@@ -61,8 +61,12 @@ let historicoCache = null;
 let historicoCacheTime = 0;
 const CACHE_DURATION = 30000; // 30 segundos
 
-async function fetchRawData(retries = 3, delay = 2000) {
+async function fetchRawData(retries = 3, delay = 2000, force = false) {
   const now = Date.now();
+  if (force) {
+    rawDataCache = null;
+    rawDataCacheTime = 0;
+  }
   if (rawDataCache && (now - rawDataCacheTime < CACHE_DURATION)) {
     return rawDataCache;
   }
@@ -93,7 +97,6 @@ async function fetchRawData(retries = 3, delay = 2000) {
         return data;
         
       } catch (error) {
-        // Reducir la severidad si no es el último intento
         if (i === retries - 1) {
           console.error(`[API Service] Error al obtener datos (Intento final ${i + 1}/${retries}):`, error.message);
           console.warn('[API Service] La API de Azure no responde. Intentando fallback a excel_cache.json...');
@@ -125,9 +128,9 @@ async function fetchRawData(retries = 3, delay = 2000) {
   }
 }
 
-async function fetchCustomersData(retries = 3, delay = 2000) {
+async function fetchCustomersData(retries = 3, delay = 2000, force = false) {
   try {
-    const data = await fetchRawData(retries, delay);
+    const data = await fetchRawData(retries, delay, force);
     if (!Array.isArray(data)) return [];
     return data.map((cliente, index) => {
         if (cliente) {

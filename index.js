@@ -362,7 +362,8 @@ app.get('/api/public/recommended-combo', async (req, res) => {
 app.get('/api/admin/clients', async (req, res) => {
     try {
         const { fetchCustomersData } = require('./apiService');
-        const clients = await fetchCustomersData();
+        const force = req.query.force === 'true';
+        const clients = await fetchCustomersData(3, 2000, force);
         res.json(clients);
     } catch (e) {
         res.status(500).json({ error: e.message });
