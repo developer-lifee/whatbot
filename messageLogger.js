@@ -64,16 +64,49 @@ async function saveMessage(message, botIntent = null) {
     }
 
     try {
+        const columns = await getMessagesTableColumns();
+        
+        let queryFields = ['message_id', 'chat_id', 'sender_id', 'sender_name', 'body', 'media_path', 'media_mime', 'bot_intent'];
+        let queryValues = [messageId, chatId, senderId, senderName, body, mediaPath, mediaMime, botIntent];
+        
+        if (columns.includes('direction')) {
+            queryFields.push('direction');
+            queryValues.push(isFromMe ? 'outbound' : 'inbound');
+        } else if (columns.includes('is_from_me')) {
+            queryFields.push('is_from_me');
+            queryValues.push(isFromMe);
+        } else if (columns.includes('isFromMe')) {
+            queryFields.push('isFromMe');
+            queryValues.push(isFromMe);
+        }
+
+        const placeholders = queryFields.map(() => '?').join(', ');
+        const fieldsStr = queryFields.join(', ');
+        
         await pool.query(
-            `INSERT INTO messages (message_id, chat_id, sender_id, sender_name, body, media_path, media_mime, is_from_me, bot_intent)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `INSERT INTO messages (${fieldsStr})
+             VALUES (${placeholders})
              ON DUPLICATE KEY UPDATE body = VALUES(body), media_path = VALUES(media_path), bot_intent = VALUES(bot_intent)`,
-            [messageId, chatId, senderId, senderName, body, mediaPath, mediaMime, isFromMe, botIntent]
+            queryValues
         );
         console.log(`[Message Logger] Mensaje ${messageId || ''} guardado en BD.`);
     } catch (dbErr) {
         console.error("[Message Logger] Error inserting message into DB:", dbErr.message);
     }
+}
+
+let messagesTableColumns = null;
+
+async function getMessagesTableColumns() {
+    if (messagesTableColumns) return messagesTableColumns;
+    try {
+        const [rows] = await pool.query("DESCRIBE messages");
+        messagesTableColumns = rows.map(r => r.Field);
+    } catch (e) {
+        console.warn("[Message Logger] Error describing table, falling back to defaults:", e.message);
+        messagesTableColumns = ['message_id', 'chat_id', 'sender_id', 'sender_name', 'body', 'media_path', 'media_mime', 'direction', 'bot_intent'];
+    }
+    return messagesTableColumns;
 }
 
 module.exports = {

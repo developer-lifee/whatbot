@@ -18,6 +18,7 @@ const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 
 // Funciones auxiliares de estabilidad
+const { saveMessage } = require('./messageLogger');
 function isCriticalBrowserError(err) {
     if (!err || !err.message) return false;
     const msg = err.message.toLowerCase();
@@ -1579,6 +1580,76 @@ app.post('/api/admin/policies/save', (req, res) => {
     }
 });
 
+app.get('/api/admin/chat-messages', async (req, res) => {
+    try {
+        const { phone } = req.query;
+        if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        if (!client || !client.info) {
+            return res.status(503).json({ error: 'WhatsApp client is not ready' });
+        }
+
+        const chat = await client.getChatById(userId);
+        const messages = await chat.fetchMessages({ limit: 40 });
+
+        const formatted = messages.map(m => ({
+            id: m.id ? m.id._serialized : null,
+            body: m.body || "",
+            fromMe: m.fromMe,
+            timestamp: m.timestamp * 1000,
+            type: m.type,
+            hasMedia: m.hasMedia
+        }));
+
+        res.json(formatted);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/chat-messages/send', async (req, res) => {
+    try {
+        const { phone, message, emoji, agentName, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!phone || !message) return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        if (!client || !client.info) {
+            return res.status(503).json({ success: false, message: 'WhatsApp client is not ready' });
+        }
+
+        // Concatenar el emoji del asesor si está presente
+        const prefix = emoji ? `${emoji.trim()} ` : "";
+        const finalMessage = prefix + message;
+
+        await client.sendMessage(userId, finalMessage);
+
+        // Silenciar el bot para este usuario (modo advisor) ya que hay interacción manual
+        const currentState = userStates.get(userId) || {};
+        userStates.set(userId, {
+            state: 'waiting_human',
+            waitingCount: 0,
+            lastHumanInteraction: Date.now(),
+            waiting_human_mode: 'advisor',
+            agent: agentName || currentState.agent || null,
+            lastMessage: finalMessage,
+            lastMessageTime: Date.now()
+        });
+
+        // Remover de la cola de soporte activo si está en ella
+        if (global.supportQueue) {
+            const qIdx = global.supportQueue.indexOf(userId);
+            if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
+        }
+
+        res.json({ success: true, message: 'Mensaje enviado correctamente' });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+
 
 const server = http.createServer(app);
 const port = process.env.PORT || 3000;
@@ -2041,11 +2112,14 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
             if (codes && codes.length > 0) {
                 const latest = codes[0];
-                let response = `🤖 *Código de ${streamingName} Encontrado* 🚀\n\n`;
+                let response = `🤖 *Código / Enlace de ${streamingName} Encontrado* 🚀\n\n`;
                 if (latest.code) {
                     response += `🔢 Código: *${latest.code}*\n`;
                 }
-                response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código vence pronto._`;
+                if (latest.link) {
+                    response += `🔗 Enlace de inicio de sesión:\n👉 ${latest.link}\n\n`;
+                }
+                response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código/enlace vence pronto._`;
                 await message.reply(response);
                 userStates.delete(userId);
                 return;
@@ -2353,52 +2427,58 @@ async function baseProcessIncomingMessage(messages) {
         const mode = (currentStateData && typeof currentStateData === 'object') ? (currentStateData.waiting_human_mode || 'bot') : 'bot';
         const cleanInput = (message.body || '').trim().toLowerCase();
 
-        // Verificar si el modo advisor ha expirado por inactividad del asesor (más de 2 horas)
-        let isAdvisorExpired = false;
-        if (mode === 'advisor') {
-            const lastInteraction = (currentStateData && currentStateData.lastHumanInteraction) || 0;
-            if (lastInteraction > 0) {
-                const timeSinceLastHumanMs = Date.now() - lastInteraction;
-                const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
+        // 1. Evaluar de inmediato si es una intención resoluble para reactivar el bot (incluso si está en modo advisor/silenciado)
+        let isSolvable = false;
+        let mediaData = null;
+        if (message.hasMedia) {
+            try {
+                const media = await message.downloadMedia();
+                if (media && media.data && media.mimetype) {
+                    mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
+                }
+            } catch (e) { }
+        }
 
-                if (minutesSinceLastHuman > 120) {
-                    console.log(`[BOT MUTE EXPIRE] El asesor no ha interactuado en ${minutesSinceLastHuman.toFixed(1)} minutos con @${userId}. Expirando modo advisor.`);
-                    isAdvisorExpired = true;
-                } else if (minutesSinceLastHuman > 30) {
-                    // El cliente lleva más de 30 minutos esperando sin respuesta del asesor.
-                    // Verificamos si el bot es capaz de resolver la consulta actual antes de alertar
-                    let mediaData = null;
-                    if (message.hasMedia) {
-                        try {
-                            const media = await message.downloadMedia();
-                            if (media && media.data && media.mimetype) {
-                                mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
-                            }
-                        } catch (e) { }
-                    }
+        try {
+            const { detectInitialIntent } = require('./aiService');
+            const hist = await getChatHistoryText(message, 15);
+            const detection = await detectInitialIntent(message.body, hist, mediaData);
 
-                    const { detectInitialIntent } = require('./aiService');
-                    const hist = await getChatHistoryText(message, 15);
-                    const detection = await detectInitialIntent(message.body, hist, mediaData);
+            const cleanBody = (message.body || "").trim();
+            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
+            const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
+            
+            const wantsCodeKeywords = [
+                'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código',
+                'enviar código', 'enviar codigo', 'el código', 'el codigo',
+                'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
+            ];
+            const isCodeRequest = wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) || cleanBody === '?';
 
-                    const cleanBody = (message.body || "").trim();
-                    const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
-                    const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
-                    
-                    const wantsCodeKeywords = [
-                        'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código',
-                        'enviar código', 'enviar codigo', 'el código', 'el codigo',
-                        'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
-                    ];
-                    const isCodeRequest = wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) || cleanBody === '?';
+            if (solvableIntents.includes(detection.intent) || isMenuSelection || isCodeRequest) {
+                console.log(`[BOT MUTE REACTIVATE IMMEDIATE] Reactivando bot porque el mensaje de @${userId} es resoluble de inmediato. Intent=${detection.intent}, isCode=${isCodeRequest}`);
+                userStates.delete(userId);
+                currentState = undefined;
+                isSolvable = true;
+            }
+        } catch (err) {
+            console.error("Error en reactivación inmediata por intenciones:", err.message);
+        }
 
-                    if (solvableIntents.includes(detection.intent) || isMenuSelection || isCodeRequest) {
-                        // SI ES ALGO QUE EL BOT PUEDE RESOLVER: Reactivamos el bot directamente sin enviar alertas de inactividad
-                        console.log(`[BOT MUTE REACTIVATE 30M] Reactivando bot porque el mensaje es resoluble: Intent=${detection.intent}, isCode=${isCodeRequest}`);
-                        userStates.delete(userId);
-                        currentState = undefined;
-                    } else {
-                        // SI EL BOT NO PUEDE RESOLVERLO: Alertar al administrador y dar turno de cola
+        if (!isSolvable) {
+            // Verificar si el modo advisor ha expirado por inactividad del asesor (más de 2 horas)
+            let isAdvisorExpired = false;
+            if (mode === 'advisor') {
+                const lastInteraction = (currentStateData && currentStateData.lastHumanInteraction) || 0;
+                if (lastInteraction > 0) {
+                    const timeSinceLastHumanMs = Date.now() - lastInteraction;
+                    const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
+
+                    if (minutesSinceLastHuman > 120) {
+                        console.log(`[BOT MUTE EXPIRE] El asesor no ha interactuado en ${minutesSinceLastHuman.toFixed(1)} minutos con @${userId}. Expirando modo advisor.`);
+                        isAdvisorExpired = true;
+                    } else if (minutesSinceLastHuman > 30) {
+                        // SI EL BOT NO PUEDE RESOLVERLO Y YA PASARON 30 MIN: Alertar al administrador y dar turno de cola
                         if (!global.supportQueue) global.supportQueue = [];
                         let turnIdx = global.supportQueue.indexOf(userId);
                         if (turnIdx === -1) {
@@ -2425,7 +2505,7 @@ async function baseProcessIncomingMessage(messages) {
                                 lastWarningTime: Date.now() 
                             });
                         }
-                        return; // Mantener silencio absoluto del bot de cara a resolver intenciones, solo avisa de la espera
+                        return; // Mantener silencio absoluto del bot de cara a resolver intenciones
                     }
                 }
             } else {
@@ -2435,46 +2515,17 @@ async function baseProcessIncomingMessage(messages) {
                     isAdvisorExpired = true;
                 }
             }
-        }
 
-        // Reactivación rápida explícita para ambos modos o si el modo advisor expiró
-        if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot') || isAdvisorExpired) {
-            console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} (expirado o explícito).`);
-            userStates.delete(userId);
-            currentState = undefined;
-        } else if (mode === 'bot') {
-            // El modo 'bot' permite reactivación automática si la IA detecta que el bot puede resolverlo
-            let mediaData = null;
-            if (message.hasMedia) {
-                try {
-                    const media = await message.downloadMedia();
-                    if (media && media.data && media.mimetype) {
-                        mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
-                    }
-                } catch (e) { }
-            }
-
-            const { detectInitialIntent } = require('./aiService');
-            const hist = await getChatHistoryText(message, 15);
-            const detection = await detectInitialIntent(message.body, hist, mediaData);
-
-            const cleanBody = (message.body || "").trim();
-            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
-            const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
-
-            if (solvableIntents.includes(detection.intent) || isMenuSelection) {
-                console.log(`[DEBUG] Reactivando bot desde waiting_human (modo bot) para @${userId} por detección de IA o selección de menú. Intent: ${detection.intent}`);
+            // Reactivación rápida explícita para ambos modos o si el modo advisor expiró
+            if (cleanInput === 'menu' || cleanInput === 'menú' || cleanInput.includes('@bot') || isAdvisorExpired) {
+                console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} (expirado o explícito).`);
                 userStates.delete(userId);
                 currentState = undefined;
-                // Continúa el flujo
             } else {
-                // Silencio absoluto
+                // Silencio absoluto para consultas no resolubles en modo advisor / bot
+                console.log(`[DEBUG] Usuario @${userId.replace('@c.us', '')} está en waiting_human (modo ${mode}). Manteniendo silencio absoluto.`);
                 return;
             }
-        } else {
-            // Modo 'advisor': Silencio absoluto, conserva el estado y detiene procesamiento
-            console.log(`[DEBUG] Usuario @${userId.replace('@c.us', '')} está en waiting_human (modo advisor). Manteniendo silencio absoluto.`);
-            return;
         }
     }
 
