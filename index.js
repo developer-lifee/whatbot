@@ -4239,6 +4239,30 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
                 await message.reply(`🤖 ¡Perfecto! He recibido tus datos:\n📱 *Número:* ${phoneNumber}\n📧 *Apple ID:* ${appleId}\n\nYa reporté la información al área encargada. Por favor, está al tanto de tu correo electrónico o de tus mensajes de texto, ya que por ahí recibirás las instrucciones e invitación para unerte. ¡Muchas gracias! 😊`);
 
+                let freeAccountMsg = "";
+                try {
+                    const { fetchRawData } = require('./apiService');
+                    const allRows = await fetchRawData(3, 2000, true);
+                    const freeIndex = allRows.findIndex(row => {
+                        const stream = (row.Streaming || row.Plataforma || "").toString().toLowerCase();
+                        if (stream.includes('apple')) {
+                            const whatsapp = (row.whatsapp || "").toString().trim();
+                            const nombre = (row.Nombre || row.nombre || "").toString().trim();
+                            return !whatsapp && (!nombre || nombre.toLowerCase() === 'libre');
+                        }
+                        return false;
+                    });
+                    if (freeIndex !== -1) {
+                        const freeRow = allRows[freeIndex];
+                        freeAccountMsg = `📧 *Cuenta Libre:* ${freeRow.correo || freeRow.Correo || 'Sin correo'}\n📍 *Fila en sistema:* Fila ${freeIndex + 2}\n\n`;
+                    } else {
+                        freeAccountMsg = `⚠️ *Cuenta Libre:* No se encontró ninguna cuenta Apple con cupo libre en el sistema.\n\n`;
+                    }
+                } catch (err) {
+                    console.error("Error finding free Apple account:", err);
+                    freeAccountMsg = `⚠️ *Cuenta Libre:* Error al consultar base de datos (${err.message}).\n\n`;
+                }
+
                 try {
                     const chats = await client.getChats();
                     const appleGroup = chats.find(c => c.isGroup && c.name.toLowerCase().includes('usuarios apple'));
@@ -4247,6 +4271,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             `👤 *Cliente:* @${userId.replace('@c.us', '')}\n` +
                             `📱 *Celular:* ${phoneNumber}\n` +
                             `📧 *Apple ID:* ${appleId}\n\n` +
+                            freeAccountMsg +
                             `Por favor, envíale la invitación familiar.`;
                         await appleGroup.sendMessage(groupMsg);
                     } else {
@@ -4256,7 +4281,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             await adminGroup.sendMessage(`🚨 *NUEVO REGISTRO APPLE ONE* (Grupo 'usuarios apple' no encontrado)\n\n` +
                                 `👤 *Cliente:* @${userId.replace('@c.us', '')}\n` +
                                 `📱 *Celular:* ${phoneNumber}\n` +
-                                `📧 *Apple ID:* ${appleId}`);
+                                `📧 *Apple ID:* ${appleId}\n\n` +
+                                freeAccountMsg);
                         }
                     }
                 } catch (e) {
@@ -4506,6 +4532,12 @@ client.on('message', async (message) => {
 
     // Filtros de grupo
     if (message.from.includes('@g.us')) {
+        try {
+            const chat = await message.getChat();
+            console.log(`[GROUP MSG] Grupo: "${chat.name}" | ID: ${message.from} | De: ${message.author || message.from} | Mensaje: ${message.body || '[Sin texto]'}`);
+        } catch (e) {
+            console.log(`[GROUP MSG] ID: ${message.from} | De: ${message.author || message.from} | Mensaje: ${message.body || '[Sin texto]'}`);
+        }
         // Los mensajes de grupo se procesan instantáneamente (normalmente no hay ráfagas de imágenes para el bot aquí)
         if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
             await processIncomingMessage([message]);
