@@ -4273,16 +4273,27 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 }
                 return;
             } else if (detection.intent === 'soporte') {
-                // Si el usuario pide soporte, le damos la bienvenida y le preguntamos el detalle (o lo escalamos si ya lo dio)
-                const history = await getChatHistoryText(message);
-                const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, history, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
-                if (fallback.replyMessage) {
-                    await safeReply(message, fallback.replyMessage, userId);
-                    if (fallback.needsEscalation) {
-                        userStates.set(userId, { state: 'waiting_human', waitingCount: 1, waiting_human_mode: 'bot' });
-                    } else {
-                        userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                // Si el usuario pide soporte o reporta una falla, lo enviamos directamente a atención humana
+                const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
+                const supportStatus = isSupportOpen();
+                
+                userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+
+                if (!supportStatus.open) {
+                    const config = getSupportScheduleConfig();
+                    const queuePos = getQueuePosition(userId, userStates);
+                    let offlineMsg = config.offline_message || "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos.";
+                    if (queuePos) {
+                        offlineMsg += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}.\n⚠️ _(Nota: Dado que estamos fuera de nuestro horario de atención, tu turno no avanzará hasta que nuestros asesores inicien labores de nuevo)._`;
                     }
+                    await safeReply(message, offlineMsg + " 🤖", userId);
+                } else {
+                    const queuePos = getQueuePosition(userId, userStates);
+                    let replyText = "🤖 Entendido. He transferido tu caso a soporte técnico. Un asesor humano te atenderá lo antes posible.";
+                    if (queuePos) {
+                        replyText += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}. ¡Gracias por tu paciencia!`;
+                    }
+                    await safeReply(message, replyText, userId);
                 }
                 return;
             }
@@ -4758,6 +4769,29 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     return;
                 } else if (detection.intent === 'credenciales') {
                     await processCheckCredentials(userId, client, message.body, "", userStates);
+                    return;
+                } else if (detection.intent === 'soporte') {
+                    const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
+                    const supportStatus = isSupportOpen();
+                    
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+
+                    if (!supportStatus.open) {
+                        const config = getSupportScheduleConfig();
+                        const queuePos = getQueuePosition(userId, userStates);
+                        let offlineMsg = config.offline_message || "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos.";
+                        if (queuePos) {
+                            offlineMsg += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}.\n⚠️ _(Nota: Dado que estamos fuera de nuestro horario de atención, tu turno no avanzará hasta que nuestros asesores inicien labores de nuevo)._`;
+                        }
+                        await safeReply(message, offlineMsg + " 🤖", userId);
+                    } else {
+                        const queuePos = getQueuePosition(userId, userStates);
+                        let replyText = "🤖 Entendido. He transferido tu caso a soporte técnico. Un asesor humano te atenderá lo antes posible.";
+                        if (queuePos) {
+                            replyText += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}. ¡Gracias por tu paciencia!`;
+                        }
+                        await safeReply(message, replyText, userId);
+                    }
                     return;
                 }
             }
