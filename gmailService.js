@@ -230,6 +230,59 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
 }
 
 /**
+ * Decodifica una cadena con codificación Quoted-Printable.
+ */
+function decodeQuotedPrintable(str) {
+    if (!str) return '';
+    // 1. Eliminar saltos de línea suaves (soft line breaks: '=' seguido de salto de línea)
+    let decoded = str.replace(/=\r?\n/g, '').replace(/=\n/g, '');
+    
+    // 2. Mapeos comunes de caracteres utf-8 codificados en QP para evitar fallas
+    decoded = decoded
+        .replace(/=C3=B3/gi, 'ó')
+        .replace(/=C3=AD/gi, 'í')
+        .replace(/=C3=A1/gi, 'á')
+        .replace(/=C3=A9/gi, 'é')
+        .replace(/=C3=BA/gi, 'ú')
+        .replace(/=C3=B1/gi, 'ñ')
+        .replace(/=C3=93/gi, 'Ó')
+        .replace(/=C3=8D/gi, 'Í')
+        .replace(/=C3=81/gi, 'Á')
+        .replace(/=C3=89/gi, 'É')
+        .replace(/=C3=9A/gi, 'Ú')
+        .replace(/=C3=91/gi, 'Ñ');
+
+    // 3. Decodificar secuencias =XX convirtiéndolas a %XX para decodeURIComponent (UTF-8)
+    try {
+        let pctEncoded = decoded.replace(/%/g, '%25').replace(/=([0-9A-F]{2})/gi, '%$1');
+        return decodeURIComponent(pctEncoded);
+    } catch (e) {
+        // Fallback en caso de que falle decodeURIComponent (mapeo directo byte a char)
+        return decoded.replace(/=([0-9A-F]{2})/gi, (match, hex) => {
+            return String.fromCharCode(parseInt(hex, 16));
+        });
+    }
+}
+
+/**
+ * Valiza si un código extraído es un código de verificación real.
+ * Evita emparejar años (como 2026) o partes de fechas.
+ */
+function isValidVerificationCode(code, fullText) {
+    if (!code) return false;
+    // Excluir años típicos (como 2024-2035)
+    if (/^(202\d|203\d)$/.test(code)) {
+        return false;
+    }
+    // Si el código está en formato de fecha en el texto (ej. 2026-06-16 o 16-06-2026)
+    const datePattern = new RegExp(`(?:\\d{1,4}[-\\/\\s]\\d{1,2}[-\\/\\s]${code})|(?:${code}[-\\/\\s]\\d{1,2}[-\\/\\s]\\d{1,4})`, 'i');
+    if (datePattern.test(fullText)) {
+        return false;
+    }
+    return true;
+}
+
+/**
  * Busca códigos de verificación (OTP) o inicios de sesión en los últimos minutos en una cuenta específica.
  * @param {string} email El correo donde buscar.
  * @param {number} toleranceMinutes Tiempo máximo hacia atrás.
@@ -270,14 +323,17 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             const snippet = fullMsg.data.snippet || '';
             const bodyData = getMessageBody(fullMsg.data.payload);
 
-            const body = snippet + ' ' + bodyData;
+            const decodedBody = decodeQuotedPrintable(bodyData);
+            const decodedSnippet = decodeQuotedPrintable(snippet);
+
+            const body = decodedSnippet + ' ' + decodedBody;
             const subject = fullMsg.data.payload.headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';
+            const decodedSubject = decodeQuotedPrintable(subject);
 
-            // 1. Limpiar Quoted-Printable (saltos de línea raros y tildes como =C3=B3) y eliminar bloques <style> enteros
-            const unquotedBody = body.replace(/=\r?\n/g, '').replace(/=C3=B3/g, 'ó').replace(/=C3=AD/g, 'í').replace(/=C3=A1/g, 'á').replace(/=C3=A9/g, 'é').replace(/=C3=BA/g, 'ú');
-            const noStyleBody = unquotedBody.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
+            // Eliminar bloques <style> enteros
+            const noStyleBody = body.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
 
-            // 2. Limpiar etiquetas HTML y colores hexadecimales basura residuales
+            // Limpiar etiquetas HTML y colores hexadecimales basura residuales
             const cleanBody = noStyleBody.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');
             const superCleanBody = cleanBody.replace(/\b(?:F9F9F9|FFFFFF|000000|E5E5E5|CCCCCC|DEDEDE)\b/gi, ' ');
 
@@ -287,24 +343,47 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             const specificCodeMatch = superCleanBody.match(/(?:c[oó]digo|pin|code)[\s\S]{0,250}?\b([0-9]{4,8}|[A-Z0-9]{6,8})\b/i);
 
             if (specificCodeMatch && /[0-9]/.test(specificCodeMatch[1])) {
-                code = specificCodeMatch[1].toUpperCase();
-            } else {
+                const tempCode = specificCodeMatch[1].toUpperCase();
+                if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
+                    code = tempCode;
+                }
+            }
+
+            if (!code) {
                 // Fallback 1: Buscar explícitamente 6 dígitos o formato con guion 3-3 (típico en Amazon/Disney+/Netflix)
                 const hyphenMatch = superCleanBody.match(/\b([0-9]{3})-([0-9]{3})\b/);
                 const sixDigitMatch = superCleanBody.match(/\b([0-9]{6})\b/);
                 if (hyphenMatch) {
-                    code = hyphenMatch[1] + hyphenMatch[2];
+                    const tempCode = hyphenMatch[1] + hyphenMatch[2];
+                    if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
+                        code = tempCode;
+                    }
                 } else if (sixDigitMatch) {
-                    code = sixDigitMatch[1];
-                } else {
-                    // Fallback 2: Código alfanumérico mixto (Max)
-                    const alphaNumMatch = superCleanBody.match(/\b([A-Z0-9]{6,8})\b/i);
-                    if (alphaNumMatch && /[A-Z]/i.test(alphaNumMatch[1]) && /[0-9]/.test(alphaNumMatch[1])) {
-                        code = alphaNumMatch[1].toUpperCase();
-                    } else {
-                        // Fallback 3: Cualquier número de 4 a 8 dígitos suelto
-                        const fallbackMatch = superCleanBody.match(/\b\d{4,8}\b/) || snippet.match(/\b\d{4,8}\b/);
-                        code = fallbackMatch ? fallbackMatch[0] : null;
+                    const tempCode = sixDigitMatch[1];
+                    if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
+                        code = tempCode;
+                    }
+                }
+            }
+
+            if (!code) {
+                // Fallback 2: Código alfanumérico mixto (Max)
+                const alphaNumMatch = superCleanBody.match(/\b([A-Z0-9]{6,8})\b/i);
+                if (alphaNumMatch && /[A-Z]/i.test(alphaNumMatch[1]) && /[0-9]/.test(alphaNumMatch[1])) {
+                    const tempCode = alphaNumMatch[1].toUpperCase();
+                    if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
+                        code = tempCode;
+                    }
+                }
+            }
+
+            if (!code) {
+                // Fallback 3: Cualquier número de 4 a 8 dígitos suelto
+                const fallbackMatch = superCleanBody.match(/\b\d{4,8}\b/) || decodedSnippet.match(/\b\d{4,8}\b/);
+                if (fallbackMatch) {
+                    const tempCode = fallbackMatch[0];
+                    if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
+                        code = tempCode;
                     }
                 }
             }
@@ -314,8 +393,8 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             const link = linkMatch ? linkMatch[0] : null;
 
             codesFound.push({
-                subject,
-                snippet: snippet.substring(0, 150),
+                subject: decodedSubject,
+                snippet: decodedSnippet.substring(0, 150),
                 code,
                 link,
                 time: Math.round(diffMinutes)
@@ -399,17 +478,18 @@ async function getEmailsFromInbox(email, maxResults = 15) {
             const snippet = fullMsg.data.snippet || '';
 
             const rawBody = getMessageBody(fullMsg.data.payload);
+            const decodedRawBody = decodeQuotedPrintable(rawBody);
             const isHtml = fullMsg.data.payload.mimeType === 'text/html' || (fullMsg.data.payload.parts && fullMsg.data.payload.parts.some(p => p.mimeType === 'text/html'));
-            const cleanBody = isHtml ? cleanHtml(rawBody) : rawBody;
+            const cleanBody = isHtml ? cleanHtml(decodedRawBody) : decodedRawBody;
 
             emailsList.push({
                 id: msg.id,
-                subject,
-                from,
+                subject: decodeQuotedPrintable(subject),
+                from: decodeQuotedPrintable(from),
                 date: dateStr,
                 internalDate,
-                snippet,
-                body: cleanBody || snippet
+                snippet: decodeQuotedPrintable(snippet),
+                body: cleanBody || decodeQuotedPrintable(snippet)
             });
         }
 
