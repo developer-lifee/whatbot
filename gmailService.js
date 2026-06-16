@@ -248,7 +248,7 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
     try {
         const res = await gmail.users.messages.list({
             userId: 'me',
-            q: 'subject:(código OR code OR inició OR inicio OR login OR otp OR verification OR hogar OR link OR actualiza)',
+            q: 'subject:(código OR code OR inició OR inicio OR iniciar OR sesion OR sesión OR login OR otp OR verification OR hogar OR link OR actualiza OR claude OR anthropic OR "iniciar su sesión" OR "vamos a iniciar")',
             maxResults: 5
         });
 

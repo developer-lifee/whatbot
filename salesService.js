@@ -760,10 +760,12 @@ function getDynamicPaymentMessage(hasManual = false) {
     const isLlavePrincipalActive = config.llave && config.llave.enabled && 
       (config.llave.sub_methods && config.llave.sub_methods.some(s => s.id === 'llave_bot' && s.enabled));
       
-    const limitToAuto = isQrActive && isLlavePrincipalActive;
-    let enabled = Object.keys(config).filter(k => config[k].enabled);
-    if (limitToAuto) {
-      enabled = ['qr_negocios', 'llave'];
+    const limitToAuto = true;
+    let enabled = [];
+    if (isQrActive) enabled.push('qr_negocios');
+    if (isLlavePrincipalActive) enabled.push('llave');
+    if (enabled.length === 0) {
+      enabled = Object.keys(config).filter(k => config[k].enabled);
     }
       
       let msg = "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n";
@@ -780,18 +782,26 @@ function getDynamicPaymentMessage(hasManual = false) {
           }
           activeSubs.forEach(sub => {
             const isAuto = sub.automatic !== undefined ? sub.automatic : method.automatic;
-            if (isAuto && !hasManual) {
-              paymentLines.push(`⭐ **${method.label} ${sub.label}** (RECOMENDADO: entrega inmediata ⚡)`);
+            
+            let formattedLabel;
+            if (k === 'llave' && sub.id === 'llave_bot') {
+              formattedLabel = `*Llave Bre-V:* *${sub.value}*`;
             } else {
-              paymentLines.push(`⭐ **${method.label} ${sub.label}**`);
+              formattedLabel = `*${method.label} ${sub.label}*`;
+            }
+
+            if (isAuto && !hasManual) {
+              paymentLines.push(`⭐ ${formattedLabel} (RECOMENDADO: entrega inmediata ⚡)`);
+            } else {
+              paymentLines.push(`⭐ ${formattedLabel}`);
               manualLabels.push(`${method.label} ${sub.label}`);
             }
           });
         } else {
           if (method.automatic && !hasManual) {
-            paymentLines.push(`⭐ **${method.label}** (RECOMENDADO: entrega inmediata ⚡)`);
+            paymentLines.push(`⭐ *${method.label}* (RECOMENDADO: entrega inmediata ⚡)`);
           } else {
-            paymentLines.push(`⭐ **${method.label}**`);
+            paymentLines.push(`⭐ *${method.label}*`);
             manualLabels.push(method.label);
           }
         }
@@ -812,8 +822,8 @@ function getDynamicPaymentMessage(hasManual = false) {
   }
   const fallbackTc = "\n\n📝 *Términos y Condiciones:* Al realizar tu transferencia y continuar con la compra, confirmas que aceptas nuestros *Términos y Condiciones*, nuestras *Políticas de Reembolso y Cambios* (reembolsos en 24h tras disponibilidad de agentes; cambios de plataforma acumulados como saldo a favor, sin devoluciones en efectivo si ya fue entregado) y autorizas el *Tratamiento de tus Datos Personales* (Ley 1581 de 2012 Habeas Data). Puedes consultarlos en sheerit.com.co. 🌐";
   return hasManual
-    ? "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V**\n\n💡 *Nota:* Dado que tu pedido requiere activación manual o está sin stock automático, un asesor verificará y entregará tu cuenta de forma manual. ¡Agradecemos tu paciencia! 😊" + fallbackTc
-    : "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ **Llave Bre-V** (RECOMENDADO: entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Daviplata, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊" + fallbackTc;
+    ? "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ *Llave Bre-V:* *0087387259*\n\n💡 *Nota:* Dado que tu pedido requiere activación manual o está sin stock automático, un asesor verificará y entregará tu cuenta de forma manual. ¡Agradecemos tu paciencia! 😊" + fallbackTc
+    : "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ *Llave Bre-V:* *0087387259* (RECOMENDADO: entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Daviplata, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊" + fallbackTc;
 }
 
 module.exports = {

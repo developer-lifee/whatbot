@@ -5,8 +5,8 @@ const { pool } = require('./database');
 
 async function saveMessage(message, botIntent = null) {
     const messageId = message.id ? message.id._serialized : null;
-    const chatId = message.from;
-    const senderId = message.author || message.from;
+    const chatId = message.fromMe ? message.to : message.from;
+    const senderId = message.fromMe ? (message.from || 'me') : (message.author || message.from);
     const isFromMe = message.fromMe ? 1 : 0;
     const body = message.body || "";
     
@@ -64,6 +64,30 @@ async function saveMessage(message, botIntent = null) {
     }
 
     try {
+        // Ensure customer and chat exist to avoid foreign key errors
+        if (chatId && chatId.endsWith('@c.us')) {
+            const customerPhone = chatId.replace('@c.us', '');
+            const contactName = senderName || customerPhone;
+            await pool.query(
+                `INSERT IGNORE INTO customers (phone, fullname) VALUES (?, ?)`,
+                [customerPhone, contactName]
+            );
+            
+            await pool.query(
+                `INSERT INTO chats (chat_id, customer_phone, status, last_message_text, last_message_time)
+                 VALUES (?, ?, 'bot', ?, NOW())
+                 ON DUPLICATE KEY UPDATE last_message_text = VALUES(last_message_text), last_message_time = NOW()`,
+                [chatId, customerPhone, body.substring(0, 500)]
+            );
+        } else if (chatId) {
+            await pool.query(
+                `INSERT INTO chats (chat_id, status, last_message_text, last_message_time)
+                 VALUES (?, 'bot', ?, NOW())
+                 ON DUPLICATE KEY UPDATE last_message_text = VALUES(last_message_text), last_message_time = NOW()`,
+                [chatId, body.substring(0, 500)]
+            );
+        }
+
         const columns = await getMessagesTableColumns();
         
         let queryFields = ['message_id', 'chat_id', 'sender_id', 'sender_name', 'body', 'media_path', 'media_mime', 'bot_intent'];

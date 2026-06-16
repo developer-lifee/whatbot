@@ -1590,6 +1590,27 @@ app.get('/api/admin/chat-messages', async (req, res) => {
             return res.status(503).json({ error: 'WhatsApp client is not ready' });
         }
 
+        // 1. Intentar obtener mensajes de la base de datos
+        const [rows] = await pool.query(
+            `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 40`,
+            [userId]
+        );
+
+        if (rows && rows.length > 0) {
+            const formatted = rows.map(m => ({
+                id: m.message_id,
+                body: m.body || "",
+                fromMe: m.direction ? (m.direction === 'outbound') : (m.is_from_me === 1 || m.isFromMe === 1),
+                timestamp: new Date(m.created_at).getTime(),
+                type: m.message_type || 'text',
+                hasMedia: !!m.media_path
+            }));
+            // Retornar en orden cronológico (más antiguos primero)
+            formatted.reverse();
+            return res.json(formatted);
+        }
+
+        // 2. Fallback a Puppeteer si la BD está vacía
         const chat = await client.getChatById(userId);
         const messages = await chat.fetchMessages({ limit: 40 });
 
@@ -1601,6 +1622,11 @@ app.get('/api/admin/chat-messages', async (req, res) => {
             type: m.type,
             hasMedia: m.hasMedia
         }));
+
+        // Guardar en base de datos en segundo plano para poblar el historial
+        for (const msg of messages) {
+            saveMessage(msg).catch(err => console.error("Error guardando mensaje en fallback:", err.message));
+        }
 
         res.json(formatted);
     } catch (e) {
@@ -1855,6 +1881,12 @@ client.on('disconnected', (reason) => {
 client.on('message_create', async (msg) => {
     // Ignorar si el mensaje es antiguo
     if (msg.timestamp < BOT_START_TIME) return;
+
+    // Persistir mensaje en base de datos (ignorar grupos y broadcasts)
+    const targetChatId = msg.fromMe ? msg.to : msg.from;
+    if (targetChatId && !targetChatId.includes('@g.us') && !targetChatId.includes('status@broadcast')) {
+        saveMessage(msg).catch(err => console.error("[DB Save Error] message_create:", err.message));
+    }
 
     // DETECTAR INTERVENCIÓN HUMANA: Si el mensaje lo envío yo manualmente
     // a un chat que NO es un grupo y NO tiene el emoji del bot.
