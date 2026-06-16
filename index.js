@@ -38,6 +38,29 @@ const { getChatHistoryText } = require('./salesService');
 const { checkNewPayments, findMatchingPayment } = require('./gmailService');
 const { processCheckCredentials } = require('./billingService');
 
+const PENDING_SALES_FILE = path.join(__dirname, 'pending_sales.json');
+
+function loadPendingSales() {
+    try {
+        if (fs.existsSync(PENDING_SALES_FILE)) {
+            const data = fs.readFileSync(PENDING_SALES_FILE, 'utf8');
+            return new Map(Object.entries(JSON.parse(data)));
+        }
+    } catch (e) {
+        console.error("Error loading pending sales:", e);
+    }
+    return new Map();
+}
+
+function savePendingSales(map) {
+    try {
+        const obj = Object.fromEntries(map);
+        fs.writeFileSync(PENDING_SALES_FILE, JSON.stringify(obj, null, 2), 'utf8');
+    } catch (e) {
+        console.error("Error saving pending sales:", e);
+    }
+}
+
 // --- CONSTANTES Y ESTADOS GLOBALES ---
 const USER_STATES_FILE = path.join(__dirname, 'user_states.json');
 
@@ -397,12 +420,13 @@ app.post('/api/bold/generate-token', async (req, res) => {
         // Lo correcto sería guardarlo en customers_temp de MySQL si la tabla existe. 
         // Ya que whatbot usa MySQL para `getExpiredAccounts` y no sabemos si `customers_temp` existe, guarderemos en global scope o lo probamos en mysql.
         // Por seguridad lo guardamos en un local map:
-        global.pendingSales = global.pendingSales || new Map();
-        global.pendingSales.set(orderId, {
+        const salesMap = loadPendingSales();
+        salesMap.set(orderId, {
             ...customer,
             numbersStr: numbers.join(','),
             platformName: platform.name
         });
+        savePendingSales(salesMap);
 
         res.json({
             orderId,
@@ -441,8 +465,8 @@ app.post('/api/bold/webhook', async (req, res) => {
         else if (data.subject) orderId = data.subject;
 
         if (eventType === 'SALE_APPROVED') {
-            global.pendingSales = global.pendingSales || new Map();
-            const customerData = global.pendingSales.get(orderId);
+            const salesMap = loadPendingSales();
+            const customerData = salesMap.get(orderId);
 
             if (customerData) {
                 console.log(`Venta aprobada vía Webhook para orden ${orderId}`);
@@ -469,11 +493,109 @@ app.post('/api/bold/webhook', async (req, res) => {
                 const results = await recordNewSale(phoneId, userState, "Bold Pagos");
                 console.log("Resultados guardado en Excel via Bold:", results);
 
-                // Enviar confirmación por WhatsApp
-                let successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema.\nEn breve te asignaremos tus servicios.`;
-                await client.sendMessage(phoneId, successMsg);
+                // --- ALINEACIÓN DE ENTREGA AUTOMÁTICA Y ESTADOS ---
+                let credentialsMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente. 🎉\n\n`;
+                let hasAnyCredentials = false;
+                const { getMaskedAccessData } = require('./aiService');
+                const { getDynamicSupportExpectationMessage } = require('./adminService');
+                
+                results.forEach(res => {
+                    if (res.status === 'success' && res.correo) {
+                        hasAnyCredentials = true;
+                        const masked = getMaskedAccessData({
+                            Streaming: res.name,
+                            correo: res.correo,
+                            contraseña: res.contraseña
+                        });
+                        
+                        const labelPin = (res.name || "").toLowerCase().includes('spotify') ? "DIRECCIÓN/LINK" : "PIN";
+                        const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";
+                        const vencStr = res.vencimiento || "";
+                        const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
+                        
+                        credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}\n`;
+                    }
+                });
 
-                global.pendingSales.delete(orderId);
+                const manualItems = results.filter(res => res.status !== 'success');
+
+                if (hasAnyCredentials) {
+                    const customerName = customerData.firstName || "";
+                    const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
+                    credentialsMsg += profileTip;
+
+                    if (manualItems.length > 0) {
+                        const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                        const expectation = getDynamicSupportExpectationMessage();
+                        credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. ${expectation}`;
+                        try {
+                            const groupChat = await client.getChatById(GROUP_ID);
+                            if (groupChat) {
+                                await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL PARCIAL REQUERIDA* (@${phoneId.replace('@c.us', '')})\n` +
+                                    `Servicios manuales: ${manualPlats}\n` +
+                                    `Por favor, envíale la invitación manualmente.`);
+                            }
+                        } catch (e) { }
+                    }
+
+                    await client.sendMessage(phoneId, credentialsMsg);
+
+                    if (manualItems.length > 0) {
+                        const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
+                        if (hasAppleOne) {
+                            const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
+                                `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
+                                `1. Tu número de teléfono celular\n` +
+                                `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
+                                `*(Ejemplo: 3101234567, miusuario@gmail.com)*`;
+                            await client.sendMessage(phoneId, appleMsg);
+                            userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+                        } else {
+                            userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+                        }
+                    } else {
+                        userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+                    }
+                } else {
+                    if (manualItems.length > 0) {
+                        const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
+                        if (hasAppleOne) {
+                            const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
+                                `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
+                                `1. Tu número de teléfono celular\n` +
+                                `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
+                                `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
+                            await client.sendMessage(phoneId, appleMsg);
+                            userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+                        } else {
+                            let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
+                            const platformsStr = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                            const expectation = getDynamicSupportExpectationMessage();
+                            manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
+                                `${expectation}`;
+                            await client.sendMessage(phoneId, manualMsg);
+
+                            try {
+                                const groupChat = await client.getChatById(GROUP_ID);
+                                if (groupChat) {
+                                    await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA* (@${phoneId.replace('@c.us', '')})\n` +
+                                        `Servicios: ${platformsStr}\n` +
+                                        `Monto: $${customerData.amount || ''}\n` +
+                                        `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
+                                }
+                            } catch (e) { }
+
+                            userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+                        }
+                    } else {
+                        const successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema. En breve te enviaremos tus credenciales.`;
+                        await client.sendMessage(phoneId, successMsg);
+                        userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+                    }
+                }
+
+                salesMap.delete(orderId);
+                savePendingSales(salesMap);
                 return res.json({ message: 'Compra aprobada y proceso iniciado' });
             } else {
                 return res.status(404).json({ message: 'No hay datos en cache para esta orden' });

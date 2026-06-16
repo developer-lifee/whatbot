@@ -309,8 +309,8 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
                 }
             }
 
-            // Intentar extraer links importantes de plataformas (Netflix, Disney+, Max, Star+, Claude, etc) o botones de acceso
-            const linkMatch = body.match(/https:\/\/(?:www\.)?(?:netflix\.com|disneyplus\.com|starplus\.com|max\.com|hbomax\.com|primevideo\.com|amazon\.com|auth\.max\.com|claude\.ai|anthropic\.com|mail\.anthropic\.com)[^\s<>"']+/i);
+            // Intentar extraer links importantes de plataformas (Netflix, Disney+, Max, Star+, Claude, Crunchyroll, etc) o botones de acceso (incluye subdominios)
+            const linkMatch = body.match(/https:\/\/(?:www\.)?(?:[a-zA-Z0-9-]+\.)*(?:netflix\.com|disneyplus\.com|starplus\.com|max\.com|hbomax\.com|primevideo\.com|amazon\.com|auth\.max\.com|claude\.ai|anthropic\.com|mail\.anthropic\.com|crunchyroll\.com|paramountplus\.com|vix\.com|spotify\.com|canva\.com|plex\.tv)[^\s<>"']+/i);
             const link = linkMatch ? linkMatch[0] : null;
 
             codesFound.push({

@@ -119,11 +119,12 @@ async function searchContactByPhone(phone) {
     if (!personasAPI) await initPeopleAPI();
     if (!personasAPI) return null;
 
+    let coreNumber = '';
     try {
         // 1. Extraer número del JID y limpiar caracteres
         const rawPhone = phone.toString().split('@')[0];
         const digitsOnly = rawPhone.replace(/\D/g, '');
-        const coreNumber = digitsOnly.slice(-10);
+        coreNumber = digitsOnly.slice(-10);
 
         if (coreNumber.length < 10) return null;
 
