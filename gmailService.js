@@ -330,8 +330,11 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             const subject = fullMsg.data.payload.headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';
             const decodedSubject = decodeQuotedPrintable(subject);
 
+            // Eliminar URLs completas para evitar extraer números/IDs dentro de enlaces (como el 000000 de Disney+)
+            const bodyWithoutUrls = body.replace(/https?:\/\/[^\s<>"`']+/gi, ' ');
+
             // Eliminar bloques <style> enteros
-            const noStyleBody = body.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
+            const noStyleBody = bodyWithoutUrls.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
 
             // Limpiar etiquetas HTML y colores hexadecimales basura residuales
             const cleanBody = noStyleBody.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');

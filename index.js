@@ -3883,9 +3883,17 @@ async function baseProcessIncomingMessage(messages) {
 
                 globalLastPaymentUserId = userId; // Guardamos en memoria para que el admin solo diga "@bot confirmar"
 
-                const isAutoMethod = check.bank && ['bancolombia', 'bre-b', 'breb'].includes(check.bank.toLowerCase());
+                const AUTO_KEYS = ['0087387259'];
+                const normalizeKey = (k) => (k || '').replace(/[\s\-\.]/g, '');
+                const rawKey = normalizeKey(check.destinationKey);
+                const rawName = (check.destinationName || '').toUpperCase();
+                const QR_NAMES = ['SHEERIT', 'ESTEBAN AVILA'];
+                const isQrMatch = QR_NAMES.some(n => rawName.includes(n));
+                const isAutoKey = rawKey && AUTO_KEYS.some(vk => rawKey.includes(vk) || vk.includes(rawKey));
+
+                const isAutoMethod = isAutoKey || isQrMatch || (check.bank && ['bancolombia', 'bre-b', 'breb'].includes(check.bank.toLowerCase()));
                 const notaTexto = isAutoMethod
-                    ? `Aunque ${check.bank} cuenta con validación automática, no logramos detectar la notificación de tu transferencia en nuestro sistema (a veces el banco tarda en notificar). Por esta razón, nuestro equipo validará tu comprobante de forma manual. Esto puede demorar un poco más. ⏳`
+                    ? `Aunque ${check.bank || 'el medio de pago'} cuenta con validación automática, no logramos detectar la notificación de tu transferencia en nuestro sistema (a veces el banco tarda en notificar). Por esta razón, nuestro equipo validará tu comprobante de forma manual. Esto puede demorar un poco más. ⏳`
                     : `Como enviaste el comprobante por un medio manual (Nequi/Daviplata tradicional), nuestro equipo humano tendrá que verificarlo de forma manual. Esto puede demorar un poco más. ⏳`;
 
                 const replyText = `🤖 He recibido tu comprobante de pago. ¡Muchas gracias! 🎉
