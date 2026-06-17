@@ -754,7 +754,7 @@ async function parsePlanSelection(messageContent, availablePlans) {
  * @returns {Promise<{isReceipt: boolean, amount: number|null, bank: string|null}>}
  */
 async function isPaymentReceipt(mediaData, chatHistory = "") {
-  if (!mediaData) return { isReceipt: false, amount: null, bank: null };
+  if (!mediaData) return { isReceipt: false, amount: null, bank: null, destinationKey: null };
 
   try {
     // 1. Pre-procesar la imagen con Gemini para extraer la descripción visual / OCR
@@ -763,7 +763,7 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
     // 2. Pasar la descripción a DeepSeek para la clasificación estructurada
     const prompt = `
       Analiza la siguiente descripción textual de una imagen/comprobante y determina si corresponde a un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
-      Contexto de la charla (puede que el usuario ya sepa el precio): ${chatHistory}
+      Contexto de la charla: ${chatHistory}
 
       DESCRIPCIÓN DE LA IMAGEN DE PAGO:
       """
@@ -772,19 +772,20 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
 
       Debes responder en formato JSON:
       {
-        "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco (Nequi, Daviplata, Bancolombia, etc.) con una transferencia exitosa.
-        "amount": number | null, // El valor EXACTO de la transferencia (solo números) si es legible en la descripción. Es vital para la validación automática.
-        "bank": string | null, // Nombre del banco detectado (Nequi, Daviplata, Bancolombia, etc.)
+        "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco con una transferencia exitosa.
+        "amount": number | null, // El valor EXACTO de la transferencia (solo números enteros) si es legible.
+        "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, etc.)
         "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
-        "extractedDetails": string | null, // Detalles extra como ID de transacción o fecha/hora mencionada.
-        "inferredPlatform": string | null // Según el historial de charla, ¿qué plataforma está pagando? (ej. 'Netflix', 'Spotify'). null si no es evidente.
+        "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, o destino al que se envió el dinero. Ej: "0087387259", "300 123 4567", "esteban@nequi.com". Extráelo aunque aparezca parcial. MUY IMPORTANTE.
+        "extractedDetails": string | null, // Detalles extra como ID de transacción o fecha/hora.
+        "inferredPlatform": string | null // ¿Qué plataforma está pagando según el historial? null si no es evidente.
       }
 
       Reglas:
-      - Solo marca isReceipt: true si la descripción indica una confirmación de envío/transferencia exitosa.
-      - Si la descripción indica un ERROR, una CUENTA SUSPENDIDA o fallos en general, marca isReceipt: false.
-      - Sé muy riguroso con el 'amount'. Si la descripción contiene varios montos, busca el que corresponda al valor de la transferencia/envío.
-      - Analiza el historial reciente: si el bot le estaba cobrando Netflix, o el usuario dijo "pago de Netflix", inferredPlatform DEBE ser "Netflix".
+      - Solo marca isReceipt: true si indica una confirmación de envío/transferencia exitosa.
+      - Si indica ERROR, CUENTA SUSPENDIDA o fallo, marca isReceipt: false.
+      - Sé muy riguroso con 'amount'. Busca el valor de la transferencia, no montos secundarios.
+      - Para 'destinationKey': busca cualquier número que sea la cuenta, llave, Llave Bre-V, número de celular destino o alias al que se envió. Puede aparecer como "A la llave", "Cuenta destino", "Para", "Número", etc.
     `;
 
     const jsonString = await callDeepSeek(prompt, "Eres un validador de comprobantes de pago bancarios.", true);
@@ -795,11 +796,12 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
       isReceipt: result.isReceipt && result.confidence > 0.7,
       amount: result.amount,
       bank: result.bank,
+      destinationKey: result.destinationKey || null,
       inferredPlatform: result.inferredPlatform || null
     };
   } catch (error) {
     console.error("Error recognizing payment proof:", error);
-    return { isReceipt: false, amount: null, bank: null };
+    return { isReceipt: false, amount: null, bank: null, destinationKey: null };
   }
 }
 

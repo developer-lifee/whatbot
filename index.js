@@ -5018,94 +5018,122 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
             console.log(`[AUTO-VALIDATE] Imagen recibida en awaiting_payment_confirmation para ${userId}. Intentando OCR automático...`);
             try {
                 const { isPaymentReceipt } = require('./aiService');
-                const { findMatchingPayment } = require('./gmailService');
+
+                // Llaves válidas de Sheerit (normalizadas sin espacios ni guiones)
+                const VALID_KEYS = ['0087387259', '46772753713', '1032936324', '3118587974'];
+                const normalizeKey = (k) => (k || '').replace(/[\s\-\.]/g, '');
 
                 const check = await isPaymentReceipt(singleMediaData, `El usuario está en estado de confirmación de pago. Carrito: ${JSON.stringify(stateData.items || [])}. Total esperado: $${stateData.total || 'desconocido'}`);
-                console.log(`[AUTO-VALIDATE] OCR result: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}`);
+                console.log(`[AUTO-VALIDATE] OCR result: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, destinationKey=${check.destinationKey}`);
 
-                if (check.isReceipt && check.amount && check.amount > 0) {
-                    const expectedTotal = stateData.total || 0;
-                    const amountMatches = expectedTotal <= 0 || Math.abs(check.amount - expectedTotal) < 500; // tolerancia de $500
+                if (check.isReceipt) {
+                    const rawKey = normalizeKey(check.destinationKey);
+                    const keyIsValid = rawKey && VALID_KEYS.some(vk => rawKey.includes(vk) || vk.includes(rawKey));
+                    const keyFound = !!rawKey;
 
-                    if (amountMatches) {
-                        console.log(`[AUTO-VALIDATE] ✅ Monto coincide ($${check.amount}). Buscando match en Gmail (ventana 120 min)...`);
-                        const match = await findMatchingPayment(check.amount, 120);
+                    console.log(`[AUTO-VALIDATE] destinationKey normalizada="${rawKey}", keyIsValid=${keyIsValid}`);
 
-                        if (match) {
-                            console.log(`[AUTO-VALIDATE] ✅ Match Gmail encontrado! ID: ${match.id}. Ejecutando entrega automática...`);
-
-                            // Netflix requiere datos del operador primero
-                            let hasNetflix = false;
-                            if (stateData.items && Array.isArray(stateData.items)) {
-                                hasNetflix = stateData.items.some(item => {
-                                    const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
-                                    return name.includes('netflix') && !name.includes('extra');
-                                });
-                            }
-
-                            if (hasNetflix && !stateData.isRenewal) {
-                                await message.reply("🤖 ¡Gracias! He recibido y validado tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
-                                userStates.set(userId, {
-                                    ...stateData,
-                                    state: 'awaiting_netflix_operator_post_payment',
-                                    paymentMethod: check.bank || 'Transferencia',
-                                    checkAmount: check.amount,
-                                    gmailMatchId: match.id
-                                });
-                                return;
-                            }
-
-                            const validationResult = await executePaymentValidation(
-                                userId,
-                                { ...stateData, total: check.amount, paymentMethod: `Auto-OCR (${check.bank || 'Transferencia'})` },
-                                client, userStates, null, match.id
-                            );
-
-                            if (validationResult.success) {
-                                try {
-                                    const groupChat = await client.getChatById(GROUP_ID);
-                                    if (groupChat) {
-                                        let contact;
-                                        try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
-                                        const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
-                                        await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO (Comprobante directo)* (@${realPhone})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Desconocido'}\nID Gmail: ${match.id}\n\nEl bot ya entregó el servicio automáticamente.`);
-                                    }
-                                } catch (e) { }
-                                return;
-                            } else {
-                                console.log(`[AUTO-VALIDATE] executePaymentValidation falló para ${userId}. Continuando con flujo manual.`);
-                            }
-                        } else {
-                            console.log(`[AUTO-VALIDATE] ❌ No se encontró match en Gmail para $${check.amount} (ventana 120 min). Flujo manual.`);
-                        }
-                    } else {
-                        console.log(`[AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) no coincide con lo esperado ($${expectedTotal}). Flujo manual.`);
+                    if (keyFound && !keyIsValid) {
+                        // Llave detectada pero NO es la nuestra → decirle al cliente directamente
+                        console.log(`[AUTO-VALIDATE] ❌ Llave destino inválida: ${rawKey}`);
+                        await message.reply(
+                            `🤖 Revisé tu comprobante y encontré que el pago fue enviado a la llave *${check.destinationKey}*, que no corresponde a ninguna de nuestras cuentas de cobro.\n\n` +
+                            `✅ *Nuestras cuentas oficiales son:*\n` +
+                            `⭐ *Llave Bre-V (NEQUI/Daviplata/Cualquier banco):* \`0087387259\`\n` +
+                            `⭐ *Bancolombia Ahorros:* \`46772753713\`\n\n` +
+                            `Por favor realiza la transferencia a una de estas cuentas y envía nuevamente el comprobante. 😊`
+                        );
+                        userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation' });
+                        return;
                     }
+
+                    if (keyIsValid) {
+                        // ✅ Llave correcta: validar el monto y proceder
+                        const expectedTotal = stateData.total || 0;
+                        const amountMatches = expectedTotal <= 0 || Math.abs(check.amount - expectedTotal) < 500;
+
+                        if (!amountMatches) {
+                            console.log(`[AUTO-VALIDATE] ❌ Monto ${check.amount} no coincide con esperado ${expectedTotal}.`);
+                            await message.reply(
+                                `🤖 Revisé tu comprobante: detecté un pago de *$${check.amount.toLocaleString('es-CO')}* a la llave correcta, ` +
+                                `pero el total de tu pedido es *$${expectedTotal.toLocaleString('es-CO')}*. ` +
+                                `Por favor verifica el monto y envía nuevamente el comprobante correcto. 😊`
+                            );
+                            return;
+                        }
+
+                        console.log(`[AUTO-VALIDATE] ✅ Llave y monto válidos. Ejecutando entrega automática...`);
+
+                        let hasNetflix = false;
+                        if (stateData.items && Array.isArray(stateData.items)) {
+                            hasNetflix = stateData.items.some(item => {
+                                const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                                return name.includes('netflix') && !name.includes('extra');
+                            });
+                        }
+
+                        if (hasNetflix && !stateData.isRenewal) {
+                            await message.reply("🤖 ¡Gracias! He verificado tu pago ✅\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
+                            userStates.set(userId, {
+                                ...stateData,
+                                state: 'awaiting_netflix_operator_post_payment',
+                                paymentMethod: check.bank || 'Transferencia',
+                                checkAmount: check.amount
+                            });
+                            return;
+                        }
+
+                        const validationResult = await executePaymentValidation(
+                            userId,
+                            { ...stateData, total: check.amount || stateData.total, paymentMethod: `Auto-OCR Llave (${check.bank || 'Transferencia'})` },
+                            client, userStates, null, null
+                        );
+
+                        if (validationResult.success) {
+                            try {
+                                const groupChat = await client.getChatById(GROUP_ID);
+                                if (groupChat) {
+                                    let contact;
+                                    try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
+                                    const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
+                                    await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO por LLAVE* (@${realPhone})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Desconocido'}\nLlave destino: ${check.destinationKey}\n\nEl bot ya entregó el servicio automáticamente.`);
+                                }
+                            } catch (e) { }
+                            return;
+                        }
+                    }
+
+                    // Si la llave no fue leída (OCR no la encontró), caer al flujo manual
+                    if (!keyFound) {
+                        console.log(`[AUTO-VALIDATE] No se pudo leer la llave destino en el comprobante. Flujo manual.`);
+                    }
+
+                } else if (check.amount === null && !check.isReceipt) {
+                    // La IA no lo reconoció como comprobante
+                    console.log(`[AUTO-VALIDATE] La imagen no fue reconocida como comprobante de pago.`);
+                    await message.reply("🤖 No pude identificar esta imagen como un comprobante de pago bancario. Por favor envía una captura de pantalla clara de la confirmación de tu transferencia. 😊");
+                    return;
                 }
             } catch (autoErr) {
                 console.error(`[AUTO-VALIDATE] Error durante validación automática:`, autoErr.message);
             }
         }
 
-        // --- FALLBACK: AVISO AL GRUPO Y ESPERA HUMANA ---
+        // --- FALLBACK MANUAL: AVISO AL GRUPO ---
         try {
             const chat = await client.getChatById(GROUP_ID);
             if (chat) {
-                const type = message.hasMedia ? "📸 Comprobante" : "✅ Confirmación de pago u observación";
+                const type = message.hasMedia ? "📸 Comprobante (llave no legible)" : "✅ Confirmación de pago por texto";
                 let contact;
-                try {
-                    contact = await message.getContact();
-                } catch (e) {
-                    contact = { number: userId.replace(/\D/g, '') };
-                }
+                try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
                 const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
-                await chat.sendMessage(`🚨 ${type} recibido de @${realPhone}. Por favor revisar.\n\nPara validar, responde: *@bot confirmar ${realPhone}* o *si me llegó ${realPhone}*`);
+                await chat.sendMessage(`🚨 ${type} recibido de @${realPhone}. Por favor revisar.\n\nPara validar: *@bot confirmar ${realPhone}* o *si me llegó ${realPhone}*`);
             }
         } catch (error) {
-            console.error('Error enviando notificación de pago al grupo:', error);
+            console.error('Error enviando notificación al grupo:', error);
         }
 
-        // Revisar si en el carrito (items) hay un servicio de Netflix para solicitar operador
+        // Revisar Netflix para pedir operador
         let hasNetflix = false;
         if (stateData.items && Array.isArray(stateData.items)) {
             hasNetflix = stateData.items.some(item => {
@@ -5116,11 +5144,7 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
 
         if (hasNetflix && !stateData.isRenewal) {
             await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
-            userStates.set(userId, {
-                ...stateData,
-                state: 'awaiting_netflix_operator_post_payment',
-                checkAmount: stateData.total || null
-            });
+            userStates.set(userId, { ...stateData, state: 'awaiting_netflix_operator_post_payment', checkAmount: stateData.total || null });
             return;
         }
 
