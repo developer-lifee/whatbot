@@ -754,7 +754,7 @@ async function parsePlanSelection(messageContent, availablePlans) {
  * @returns {Promise<{isReceipt: boolean, amount: number|null, bank: string|null}>}
  */
 async function isPaymentReceipt(mediaData, chatHistory = "") {
-  if (!mediaData) return { isReceipt: false, amount: null, bank: null, destinationKey: null };
+  if (!mediaData) return { isReceipt: false, amount: null, bank: null, destinationKey: null, destinationName: null };
 
   try {
     // 1. Pre-procesar la imagen con Gemini para extraer la descripción visual / OCR
@@ -777,6 +777,7 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
         "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, etc.)
         "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
         "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, o destino al que se envió el dinero. Ej: "0087387259", "300 123 4567", "esteban@nequi.com". Extráelo aunque aparezca parcial. MUY IMPORTANTE.
+        "destinationName": string | null, // Nombre del destinatario/negocio si aparece en lugar de la llave. Ej: "SHEERIT ESTEBAN AVILA", "TIENDA EJEMPLO". Aparece frecuentemente en pagos por QR de Negocios.
         "extractedDetails": string | null, // Detalles extra como ID de transacción o fecha/hora.
         "inferredPlatform": string | null // ¿Qué plataforma está pagando según el historial? null si no es evidente.
       }
@@ -797,11 +798,12 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
       amount: result.amount,
       bank: result.bank,
       destinationKey: result.destinationKey || null,
+      destinationName: result.destinationName || null,
       inferredPlatform: result.inferredPlatform || null
     };
   } catch (error) {
     console.error("Error recognizing payment proof:", error);
-    return { isReceipt: false, amount: null, bank: null, destinationKey: null };
+    return { isReceipt: false, amount: null, bank: null, destinationKey: null, destinationName: null };
   }
 }
 
@@ -1117,7 +1119,7 @@ async function parseAdminQueryIntent(query, previousContext = "") {
     - Si pide "atiende a...", "libera a...", "atender el pendiente de...", "encárgate de...", "ayúdame a explicar", "explícale", "contéstale", es "liberate_user".
     - Si pide "qué acabaste de hacer", "qué pasó", "dame detalles de la última acción", "por qué se envió eso", es "explain_last_action". (NO usar para peticiones de ayuda con clientes).
     - Si pide "dame el código de...", "llegó correo de...", "busca el link de...", "que dice el gmail de...", es "get_gmail_code".
-    - Si pide "dame el código 2fa de...", "dame el authenticator de...", "codigo de gpt de...", "codigo totp de...", es "get_totp_code".
+    - Si pide "dame el código 2fa de...", "dame the authenticator de...", "codigo de gpt de...", "codigo totp de...", es "get_totp_code".
     - Si no encaja, usa "general_query".
 
     Reglas de 'filters':

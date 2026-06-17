@@ -5019,22 +5019,35 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
             try {
                 const { isPaymentReceipt } = require('./aiService');
 
-                // Llaves válidas de Sheerit (normalizadas sin espacios ni guiones)
-                const VALID_KEYS = ['0087387259', '46772753713', '1032936324', '3118587974'];
+                // Llave de validación AUTOMÁTICA (Bre-V - aparece en el comprobante del cliente)
+                const AUTO_KEYS = ['0087387259'];
+                // Llaves de validación MANUAL (también son nuestras, pero requieren revisión de asesor)
+                const MANUAL_KEYS = ['46772753713', '1032936324', '3118587974'];
+                const ALL_VALID_KEYS = [...AUTO_KEYS, ...MANUAL_KEYS];
                 const normalizeKey = (k) => (k || '').replace(/[\s\-\.]/g, '');
 
                 const check = await isPaymentReceipt(singleMediaData, `El usuario está en estado de confirmación de pago. Carrito: ${JSON.stringify(stateData.items || [])}. Total esperado: $${stateData.total || 'desconocido'}`);
-                console.log(`[AUTO-VALIDATE] OCR result: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, destinationKey=${check.destinationKey}`);
+                console.log(`[AUTO-VALIDATE] OCR result: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, destinationKey=${check.destinationKey}, destinationName=${check.destinationName}`);
 
                 if (check.isReceipt) {
                     const rawKey = normalizeKey(check.destinationKey);
-                    const keyIsValid = rawKey && VALID_KEYS.some(vk => rawKey.includes(vk) || vk.includes(rawKey));
+                    const rawName = (check.destinationName || '').toUpperCase();
+
+                    // QR de negocios: el nombre del negocio aparece en vez de la llave
+                    const QR_NAMES = ['SHEERIT', 'ESTEBAN AVILA'];
+                    const isQrMatch = QR_NAMES.some(n => rawName.includes(n));
+
+                    const isAutoKey = rawKey && AUTO_KEYS.some(vk => rawKey.includes(vk) || vk.includes(rawKey));
+                    const isManualKey = rawKey && !isAutoKey && MANUAL_KEYS.some(vk => rawKey.includes(vk) || vk.includes(rawKey));
                     const keyFound = !!rawKey;
+                    const isOurKey = isAutoKey || isManualKey;
+                    // Auto si es llave Bre-V O si es QR con nombre del negocio
+                    const isAutoValidate = isAutoKey || isQrMatch;
 
-                    console.log(`[AUTO-VALIDATE] destinationKey normalizada="${rawKey}", keyIsValid=${keyIsValid}`);
+                    console.log(`[AUTO-VALIDATE] key="${rawKey}" name="${rawName}" isAutoKey=${isAutoKey} isQrMatch=${isQrMatch} isManualKey=${isManualKey}`);
 
-                    if (keyFound && !keyIsValid) {
-                        // Llave detectada pero NO es la nuestra → decirle al cliente directamente
+                    if (keyFound && !isOurKey && !isQrMatch) {
+                        // Llave detectada pero NO es la nuestra y no es QR del negocio → decirle al cliente directamente
                         console.log(`[AUTO-VALIDATE] ❌ Llave destino inválida: ${rawKey}`);
                         await message.reply(
                             `🤖 Revisé tu comprobante y encontré que el pago fue enviado a la llave *${check.destinationKey}*, que no corresponde a ninguna de nuestras cuentas de cobro.\n\n` +
@@ -5047,8 +5060,29 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         return;
                     }
 
-                    if (keyIsValid) {
-                        // ✅ Llave correcta: validar el monto y proceder
+                    if (isManualKey && !isAutoValidate) {
+                        // Llave válida pero de validación MANUAL → notificar al grupo y esperar asesor
+                        console.log(`[AUTO-VALIDATE] ✅ Llave manual detectada (${rawKey}). Notificando al grupo para validación manual.`);
+                        try {
+                            const groupChat = await client.getChatById(GROUP_ID);
+                            if (groupChat) {
+                                let contact;
+                                try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
+                                const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
+                                await groupChat.sendMessage(
+                                    `📸 *COMPROBANTE VALIDADO - REVISIÓN MANUAL* (@${realPhone})\n` +
+                                    `Monto: $${check.amount || '?'}\nBanco: ${check.bank || 'Desconocido'}\nLlave destino: ${check.destinationKey}\n\n` +
+                                    `⚠️ Es una de nuestras cuentas (manual). Para aprobar: *@bot confirmar ${realPhone}*`
+                                );
+                            }
+                        } catch (e) { }
+                        await message.reply("🤖 ¡Gracias! He recibido tu comprobante y lo he enviado a nuestro equipo para validación. En breve un asesor confirmará tu pago y te entregará tus accesos. 😊");
+                        userStates.set(userId, { ...stateData, state: 'waiting_admin_confirmation' });
+                        return;
+                    }
+
+                    if (isAutoValidate) {
+                        // ✅ Llave Bre-V correcta o QR del negocio: validar monto y proceder
                         const expectedTotal = stateData.total || 0;
                         const amountMatches = expectedTotal <= 0 || Math.abs(check.amount - expectedTotal) < 500;
 
