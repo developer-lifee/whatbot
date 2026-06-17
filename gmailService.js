@@ -497,6 +497,11 @@ async function getEmailsFromInbox(email, maxResults = 15) {
             const isHtml = fullMsg.data.payload.mimeType === 'text/html' || (fullMsg.data.payload.parts && fullMsg.data.payload.parts.some(p => p.mimeType === 'text/html'));
             const cleanBody = isHtml ? cleanHtml(decodedRawBody) : decodedRawBody;
 
+            // rawHtml: HTML decodificado para renderizar en iframe (se añade meta charset para evitar garbled chars)
+            const rawHtml = isHtml
+                ? `<meta charset="utf-8"><base target="_blank">${decodedRawBody}`
+                : `<meta charset="utf-8"><pre style="font-family:sans-serif;white-space:pre-wrap;word-break:break-word;padding:16px;">${cleanBody}</pre>`;
+
             emailsList.push({
                 id: msg.id,
                 subject: decodeQuotedPrintable(subject),
@@ -504,7 +509,8 @@ async function getEmailsFromInbox(email, maxResults = 15) {
                 date: dateStr,
                 internalDate,
                 snippet: decodeQuotedPrintable(snippet),
-                body: cleanBody || decodeQuotedPrintable(snippet)
+                body: cleanBody || decodeQuotedPrintable(snippet),
+                rawHtml
             });
         }
 
