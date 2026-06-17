@@ -440,12 +440,12 @@ function cleanHtml(html) {
     text = text.replace(/<\/p>/gi, '\n');
     text = text.replace(/<\/tr>/gi, '\n');
     text = text.replace(/<\/div>/gi, '\n');
-    // Preservar URLs de enlaces: convierte <a href="URL">Texto</a> → Texto (URL)
     text = text.replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (match, url, linkText) => {
         const cleanLinkText = linkText.replace(/<[^>]+>/g, '').trim();
         // Solo mostrar la URL si es un link real (http) y diferente al texto
         if (/^https?:\/\//i.test(url) && cleanLinkText.toLowerCase() !== url.toLowerCase()) {
-            return `${cleanLinkText} (${url})`;
+            const displayUrl = url.length > 60 ? `${url.substring(0, 57)}...` : url;
+            return `${cleanLinkText} (${displayUrl})`;
         }
         return cleanLinkText || url;
     });
