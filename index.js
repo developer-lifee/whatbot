@@ -5012,7 +5012,82 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
     }
 
     if (message.hasMedia || body.includes("ya pagu") || body.includes("listo") || body.includes("claro que si") || body.includes("enviado") || body.includes("transferencia") || body.includes("comprobante")) {
-        // Si envían imagen o confirman por texto, informamos al grupo y esperamos validación humana
+
+        // --- INTENTO DE VALIDACIÓN AUTOMÁTICA POR IMAGEN ---
+        if (message.hasMedia && singleMediaData) {
+            console.log(`[AUTO-VALIDATE] Imagen recibida en awaiting_payment_confirmation para ${userId}. Intentando OCR automático...`);
+            try {
+                const { isPaymentReceipt } = require('./aiService');
+                const { findMatchingPayment } = require('./gmailService');
+
+                const check = await isPaymentReceipt(singleMediaData, `El usuario está en estado de confirmación de pago. Carrito: ${JSON.stringify(stateData.items || [])}. Total esperado: $${stateData.total || 'desconocido'}`);
+                console.log(`[AUTO-VALIDATE] OCR result: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}`);
+
+                if (check.isReceipt && check.amount && check.amount > 0) {
+                    const expectedTotal = stateData.total || 0;
+                    const amountMatches = expectedTotal <= 0 || Math.abs(check.amount - expectedTotal) < 500; // tolerancia de $500
+
+                    if (amountMatches) {
+                        console.log(`[AUTO-VALIDATE] ✅ Monto coincide ($${check.amount}). Buscando match en Gmail (ventana 120 min)...`);
+                        const match = await findMatchingPayment(check.amount, 120);
+
+                        if (match) {
+                            console.log(`[AUTO-VALIDATE] ✅ Match Gmail encontrado! ID: ${match.id}. Ejecutando entrega automática...`);
+
+                            // Netflix requiere datos del operador primero
+                            let hasNetflix = false;
+                            if (stateData.items && Array.isArray(stateData.items)) {
+                                hasNetflix = stateData.items.some(item => {
+                                    const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                                    return name.includes('netflix') && !name.includes('extra');
+                                });
+                            }
+
+                            if (hasNetflix && !stateData.isRenewal) {
+                                await message.reply("🤖 ¡Gracias! He recibido y validado tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
+                                userStates.set(userId, {
+                                    ...stateData,
+                                    state: 'awaiting_netflix_operator_post_payment',
+                                    paymentMethod: check.bank || 'Transferencia',
+                                    checkAmount: check.amount,
+                                    gmailMatchId: match.id
+                                });
+                                return;
+                            }
+
+                            const validationResult = await executePaymentValidation(
+                                userId,
+                                { ...stateData, total: check.amount, paymentMethod: `Auto-OCR (${check.bank || 'Transferencia'})` },
+                                client, userStates, null, match.id
+                            );
+
+                            if (validationResult.success) {
+                                try {
+                                    const groupChat = await client.getChatById(GROUP_ID);
+                                    if (groupChat) {
+                                        let contact;
+                                        try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
+                                        const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
+                                        await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO (Comprobante directo)* (@${realPhone})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Desconocido'}\nID Gmail: ${match.id}\n\nEl bot ya entregó el servicio automáticamente.`);
+                                    }
+                                } catch (e) { }
+                                return;
+                            } else {
+                                console.log(`[AUTO-VALIDATE] executePaymentValidation falló para ${userId}. Continuando con flujo manual.`);
+                            }
+                        } else {
+                            console.log(`[AUTO-VALIDATE] ❌ No se encontró match en Gmail para $${check.amount} (ventana 120 min). Flujo manual.`);
+                        }
+                    } else {
+                        console.log(`[AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) no coincide con lo esperado ($${expectedTotal}). Flujo manual.`);
+                    }
+                }
+            } catch (autoErr) {
+                console.error(`[AUTO-VALIDATE] Error durante validación automática:`, autoErr.message);
+            }
+        }
+
+        // --- FALLBACK: AVISO AL GRUPO Y ESPERA HUMANA ---
         try {
             const chat = await client.getChatById(GROUP_ID);
             if (chat) {
@@ -5088,6 +5163,7 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
         await processFallbackWithEscalation(message, userId, isMedia, singleMediaData, historyText);
     }
 }
+
 
 
 
