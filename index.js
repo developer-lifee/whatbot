@@ -3775,8 +3775,45 @@ async function baseProcessIncomingMessage(messages) {
                 if (check.amount && check.amount > 0) {
                     try {
                         const expectedTotal = stateData.total || 0;
-                        if (expectedTotal > 0 && check.amount !== expectedTotal) {
-                            console.log(`[PAYMENT AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) no coincide con el total esperado ($${expectedTotal}) para @${userId}. No se auto-validará.`);
+                        const isShortPayment = expectedTotal > 0 && check.amount < expectedTotal;
+                        const leftoverAmount = (expectedTotal > 0 && check.amount > expectedTotal) ? (check.amount - expectedTotal) : 0;
+
+                        if (isShortPayment) {
+                            console.log(`[PAYMENT AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) es menor al total esperado ($${expectedTotal}) para @${userId}. No se auto-validará.`);
+                            
+                            userStates.set(userId, {
+                                ...stateData,
+                                state: 'awaiting_payment_confirmation',
+                                paymentMethod: check.bank || 'Transferencia',
+                                checkAmount: check.amount
+                            });
+                            globalLastPaymentUserId = userId;
+                            
+                            const diff = expectedTotal - check.amount;
+                            const replyText = `🤖 ¡Hola! He recibido tu comprobante por valor de *$${check.amount.toLocaleString('es-CO')}*.\n\n` +
+                                `Sin embargo, el total de tu pedido es de *$${expectedTotal.toLocaleString('es-CO')}* COP. Aún hace falta un pago por el valor restante de *$${diff.toLocaleString('es-CO')}* COP. ⚠️\n\n` +
+                                `Por favor realiza la transferencia del monto restante y envía el nuevo comprobante para poder completar tu pedido y entregar/activar tu servicio. ¡Muchas gracias! 😊`;
+                            
+                            await message.reply(replyText);
+                            
+                            try {
+                                const groupChat = await client.getChatById(GROUP_ID);
+                                if (groupChat) {
+                                    let adminMsg = `🚨 *COMPROBANTE DETECTADO INCOMPLETO* (@${userId.replace('@c.us', '')})\n` +
+                                        `⚠️ *PAGO INCOMPLETO* (Faltan $${diff})\n` +
+                                        `Banco: ${check.bank || 'No identificado'}\n` +
+                                        `Monto Recibido: $${check.amount}\n` +
+                                        `Monto Esperado: $${expectedTotal}\n\n` +
+                                        `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
+
+                                    await groupChat.sendMessage(adminMsg);
+                                    const mediaToForward = await message.downloadMedia();
+                                    await groupChat.sendMessage(mediaToForward);
+                                }
+                            } catch (adminErr) {
+                                console.error("Error notificando al grupo sobre pago incompleto:", adminErr.message);
+                            }
+                            return;
                         } else {
                             const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min
                             if (match) {
@@ -3799,7 +3836,8 @@ async function baseProcessIncomingMessage(messages) {
                                         matchId: match.id,
                                         subject: match.subject,
                                         chatJid: originalChatJid,
-                                        nombre: foundName
+                                        nombre: foundName,
+                                        leftoverAmount: leftoverAmount
                                     });
                                     return;
                                 }
@@ -3820,26 +3858,41 @@ async function baseProcessIncomingMessage(messages) {
                                         state: 'awaiting_netflix_operator_post_payment',
                                         paymentMethod: check.bank || 'Transferencia',
                                         checkAmount: check.amount,
-                                        gmailMatchId: match.id
+                                        gmailMatchId: match.id,
+                                        leftoverAmount: leftoverAmount
                                     });
 
                                     return;
                                 }
 
                                 // Ejecutar validación automática directa si todo coincide perfectamente
-                                const validationResult = await executePaymentValidation(userId, { ...stateData, total: check.amount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, client, userStates, null, match.id);
+                                const validationResult = await executePaymentValidation(
+                                    userId, 
+                                    { ...stateData, total: check.amount, leftoverAmount: leftoverAmount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, 
+                                    client, 
+                                    userStates, 
+                                    null, 
+                                    match.id
+                                );
 
                                 if (validationResult.success) {
                                     // Notificar al grupo administrativo del éxito automático
                                     try {
                                         const groupChat = await client.getChatById(GROUP_ID);
                                         if (groupChat) {
-                                            await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
+                                            let successMsg = `✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
                                                 `Monto: $${check.amount}\n` +
-                                                `Banco: ${check.bank || 'Bre-B'}\n` +
-                                                `Asunto: ${match.subject}\n` +
+                                                `Banco: ${check.bank || 'Bre-B'}\n`;
+                                            
+                                            if (leftoverAmount > 0) {
+                                                const originalPrice = check.amount - leftoverAmount;
+                                                successMsg += `💰 *EXCEDENTE DETECTADO:* Se cobraron $${check.amount} pero el total era $${originalPrice}. Quedó un saldo a favor de *$${leftoverAmount}* COP.\n`;
+                                            }
+                                            
+                                            successMsg += `Asunto: ${match.subject}\n` +
                                                 `ID Gmail: ${match.id}\n\n` +
-                                                `El bot ya entregó el servicio automáticamente.`);
+                                                `El bot ya entregó el servicio automáticamente.`;
+                                            await groupChat.sendMessage(successMsg);
                                         }
                                     } catch (e) { }
                                     return;
@@ -3869,7 +3922,8 @@ async function baseProcessIncomingMessage(messages) {
                         ...stateData,
                         state: 'awaiting_netflix_operator_post_payment',
                         paymentMethod: check.bank || 'Transferencia',
-                        checkAmount: check.amount
+                        checkAmount: check.amount,
+                        leftoverAmount: leftoverAmount
                     });
 
                     return;
@@ -3878,7 +3932,9 @@ async function baseProcessIncomingMessage(messages) {
                 userStates.set(userId, {
                     ...stateData,
                     state: 'awaiting_payment_confirmation',
-                    paymentMethod: check.bank || 'Transferencia'
+                    paymentMethod: check.bank || 'Transferencia',
+                    checkAmount: check.amount,
+                    leftoverAmount: leftoverAmount
                 });
 
                 globalLastPaymentUserId = userId; // Guardamos en memoria para que el admin solo diga "@bot confirmar"
@@ -3912,8 +3968,13 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     if (groupChat) {
                         let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
                             `Banco: ${check.bank || 'No identificado'}\n` +
-                            `Monto: ${check.amount || 'No legible'}\n\n` +
-                            `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
+                            `Monto: ${check.amount || 'No legible'}\n\n`;
+                        
+                        if (leftoverAmount > 0) {
+                            adminMsg += `💰 *EXCEDENTE DETECTADO:* Sobran *$${leftoverAmount.toLocaleString('es-CO')}* COP.\n\n`;
+                        }
+                        
+                        adminMsg += `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
 
                         await groupChat.sendMessage(adminMsg);
                         const mediaToForward = await message.downloadMedia();

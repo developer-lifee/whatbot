@@ -298,7 +298,12 @@ async function executePaymentValidation(userId, userState, client, userStates, a
         await adminMessage.reply(report);
     } else {
         try {
-            let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\nAquí tienes tus credenciales:\n\n";
+            let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n";
+            if (userState.leftoverAmount && userState.leftoverAmount > 0) {
+                const originalTotal = (userState.total || 0) - userState.leftoverAmount;
+                credentialsMsg += `💰 *Nota:* Tu transferencia fue por *$${(userState.total || 0).toLocaleString('es-CO')}*, superando el total del pedido que era de *$${originalTotal.toLocaleString('es-CO')}*. Te quedó un *saldo a favor de *$${userState.leftoverAmount.toLocaleString('es-CO')}* COP*. Un asesor revisará esto más tarde. 😊\n\n`;
+            }
+            credentialsMsg += "Aquí tienes tus credenciales:\n\n";
             let hasAnyCredentials = false;
             const { getMaskedAccessData } = require('./aiService');
             results.forEach(res => {
