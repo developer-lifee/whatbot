@@ -1,9 +1,45 @@
 const { google } = require('googleapis');
 const { getOAuth2Client } = require('./googleAuthService');
+const fs = require('fs');
+const path = require('path');
+
+const CACHE_FILE_PATH = path.join(__dirname, 'contacts_cache.json');
+
+function loadContactCache() {
+    if (!fs.existsSync(CACHE_FILE_PATH)) return new Map();
+    try {
+        const raw = JSON.parse(fs.readFileSync(CACHE_FILE_PATH, 'utf8'));
+        const now = Date.now();
+        const map = new Map();
+        for (const [key, value] of Object.entries(raw)) {
+            if (value && value.timestamp && (now - value.timestamp < 1000 * 60 * 60 * 24)) {
+                map.set(key, value);
+            }
+        }
+        return map;
+    } catch (e) {
+        console.error('[Google Contacts] Error loading cache file:', e.message);
+        return new Map();
+    }
+}
+
+function saveContactCache() {
+    try {
+        const obj = Object.fromEntries(contactCache);
+        fs.writeFileSync(CACHE_FILE_PATH, JSON.stringify(obj, null, 2), 'utf8');
+    } catch (e) {
+        console.error('[Google Contacts] Error saving cache file:', e.message);
+    }
+}
+
+function setCache(key, value) {
+    contactCache.set(key, value);
+    saveContactCache();
+}
 
 let personasAPI = null;
 const recentlyAdded = new Set(); // Caché local para evitar duplicados en ráfagas rápidas
-const contactCache = new Map(); // Caché en memoria para evitar el lag de indexación de Google
+const contactCache = loadContactCache(); // Caché persistente en disco
 const PROCESSING_WINDOW = 1000 * 60 * 5; // 5 minutos de ventana de procesamiento
 
 /**
@@ -91,7 +127,7 @@ async function addNewContact(name, phone) {
         });
 
         console.log(`✅ Contacto [${name} - ${formattedPhone}] creado exitosamente en Google Contacts.`);
-        contactCache.set(coreNumber, { name, timestamp: Date.now() }); // Guardar en caché para evitar lag de indexación
+        setCache(coreNumber, { name, timestamp: Date.now() }); // Guardar en caché para evitar lag de indexación
         return true;
     } catch (error) {
         const errorMsg = error.message || "";
@@ -177,18 +213,18 @@ async function searchContactByPhone(phone) {
 
             if (matches && person.names && person.names.length > 0) {
                 const foundName = person.names[0].displayName || person.names[0].givenName;
-                contactCache.set(coreNumber, { name: foundName, timestamp: Date.now() }); // Guardar en caché
+                setCache(coreNumber, { name: foundName, timestamp: Date.now() }); // Guardar en caché
                 return foundName;
             }
         }
 
         // Registrar lookup negativo para no volver a preguntar en 24 horas
-        contactCache.set(coreNumber, { name: '__NOT_FOUND__', timestamp: Date.now() });
+        setCache(coreNumber, { name: '__NOT_FOUND__', timestamp: Date.now() });
         return null;
     } catch (error) {
         console.error('❌ Error al buscar contacto en Google:', error.message);
         // Si hay error (como quota limit), cacheamos por 15 minutos para silenciar ráfagas de logs
-        contactCache.set(coreNumber, { name: '__NOT_FOUND__', timestamp: Date.now() - (1000 * 60 * 60 * 24 - 1000 * 60 * 15) }); // Expira en 15 mins
+        setCache(coreNumber, { name: '__NOT_FOUND__', timestamp: Date.now() - (1000 * 60 * 60 * 24 - 1000 * 60 * 15) }); // Expira en 15 mins
         return null;
     }
 }
