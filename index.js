@@ -860,6 +860,13 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
         }
 
         const chatId = cleanPhone.includes('@') ? cleanPhone : `${cleanPhone}@c.us`;
+        
+        if (req.body.scheduledTime) {
+            const { scheduleNewMessage } = require('./scheduledMessageService');
+            const result = await scheduleNewMessage(client, chatId, message, req.body.scheduledTime);
+            return res.json({ success: true, isScheduled: true, formattedTime: result.formattedTime, message: 'Mensaje programado con éxito' });
+        }
+
         await client.sendMessage(chatId, message);
 
         res.json({ success: true, message: 'Message sent via WhatsApp' });
