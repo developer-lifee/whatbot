@@ -1813,6 +1813,50 @@ app.get('/api/admin/chat-messages', async (req, res) => {
     }
 });
 
+app.post('/api/admin/chat-messages/sync', async (req, res) => {
+    try {
+        const { phone } = req.body;
+        if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        if (!client || !client.info) {
+            return res.status(503).json({ error: 'WhatsApp client is not ready' });
+        }
+
+        const chat = await client.getChatById(userId);
+        const messages = await chat.fetchMessages({ limit: 50 });
+
+        // Guardar/actualizar en base de datos de manera secuencial para no saturar
+        for (const msg of messages) {
+            try {
+                await saveMessage(msg);
+            } catch (err) {
+                console.error("Error guardando mensaje en sincronización:", err.message);
+            }
+        }
+
+        // Recuperar historial actualizado desde la base de datos
+        const [rows] = await pool.query(
+            `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 40`,
+            [userId]
+        );
+
+        const formatted = rows.map(m => ({
+            id: m.message_id,
+            body: m.body || "",
+            fromMe: m.direction ? (m.direction === 'outbound') : (m.is_from_me === 1 || m.isFromMe === 1),
+            timestamp: new Date(m.created_at).getTime(),
+            type: m.message_type || 'text',
+            hasMedia: !!m.media_path
+        }));
+
+        formatted.reverse();
+        res.json({ success: true, messages: formatted });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/admin/chat-messages/send', async (req, res) => {
     try {
         const { phone, message, emoji, agentName, password } = req.body;
