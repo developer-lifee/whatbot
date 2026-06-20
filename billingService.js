@@ -103,6 +103,23 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             if (filtered.length > 0) {
                 accountsToProcess = filtered;
             }
+        } else {
+            // Si no hay plataforma específica, filtramos para renovar solo servicios vencidos o por vencer pronto (próximos 5 días)
+            const expiredOrExpiring = userAccounts.filter(acc => {
+                const vencimientoRaw = acc.deben || acc.vencimiento;
+                const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
+                if (!vencimientoDate) return false;
+                
+                const isExpired = vencimientoDate < today;
+                const diffTime = vencimientoDate.getTime() - today.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24));
+                
+                return isExpired || diffDays <= 5;
+            });
+            
+            if (expiredOrExpiring.length > 0) {
+                accountsToProcess = expiredOrExpiring;
+            }
         }
 
         accountsToProcess.forEach(acc => {
