@@ -3230,6 +3230,14 @@ async function baseProcessIncomingMessage(messages) {
             return;
         } else if (adminAI.intent === 'programar_mensaje') {
             let recipients = [];
+            const isCredentialsRequest = message.body.toLowerCase().includes('credenciales') ||
+                message.body.toLowerCase().includes('cuenta');
+
+            const isPinOnlyRequest = message.body.toLowerCase().includes('pin') &&
+                (message.body.toLowerCase().includes('unicamente') ||
+                    message.body.toLowerCase().includes('únicamente') ||
+                    message.body.toLowerCase().includes('solo') ||
+                    message.body.toLowerCase().includes('solamente'));
 
             // Intentar detectar lista de destinatarios (Nombre + Teléfono) en el cuerpo del mensaje
             const lines = message.body.split('\n');
@@ -3278,15 +3286,6 @@ async function baseProcessIncomingMessage(messages) {
             }
 
             if (recipients.length === 0) {
-                // Detección robusta de solicitud de credenciales o de solo PIN
-                const isCredentialsRequest = message.body.toLowerCase().includes('credenciales') ||
-                    message.body.toLowerCase().includes('cuenta');
-
-                const isPinOnlyRequest = message.body.toLowerCase().includes('pin') &&
-                    (message.body.toLowerCase().includes('unicamente') ||
-                        message.body.toLowerCase().includes('únicamente') ||
-                        message.body.toLowerCase().includes('solo') ||
-                        message.body.toLowerCase().includes('solamente'));
 
                 // Caso A: El destinatario es una o varias cuentas de correo/plataformas (ej: sheerpremium@gmail.com, elizabetdiagama, sheerit6)
                 let isEmailOrAccountTarget = false;

@@ -25,6 +25,35 @@ function saveAvailabilityConfig(config) {
     }
 }
 
+function normalizeStreamingName(name) {
+    if (!name) return "";
+    let normalized = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    // Mapear aliases comunes a sus nombres en Excel/Sistema
+    if (normalized.includes('prime') || normalized.includes('amazon')) {
+        return 'amazon';
+    }
+    if (normalized.includes('hbo') || normalized.includes('max')) {
+        return 'hbo';
+    }
+    if (normalized.includes('disney')) {
+        return 'disney';
+    }
+    if (normalized.includes('netflix')) {
+        return 'netflix';
+    }
+    if (normalized.includes('spotify')) {
+        return 'spotify';
+    }
+    if (normalized.includes('youtube')) {
+        return 'youtube';
+    }
+    if (normalized.includes('microsoft') || normalized.includes('office')) {
+        return 'microsoft';
+    }
+    return normalized;
+}
+
 /**
  * Checks if a platform has stock in the spreadsheet.
  * A platform has stock if there is at least one row where Status/Estado/Nombre is 'libre' or empty.
@@ -32,14 +61,14 @@ function saveAvailabilityConfig(config) {
 async function checkSpreadsheetStock(platformName) {
     try {
         const data = await fetchRawData();
-        const targetSearch = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const targetSearch = normalizeStreamingName(platformName);
         const config = getAvailabilityConfig();
         
         const matchingLibres = data.filter(row => {
-            const rowStreaming = (row.Streaming || row.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (!rowStreaming || rowStreaming.trim() === "") return false;
+            const rowStreaming = normalizeStreamingName(row.Streaming || row.Plataforma);
+            if (!rowStreaming) return false;
             
-            if (rowStreaming.includes(targetSearch) || targetSearch.includes(rowStreaming)) {
+            if (rowStreaming === targetSearch) {
                 const email = (row.correo || row.Correo || "").toString().toLowerCase().trim();
                 if (email && config[email] && config[email].immediate === false) {
                     return false;
@@ -159,7 +188,8 @@ module.exports = {
     getPlatformAvailability,
     checkSpreadsheetStock,
     getActiveIncidentsText,
-    getSpecificAccountsIncidentsText
+    getSpecificAccountsIncidentsText,
+    normalizeStreamingName
 };
 
 

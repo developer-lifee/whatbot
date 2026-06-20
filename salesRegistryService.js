@@ -1,5 +1,5 @@
 const { updateExcelData, fetchRawData } = require('./apiService');
-const { getAvailabilityConfig } = require('./availabilityService');
+const { getAvailabilityConfig, normalizeStreamingName } = require('./availabilityService');
 
 const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify individual', 'spotify personal', 'spotify familiar', 'familiar', 'family', 'xbox', 'netflix extra', 'extra', 'individual', 'personal', 'correo propio', 'tu correo'];
 
@@ -87,30 +87,17 @@ function parseExcelDate(dateStr) {
  * Un cupo es "disponible" si la plataforma coincide y el campo 'whatsapp' o 'Nombre' está vacío.
  */
 function findAvailableSlot(platformName, allRows) {
-    let targetPlatform = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const targetPlatform = normalizeStreamingName(platformName);
     const config = getAvailabilityConfig();
-
-    // Normalizar marcas de HBO/Max para evitar cruces
-    if (targetPlatform.includes('hbomax')) {
-        targetPlatform = targetPlatform.replace('hbomax', 'hbo');
-    } else if (targetPlatform.includes('max') && !targetPlatform.includes('hbo')) {
-        targetPlatform = targetPlatform.replace('max', 'hbo');
-    }
 
     for (let i = 0; i < allRows.length; i++) {
         const row = allRows[i];
-        let rowStreaming = (row.Streaming || row.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+        const rowStreaming = normalizeStreamingName(row.Streaming || row.Plataforma);
 
-        if (!rowStreaming || rowStreaming.trim() === "") continue;
-
-        if (rowStreaming.includes('hbomax')) {
-            rowStreaming = rowStreaming.replace('hbomax', 'hbo');
-        } else if (rowStreaming.includes('max') && !rowStreaming.includes('hbo')) {
-            rowStreaming = rowStreaming.replace('max', 'hbo');
-        }
+        if (!rowStreaming) continue;
 
         // Si la plataforma coincide
-        if (rowStreaming.includes(targetPlatform) || targetPlatform.includes(rowStreaming)) {
+        if (rowStreaming === targetPlatform) {
             const email = (row.correo || row.Correo || "").toString().toLowerCase().trim();
             if (email && config[email] && config[email].immediate === false) {
                 continue;
@@ -118,7 +105,6 @@ function findAvailableSlot(platformName, allRows) {
 
             const whatsapp = (row.whatsapp || row.whatsapp || "").toString().trim();
             const nombre = (row.Nombre || row.nombre || "").toString().trim();
-            const debenStr = row.deben || row.Deben || "";
 
             // Solo usamos filas que están vacías o marcadas como 'libre' (STOCK real)
             if (!whatsapp && (!nombre || nombre.toLowerCase() === 'libre')) {
@@ -211,8 +197,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             if (!userState.isRenewal) {
                 const existingAccount = allRows.find(r => {
                     const rowPhone = (r.numero || r.Numero || r.whatsapp || "").toString().replace(/\D/g, '');
-                    const rowStreaming = (r.Streaming || "").toLowerCase();
-                    return rowPhone.includes(phone.slice(-10)) && rowStreaming.includes(lowerName);
+                    const rowStreaming = normalizeStreamingName(r.Streaming);
+                    return rowPhone.includes(phone.slice(-10)) && rowStreaming === normalizeStreamingName(platformName);
                 });
 
                 if (existingAccount) {
