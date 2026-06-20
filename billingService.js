@@ -140,7 +140,8 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
                 'MAX': 'HBOMAX',
                 'DISNEY': 'DISNEY+ PREMIUM',
                 'STAR': 'DISNEY+ PREMIUM',
-                'YOUTUBE': 'YOUTUBE PREMIUM'
+                'YOUTUBE': 'YOUTUBE PREMIUM',
+                'MICROSOFT': 'MICROSOFT 365'
             };
             for (const [alias, real] of Object.entries(aliasMap)) {
                 if (mappedStreaming.includes(alias)) {
