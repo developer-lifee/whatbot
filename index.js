@@ -3231,190 +3231,238 @@ async function baseProcessIncomingMessage(messages) {
         } else if (adminAI.intent === 'programar_mensaje') {
             let recipients = [];
 
-            // Detección robusta de solicitud de credenciales o de solo PIN
-            const isCredentialsRequest = message.body.toLowerCase().includes('credenciales') ||
-                message.body.toLowerCase().includes('cuenta');
+            // Intentar detectar lista de destinatarios (Nombre + Teléfono) en el cuerpo del mensaje
+            const lines = message.body.split('\n');
+            const parsedRecipients = [];
+            const otherLines = [];
 
-            const isPinOnlyRequest = message.body.toLowerCase().includes('pin') &&
-                (message.body.toLowerCase().includes('unicamente') ||
-                    message.body.toLowerCase().includes('únicamente') ||
-                    message.body.toLowerCase().includes('solo') ||
-                    message.body.toLowerCase().includes('solamente'));
-
-            // Caso A: El destinatario es una o varias cuentas de correo/plataformas (ej: sheerpremium@gmail.com, elizabetdiagama, sheerit6)
-            let isEmailOrAccountTarget = false;
-            let targetUserStr = (adminAI.target_user || '').toLowerCase().trim();
-            let targetAccounts = targetUserStr.replace(/\by\b/g, ',').split(',').map(t => t.trim()).filter(t => t.length > 0);
-            
-            const { fetchRawData } = require('./apiService');
-            let rawData = [];
-            try {
-                rawData = await fetchRawData();
-            } catch (err) {
-                console.error('Error fetching raw data for programar_mensaje:', err.message);
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed) continue;
+                // Expresión regular para detectar un Nombre seguido de un Teléfono de 10 a 20 caracteres (dígitos, espacios, etc)
+                // Ejemplo: Wilson Garcia  57 313 3495828
+                const match = trimmed.match(/^([a-zA-ZáéíóúÁÉÍÓÚñÑ\s]+)\s+([\d\s+-]{10,20})$/);
+                if (match) {
+                    const name = match[1].trim();
+                    const phone = match[2].replace(/\D/g, '');
+                    if (phone.length >= 10 && phone.length <= 15) {
+                        parsedRecipients.push({ name, phone });
+                        continue;
+                    }
+                }
+                otherLines.push(line);
             }
 
-            if (targetAccounts.length > 0 && rawData.length > 0) {
-                isEmailOrAccountTarget = targetAccounts.some(acc => {
-                    if (acc.includes('@')) return true;
-                    return rawData.some(row => {
-                        const email = (row.correo || row.Correo || '').toString().toLowerCase();
-                        return email.includes(acc) && acc.length >= 4;
+            if (parsedRecipients.length > 0) {
+                const otherText = otherLines.join('\n');
+                const quoteMatch = otherText.match(/[“"«]([^”"»]+)[”"»]/s);
+                let msgToSend = '';
+                if (quoteMatch) {
+                    msgToSend = quoteMatch[1].trim();
+                } else {
+                    msgToSend = otherText
+                        .replace(/@bot\s+envia\s+un\s+mensaje\s+a\s+estos\s+destinatarios\s+diciendo/gi, '')
+                        .replace(/@bot\s+envia\s+mensaje/gi, '')
+                        .trim();
+                    msgToSend = msgToSend.replace(/^[“"«]/, '').replace(/[”"»]$/, '').trim();
+                }
+
+                parsedRecipients.forEach(rec => {
+                    const targetId = rec.phone + '@c.us';
+                    recipients.push({
+                        targetId,
+                        targetName: rec.name,
+                        messageText: msgToSend
                     });
                 });
             }
 
-            if (isEmailOrAccountTarget) {
+            if (recipients.length === 0) {
+                // Detección robusta de solicitud de credenciales o de solo PIN
+                const isCredentialsRequest = message.body.toLowerCase().includes('credenciales') ||
+                    message.body.toLowerCase().includes('cuenta');
+
+                const isPinOnlyRequest = message.body.toLowerCase().includes('pin') &&
+                    (message.body.toLowerCase().includes('unicamente') ||
+                        message.body.toLowerCase().includes('únicamente') ||
+                        message.body.toLowerCase().includes('solo') ||
+                        message.body.toLowerCase().includes('solamente'));
+
+                // Caso A: El destinatario es una o varias cuentas de correo/plataformas (ej: sheerpremium@gmail.com, elizabetdiagama, sheerit6)
+                let isEmailOrAccountTarget = false;
+                let targetUserStr = (adminAI.target_user || '').toLowerCase().trim();
+                let targetAccounts = targetUserStr.replace(/\by\b/g, ',').split(',').map(t => t.trim()).filter(t => t.length > 0);
+                
+                const { fetchRawData } = require('./apiService');
+                let rawData = [];
                 try {
-                    const matchingRows = rawData.filter(row => {
-                        const rowEmail = (row.correo || row.Correo || '').toString().toLowerCase().trim();
-                        const rowPlat = (row.Streaming || row.streaming || '').toString().toLowerCase();
-                        const platFilter = adminAI.target_platform ? adminAI.target_platform.toLowerCase().trim() : '';
+                    rawData = await fetchRawData();
+                } catch (err) {
+                    console.error('Error fetching raw data for programar_mensaje:', err.message);
+                }
 
-                        const emailMatch = targetAccounts.some(acc => {
-                            if (acc.includes('@') && acc.includes('.')) {
-                                return rowEmail === acc;
-                            }
-                            return rowEmail.includes(acc) && acc.length >= 4;
+                if (targetAccounts.length > 0 && rawData.length > 0) {
+                    isEmailOrAccountTarget = targetAccounts.some(acc => {
+                        if (acc.includes('@')) return true;
+                        return rawData.some(row => {
+                            const email = (row.correo || row.Correo || '').toString().toLowerCase();
+                            return email.includes(acc) && acc.length >= 4;
                         });
-                        const platMatch = platFilter ? rowPlat.includes(platFilter) : true;
-                        const hasPhone = row.numero || row.whatsapp;
-
-                        const isExtra = rowPlat.includes('extra');
-                        if (isCredentialsRequest && isExtra) return false;
-
-                        return emailMatch && platMatch && hasPhone;
                     });
+                }
 
-                    if (matchingRows.length === 0) {
-                        await message.reply(`❌ Jefe, no encontré a ningún cliente asignado a las cuentas *${targetAccounts.join(', ')}* en el Excel.`);
+                if (isEmailOrAccountTarget) {
+                    try {
+                        const matchingRows = rawData.filter(row => {
+                            const rowEmail = (row.correo || row.Correo || '').toString().toLowerCase().trim();
+                            const rowPlat = (row.Streaming || row.streaming || '').toString().toLowerCase();
+                            const platFilter = adminAI.target_platform ? adminAI.target_platform.toLowerCase().trim() : '';
+
+                            const emailMatch = targetAccounts.some(acc => {
+                                if (acc.includes('@') && acc.includes('.')) {
+                                    return rowEmail === acc;
+                                }
+                                return rowEmail.includes(acc) && acc.length >= 4;
+                            });
+                            const platMatch = platFilter ? rowPlat.includes(platFilter) : true;
+                            const hasPhone = row.numero || row.whatsapp;
+
+                            const isExtra = rowPlat.includes('extra');
+                            if (isCredentialsRequest && isExtra) return false;
+
+                            return emailMatch && platMatch && hasPhone;
+                        });
+
+                        if (matchingRows.length === 0) {
+                            await message.reply(`❌ Jefe, no encontré a ningún cliente asignado a las cuentas *${targetAccounts.join(', ')}* en el Excel.`);
+                            return;
+                        }
+
+                        matchingRows.forEach(row => {
+                            const tel = (row.numero || row.whatsapp).toString().replace(/\D/g, '');
+                            const targetId = (tel.startsWith('57') ? tel : '57' + tel) + '@c.us';
+                            const targetName = row.Nombre || row.nombre || 'Cliente';
+
+                            let msgToSend = adminAI.message_text || '';
+                            if (isPinOnlyRequest) {
+                                const streamingName = (row.Streaming || 'Streaming').toUpperCase();
+                                const pin = row['pin perfil'] || row['pin'] || 'Sin PIN';
+                                msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
+                            } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
+                                const streamingName = (row.Streaming || 'Streaming').toUpperCase();
+                                const pin = row['pin perfil'] || row['pin'] || '';
+                                msgToSend = `🔐 *CREDENCIALES ${streamingName}*\n\n📧 Correo: ${row.correo}\n🔒 Clave: ${row.contraseña}${pin ? `\n🔢 PIN: ${pin}` : ''}`;
+                            }
+
+                            recipients.push({
+                                targetId,
+                                targetName,
+                                messageText: msgToSend
+                            });
+                        });
+                    } catch (err) {
+                        console.error('Error buscando destinatarios por email:', err.message);
+                        await message.reply(`❌ Error al consultar los clientes de esa cuenta en Excel: ${err.message}`);
+                        return;
+                    }
+                } else {
+                    // Caso B: Destinatario único (nombre, teléfono o "este cliente")
+                    let targetId = null;
+                    let targetName = null;
+
+                    if (adminAI.target_user === 'este cliente' || (!adminAI.target_user && !message.from.includes('@g.us'))) {
+                        targetId = userId;
+                        targetName = 'este cliente';
+                    } else if (adminAI.target_user) {
+                        const cleanTarget = adminAI.target_user.replace(/\D/g, '');
+                        if (cleanTarget.length >= 8) {
+                            targetId = (cleanTarget.startsWith('57') ? cleanTarget : '57' + cleanTarget) + '@c.us';
+                            targetName = cleanTarget;
+                        } else {
+                            // Buscar por nombre
+                            const { searchContactByName } = require('./googleContactsService');
+                            let foundPhone = await searchContactByName(adminAI.target_user);
+
+                            if (!foundPhone) {
+                                const { fetchRawData } = require('./apiService');
+                                try {
+                                    const rawData = await fetchRawData();
+                                    const userRow = rawData.find(r => {
+                                        const rowName = (r.Nombre || r['Nombre Completo'] || "").toString().toLowerCase();
+                                        return rowName.includes(adminAI.target_user.toLowerCase());
+                                    });
+                                    if (userRow && userRow.numero) {
+                                        const tel = userRow.numero.toString().replace(/\D/g, '');
+                                        foundPhone = tel.startsWith('57') ? tel : '57' + tel;
+                                    }
+                                } catch (e) {
+                                    console.error('Error buscando nombre en Excel para programar:', e.message);
+                                }
+                            }
+
+                            if (foundPhone) {
+                                targetId = foundPhone.includes('@') ? foundPhone : foundPhone + '@c.us';
+                                targetName = adminAI.target_user;
+                            }
+                        }
+                    }
+
+                    if (!targetId) {
+                        await message.reply('❌ Jefe, no pude identificar al cliente al que deseas enviarle el mensaje. Por favor especifica su nombre o número.');
                         return;
                     }
 
-                    matchingRows.forEach(row => {
-                        const tel = (row.numero || row.whatsapp).toString().replace(/\D/g, '');
-                        const targetId = (tel.startsWith('57') ? tel : '57' + tel) + '@c.us';
-                        const targetName = row.Nombre || row.nombre || 'Cliente';
-
-                        let msgToSend = adminAI.message_text || '';
-                        if (isPinOnlyRequest) {
-                            const streamingName = (row.Streaming || 'Streaming').toUpperCase();
-                            const pin = row['pin perfil'] || row['pin'] || 'Sin PIN';
-                            msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
-                        } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
-                            const streamingName = (row.Streaming || 'Streaming').toUpperCase();
-                            const pin = row['pin perfil'] || row['pin'] || '';
-                            msgToSend = `🔐 *CREDENCIALES ${streamingName}*\n\n📧 Correo: ${row.correo}\n🔒 Clave: ${row.contraseña}${pin ? `\n🔢 PIN: ${pin}` : ''}`;
-                        }
-
-                        recipients.push({
-                            targetId,
-                            targetName,
-                            messageText: msgToSend
-                        });
-                    });
-                } catch (err) {
-                    console.error('Error buscando destinatarios por email:', err.message);
-                    await message.reply(`❌ Error al consultar los clientes de esa cuenta en Excel: ${err.message}`);
-                    return;
-                }
-            } else {
-                // Caso B: Destinatario único (nombre, teléfono o "este cliente")
-                let targetId = null;
-                let targetName = null;
-
-                if (adminAI.target_user === 'este cliente' || (!adminAI.target_user && !message.from.includes('@g.us'))) {
-                    targetId = userId;
-                    targetName = 'este cliente';
-                } else if (adminAI.target_user) {
-                    const cleanTarget = adminAI.target_user.replace(/\D/g, '');
-                    if (cleanTarget.length >= 8) {
-                        targetId = (cleanTarget.startsWith('57') ? cleanTarget : '57' + cleanTarget) + '@c.us';
-                        targetName = cleanTarget;
-                    } else {
-                        // Buscar por nombre
-                        const { searchContactByName } = require('./googleContactsService');
-                        let foundPhone = await searchContactByName(adminAI.target_user);
-
-                        if (!foundPhone) {
-                            const { fetchRawData } = require('./apiService');
-                            try {
-                                const rawData = await fetchRawData();
-                                const userRow = rawData.find(r => {
-                                    const rowName = (r.Nombre || r['Nombre Completo'] || "").toString().toLowerCase();
-                                    return rowName.includes(adminAI.target_user.toLowerCase());
-                                });
-                                if (userRow && userRow.numero) {
-                                    const tel = userRow.numero.toString().replace(/\D/g, '');
-                                    foundPhone = tel.startsWith('57') ? tel : '57' + tel;
-                                }
-                            } catch (e) {
-                                console.error('Error buscando nombre en Excel para programar:', e.message);
+                    // Generar credenciales si fue solicitado
+                    let msgToSend = adminAI.message_text || '';
+                    if (isPinOnlyRequest) {
+                        const { getAccountsByPhone } = require('./apiService');
+                        try {
+                            const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
+                            const userAccounts = await getAccountsByPhone(phoneNumber);
+                            const platFilter = adminAI.target_platform || '';
+                            const targetAccount = userAccounts.find(a => (a.Streaming || '').toLowerCase().includes(platFilter.toLowerCase()));
+                            if (targetAccount) {
+                                const streamingName = (targetAccount.Streaming || 'Streaming').toUpperCase();
+                                const pin = targetAccount['pin perfil'] || targetAccount['pin'] || 'Sin PIN';
+                                msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
+                            } else {
+                                await message.reply(`❌ Jefe, no encontré ninguna cuenta de *${platFilter.toUpperCase() || 'Streaming'}* activa para el cliente.`);
+                                return;
                             }
+                        } catch (err) {
+                            console.error('Error buscando PIN único para programar:', err.message);
                         }
+                    } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
+                        const { getAccountsByPhone } = require('./apiService');
+                        const { formatDirectCredentials } = require('./aiService');
+                        try {
+                            const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
+                            const userAccounts = await getAccountsByPhone(phoneNumber);
+                            const platFilter = adminAI.target_platform || '';
 
-                        if (foundPhone) {
-                            targetId = foundPhone.includes('@') ? foundPhone : foundPhone + '@c.us';
-                            targetName = adminAI.target_user;
+                            const formatted = formatDirectCredentials(userAccounts, platFilter);
+                            if (formatted) {
+                                msgToSend = formatted;
+                            } else if (msgToSend.trim().length === 0) {
+                                await message.reply(`❌ Jefe, no encontré ninguna cuenta activa de *${platFilter.toUpperCase() || 'Streaming'}* para el cliente.`);
+                                return;
+                            }
+                        } catch (err) {
+                            console.error('Error buscando credenciales para programar:', err.message);
                         }
                     }
-                }
 
-                if (!targetId) {
-                    await message.reply('❌ Jefe, no pude identificar al cliente al que deseas enviarle el mensaje. Por favor especifica su nombre o número.');
-                    return;
-                }
-
-                // Generar credenciales si fue solicitado
-                let msgToSend = adminAI.message_text || '';
-                if (isPinOnlyRequest) {
-                    const { getAccountsByPhone } = require('./apiService');
-                    try {
-                        const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
-                        const userAccounts = await getAccountsByPhone(phoneNumber);
-                        const platFilter = adminAI.target_platform || '';
-                        const targetAccount = userAccounts.find(a => (a.Streaming || '').toLowerCase().includes(platFilter.toLowerCase()));
-                        if (targetAccount) {
-                            const streamingName = (targetAccount.Streaming || 'Streaming').toUpperCase();
-                            const pin = targetAccount['pin perfil'] || targetAccount['pin'] || 'Sin PIN';
-                            msgToSend = `📍 *PIN / INVITACIÓN DE PERFIL ${streamingName}*\n\n${pin}`;
-                        } else {
-                            await message.reply(`❌ Jefe, no encontré ninguna cuenta de *${platFilter.toUpperCase() || 'Streaming'}* activa para el cliente.`);
-                            return;
-                        }
-                    } catch (err) {
-                        console.error('Error buscando PIN único para programar:', err.message);
+                    if (!msgToSend || msgToSend.trim().length === 0) {
+                        await message.reply('❌ Jefe, no detecté el contenido del mensaje que quieres enviar.');
+                        return;
                     }
-                } else if (isCredentialsRequest || msgToSend.toLowerCase().includes('credenciales') || msgToSend.trim().length <= 5) {
-                    const { getAccountsByPhone } = require('./apiService');
-                    const { formatDirectCredentials } = require('./aiService');
-                    try {
-                        const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
-                        const userAccounts = await getAccountsByPhone(phoneNumber);
-                        const platFilter = adminAI.target_platform || '';
 
-                        const formatted = formatDirectCredentials(userAccounts, platFilter);
-                        if (formatted) {
-                            msgToSend = formatted;
-                        } else if (msgToSend.trim().length === 0) {
-                            await message.reply(`❌ Jefe, no encontré ninguna cuenta activa de *${platFilter.toUpperCase() || 'Streaming'}* para el cliente.`);
-                            return;
-                        }
-                    } catch (err) {
-                        console.error('Error buscando credenciales para programar:', err.message);
-                    }
+                    recipients.push({
+                        targetId,
+                        targetName,
+                        messageText: msgToSend
+                    });
                 }
-
-                if (!msgToSend || msgToSend.trim().length === 0) {
-                    await message.reply('❌ Jefe, no detecté el contenido del mensaje que quieres enviar.');
-                    return;
-                }
-
-                recipients.push({
-                    targetId,
-                    targetName,
-                    messageText: msgToSend
-                });
             }
 
             // 3. Procesar envíos (programados o con confirmación obligatoria previa)
