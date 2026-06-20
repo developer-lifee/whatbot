@@ -724,26 +724,38 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
  * @returns {Promise<number|null>} The 1-based index of the plan or null.
  */
 async function parsePlanSelection(messageContent, availablePlans) {
-  const plansText = availablePlans.map((p, i) => `${i + 1}. ${p.name} ($${p.price})`).join('\n');
+  const plansText = availablePlans.map((p, i) => {
+    const details = p.characteristics ? p.characteristics.join(', ') : '';
+    return `${i + 1}. ${p.name} ($${p.price}): ${details}`;
+  }).join('\n');
+  
   const prompt = `
-    El usuario debe elegir un plan de la siguiente lista:
+    El usuario está en el proceso de elegir un plan de la siguiente lista de opciones disponibles:
     ${plansText}
     
-    El mensaje del usuario es: "${messageContent}"
+    El mensaje actual del usuario es: "${messageContent}"
     
-    Salida esperada JSON:
+    Analiza si el usuario está realizando una pregunta, expresando una duda o pidiendo aclaración sobre los planes o características de los servicios en lugar de confirmar su elección de un plan.
+    
+    Salida esperada en formato JSON estricto:
     {
-        "selectedIndex": number | null // El número de la opción (1, 2, 3...) o null si no se entiende.
+        "isQuestion": boolean, // true si es una pregunta, duda, consulta o aclaración. false si es simplemente una confirmación/elección del plan.
+        "salesReply": string | null, // Si isQuestion es true, escribe una respuesta comercial sumamente amable, persuasiva, vendedora (espíritu vendedor) y clara resolviendo su pregunta detalladamente con base en las características de los planes. Si isQuestion es false, pon null.
+        "selectedIndex": number | null // Si isQuestion es false, indica el número de la opción elegida (1, 2, 3...) o null si no se entiende o no se ha decidido. Si isQuestion es true, pon null.
     }
   `;
 
   try {
-    const jsonString = await callDeepSeek(prompt, "Eres un asistente que identifica la opción elegida por el usuario. Responde solo con JSON.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un asistente de ventas de Sheerit que ayuda a resolver dudas de planes. Responde solo con JSON.", true);
     const result = JSON.parse(jsonString);
-    return result.selectedIndex;
+    return {
+      selectedIndex: result.selectedIndex || null,
+      isQuestion: !!result.isQuestion,
+      salesReply: result.salesReply || null
+    };
   } catch (error) {
     console.error("Error parsing plan selection:", error);
-    return null;
+    return { selectedIndex: null, isQuestion: false, salesReply: null };
   }
 }
 

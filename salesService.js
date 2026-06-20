@@ -581,9 +581,15 @@ async function handleSelectingPlans(message, userId, userStates) {
 
   // Si no es un número directo, intentar con IA para entender la opción
   if (isNaN(selection) || selection < 0) {
-    const aiSelection = await parsePlanSelection(message.body, availablePlans);
-    if (aiSelection !== null) {
-      selection = aiSelection - 1;
+    const aiResult = await parsePlanSelection(message.body, availablePlans);
+    if (aiResult) {
+      if (aiResult.isQuestion && aiResult.salesReply) {
+        // Respuesta vendedora: Resuelve la pregunta del cliente y se mantiene en el mismo estado para que elija
+        await message.reply(aiResult.salesReply);
+        return;
+      } else if (aiResult.selectedIndex !== null) {
+        selection = aiResult.selectedIndex - 1;
+      }
     }
   }
 
