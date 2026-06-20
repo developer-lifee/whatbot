@@ -2700,7 +2700,7 @@ async function baseProcessIncomingMessage(messages) {
             const detection = await detectInitialIntent(message.body, hist, mediaData);
 
             const cleanBody = (message.body || "").trim();
-            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
+            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "renovar"];
             const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
             
             const wantsCodeKeywords = [
@@ -4337,7 +4337,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const frustration = detection.frustrationLevel || 0;
             const unreads = message._unreadCount || 0;
 
-            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo"];
+            const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "renovar"];
             if ((frustration >= 7 || unreads >= 10) && !solvableIntents.includes(detection.intent)) {
                 console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
 
