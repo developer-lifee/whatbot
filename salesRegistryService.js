@@ -161,8 +161,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
         const phone = userId.split('@')[0].split(':')[0].replace(/\D/g, '');
         const formattedPhone = formatWhatsAppNumber(phone);
 
-        // Obtener todos los datos crudos para buscar cupos (solo si no es renovación)
-        const allRows = !userState.isRenewal ? await fetchRawData() : [];
+        // Obtener todos los datos crudos para buscar cupos o validar nombres reales en filas de Excel
+        const allRows = await fetchRawData();
 
         const results = [];
         for (const item of items) {
@@ -181,20 +181,23 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const baseDate = item.deben || null;
                 const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths, baseDate);
 
-                console.log(`[Sales Registry] RENOVACIÓN detectada para ${platformName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
+                const excelRow = allRows[targetRow - 2];
+                const realStreamingName = excelRow ? (excelRow.Streaming || excelRow.Plataforma || platformName) : platformName;
+
+                console.log(`[Sales Registry] RENOVACIÓN detectada para ${realStreamingName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
                 const updates = {
                     "deben": nextPaymentDate,
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
                 };
                 await updateExcelData(targetRow, updates);
                 results.push({ 
-                    name: platformName, 
+                    name: realStreamingName, 
                     status: 'success', 
                     rowNumber: targetRow, 
                     type: 'renewal',
-                    correo: item.correo || item.Correo || "",
-                    contraseña: item.contraseña || item.Contraseña || item.password || "",
-                    pin: item["pin perfil"] || item.pin || "",
+                    correo: item.correo || item.Correo || (excelRow ? excelRow.correo || excelRow.Correo : ""),
+                    contraseña: item.contraseña || item.Contraseña || item.password || (excelRow ? excelRow.contraseña || excelRow.Contraseña || excelRow.password : ""),
+                    pin: item["pin perfil"] || item.pin || (excelRow ? excelRow["pin perfil"] || excelRow.pin : ""),
                     vencimiento: nextPaymentDate
                 });
                 continue;
@@ -230,7 +233,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 };
                 await updateExcelData(finalRow, updates);
                 results.push({ 
-                    name: platformName, 
+                    name: matchedRow.Streaming || platformName, 
                     status: 'success', 
                     rowNumber: finalRow, 
                     type: 'renewal',
@@ -304,7 +307,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     allRows[slot.index - 2].deben = "RESERVADO";
                 }
                 results.push({ 
-                    name: platformName, 
+                    name: slot.rowData.Streaming || platformName, 
                     status: 'success', 
                     rowNumber: slot.index, 
                     type: 'new_sale',

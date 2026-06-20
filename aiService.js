@@ -63,8 +63,8 @@ function isFamilyPlan(streamingName) {
 
   const isMatched = familyKeywords.some(kw => name.includes(kw));
 
-  // Si contiene "owner" o "dueño", NO es un plan tipo invitación para el cliente final, sino administrativo
-  if (name.includes('owner') || name.includes('dueño')) {
+  // Si contiene "owner", "dueño" o "proporcionado", NO es un plan tipo invitación para el cliente final, sino administrativo/proporcionado
+  if (name.includes('owner') || name.includes('dueño') || name.includes('proporcionado')) {
     return false;
   }
 
