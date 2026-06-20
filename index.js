@@ -2511,6 +2511,7 @@ async function baseProcessIncomingMessage(messages) {
     const message = messages[messages.length - 1];
     const isMedia = messages.some(m => m.hasMedia);
     const combinedBody = messages.map(m => m.body || "").filter(b => b !== "").join("\n");
+    message.combinedBody = combinedBody;
 
     // --- INTERCEPTOR ESPECIAL ADMINISTRADOR ---
     if (isFromAdmin) {

@@ -169,7 +169,7 @@ async function getChatHistoryText(message, limit = 6) {
     const currentMsgDate = new Date(message.timestamp * 1000);
     const currDateStr = currentMsgDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
     const currTimeStr = currentMsgDate.toLocaleTimeString('es-CO');
-    chatHistoryText += `\n[${currDateStr}, ${currTimeStr}] Usuario (Mensaje Actual): ${message.body || ''}`;
+    chatHistoryText += `\n[${currDateStr}, ${currTimeStr}] Usuario (Mensaje Actual): ${message.combinedBody || message.body || ''}`;
   } catch (err) {
     console.error("Error fetching chat history", err.message);
   }
@@ -194,7 +194,7 @@ async function safeFetchMessages(chat, limit) {
 }
 
 async function handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID) {
-  const mensaje = message.body;
+  const mensaje = message.combinedBody || message.body;
 
   const chatHistoryText = await getChatHistoryText(message);
   const intent = await parsePurchaseIntent(mensaje, chatHistoryText);
@@ -353,7 +353,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
 }
 
 async function handleAwaitingPurchasePlatforms(message, userId, userStates, client, GROUP_ID, detection = null) {
-  const mensaje = message.body;
+  const mensaje = message.combinedBody || message.body;
 
   const chatHistoryText = await getChatHistoryText(message);
   const intent = await parsePurchaseIntent(mensaje, chatHistoryText);
@@ -534,7 +534,7 @@ async function handleSelectingPlans(message, userId, userStates) {
   if (!state || state.state !== 'selecting_plans') return;
 
   const { selected, currentIndex } = state;
-  const body = message.body.trim().toLowerCase();
+  const body = (message.combinedBody || message.body).trim().toLowerCase();
 
   if (body === 'agregar') {
     const existing = userStates.get(userId);
@@ -581,7 +581,7 @@ async function handleSelectingPlans(message, userId, userStates) {
 
   // Si no es un número directo, intentar con IA para entender la opción
   if (isNaN(selection) || selection < 0) {
-    const aiResult = await parsePlanSelection(message.body, availablePlans);
+    const aiResult = await parsePlanSelection(message.combinedBody || message.body, availablePlans);
     if (aiResult) {
       if (aiResult.isQuestion && aiResult.salesReply) {
         // Respuesta vendedora: Resuelve la pregunta del cliente y se mantiene en el mismo estado para que elija
@@ -636,7 +636,7 @@ async function handleAddingPlatform(message, userId, userStates) {
   const state = userStates.get(userId);
   if (!state || state.state !== 'adding_platform') return;
 
-  const body = message.body.trim().toLowerCase();
+  const body = (message.combinedBody || message.body).trim().toLowerCase();
 
   if (body === 'volver') {
     const nextIndex = state.returnIndex !== undefined ? state.returnIndex : 0;
