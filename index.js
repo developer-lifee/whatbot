@@ -3870,11 +3870,12 @@ async function baseProcessIncomingMessage(messages) {
                 }
 
                 // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---
+                let leftoverAmount = 0;
                 if (check.amount && check.amount > 0) {
+                    const expectedTotal = stateData.total || 0;
+                    leftoverAmount = (expectedTotal > 0 && check.amount > expectedTotal) ? (check.amount - expectedTotal) : 0;
                     try {
-                        const expectedTotal = stateData.total || 0;
                         const isShortPayment = expectedTotal > 0 && check.amount < expectedTotal;
-                        const leftoverAmount = (expectedTotal > 0 && check.amount > expectedTotal) ? (check.amount - expectedTotal) : 0;
 
                         if (isShortPayment) {
                             console.log(`[PAYMENT AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) es menor al total esperado ($${expectedTotal}) para @${userId}. No se auto-validará.`);
