@@ -781,25 +781,45 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
  * @param {Array} availablePlans 
  * @returns {Promise<number|null>} The 1-based index of the plan or null.
  */
-async function parsePlanSelection(messageContent, availablePlans) {
+async function parsePlanSelection(messageContent, availablePlans, currentPlatformName = '', selectedItems = []) {
   const plansText = availablePlans.map((p, i) => {
     const details = p.characteristics ? p.characteristics.join(', ') : '';
     return `${i + 1}. ${p.name} ($${p.price}): ${details}`;
   }).join('\n');
   
+  let cartText = "";
+  if (selectedItems && selectedItems.length > 0) {
+    cartText = "El usuario tiene en su combo/interés actual las siguientes plataformas:\n" + 
+      selectedItems.map(item => {
+        const planName = item.chosenPlan ? item.chosenPlan.name : "Plan por definir";
+        const priceText = item.chosenPlan ? `($${item.chosenPlan.price})` : "";
+        return `- ${item.platform.name}: ${planName} ${priceText}`;
+      }).join('\n');
+  }
+
   const prompt = `
-    El usuario está en el proceso de elegir un plan de la siguiente lista de opciones disponibles:
+    El usuario está en el proceso de elegir un plan de la siguiente lista de opciones disponibles para la plataforma "${currentPlatformName}":
     ${plansText}
+    
+    ${cartText}
     
     El mensaje actual del usuario es: "${messageContent}"
     
-    Analiza si el usuario está realizando una pregunta, expresando una duda o pidiendo aclaración sobre los planes o características de los servicios en lugar de confirmar su elección de un plan.
+    Analiza la intención del usuario y clasifícala en uno de los siguientes sub-intents:
+    1. "plan_selection": El usuario está eligiendo o confirmando uno de los planes (ej. dice "la 1", "netflix 4k", "el de 17000" o escribe un número directamente).
+    2. "service_doubt_or_ignorance": El usuario tiene dudas sobre los servicios, precios, características, expresa desconocimiento, no entiende qué está eligiendo, o tiene confusión/inquietudes sobre cómo funciona su combo o si incluye otras plataformas del carrito (por ejemplo, si pregunta "¿Y paramount?", "¿Este plan incluye ambos?", "¿Qué diferencia hay?", "pero es que no entiendo", etc.).
+    3. "other": Cualquier otro tipo de mensaje.
+    
+    Si el sub-intent es "service_doubt_or_ignorance", debes activar el ESPÍRITU DEL VENDEDOR:
+    - Escribe una respuesta comercial (salesReply) sumamente amable, persuasiva, vendedora y clara.
+    - Explica detalladamente y con paciencia qué plataformas están en su pedido y que primero estamos definiendo el plan de "${currentPlatformName}".
+    - Resuelve la duda con base en las características y dile que al final sumaremos los servicios con un descuento por combo.
     
     Salida esperada en formato JSON estricto:
     {
-        "isQuestion": boolean, // true si es una pregunta, duda, consulta o aclaración. false si es simplemente una confirmación/elección del plan.
-        "salesReply": string | null, // Si isQuestion es true, escribe una respuesta comercial sumamente amable, persuasiva, vendedora (espíritu vendedor) y clara resolviendo su pregunta detalladamente con base en las características de los planes. Si isQuestion es false, pon null.
-        "selectedIndex": number | null // Si isQuestion es false, indica el número de la opción elegida (1, 2, 3...) o null si no se entiende o no se ha decidido. Si isQuestion es true, pon null.
+        "subIntent": "plan_selection" | "service_doubt_or_ignorance" | "other",
+        "salesReply": string | null, // Si subIntent es "service_doubt_or_ignorance", escribe la respuesta vendedora y aclaratoria detallada. En otro caso, null.
+        "selectedIndex": number | null // Si subIntent es "plan_selection", indica el número de la opción elegida (1, 2, 3...) o null si no se entiende. En otro caso, null.
     }
   `;
 
@@ -808,7 +828,7 @@ async function parsePlanSelection(messageContent, availablePlans) {
     const result = JSON.parse(jsonString);
     return {
       selectedIndex: result.selectedIndex || null,
-      isQuestion: !!result.isQuestion,
+      isQuestion: result.subIntent === 'service_doubt_or_ignorance' || result.subIntent === 'other',
       salesReply: result.salesReply || null
     };
   } catch (error) {

@@ -581,7 +581,7 @@ async function handleSelectingPlans(message, userId, userStates) {
 
   // Si no es un número directo, intentar con IA para entender la opción
   if (isNaN(selection) || selection < 0) {
-    const aiResult = await parsePlanSelection(message.combinedBody || message.body, availablePlans);
+    const aiResult = await parsePlanSelection(message.combinedBody || message.body, availablePlans, platform.name, selected);
     if (aiResult) {
       if (aiResult.isQuestion && aiResult.salesReply) {
         // Respuesta vendedora: Resuelve la pregunta del cliente y se mantiene en el mismo estado para que elija
