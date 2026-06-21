@@ -1690,13 +1690,29 @@ app.post('/api/support/upload', upload.single('image'), (req, res) => {
         const password = req.body.password;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
         if (req.file) {
-            const publicUrl = `http://localhost:3000/uploads/${req.file.filename}`; // Replace localhost in Prod
+            const protocol = req.secure || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+            const host = req.get('host');
+            const publicUrl = `${protocol}://${host}/uploads/${req.file.filename}`;
             res.json({ success: true, url: publicUrl });
         } else {
             res.json({ success: false, message: 'No se envió ninguna imagen' });
         }
     } catch (e) {
         res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+app.post('/api/admin/audit-log', express.json(), (req, res) => {
+    try {
+        const { agentEmail, agentName, action, details } = req.body;
+        const timestamp = new Date().toISOString();
+        const logLine = `[${timestamp}] [${agentEmail || 'Unknown'}] [${agentName || 'Unknown'}] Action: ${action || 'None'} - Details: ${JSON.stringify(details || {})}\n`;
+        
+        fs.appendFileSync(path.join(__dirname, 'frontend_audit.log'), logLine, 'utf8');
+        res.json({ success: true });
+    } catch (e) {
+        console.error("Error writing audit log:", e.message);
+        res.status(500).json({ error: e.message });
     }
 });
 
