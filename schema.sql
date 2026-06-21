@@ -115,3 +115,19 @@ CREATE TABLE IF NOT EXISTS drive_backups (
     file_size BIGINT NOT NULL,
     uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 9. SaaS Configuración de Sistema (Prompts, Intents, etc.)
+CREATE TABLE IF NOT EXISTS system_configs (
+    cfg_key VARCHAR(50) PRIMARY KEY,
+    cfg_value TEXT NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- 10. SaaS Recetas de Automatización RPA (Puppeteer)
+CREATE TABLE IF NOT EXISTS rpa_recipes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    platform VARCHAR(50) NOT NULL,
+    recipe_json JSON NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

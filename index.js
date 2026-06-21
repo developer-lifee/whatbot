@@ -1915,6 +1915,438 @@ app.post('/api/admin/chat-messages/send', async (req, res) => {
 });
 
 
+// ==========================================
+// WHATSAPP SAAS CONNECTION SYSTEM (QR / OTP)
+// ==========================================
+
+let currentWhatsappStatus = 'DISCONNECTED'; // DISCONNECTED, CONNECTING, QR_READY, PAIRING_CODE_READY, CONNECTED
+let latestQrCode = null;
+let latestPairingCode = null;
+let activeSseClients = [];
+
+function broadcastSseEvent(type, data) {
+    activeSseClients.forEach(client => {
+        try {
+            client.write(`event: ${type}\n`);
+            client.write(`data: ${JSON.stringify(data)}\n\n`);
+        } catch (err) {
+            console.error('Error enviando datos SSE:', err.message);
+        }
+    });
+}
+
+app.get('/api/whatsapp/status-stream', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.flushHeaders();
+
+    const initialState = {
+        status: currentWhatsappStatus,
+        qr: latestQrCode,
+        pairingCode: latestPairingCode
+    };
+    res.write(`event: status\n`);
+    res.write(`data: ${JSON.stringify(initialState)}\n\n`);
+
+    activeSseClients.push(res);
+
+    req.on('close', () => {
+        activeSseClients = activeSseClients.filter(c => c !== res);
+    });
+});
+
+app.post('/api/whatsapp/request-pairing-code', express.json(), async (req, res) => {
+    try {
+        const { phone, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+        if (!phone) return res.status(400).json({ success: false, message: 'Falta el número de teléfono' });
+
+        const cleanPhone = phone.replace(/\D/g, '');
+
+        if (!client) {
+            return res.status(503).json({ success: false, message: 'El cliente de WhatsApp no está inicializado' });
+        }
+
+        console.log(`[Pairing Code] Solicitando código de vinculación para: ${cleanPhone}`);
+        currentWhatsappStatus = 'CONNECTING';
+        broadcastSseEvent('status', { status: currentWhatsappStatus });
+
+        const code = await client.requestPairingCode(cleanPhone);
+        if (code) {
+            latestPairingCode = code;
+            latestQrCode = null;
+            currentWhatsappStatus = 'PAIRING_CODE_READY';
+            broadcastSseEvent('status', { status: currentWhatsappStatus, pairingCode: code });
+            return res.json({ success: true, pairingCode: code });
+        }
+
+        res.json({ success: true, message: 'Solicitud enviada al servidor de WhatsApp...' });
+    } catch (e) {
+        console.error('Error al solicitar código de vinculación:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Inicialización de la base de datos para SaaS
+(async () => {
+    try {
+        const { pool } = require('./database');
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS system_configs (
+                cfg_key VARCHAR(50) PRIMARY KEY,
+                cfg_value TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS rpa_recipes (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100) NOT NULL,
+                platform VARCHAR(50) NOT NULL,
+                recipe_json JSON NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        console.log('✅ Base de datos: Tablas de configuración SaaS verificadas.');
+    } catch (err) {
+        console.error('❌ Base de datos: Error al verificar/crear tablas SaaS:', err.message);
+    }
+})();
+
+// GET Prompts Config
+app.get('/api/config/prompts', async (req, res) => {
+    try {
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "fallback_template"');
+        if (rows && rows.length > 0) {
+            return res.json({ success: true, prompt: rows[0].cfg_value });
+        }
+
+        // Si no está en BD, leer de fallback_template.txt
+        const defaultPath = path.join(__dirname, 'prompts', 'fallback_template.txt');
+        if (fs.existsSync(defaultPath)) {
+            const promptContent = fs.readFileSync(defaultPath, 'utf8');
+            return res.json({ success: true, prompt: promptContent, isDefault: true });
+        }
+
+        res.status(404).json({ success: false, message: 'Plantilla de prompt no encontrada' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Save Prompts Config
+app.post('/api/config/prompts/save', express.json(), async (req, res) => {
+    try {
+        const { prompt, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+        if (!prompt) return res.status(400).json({ success: false, message: 'Falta el contenido del prompt' });
+
+        const { pool } = require('./database');
+        await pool.query(
+            'INSERT INTO system_configs (cfg_key, cfg_value) VALUES ("fallback_template", ?) ON DUPLICATE KEY UPDATE cfg_value = VALUES(cfg_value)',
+            [prompt]
+        );
+
+        // Limpiar caché local si existe en aiService
+        try {
+            const { clearCachedSystemPrompt } = require('./aiService');
+            clearCachedSystemPrompt();
+        } catch (err) {}
+
+        res.json({ success: true, message: 'Plantilla de prompt guardada con éxito en la base de datos' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+
+// ==========================================
+// SAAS RPA RPA RECIPE EXECUTION & MANAGEMENT
+// ==========================================
+
+async function runRpaRecipe(recipe, variables = {}) {
+    const puppeteer = require('puppeteer');
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        ]
+    });
+    const page = await browser.newPage();
+    const results = {};
+
+    try {
+        for (const step of recipe.steps) {
+            console.log(`[RPA Runner] Ejecutando paso: ${step.action} - ${step.description || ''}`);
+
+            let value = step.value || "";
+            if (typeof value === 'string') {
+                value = value.replace(/\{\{(\w+)\}\}/g, (_, name) => variables[name] || '');
+            }
+
+            switch (step.action) {
+                case 'navigate':
+                    await page.goto(step.url, { waitUntil: 'networkidle2', timeout: 30000 });
+                    break;
+                case 'type':
+                    await page.waitForSelector(step.selector, { timeout: 15000 });
+                    await page.type(step.selector, value);
+                    break;
+                case 'click':
+                    await page.waitForSelector(step.selector, { timeout: 15000 });
+                    await page.click(step.selector);
+                    break;
+                case 'wait_navigation':
+                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 });
+                    break;
+                case 'wait_selector':
+                    await page.waitForSelector(step.selector, { timeout: 20000 });
+                    break;
+                case 'extract_text':
+                    await page.waitForSelector(step.selector, { timeout: 15000 });
+                    const extracted = await page.evaluate((sel) => {
+                        const el = document.querySelector(sel);
+                        return el ? el.innerText.trim() : null;
+                    }, step.selector);
+                    results[step.save_as || 'extracted'] = extracted;
+                    break;
+                default:
+                    console.warn(`[RPA Runner] Acción desconocida: ${step.action}`);
+            }
+        }
+
+        return { success: true, data: results };
+    } catch (err) {
+        console.error(`[RPA Runner Error] Falla en la receta '${recipe.name}':`, err.message);
+        return { success: false, error: err.message };
+    } finally {
+        await browser.close();
+    }
+}
+
+// POST Import Scribe PDF via Gemini
+app.post('/api/admin/rpa/import-scribe', upload.single('pdf'), async (req, res) => {
+    try {
+        const password = req.body.password;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+        if (!req.file) return res.status(400).json({ success: false, message: 'No se envió ningún archivo PDF' });
+
+        const { parseScribePdfToRecipe } = require('./aiService');
+        const recipe = await parseScribePdfToRecipe(req.file.buffer);
+
+        res.json({ success: true, recipe });
+    } catch (e) {
+        console.error('Error al importar PDF de Scribe:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Save RPA Recipe
+app.post('/api/admin/rpa/save', express.json(), async (req, res) => {
+    try {
+        const { name, platform, recipeJson, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+        if (!name || !platform || !recipeJson) {
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
+        }
+
+        const { pool } = require('./database');
+        await pool.query(
+            'INSERT INTO rpa_recipes (name, platform, recipe_json) VALUES (?, ?, ?)',
+            [name, platform, JSON.stringify(recipeJson)]
+        );
+
+        res.json({ success: true, message: 'Receta de automatización guardada correctamente' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET List RPA Recipes
+app.get('/api/admin/rpa/list', async (req, res) => {
+    try {
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT * FROM rpa_recipes ORDER BY created_at DESC');
+        res.json(rows.map(r => ({
+            id: r.id,
+            name: r.name,
+            platform: r.platform,
+            recipeJson: typeof r.recipe_json === 'string' ? JSON.parse(r.recipe_json) : r.recipe_json,
+            createdAt: r.created_at
+        })));
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Run RPA Recipe
+app.post('/api/admin/rpa/run', express.json(), async (req, res) => {
+    try {
+        const { recipeId, variables, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+        if (!recipeId) return res.status(400).json({ success: false, message: 'Falta el ID de la receta' });
+
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT * FROM rpa_recipes WHERE id = ?', [recipeId]);
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Receta no encontrada' });
+        }
+
+        const recipeObj = rows[0];
+        const recipeJson = typeof recipeObj.recipe_json === 'string' ? JSON.parse(recipeObj.recipe_json) : recipeObj.recipe_json;
+
+        console.log(`[RPA] Iniciando ejecución de receta: ${recipeObj.name}`);
+        const result = await runRpaRecipe(recipeJson, variables || {});
+
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+
+// ==========================================
+// CLIENT OTP PORTAL SIGN-IN & 2FA REQUESTS
+// ==========================================
+
+const clientOtps = new Map(); // phone -> { code, expiresAt }
+
+// POST Request Client OTP
+app.post('/api/client/request-otp', express.json(), async (req, res) => {
+    try {
+        const { phone } = req.body;
+        if (!phone) return res.status(400).json({ success: false, message: 'Falta el número de teléfono' });
+
+        const cleanPhone = phone.replace(/\D/g, '');
+        const userJid = cleanPhone + '@c.us';
+
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT fullname FROM customers WHERE phone = ?', [cleanPhone]);
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ success: false, message: 'No encontramos ningún cliente registrado con ese número de teléfono' });
+        }
+
+        const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutos
+
+        clientOtps.set(cleanPhone, { code: otpCode, expiresAt });
+
+        if (client && currentWhatsappStatus === 'CONNECTED') {
+            const msg = `🔑 *CÓDIGO DE ACCESO (SHEERIT)* 🔑\n\nHola *${rows[0].fullname}*,\n\nTu código OTP para iniciar sesión en nuestro portal de clientes es:\n\n🔢 *${otpCode}*\n\n_Este código es confidencial y vencerá en 5 minutos._ 🤖`;
+            await client.sendMessage(userJid, msg);
+            console.log(`[OTP] Enviado código ${otpCode} a @${cleanPhone}`);
+            return res.json({ success: true, message: 'Código OTP enviado con éxito a tu WhatsApp' });
+        } else {
+            return res.status(503).json({ success: false, message: 'El servicio de envío de códigos no está disponible en este momento' });
+        }
+    } catch (e) {
+        console.error('Error al generar OTP para cliente:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Verify Client OTP
+app.post('/api/client/verify-otp', express.json(), async (req, res) => {
+    try {
+        const { phone, code } = req.body;
+        if (!phone || !code) {
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
+        }
+
+        const cleanPhone = phone.replace(/\D/g, '');
+        const otpData = clientOtps.get(cleanPhone);
+
+        if (!otpData) {
+            return res.status(400).json({ success: false, message: 'No hay un código OTP activo para este número. Por favor solicita uno nuevo.' });
+        }
+
+        if (Date.now() > otpData.expiresAt) {
+            clientOtps.delete(cleanPhone);
+            return res.status(400).json({ success: false, message: 'El código OTP ha expirado. Por favor solicita uno nuevo.' });
+        }
+
+        if (otpData.code !== code.trim()) {
+            return res.status(400).json({ success: false, message: 'El código OTP ingresado es incorrecto' });
+        }
+
+        // OTP Válido - Limpiar
+        clientOtps.delete(cleanPhone);
+
+        const { getAccountsByPhone } = require('./apiService');
+        const userAccounts = await getAccountsByPhone(cleanPhone);
+
+        const formattedAccounts = userAccounts.map(acc => {
+            const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
+            const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
+            
+            return {
+                id: acc.id || acc._rowNumber,
+                platform: (acc.Streaming || "").toUpperCase(),
+                email: acc.correo || "",
+                password: acc.clave || "",
+                profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
+                vencimiento: acc.vencimiento || acc.deben || ""
+            };
+        });
+
+        res.json({
+            success: true,
+            message: 'Verificación exitosa',
+            accounts: formattedAccounts
+        });
+    } catch (e) {
+        console.error('Error al verificar OTP de cliente:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Request 2FA Code from Website
+app.post('/api/client/request-2fa', express.json(), async (req, res) => {
+    try {
+        const { phone, accountId } = req.body;
+        if (!phone || !accountId) {
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
+        }
+
+        const cleanPhone = phone.replace(/\D/g, '');
+        const { getAccountsByPhone } = require('./apiService');
+        const userAccounts = await getAccountsByPhone(cleanPhone);
+
+        const targetAccount = userAccounts.find(a => (a.id || a._rowNumber) == accountId);
+        if (!targetAccount) {
+            return res.status(404).json({ success: false, message: 'Cuenta no encontrada o no vinculada a tu número' });
+        }
+
+        const userJid = cleanPhone + '@c.us';
+        const mockMessage = {
+            id: { _serialized: `web_request_${Date.now()}` },
+            from: userJid,
+            fromMe: false,
+            body: `código de ${(targetAccount.Streaming || '').toUpperCase()}`,
+            reply: async (text) => {
+                console.log(`[Web OTP Request Reply]: ${text}`);
+                if (client) await client.sendMessage(userJid, text);
+                return text;
+            }
+        };
+
+        // Ejecutar extractor automático
+        await processAccountVerificationCode(mockMessage, userJid, targetAccount, cleanPhone, client, userStates);
+
+        res.json({ success: true, message: 'Solicitud de código 2FA enviada. El bot buscará el código y te lo enviará por WhatsApp.' });
+    } catch (e) {
+        console.error('Error al solicitar 2FA desde web:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+
 
 const server = http.createServer(app);
 const port = process.env.PORT || 3000;
@@ -2004,10 +2436,27 @@ process.on('SIGTERM', shutdown);
 // Generar QR para conexión
 client.on('qr', (qr) => {
     qrcode.generate(qr, { small: true });
+    latestQrCode = qr;
+    latestPairingCode = null;
+    currentWhatsappStatus = 'QR_READY';
+    broadcastSseEvent('status', { status: currentWhatsappStatus, qr: qr });
+});
+
+// Código de vinculación (Pairing code)
+client.on('code', (code) => {
+    console.log('[Pairing Code] Código recibido del cliente:', code);
+    latestPairingCode = code;
+    latestQrCode = null;
+    currentWhatsappStatus = 'PAIRING_CODE_READY';
+    broadcastSseEvent('status', { status: currentWhatsappStatus, pairingCode: code });
 });
 
 client.on('ready', () => {
     console.log('✅ Conexión establecida correctamente. ¡Bot listo!');
+    currentWhatsappStatus = 'CONNECTED';
+    latestQrCode = null;
+    latestPairingCode = null;
+    broadcastSseEvent('status', { status: currentWhatsappStatus });
 
     const { setAlertCallback } = require('./googleAuthService');
     setAlertCallback(async (serviceName, authUrl) => {
@@ -2039,6 +2488,10 @@ client.on('ready', () => {
 
 client.on('disconnected', (reason) => {
     console.error('❌ El cliente se desconectó. Razón:', reason);
+    currentWhatsappStatus = 'DISCONNECTED';
+    latestQrCode = null;
+    latestPairingCode = null;
+    broadcastSseEvent('status', { status: currentWhatsappStatus, reason: reason });
     // Si usas PM2, esto forzará un reinicio
     console.log('⚠️ Intentando forzar reinicio del proceso...');
     process.exit(1);
@@ -2046,6 +2499,10 @@ client.on('disconnected', (reason) => {
 
 client.on('auth_failure', (msg) => {
     console.error('❌ FALLO DE AUTENTICACIÓN:', msg);
+    currentWhatsappStatus = 'DISCONNECTED';
+    latestQrCode = null;
+    latestPairingCode = null;
+    broadcastSseEvent('status', { status: currentWhatsappStatus, reason: 'auth_failure', message: msg });
     process.exit(1);
 });
 

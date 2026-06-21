@@ -2,6 +2,45 @@ const { getJsDateFromExcel, getTodayInBogota, getPlatformKnowledge, getWisdomKno
 const fs = require('fs');
 const path = require('path');
 
+let cachedSystemPrompt = null;
+let lastPromptFetchTime = 0;
+const PROMPT_CACHE_TTL = 30000; // 30 seconds
+
+function clearCachedSystemPrompt() {
+  cachedSystemPrompt = null;
+  lastPromptFetchTime = 0;
+}
+
+async function getSystemPromptTemplate() {
+  const now = Date.now();
+  if (cachedSystemPrompt && (now - lastPromptFetchTime < PROMPT_CACHE_TTL)) {
+    return cachedSystemPrompt;
+  }
+
+  try {
+    const { pool } = require('./database');
+    const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "fallback_template"');
+    if (rows && rows.length > 0) {
+      cachedSystemPrompt = rows[0].cfg_value;
+      lastPromptFetchTime = now;
+      return cachedSystemPrompt;
+    }
+  } catch (err) {
+    console.warn("[aiService] Error al leer prompt de la base de datos, usando archivo local:", err.message);
+  }
+
+  try {
+    const templatePath = path.join(__dirname, 'prompts', 'fallback_template.txt');
+    const promptContent = fs.readFileSync(templatePath, 'utf8');
+    cachedSystemPrompt = promptContent;
+    lastPromptFetchTime = now;
+    return cachedSystemPrompt;
+  } catch (e) {
+    console.warn("No se pudo cargar la plantilla de archivo local, usando fallback básico.");
+    return "Responde de forma amable a: {{MESSAGE_CONTENT}}";
+  }
+}
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
@@ -887,14 +926,7 @@ REGLAS DE ATENCIÓN DE SOPORTE HUMANO:
 2. Si el soporte está ONLINE/ABIERTO y el cliente está en la cola, menciónale amablemente que ya tiene el turno #${queuePos || 'X'} en la cola y que un asesor lo atenderá muy pronto.
 `;
 
-  let template = "";
-  try {
-    const templatePath = path.join(__dirname, 'prompts', 'fallback_template.txt');
-    template = fs.readFileSync(templatePath, 'utf8');
-  } catch (e) {
-    console.warn("No se pudo cargar la plantilla de prompt, usando fallback básico.");
-    template = "Responde de forma amable a: {{MESSAGE_CONTENT}}";
-  }
+  const template = await getSystemPromptTemplate();
 
   let paymentLines = [];
   try {
@@ -1379,6 +1411,49 @@ async function analyzeAdvisorReason(reason, chatHistory = "") {
   }
 }
 
+async function parseScribePdfToRecipe(pdfBuffer) {
+  const prompt = "Analiza detalladamente este PDF de Scribe y genera la receta JSON estructurada de pasos de Puppeteer para automatizar la acción descrita.";
+  
+  const systemInstruction = `Eres un experto en automatización web, RPA y scripting con Puppeteer.
+Tu tarea es analizar un documento PDF de Scribe que contiene una guía paso a paso con capturas de pantalla y descripciones de cada paso para realizar una tarea en un sitio web externo (como iniciar sesión, solicitar códigos, etc.).
+Debes interpretar cada paso e identificar las acciones correspondientes para automatizar ese flujo con Puppeteer.
+
+Para cada paso, debes extraer:
+1. La acción a realizar: 'navigate', 'type', 'click', 'wait_selector', 'wait_navigation', 'extract_text'.
+2. El selector CSS exacto o sugerido (ej: "#user-email", ".btn-login", "input[type='password']", etc.). Si el selector no es evidente, deduce uno lógico basado en el texto y etiquetas HTML que describe el PDF.
+3. El valor a rellenar si la acción es 'type'. Si se trata de ingresar la cuenta o correo del cliente, usa el marcador "{{CUSTOMER_EMAIL}}". Si es para ingresar el usuario administrador o contraseña del panel del proveedor, usa "ADMIN_USER" o "ADMIN_PASSWORD".
+4. Una descripción corta del paso.
+
+Salida esperada usando formato JSON estricto:
+{
+  "name": "Nombre descriptivo de la receta (ej: Extracción Disney+ Proveedor X)",
+  "platform": "Nombre de la plataforma (ej: disney, netflix, max, etc.)",
+  "steps": [
+    {
+      "action": "navigate" | "type" | "click" | "wait_selector" | "wait_navigation" | "extract_text",
+      "url": "URL a navegar (solo si la acción es navigate)",
+      "selector": "Selector CSS (para type, click, wait_selector, extract_text)",
+      "value": "Valor a rellenar (para type)",
+      "save_as": "Nombre de la variable (solo para extract_text, ej: 'otp_code')",
+      "description": "Explicación breve del paso"
+    }
+  ]
+}`;
+
+  const mediaData = {
+    data: pdfBuffer.toString('base64'),
+    mimeType: 'application/pdf'
+  };
+
+  try {
+    const jsonString = await callGemini(prompt, systemInstruction, true, mediaData);
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error("Error en parseScribePdfToRecipe:", error);
+    throw error;
+  }
+}
+
 module.exports = {
   parsePurchaseIntent,
   detectPaymentMethod,
@@ -1395,7 +1470,8 @@ module.exports = {
   editBroadcastPayload,
   generateReactivationResponse,
   isFamilyPlan,
-  getMaskedAccessData,
   detectPaymentPromise,
-  analyzeAdvisorReason
+  analyzeAdvisorReason,
+  clearCachedSystemPrompt,
+  parseScribePdfToRecipe
 };

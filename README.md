@@ -244,6 +244,11 @@ Los endpoints que ejecutan acciones de escritura o envío de mensajes de WhatsAp
 - **OCR General Mejorado**: El lector de imágenes de Gemini se actualizó para no solo analizar comprobantes de pago, sino también detectar capturas de inicio de sesión/2FA y extraer el correo mostrado y el tipo de código requerido.
 - **Flujo de Soporte Inteligente**: Al recibir una captura de 2FA, el bot detecta automáticamente que es una solicitud de código, busca el servicio en las cuentas del cliente e inicia el flujo de extracción automática (TOTP o Gmail), en lugar de transferir inmediatamente al cliente a la cola de espera de asesores humanos.
 
+### 4. 🌐 Portal SaaS y RPA con Scribe
+- **Vinculación de WhatsApp sin Terminal (QR/OTP)**: Se crearon endpoints de Server-Sent Events (SSE) `/api/whatsapp/status-stream` y de solicitud de código de emparejamiento `/api/whatsapp/request-pairing-code` (OTP de 8 caracteres). Esto permite a los clientes de la plataforma SaaS vincular sus números oficiales y visualizar el estado del bot en tiempo real desde la web.
+- **Configurador de Prompts**: Se crearon endpoints `/api/config/prompts` y `/api/config/prompts/save` integrados con una nueva tabla `system_configs` en la base de datos MySQL, permitiendo ajustar los prompts de la IA de forma persistente y dinámica.
+- **RPA Builder de Scribe a Puppeteer**: Nueva lógica que permite subir el PDF exportado de Scribe al endpoint `/api/admin/rpa/import-scribe`, interpretarlo por medio del modelo multimodal de Gemini y convertirlo automáticamente en una receta JSON ejecutable paso a paso en Puppeteer (hacer clics, rellenar campos, esperar selectores y extraer códigos OTP de paneles de proveedores de terceros).
+
 ---
 
 ## 🪵 Formato de Logueo del Servidor (Logs)
