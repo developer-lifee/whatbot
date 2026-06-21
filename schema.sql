@@ -131,3 +131,13 @@ CREATE TABLE IF NOT EXISTS rpa_recipes (
     recipe_json JSON NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 11. SaaS Credenciales de Proveedores (RPA)
+CREATE TABLE IF NOT EXISTS provider_credentials (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    platform VARCHAR(50) NOT NULL,
+    provider_name VARCHAR(100) NOT NULL,
+    username VARCHAR(255) NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

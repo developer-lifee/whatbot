@@ -2009,26 +2009,270 @@ app.post('/api/whatsapp/request-pairing-code', express.json(), async (req, res) 
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        console.log('✅ Base de datos: Tablas de configuración SaaS verificadas.');
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS agents (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(100) UNIQUE NOT NULL,
+                fullname VARCHAR(255) NOT NULL,
+                email VARCHAR(255) UNIQUE NULL,
+                role ENUM('admin', 'agent', 'supervisor') DEFAULT 'agent',
+                status ENUM('active', 'inactive', 'busy') DEFAULT 'active',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            INSERT INTO agents (username, fullname, email, role) VALUES 
+            ('estebanavila182', 'Esteban', 'estebanavila182@outlook.com', 'admin'),
+            ('esclepiades', 'Esclepiades', 'esclepiades@hotmail.com', 'agent'),
+            ('camilo', 'Camilo', 'camco08@hotmail.com', 'agent')
+            ON DUPLICATE KEY UPDATE 
+                role = VALUES(role), 
+                fullname = VALUES(fullname),
+                email = VALUES(email)
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS provider_credentials (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                platform VARCHAR(50) NOT NULL,
+                provider_name VARCHAR(100) NOT NULL,
+                username VARCHAR(255) NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        console.log('✅ Base de datos: Tablas de configuración SaaS, agentes y proveedores verificados.');
     } catch (err) {
         console.error('❌ Base de datos: Error al verificar/crear tablas SaaS:', err.message);
     }
 })();
 
+// GET Agent Role
+app.get('/api/admin/agent-role', async (req, res) => {
+    try {
+        const { email } = req.query;
+        if (!email) return res.status(400).json({ success: false, message: 'Falta el correo del asesor' });
+
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT role FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
+        
+        if (rows && rows.length > 0) {
+            return res.json({ success: true, role: rows[0].role });
+        }
+
+        // Si no está registrado en base de datos, verificar si está en la lista estática (como fallback seguro)
+        const cleanEmail = email.trim().toLowerCase();
+        if (cleanEmail === 'estebanavila182@outlook.com') {
+            return res.json({ success: true, role: 'admin' });
+        }
+
+        res.json({ success: true, role: 'agent' }); // Rol mínimo por defecto
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Default Prompts Templates
+const DEFAULT_PAYMENT_PROMPT = `Analiza la siguiente descripción textual de una imagen/comprobante y determina si corresponde a un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
+Contexto de la charla: {{CHAT_HISTORY}}
+
+DESCRIPCIÓN DE LA IMAGEN DE PAGO:
+"""
+{{IMAGE_DESCRIPTION}}
+"""
+
+Debes responder en formato JSON:
+{
+  "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco con una transferencia exitosa.
+  "amount": number | null, // El valor EXACTO de la transferencia (solo números enteros) si es legible.
+  "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, etc.)
+  "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
+  "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, o destino al que se envió el dinero. Ej: "0087387259", "300 123 4567", "esteban@nequi.com". Extráelo aunque aparezca parcial. MUY IMPORTANTE.
+  "destinationName": string | null // Nombre del destinatario/negocio si aparece en lugar de la llave. Ej: "SHEERIT ESTEBAN AVILA", "TIENDA EJEMPLO". Aparece frecuentemente en pagos por QR de Negocios.
+}`;
+
+const DEFAULT_PLAN_PROMPT = `El usuario está en el proceso de elegir un plan de la siguiente lista de opciones disponibles para la plataforma "{{PLATFORM_NAME}}":
+{{PLANS_LIST}}
+
+{{CART_LIST}}
+
+El mensaje actual del usuario es: "{{MESSAGE_CONTENT}}"
+
+Analiza la intención del usuario y clasifícala en uno de los siguientes sub-intents:
+1. "plan_selection": El usuario está eligiendo o confirmando uno de los planes (ej. dice "la 1", "netflix 4k", "el de 17000" o escribe un número directamente).
+2. "service_doubt_or_ignorance": El usuario tiene dudas sobre los servicios, precios, características, expresa desconocimiento, no entiende qué está eligiendo, o tiene confusión/inquietudes sobre cómo funciona su combo o si incluye otras plataformas del carrito (por ejemplo, si pregunta "¿Y paramount?", "¿Este plan incluye ambos?", "¿Qué diferencia hay?", "pero es que no entiendo", etc.).
+3. "other": Cualquier otro tipo de mensaje.
+
+Si el sub-intent es "service_doubt_or_ignorance", debes activar el ESPÍRITU DEL VENDEDOR:
+- Escribe una respuesta comercial (salesReply) sumamente amable, persuasiva, vendedora y clara.
+- Explica detalladamente y con paciencia qué plataformas están en su pedido y que primero estamos definiendo el plan de "{{PLATFORM_NAME}}".
+- Resuelve la duda con base en las características y dile que al final sumaremos los servicios con un descuento por combo.
+
+Salida esperada en formato JSON estricto:
+{
+    "subIntent": "plan_selection" | "service_doubt_or_ignorance" | "other",
+    "salesReply": string | null, // Si subIntent es "service_doubt_or_ignorance", escribe la respuesta vendedora y aclaratoria detallada. En otro caso, null.
+    "selectedIndex": number | null // Si subIntent es "plan_selection", indica el número de la opción elegida (1, 2, 3...) o null si no se entiende. En otro caso, null.
+}`;
+
+const DEFAULT_INITIAL_INTENT_PROMPT = `Analiza el primer mensaje del usuario para identificar qué desea hacer.
+
+{{MEDIA_DESCRIPTION}}
+
+GUÍA DE FUNCIONAMIENTO DE PLATAFORMAS:
+{{PLATFORM_CONTEXT}}
+
+INFORMACIÓN DEL CLIENTE (Servicios actuales):
+{{ACCOUNT_SUMMARY}}
+
+Contexto previo: {{CHAT_HISTORY}}
+Mensaje actual: "{{MESSAGE_CONTENT}}"
+
+Categorías para "intent":
+- "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene. 
+  *IMPORTANTE*: Si el usuario pregunta "¿tienes disponible?", "¿entregas ya?", "¿qué tienes para entrega inmediata?", clasifícalo como "comprar" con frustración 0 y genera un mensaje que invite a la venta con total confianza.
+- "credenciales": El usuario solicita las credenciales (correo/contraseña) de su cuenta actual, reporta explícitamente "la contraseña no corresponde", "clave incorrecta", o pide recordar su pin de acceso.
+- "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado.
+- "pagar": El usuario pregunta cómo pagar o envía un comprobante.
+- "soporte": Problemas técnicos, fallas de conexión, errores en el cobro, perfiles caídos, o si pide explícitamente hablar con un humano/asesor. (NO usar si es explícitamente un error de clave).
+- "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale", "chao", "adiós").
+- "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio o pide la baja.
+- "desconocido": Cualquier otro mensaje, incluyendo saludos iniciales sin petición específica.
+
+Regla de Intents (MÁXIMA PRIORIDAD):
+1. **MENÚ NUMÉRICO:** Si el mensaje es exactamente "1", "2", "3", "4" o "5", clasifícalo según el menú: "1"->comprar, "2"->credenciales, "3"->renovar, "4"->soporte, "5"->soporte.
+2. **CONTINUIDAD:** Si es una respuesta corta ("sí", "nequi") a una pregunta previa, usa el intent de esa charla.
+3. **STOCK:** Si pregunta por "disponibilidad", "stock", "entrega ya", el intent es "comprar".
+4. **SOPORTE:** PRIORIDAD si hay errores o fallas.
+5. **PAGAR:** Si pregunta cómo pagar o envía comprobante.
+
+Lógica de recuperación ("recoveredState"):
+- "awaiting_payment_method": 
+    * Caso A: Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
+    * Caso B (COLABORATIVO): Si el "Asistente" (humano, sin 🤖) negoció un precio (ej: "te queda en 21") y el usuario actual acepta (ej: "Listo", "Dale", "Vale"). EN ESTE CASO, el bot debe saltar aquí para dar los medios de pago. Si detectas el monto negociado, ponlo en metadata.total.
+- "waiting_human": 
+    * Caso A (CONVERSACIÓN ACTIVA): Si en el historial reciente aparece un mensaje del "Asistente" (humano, sin el emoji 🤖) hablando con el usuario, pidiendo datos o dando soporte. ES VITAL que si ves al Asistente humano hablando, devuelvas "waiting_human" para no interrumpirlo.
+    * Caso B (SILENCIO FORZADO): Si el usuario ha enviado múltiples mensajes de queja, insultos o insistencia extrema (ej: "hola???", "alguien??", "que pasa?") sin respuesta, y el bot no tiene una solución técnica inmediata. 
+- "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
+- "awaiting_payment_confirmation": Si el mensaje es una imagen o texto indicando "ya pagué", "aquí el recibo", etc.
+- Si no hay un flujo claro a medias, pon null. 
+
+Regla de Frustración:
+- Analiza si el usuario suena desesperado, enojado o ha insistido mucho en corto tiempo sin ser atendido. Púntualo del 0 al 10 en "frustrationLevel". 
+- IMPORTANTE: Si el mensaje actual es un saludo (Hola, buenos días) o un ping (?, sigo esperando) y en el historial reciente (mensajes no leídos) hay una solicitud clara de **"credenciales", "comprar" o "pagar"** que NO fue respondida adecuadamente, PRIORIZA esa petición sobre el saludo. El intent debe ser el de la petición pendiente (ej: "comprar" si pidió Netflix).
+
+REGLA DE DEDUCCIÓN DE CONTEXTO Y CONTINUIDAD (MÁXIMA PRIORIDAD):
+Nunca analices el "Mensaje actual" de forma aislada. Debes deducir estrictamente a qué está respondiendo el cliente basándote en el historial:
+1. Si el "Mensaje actual" contiene varios mensajes (separados por \n), analízalos como una ráfaga lógica. Si hay contradicciones, dale prioridad al último mensaje de la ráfaga o al que sea más específico (ej: si dice "Hola" y luego "Quiero Netflix", el intent es "comprar").
+2. Si el Asistente (especialmente si es humano sin 🤖) acaba de hacer una pregunta o pedir un dato (ej: "¿Qué operador tienes?", "Confírmame tu correo", "Pásame el comprobante") y el cliente responde con ese dato (ej: "Claro", "Engativa", "Mi correo es..."), ES UNA CONTINUACIÓN DIRECTA.
+3. En este caso de continuación directa de una charla humana (donde el humano acaba de preguntar algo hace poco), puedes devolver "recoveredState": "waiting_human" para no estorbar. Sin embargo, si el usuario reporta una falla técnica clara, prioriza ayudarlo si el humano no ha respondido en más de 20-30 minutos.
+4. Si el bot 🤖 estaba a la mitad de un flujo (ej: esperando método de pago) y el cliente responde a eso, recupera el estado correspondiente. ¡El contexto manda!
+5. **RELEVANCIA TEMPORAL Y REANUDACIÓN:** 
+   - Si han pasado más de 2 horas (compara la hora actual del sistema vs la del historial) desde el último mensaje del "Asistente" humano, NO devuelvas "waiting_human" a menos que el usuario esté respondiendo a una pregunta muy específica que aún tenga sentido. 
+   - Si el "Mensaje actual" es una queja técnica clara (intent: "soporte" o "credenciales") y han pasado más de 30 minutos desde la última intervención humana, el bot DEBE retomar la ayuda si tiene la respuesta técnica. No dejes al cliente esperando si el humano ya no está activamente en el chat.
+   - Si el mensaje del humano fue solo un "gracias", "listo" o un cierre, no bloquees el bot para futuras dudas del usuario.
+
+Salida esperada JSON:
+{
+    "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "catalogo" | "desconocido",
+    "recoveredState": string | null,
+    "frustrationLevel": number,
+    "userName": string | null,
+    "isNameComplete": boolean,
+    "detectedPlatform": string | null, 
+    "metadata": {
+        "duration_months": number | null,
+        "is2faScreen": boolean | null
+    } | null 
+}
+
+Si el mensaje actual es una imagen o el texto menciona un pago, revisa si es un comprobante. Si lo es, pon intent: "pagar".
+Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VERIFICACIÓN (2FA, código enviado al correo/teléfono), pon intent: "soporte" (para que el bot asista con el código o lo derive al humano).`;
+
+const DEFAULT_CREDENTIALS_PROMPT = `Eres un agente humano y empático de servicio al cliente de "Sheerit".
+Un cliente nos ha pedido revisar sus credenciales de streaming.
+
+Aquí están los datos de sus plataformas:
+{{CREDENTIALS_LIST}}
+
+HISTORIAL RECIENTE:
+{{CHAT_HISTORY}}
+
+MENSAJE DEL CLIENTE:
+"{{MESSAGE_CONTENT}}"
+
+INSTRUCCIONES:
+1. Si el cliente tiene una duda específica (ej: "¿cambió la clave?", "¿cuál es mi pin?", "no puedo entrar"), RESPÓNDELA directamente usando los datos arriba.
+2. Luego de responder la duda, entrega la información de sus cuentas de forma amable, clara y amigable.
+
+⚠️ REGLAS CRÍTICAS:
+1. Muestra SIEMPRE el Correo, la Clave y el Perfil/PIN para CADA cuenta de la lista. NUNCA resumas u omitas esta información.
+2. **PROHIBIDO INVENTAR / ALUCINAR**: Transcribe EXACTAMENTE el Correo y la Clave proporcionados en la lista de arriba. Queda estrictamente prohibido inventar correos ficticios (como sheeritstorecol@gmail.com u otros) o contraseñas (como Sheerit2025* u otras) que no estén tal cual en la lista. Si el dato dice "N/A" o está vacío, indícalo tal cual y pídele al usuario esperar a que el asesor lo asigne.
+3. **IMPORTANTE (Cuentas Familiares/Extras)**: Si en los datos dice que la clave es "(Acceso por invitación/perfil propio)", explica amablemente al usuario que para ese servicio (ej. YouTube, Microsoft, Netflix Extra) no se usa una clave compartida, sino que él accede con su propio correo o mediante una invitación que le llegará.
+4. Si la cuenta está vencida, mantén el aviso de que la clave está oculta por seguridad.
+5. Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
+6. Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.
+
+No incluyas saludos genéricos como "[Tu Nombre]". Puedes despedirte en nombre del equipo de Sheerit.`;
+
+const DEFAULT_REACTIVATION_PROMPT = `Eres el Asistente Virtual de Sheerit Store. Acabas de ser RE-ACTIVADO por un administrador en este chat.
+Tu objetivo es saludar al cliente amablemente y addressar (abordar) de inmediato lo último que estaba preguntando o reportando mientras tú estabas silenciado.
+
+HISTORIAL RECIENTE:
+{{CHAT_HISTORY}}
+
+INSTRUCCIONES:
+1. Saluda cordialmente (Ej: "¡Hola! He vuelto para ayudarte...").
+2. Menciona que un asesor te pidió retomar la atención.
+3. Analiza los mensajes del CLIENTE en el historial:
+   - Si preguntó por precios, dale una pincelada de lo que buscaba.
+   - Si reportó una falla, dile que ya estás revisando su caso.
+   - Si pidió credenciales, dile que ya puedes entregárselas (y recuérdale que use el número 2).
+4. Sé conciso y empático. No repitas todo el historial, solo demuestra que lo "leíste" y estás listo para ayudar.
+5. Usa emojis amigables 🤖.
+
+Responde solo con el texto del mensaje para el cliente.`;
+
 // GET Prompts Config
 app.get('/api/config/prompts', async (req, res) => {
     try {
+        const { key } = req.query;
+        const configKey = key || 'fallback_template';
+        const validKeys = [
+            'fallback_template',
+            'payment_receipt_prompt',
+            'plan_selection_prompt',
+            'initial_intent_prompt',
+            'credentials_delivery_prompt',
+            'reactivation_prompt'
+        ];
+
+        if (!validKeys.includes(configKey)) {
+            return res.status(400).json({ success: false, message: 'Llave de configuración inválida' });
+        }
+
         const { pool } = require('./database');
-        const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "fallback_template"');
+        const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = ?', [configKey]);
         if (rows && rows.length > 0) {
             return res.json({ success: true, prompt: rows[0].cfg_value });
         }
 
-        // Si no está en BD, leer de fallback_template.txt
-        const defaultPath = path.join(__dirname, 'prompts', 'fallback_template.txt');
-        if (fs.existsSync(defaultPath)) {
-            const promptContent = fs.readFileSync(defaultPath, 'utf8');
-            return res.json({ success: true, prompt: promptContent, isDefault: true });
+        // Si no está en BD, usar el default correspondiente
+        if (configKey === 'fallback_template') {
+            const defaultPath = path.join(__dirname, 'prompts', 'fallback_template.txt');
+            if (fs.existsSync(defaultPath)) {
+                const promptContent = fs.readFileSync(defaultPath, 'utf8');
+                return res.json({ success: true, prompt: promptContent, isDefault: true });
+            }
+        } else if (configKey === 'payment_receipt_prompt') {
+            return res.json({ success: true, prompt: DEFAULT_PAYMENT_PROMPT, isDefault: true });
+        } else if (configKey === 'plan_selection_prompt') {
+            return res.json({ success: true, prompt: DEFAULT_PLAN_PROMPT, isDefault: true });
+        } else if (configKey === 'initial_intent_prompt') {
+            return res.json({ success: true, prompt: DEFAULT_INITIAL_INTENT_PROMPT, isDefault: true });
+        } else if (configKey === 'credentials_delivery_prompt') {
+            return res.json({ success: true, prompt: DEFAULT_CREDENTIALS_PROMPT, isDefault: true });
+        } else if (configKey === 'reactivation_prompt') {
+            return res.json({ success: true, prompt: DEFAULT_REACTIVATION_PROMPT, isDefault: true });
         }
 
         res.status(404).json({ success: false, message: 'Plantilla de prompt no encontrada' });
@@ -2040,14 +2284,27 @@ app.get('/api/config/prompts', async (req, res) => {
 // POST Save Prompts Config
 app.post('/api/config/prompts/save', express.json(), async (req, res) => {
     try {
-        const { prompt, password } = req.body;
+        const { prompt, password, key } = req.body;
+        const configKey = key || 'fallback_template';
+        const validKeys = [
+            'fallback_template',
+            'payment_receipt_prompt',
+            'plan_selection_prompt',
+            'initial_intent_prompt',
+            'credentials_delivery_prompt',
+            'reactivation_prompt'
+        ];
+
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
         if (!prompt) return res.status(400).json({ success: false, message: 'Falta el contenido del prompt' });
+        if (!validKeys.includes(configKey)) {
+            return res.status(400).json({ success: false, message: 'Llave de configuración inválida' });
+        }
 
         const { pool } = require('./database');
         await pool.query(
-            'INSERT INTO system_configs (cfg_key, cfg_value) VALUES ("fallback_template", ?) ON DUPLICATE KEY UPDATE cfg_value = VALUES(cfg_value)',
-            [prompt]
+            'INSERT INTO system_configs (cfg_key, cfg_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE cfg_value = VALUES(cfg_value)',
+            [configKey, prompt]
         );
 
         // Limpiar caché local si existe en aiService
@@ -2201,10 +2458,86 @@ app.post('/api/admin/rpa/run', express.json(), async (req, res) => {
         const recipeObj = rows[0];
         const recipeJson = typeof recipeObj.recipe_json === 'string' ? JSON.parse(recipeObj.recipe_json) : recipeObj.recipe_json;
 
+        // Query active provider credentials for this platform
+        const rpaVariables = { ...(variables || {}) };
+        try {
+            const [providers] = await pool.query(
+                'SELECT username, password FROM provider_credentials WHERE platform = ? ORDER BY created_at DESC LIMIT 1',
+                [recipeObj.platform]
+            );
+            if (providers && providers.length > 0) {
+                console.log(`[RPA] Proveedor detectado para ${recipeObj.platform}. Inyectando variables de acceso.`);
+                rpaVariables.PROVIDER_USER = providers[0].username;
+                rpaVariables.PROVIDER_PASSWORD = providers[0].password;
+            }
+        } catch (dbErr) {
+            console.error('[RPA] Error al consultar credenciales de proveedor para inyección:', dbErr.message);
+        }
+
         console.log(`[RPA] Iniciando ejecución de receta: ${recipeObj.name}`);
-        const result = await runRpaRecipe(recipeJson, variables || {});
+        const result = await runRpaRecipe(recipeJson, rpaVariables);
 
         res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET List Provider Credentials
+app.get('/api/admin/rpa/providers', async (req, res) => {
+    try {
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT * FROM provider_credentials ORDER BY created_at DESC');
+        res.json(rows.map(r => ({
+            id: r.id,
+            platform: r.platform,
+            providerName: r.provider_name,
+            username: r.username,
+            password: r.password,
+            createdAt: r.created_at
+        })));
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Save Provider Credentials
+app.post('/api/admin/rpa/providers/save', express.json(), async (req, res) => {
+    try {
+        const { id, platform, providerName, username, password, adminPassword } = req.body;
+        if (adminPassword !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+        if (!platform || !providerName || !username || !password) {
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
+        }
+
+        const { pool } = require('./database');
+        if (id) {
+            await pool.query(
+                'UPDATE provider_credentials SET platform = ?, provider_name = ?, username = ?, password = ? WHERE id = ?',
+                [platform, providerName, username, password, id]
+            );
+        } else {
+            await pool.query(
+                'INSERT INTO provider_credentials (platform, provider_name, username, password) VALUES (?, ?, ?, ?)',
+                [platform, providerName, username, password]
+            );
+        }
+        res.json({ success: true, message: 'Credenciales de proveedor guardadas correctamente' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// DELETE Provider Credentials
+app.delete('/api/admin/rpa/providers/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const password = req.query.password;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+
+        const { pool } = require('./database');
+        await pool.query('DELETE FROM provider_credentials WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Credenciales de proveedor eliminadas' });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -2653,10 +2986,11 @@ client.on('message_create', async (msg) => {
                 // Ya estaba silenciado, renovamos el temporizador de mute absoluto (30 min extra)
                 st.lastHumanInteraction = Date.now();
                 st.waiting_human_mode = 'advisor';
+                st.clientWaitingSince = null;
                 userStates.set(targetId, st);
             } else {
                 console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot por 30 mins.`);
-                userStates.set(targetId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor' });
+                userStates.set(targetId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor', clientWaitingSince: null });
             }
 
             // Si el asesor intervino manualmente, lo sacamos de la cola de espera
@@ -3104,7 +3438,15 @@ async function baseProcessIncomingMessage(messages) {
                 console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
             }
             const existingData = typeof currentStateData === 'object' ? currentStateData : {};
-            userStates.set(userId, { ...existingData, state: 'waiting_human', nombre: foundName, waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor' });
+            userStates.set(userId, { 
+                ...existingData, 
+                state: 'waiting_human', 
+                nombre: foundName, 
+                waitingCount: 0, 
+                lastHumanInteraction: Date.now(), 
+                waiting_human_mode: 'advisor',
+                clientWaitingSince: null 
+            });
             return;
         }
     }
@@ -3206,44 +3548,50 @@ async function baseProcessIncomingMessage(messages) {
             // Verificar si el modo advisor ha expirado por inactividad del asesor (más de 2 horas)
             let isAdvisorExpired = false;
             if (mode === 'advisor') {
+                if (!currentStateData.clientWaitingSince) {
+                    currentStateData.clientWaitingSince = Date.now();
+                    userStates.set(userId, currentStateData);
+                }
+
+                const clientWaitingMs = Date.now() - currentStateData.clientWaitingSince;
+                const minutesWaiting = clientWaitingMs / (1000 * 60);
+
                 const lastInteraction = (currentStateData && currentStateData.lastHumanInteraction) || 0;
-                if (lastInteraction > 0) {
-                    const timeSinceLastHumanMs = Date.now() - lastInteraction;
-                    const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
+                const timeSinceLastHumanMs = Date.now() - lastInteraction;
+                const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
 
-                    if (minutesSinceLastHuman > 120) {
-                        console.log(`[BOT MUTE EXPIRE] El asesor no ha interactuado en ${minutesSinceLastHuman.toFixed(1)} minutos con @${userId}. Expirando modo advisor.`);
-                        isAdvisorExpired = true;
-                    } else if (minutesSinceLastHuman > 30) {
-                        // SI EL BOT NO PUEDE RESOLVERLO Y YA PASARON 30 MIN: Alertar al administrador y dar turno de cola
-                        if (!global.supportQueue) global.supportQueue = [];
-                        let turnIdx = global.supportQueue.indexOf(userId);
-                        if (turnIdx === -1) {
-                            global.supportQueue.push(userId);
-                            turnIdx = global.supportQueue.length - 1;
-                        }
-                        const turnNumber = turnIdx + 1;
-
-                        const lastWarning = (currentStateData && currentStateData.lastWarningTime) || 0;
-                        if (Date.now() - lastWarning > 15 * 60 * 1000) {
-                            await message.reply(`🤖 Hola, lamentamos la demora. Nuestro equipo de soporte ha estado muy ocupado, pero sigues en nuestra lista de espera.\n\n📍 *Tu turno actual es el #${turnNumber}*.\n\nUn asesor se comunicará contigo lo antes posible. ¡Agradecemos mucho tu paciencia! ⏳`);
-                            
-                            try {
-                                const groupChat = await client.getChatById(GROUP_ID);
-                                if (groupChat) {
-                                    await groupChat.sendMessage(`⏳ *ALERTA DE INACTIVIDAD DE ASESOR* ⏳\n\nEl cliente *${foundName || 'Cliente'}* (@${realPhone}) lleva más de *30 minutos* esperando respuesta del asesor y requiere atención humana.\n\n📍 *Turno en cola:* #${turnNumber}\n\nPor favor, atiende este chat lo antes posible.`);
-                                }
-                            } catch (err) {
-                                console.error("Error notificando al grupo sobre inactividad del asesor:", err.message);
-                            }
-
-                            userStates.set(userId, { 
-                                ...currentStateData, 
-                                lastWarningTime: Date.now() 
-                            });
-                        }
-                        return; // Mantener silencio absoluto del bot de cara a resolver intenciones
+                if (minutesSinceLastHuman > 120) {
+                    console.log(`[BOT MUTE EXPIRE] El asesor no ha interactuado en ${minutesSinceLastHuman.toFixed(1)} minutos con @${userId}. Expirando modo advisor.`);
+                    isAdvisorExpired = true;
+                } else if (minutesWaiting > 30) {
+                    // SI EL BOT NO PUEDE RESOLVERLO Y YA PASARON 30 MIN DE ESPERA DEL CLIENTE: Alertar al administrador y dar turno de cola
+                    if (!global.supportQueue) global.supportQueue = [];
+                    let turnIdx = global.supportQueue.indexOf(userId);
+                    if (turnIdx === -1) {
+                        global.supportQueue.push(userId);
+                        turnIdx = global.supportQueue.length - 1;
                     }
+                    const turnNumber = turnIdx + 1;
+
+                    const lastWarning = (currentStateData && currentStateData.lastWarningTime) || 0;
+                    if (Date.now() - lastWarning > 15 * 60 * 1000) {
+                        await message.reply(`🤖 Hola, lamentamos la demora. Nuestro equipo de soporte ha estado muy ocupado, pero sigues en nuestra lista de espera.\n\n📍 *Tu turno actual es el #${turnNumber}*.\n\nUn asesor se comunicará contigo lo antes posible. ¡Agradecemos mucho tu paciencia! ⏳`);
+                        
+                        try {
+                            const groupChat = await client.getChatById(GROUP_ID);
+                            if (groupChat) {
+                                await groupChat.sendMessage(`⏳ *ALERTA DE INACTIVIDAD DE ASESOR* ⏳\n\nEl cliente *${foundName || 'Cliente'}* (@${realPhone}) lleva más de *30 minutos* esperando respuesta del asesor y requiere atención humana.\n\n📍 *Turno en cola:* #${turnNumber}\n\nPor favor, atiende este chat lo antes posible.`);
+                            }
+                        } catch (err) {
+                            console.error("Error notificando al grupo sobre inactividad del asesor:", err.message);
+                        }
+
+                        userStates.set(userId, { 
+                            ...currentStateData, 
+                            lastWarningTime: Date.now() 
+                        });
+                    }
+                    return; // Mantener silencio absoluto del bot de cara a resolver intenciones
                 }
             } else {
                 const stateAgeMs = Date.now() - (currentStateData.timestamp || Date.now());

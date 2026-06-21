@@ -193,25 +193,35 @@ async function detectAdminIntent(messageContent) {
  * Analiza el historial para llegar ayudando de una vez.
  */
 async function generateReactivationResponse(chatHistory) {
-  const prompt = `
-    Eres el Asistente Virtual de Sheerit Store. Acabas de ser RE-ACTIVADO por un administrador en este chat.
-    Tu objetivo es saludar al cliente amablemente y addressar (abordar) de inmediato lo último que estaba preguntando o reportando mientras tú estabas silenciado.
+  let promptTemplate = `Eres el Asistente Virtual de Sheerit Store. Acabas de ser RE-ACTIVADO por un administrador en este chat.
+Tu objetivo es saludar al cliente amablemente y addressar (abordar) de inmediato lo último que estaba preguntando o reportando mientras tú estabas silenciado.
 
-    HISTORIAL RECIENTE:
-    ${chatHistory}
+HISTORIAL RECIENTE:
+{{CHAT_HISTORY}}
 
-    INSTRUCCIONES:
-    1. Saluda cordialmente (Ej: "¡Hola! He vuelto para ayudarte...").
-    2. Menciona que un asesor te pidió retomar la atención.
-    3. Analiza los mensajes del CLIENTE en el historial:
-       - Si preguntó por precios, dale una pincelada de lo que buscaba.
-       - Si reportó una falla, dile que ya estás revisando su caso.
-       - Si pidió credenciales, dile que ya puedes entregárselas (y recuérdale que use el número 2).
-    4. Sé conciso y empático. No repitas todo el historial, solo demuestra que lo "leíste" y estás listo para ayudar.
-    5. Usa emojis amigables 🤖.
+INSTRUCCIONES:
+1. Saluda cordialmente (Ej: "¡Hola! He vuelto para ayudarte...").
+2. Menciona que un asesor te pidió retomar la atención.
+3. Analiza los mensajes del CLIENTE en el historial:
+   - Si preguntó por precios, dale una pincelada de lo que buscaba.
+   - Si reportó una falla, dile que ya estás revisando su caso.
+   - Si pidió credenciales, dile que ya puedes entregárselas (y recuérdale que use el número 2).
+4. Sé conciso y empático. No repitas todo el historial, solo demuestra que lo "leíste" y estás listo para ayudar.
+5. Usa emojis amigables 🤖.
 
-    Responde solo con el texto del mensaje para el cliente.
-  `;
+Responde solo con el texto del mensaje para el cliente.`;
+
+  try {
+    const { pool } = require('./database');
+    const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "reactivation_prompt"');
+    if (rows && rows.length > 0) {
+      promptTemplate = rows[0].cfg_value;
+    }
+  } catch (err) {
+    console.warn("[aiService] Error al leer reactivation_prompt de la base de datos:", err.message);
+  }
+
+  const prompt = promptTemplate.replace('{{CHAT_HISTORY}}', chatHistory);
 
   try {
     return await callDeepSeek(prompt, "Eres un asistente de atención al cliente empático y eficiente.", false);
@@ -646,35 +656,54 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
   const activeIncidents = getActiveIncidentsText();
   const specificAccountIncidents = getSpecificAccountsIncidentsText(userAccounts);
 
-  const prompt = `
-  Eres un agente humano y empático de servicio al cliente de "Sheerit".
-  Un cliente nos ha pedido revisar sus credenciales de streaming.
-  
-  Aquí están los datos de sus plataformas:
-  ${cuentasTexto}
-  ${activeIncidents ? `\nALERTAS DE INCIDENTES / FALLAS ACTIVAS EN ESTE MOMENTO:\n${activeIncidents}\n(IMPORTANTE: Si el cliente tiene alguno de estos servicios o tiene problemas con ellos, infórmale de inmediato sobre esta falla general / incidente con amabilidad para que no se preocupe, y pídele que por favor tenga paciencia mientras lo resolvemos. No le ocultes la información, sé directo pero empático).\n` : ''}
-  ${specificAccountIncidents ? `\nALERTAS ESPECÍFICAS DE LAS CUENTAS DE ESTE CLIENTE:\n${specificAccountIncidents}\n(IMPORTANTE: Si la cuenta específica del cliente tiene un reporte / advertencia, infórmale inmediatamente con claridad para que entienda por qué no puede ingresar o qué ocurrió, y pídele paciencia mientras se resuelve).\n` : ''}
+  let credentialsListText = cuentasTexto;
+  if (activeIncidents) {
+    credentialsListText += `\nALERTAS DE INCIDENTES / FALLAS ACTIVAS EN ESTE MOMENTO:\n${activeIncidents}\n(IMPORTANTE: Si el cliente tiene alguno de estos servicios o tiene problemas con ellos, infórmale de inmediato sobre esta falla general / incidente con amabilidad para que no se preocupe, y pídele que por favor tenga paciencia mientras lo resolvemos. No le ocultes la información, sé directo pero empático).\n`;
+  }
+  if (specificAccountIncidents) {
+    credentialsListText += `\nALERTAS ESPECÍFICAS DE LAS CUENTAS DE ESTE CLIENTE:\n${specificAccountIncidents}\n(IMPORTANTE: Si la cuenta específica del cliente tiene un reporte / advertencia, infórmale inmediatamente con claridad para que entienda por qué no puede ingresar o qué ocurrió, y pídele paciencia mientras se resuelve).\n`;
+  }
 
-  HISTORIAL RECIENTE:
-  ${chatHistory}
+  let promptTemplate = `Eres un agente humano y empático de servicio al cliente de "Sheerit".
+Un cliente nos ha pedido revisar sus credenciales de streaming.
 
-  MENSAJE DEL CLIENTE:
-  "${userMessage}"
-  
-  INSTRUCCIONES:
-  1. Si el cliente tiene una duda específica (ej: "¿cambió la clave?", "¿cuál es mi pin?", "no puedo entrar"), RESPÓNDELA directamente usando los datos arriba.
-  2. Luego de responder la duda, entrega la información de sus cuentas de forma amable, clara y amigable.
-  
-  ⚠️ REGLAS CRÍTICAS:
-  1. Muestra SIEMPRE el Correo, la Clave y el Perfil/PIN para CADA cuenta de la lista. NUNCA resumas u omitas esta información.
-  2. **PROHIBIDO INVENTAR / ALUCINAR**: Transcribe EXACTAMENTE el Correo y la Clave proporcionados en la lista de arriba. Queda estrictamente prohibido inventar correos ficticios (como sheeritstorecol@gmail.com u otros) o contraseñas (como Sheerit2025* u otras) que no estén tal cual en la lista. Si el dato dice "N/A" o está vacío, indícalo tal cual y pídele al usuario esperar a que el asesor lo asigne.
-  3. **IMPORTANTE (Cuentas Familiares/Extras)**: Si en los datos dice que la clave es "(Acceso por invitación/perfil propio)", explica amablemente al usuario que para ese servicio (ej. YouTube, Microsoft, Netflix Extra) no se usa una clave compartida, sino que él accede con su propio correo o mediante una invitación que le llegará.
-  4. Si la cuenta está vencida, mantén el aviso de que la clave está oculta por seguridad.
-  5. Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
-  6. Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.
-  
-  No incluyas saludos genéricos como "[Tu Nombre]". Puedes despedirte en nombre del equipo de Sheerit.
-  `;
+Aquí están los datos de sus plataformas:
+{{CREDENTIALS_LIST}}
+
+HISTORIAL RECIENTE:
+{{CHAT_HISTORY}}
+
+MENSAJE DEL CLIENTE:
+"{{MESSAGE_CONTENT}}"
+
+INSTRUCCIONES:
+1. Si el cliente tiene una duda específica (ej: "¿cambió la clave?", "¿cuál es mi pin?", "no puedo entrar"), RESPÓNDELA directamente usando los datos arriba.
+2. Luego de responder la duda, entrega la información de sus cuentas de forma amable, clara y amigable.
+
+⚠️ REGLAS CRÍTICAS:
+1. Muestra SIEMPRE el Correo, la Clave y el Perfil/PIN para CADA cuenta de la lista. NUNCA resumas u omitas esta información.
+2. **PROHIBIDO INVENTAR / ALUCINAR**: Transcribe EXACTAMENTE el Correo y la Clave proporcionados en la lista de arriba. Queda estrictamente prohibido inventar correos ficticios (como sheeritstorecol@gmail.com u otros) o contraseñas (como Sheerit2025* u otras) que no estén tal cual en la lista. Si el dato dice "N/A" o está vacío, indícalo tal cual y pídele al usuario esperar a que el asesor lo asigne.
+3. **IMPORTANTE (Cuentas Familiares/Extras)**: Si en los datos dice que la clave es "(Acceso por invitación/perfil propio)", explica amablemente al usuario que para ese servicio (ej. YouTube, Microsoft, Netflix Extra) no se usa una clave compartida, sino que él accede con su propio correo o mediante una invitación que le llegará.
+4. Si la cuenta está vencida, mantén el aviso de que la clave está oculta por seguridad.
+5. Si la lista está vacía, infórmale con tacto que no encontramos cuentas activas a su número.
+6. Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.
+
+No incluyas saludos genéricos como "[Tu Nombre]". Puedes despedirte en nombre del equipo de Sheerit.`;
+
+  try {
+    const { pool } = require('./database');
+    const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "credentials_delivery_prompt"');
+    if (rows && rows.length > 0) {
+      promptTemplate = rows[0].cfg_value;
+    }
+  } catch (err) {
+    console.warn("[aiService] Error al leer credentials_delivery_prompt de la base de datos:", err.message);
+  }
+
+  const prompt = promptTemplate
+    .replace('{{CREDENTIALS_LIST}}', credentialsListText)
+    .replace('{{CHAT_HISTORY}}', chatHistory)
+    .replace('{{MESSAGE_CONTENT}}', userMessage);
 
   try {
     const responseText = await callDeepSeek(prompt, "Eres un asesor de servicio al cliente en WhatsApp para Sheerit. Escribe de forma humana, directa y empática.", false);
@@ -797,31 +826,45 @@ async function parsePlanSelection(messageContent, availablePlans, currentPlatfor
       }).join('\n');
   }
 
-  const prompt = `
-    El usuario está en el proceso de elegir un plan de la siguiente lista de opciones disponibles para la plataforma "${currentPlatformName}":
-    ${plansText}
-    
-    ${cartText}
-    
-    El mensaje actual del usuario es: "${messageContent}"
-    
-    Analiza la intención del usuario y clasifícala en uno de los siguientes sub-intents:
-    1. "plan_selection": El usuario está eligiendo o confirmando uno de los planes (ej. dice "la 1", "netflix 4k", "el de 17000" o escribe un número directamente).
-    2. "service_doubt_or_ignorance": El usuario tiene dudas sobre los servicios, precios, características, expresa desconocimiento, no entiende qué está eligiendo, o tiene confusión/inquietudes sobre cómo funciona su combo o si incluye otras plataformas del carrito (por ejemplo, si pregunta "¿Y paramount?", "¿Este plan incluye ambos?", "¿Qué diferencia hay?", "pero es que no entiendo", etc.).
-    3. "other": Cualquier otro tipo de mensaje.
-    
-    Si el sub-intent es "service_doubt_or_ignorance", debes activar el ESPÍRITU DEL VENDEDOR:
-    - Escribe una respuesta comercial (salesReply) sumamente amable, persuasiva, vendedora y clara.
-    - Explica detalladamente y con paciencia qué plataformas están en su pedido y que primero estamos definiendo el plan de "${currentPlatformName}".
-    - Resuelve la duda con base en las características y dile que al final sumaremos los servicios con un descuento por combo.
-    
-    Salida esperada en formato JSON estricto:
-    {
-        "subIntent": "plan_selection" | "service_doubt_or_ignorance" | "other",
-        "salesReply": string | null, // Si subIntent es "service_doubt_or_ignorance", escribe la respuesta vendedora y aclaratoria detallada. En otro caso, null.
-        "selectedIndex": number | null // Si subIntent es "plan_selection", indica el número de la opción elegida (1, 2, 3...) o null si no se entiende. En otro caso, null.
+  let promptTemplate = `El usuario está en el proceso de elegir un plan de la siguiente lista de opciones disponibles para la plataforma "{{PLATFORM_NAME}}":
+{{PLANS_LIST}}
+
+{{CART_LIST}}
+
+El mensaje actual del usuario es: "{{MESSAGE_CONTENT}}"
+
+Analiza la intención del usuario y clasifícala en uno de los siguientes sub-intents:
+1. "plan_selection": El usuario está eligiendo o confirmando uno de los planes (ej. dice "la 1", "netflix 4k", "el de 17000" o escribe un número directamente).
+2. "service_doubt_or_ignorance": El usuario tiene dudas sobre los servicios, precios, características, expresa desconocimiento, no entiende qué está eligiendo, o tiene confusión/inquietudes sobre cómo funciona su combo o si incluye otras plataformas del carrito (por ejemplo, si pregunta "¿Y paramount?", "¿Este plan incluye ambos?", "¿Qué diferencia hay?", "pero es que no entiendo", etc.).
+3. "other": Cualquier otro tipo de mensaje.
+
+Si el sub-intent es "service_doubt_or_ignorance", debes activar el ESPÍRITU DEL VENDEDOR:
+- Escribe una respuesta comercial (salesReply) sumamente amable, persuasiva, vendedora y clara.
+- Explica detalladamente y con paciencia qué plataformas están en su pedido y que primero estamos definiendo el plan de "{{PLATFORM_NAME}}".
+- Resuelve la duda con base en las características y dile que al final sumaremos los servicios con un descuento por combo.
+
+Salida esperada en formato JSON estricto:
+{
+    "subIntent": "plan_selection" | "service_doubt_or_ignorance" | "other",
+    "salesReply": string | null, // Si subIntent es "service_doubt_or_ignorance", escribe la respuesta vendedora y aclaratoria detallada. En otro caso, null.
+    "selectedIndex": number | null // Si subIntent es "plan_selection", indica el número de la opción elegida (1, 2, 3...) o null si no se entiende. En otro caso, null.
+}`;
+
+  try {
+    const { pool } = require('./database');
+    const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "plan_selection_prompt"');
+    if (rows && rows.length > 0) {
+      promptTemplate = rows[0].cfg_value;
     }
-  `;
+  } catch (dbErr) {
+    console.warn("[aiService] Error querying plan_selection_prompt from database, using default.");
+  }
+
+  const prompt = promptTemplate
+    .replace(/{{PLATFORM_NAME}}/g, currentPlatformName)
+    .replace('{{PLANS_LIST}}', plansText)
+    .replace('{{CART_LIST}}', cartText)
+    .replace('{{MESSAGE_CONTENT}}', messageContent);
 
   try {
     const jsonString = await callDeepSeek(prompt, "Eres un asistente de ventas de Sheerit que ayuda a resolver dudas de planes. Responde solo con JSON.", true);
@@ -851,33 +894,45 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
     const imageDescription = await describeImageWithGemini(mediaData);
 
     // 2. Pasar la descripción a DeepSeek para la clasificación estructurada
-    const prompt = `
-      Analiza la siguiente descripción textual de una imagen/comprobante y determina si corresponde a un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
-      Contexto de la charla: ${chatHistory}
+    let promptTemplate = `Analiza la siguiente descripción textual de una imagen/comprobante y determina si corresponde a un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
+Contexto de la charla: {{CHAT_HISTORY}}
 
-      DESCRIPCIÓN DE LA IMAGEN DE PAGO:
-      """
-      ${imageDescription}
-      """
+DESCRIPCIÓN DE LA IMAGEN DE PAGO:
+"""
+{{IMAGE_DESCRIPTION}}
+"""
 
-      Debes responder en formato JSON:
-      {
-        "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco con una transferencia exitosa.
-        "amount": number | null, // El valor EXACTO de la transferencia (solo números enteros) si es legible.
-        "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, etc.)
-        "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
-        "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, o destino al que se envió el dinero. Ej: "0087387259", "300 123 4567", "esteban@nequi.com". Extráelo aunque aparezca parcial. MUY IMPORTANTE.
-        "destinationName": string | null, // Nombre del destinatario/negocio si aparece en lugar de la llave. Ej: "SHEERIT ESTEBAN AVILA", "TIENDA EJEMPLO". Aparece frecuentemente en pagos por QR de Negocios.
-        "extractedDetails": string | null, // Detalles extra como ID de transacción o fecha/hora.
-        "inferredPlatform": string | null // ¿Qué plataforma está pagando según el historial? null si no es evidente.
+Debes responder en formato JSON:
+{
+  "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco con una transferencia exitosa.
+  "amount": number | null, // El valor EXACTO de la transferencia (solo números enteros) si es legible.
+  "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, etc.)
+  "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
+  "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, o destino al que se envió el dinero. Ej: "0087387259", "300 123 4567", "esteban@nequi.com". Extráelo aunque aparezca parcial. MUY IMPORTANTE.
+  "destinationName": string | null, // Nombre del destinatario/negocio si aparece en lugar de la llave. Ej: "SHEERIT ESTEBAN AVILA", "TIENDA EJEMPLO". Aparece frecuentemente en pagos por QR de Negocios.
+  "extractedDetails": string | null, // Detalles extra como ID de transacción o fecha/hora.
+  "inferredPlatform": string | null // ¿Qué plataforma está pagando según el historial? null si no es evidente.
+}
+
+Reglas:
+- Solo marca isReceipt: true si indica una confirmación de envío/transferencia exitosa.
+- Si indica ERROR, CUENTA SUSPENDIDA o fallo, marca isReceipt: false.
+- Sé muy riguroso con 'amount'. Busca el valor de la transferencia, no montos secundarios.
+- Para 'destinationKey': busca cualquier número que sea la cuenta, llave, Llave Bre-V, número de celular destino o alias al que se envió. Puede aparecer como "A la llave", "Cuenta destino", "Para", "Número", etc.`;
+
+    try {
+      const { pool } = require('./database');
+      const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "payment_receipt_prompt"');
+      if (rows && rows.length > 0) {
+        promptTemplate = rows[0].cfg_value;
       }
+    } catch (dbErr) {
+      console.warn("[aiService] Error querying payment_receipt_prompt from database, using default.");
+    }
 
-      Reglas:
-      - Solo marca isReceipt: true si indica una confirmación de envío/transferencia exitosa.
-      - Si indica ERROR, CUENTA SUSPENDIDA o fallo, marca isReceipt: false.
-      - Sé muy riguroso con 'amount'. Busca el valor de la transferencia, no montos secundarios.
-      - Para 'destinationKey': busca cualquier número que sea la cuenta, llave, Llave Bre-V, número de celular destino o alias al que se envió. Puede aparecer como "A la llave", "Cuenta destino", "Para", "Número", etc.
-    `;
+    const prompt = promptTemplate
+      .replace('{{CHAT_HISTORY}}', chatHistory)
+      .replace('{{IMAGE_DESCRIPTION}}', imageDescription);
 
     const jsonString = await callDeepSeek(prompt, "Eres un validador de comprobantes de pago bancarios.", true);
     const result = JSON.parse(jsonString);
@@ -1040,81 +1095,97 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
     }
   }
 
-  const prompt = `
-    Analiza el primer mensaje del usuario para identificar qué desea hacer.
+  let promptTemplate = `Analiza el primer mensaje del usuario para identificar qué desea hacer.
 
-    ${mediaDescription ? `DESCRIPCIÓN DE LA IMAGEN ENVIADA POR EL USUARIO (OCR/VISIÓN): \n"""\n${mediaDescription}\n"""\n` : ""}
-    
-    GUÍA DE FUNCIONAMIENTO DE PLATAFORMAS:
-    ${platformContext}
+{{MEDIA_DESCRIPTION}}
 
-    INFORMACIÓN DEL CLIENTE (Servicios actuales):
-    ${accountSummary}
+GUÍA DE FUNCIONAMIENTO DE PLATAFORMAS:
+{{PLATFORM_CONTEXT}}
 
-    Contexto previo: ${chatHistory}
-    Mensaje actual: "${messageContent}"
-    
-    Categorías para "intent":
-    - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene. 
-      *IMPORTANTE*: Si el usuario pregunta "¿tienes disponible?", "¿entregas ya?", "¿qué tienes para entrega inmediata?", clasifícalo como "comprar" con frustración 0 y genera un mensaje que invite a la venta con total confianza.
-    - "credenciales": El usuario solicita las credenciales (correo/contraseña) de su cuenta actual, reporta explícitamente "la contraseña no corresponde", "clave incorrecta", o pide recordar su pin de acceso.
-    - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado.
-    - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
-    - "soporte": Problemas técnicos, fallas de conexión, errores en el cobro, perfiles caídos, o si pide explícitamente hablar con un humano/asesor. (NO usar si es explícitamente un error de clave).
-    - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale", "chao", "adiós").
-    - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio o pide la baja.
-    - "desconocido": Cualquier otro mensaje, incluyendo saludos iniciales sin petición específica.
+INFORMACIÓN DEL CLIENTE (Servicios actuales):
+{{ACCOUNT_SUMMARY}}
 
-    Regla de Intents (MÁXIMA PRIORIDAD):
-    1. **MENÚ NUMÉRICO:** Si el mensaje es exactamente "1", "2", "3", "4" o "5", clasifícalo según el menú: "1"->comprar, "2"->credenciales, "3"->renovar, "4"->soporte, "5"->soporte.
-    2. **CONTINUIDAD:** Si es una respuesta corta ("sí", "nequi") a una pregunta previa, usa el intent de esa charla.
-    3. **STOCK:** Si pregunta por "disponibilidad", "stock", "entrega ya", el intent es "comprar".
-    4. **SOPORTE:** PRIORIDAD si hay errores o fallas.
-    5. **PAGAR:** Si pregunta cómo pagar o envía comprobante.
+Contexto previo: {{CHAT_HISTORY}}
+Mensaje actual: "{{MESSAGE_CONTENT}}"
 
-    Lógica de recuperación ("recoveredState"):
-    - "awaiting_payment_method": 
-        * Caso A: Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
-        * Caso B (COLABORATIVO): Si el "Asistente" (humano, sin 🤖) negoció un precio (ej: "te queda en 21") y el usuario actual acepta (ej: "Listo", "Dale", "Vale"). EN ESTE CASO, el bot debe saltar aquí para dar los medios de pago. Si detectas el monto negociado, ponlo en metadata.total.
-    - "waiting_human": 
-        * Caso A (CONVERSACIÓN ACTIVA): Si en el historial reciente aparece un mensaje del "Asistente" (humano, sin el emoji 🤖) hablando con el usuario, pidiendo datos o dando soporte. ES VITAL que si ves al Asistente humano hablando, devuelvas "waiting_human" para no interrumpirlo.
-        * Caso B (SILENCIO FORZADO): Si el usuario ha enviado múltiples mensajes de queja, insultos o insistencia extrema (ej: "hola???", "alguien??", "que pasa?") sin respuesta, y el bot no tiene una solución técnica inmediata. 
-    - "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
-    - "awaiting_payment_confirmation": Si el mensaje es una imagen o texto indicando "ya pagué", "aquí el recibo", etc.
-    - Si no hay un flujo claro a medias, pon null. 
-    
-    Regla de Frustración:
-    - Analiza si el usuario suena desesperado, enojado o ha insistido mucho en corto tiempo sin ser atendido. Púntualo del 0 al 10 en "frustrationLevel". 
-    - IMPORTANTE: Si el mensaje actual es un saludo (Hola, buenos días) o un ping (?, sigo esperando) y en el historial reciente (mensajes no leídos) hay una solicitud clara de **"credenciales", "comprar" o "pagar"** que NO fue respondida adecuadamente, PRIORIZA esa petición sobre el saludo. El intent debe ser el de la petición pendiente (ej: "comprar" si pidió Netflix).
-    
-    REGLA DE DEDUCCIÓN DE CONTEXTO Y CONTINUIDAD (MÁXIMA PRIORIDAD):
-    Nunca analices el "Mensaje actual" de forma aislada. Debes deducir estrictamente a qué está respondiendo el cliente basándote en el historial:
-    1. Si el "Mensaje actual" contiene varios mensajes (separados por \n), analízalos como una ráfaga lógica. Si hay contradicciones, dale prioridad al último mensaje de la ráfaga o al que sea más específico (ej: si dice "Hola" y luego "Quiero Netflix", el intent es "comprar").
-    2. Si el Asistente (especialmente si es humano sin 🤖) acaba de hacer una pregunta o pedir un dato (ej: "¿Qué operador tienes?", "Confírmame tu correo", "Pásame el comprobante") y el cliente responde con ese dato (ej: "Claro", "Engativa", "Mi correo es..."), ES UNA CONTINUACIÓN DIRECTA.
-    3. En este caso de continuación directa de una charla humana (donde el humano acaba de preguntar algo hace poco), puedes devolver "recoveredState": "waiting_human" para no estorbar. Sin embargo, si el usuario reporta una falla técnica clara, prioriza ayudarlo si el humano no ha respondido en más de 20-30 minutos.
-    4. Si el bot 🤖 estaba a la mitad de un flujo (ej: esperando método de pago) y el cliente responde a eso, recupera el estado correspondiente. ¡El contexto manda!
-    5. **RELEVANCIA TEMPORAL Y REANUDACIÓN:** 
-       - Si han pasado más de 2 horas (compara la hora actual del sistema vs la del historial) desde el último mensaje del "Asistente" humano, NO devuelvas "waiting_human" a menos que el usuario esté respondiendo a una pregunta muy específica que aún tenga sentido. 
-       - Si el "Mensaje actual" es una queja técnica clara (intent: "soporte" o "credenciales") y han pasado más de 30 minutos desde la última intervención humana, el bot DEBE retomar la ayuda si tiene la respuesta técnica. No dejes al cliente esperando si el humano ya no está activamente en el chat.
-       - Si el mensaje del humano fue solo un "gracias", "listo" o un cierre, no bloquees el bot para futuras dudas del usuario.
-    
-    Salida esperada JSON:
-    {
-        "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "catalogo" | "desconocido",
-        "recoveredState": string | null,
-        "frustrationLevel": number, // 0 a 10
-        "userName": string | null, // ÚNICAMENTE el nombre de pila o nombre completo del usuario SI Y SOLO SI lo menciona de forma explícita en el "Mensaje actual" (ej: "Hola, me llamo Juan" -> "Juan"). Si el usuario NO menciona su nombre explícitamente en el "Mensaje actual", pon obligatoriamente null. Queda estrictamente prohibido inventar, deducir o adivinar el nombre a partir del historial o de suposiciones.
-        "isNameComplete": boolean,
-        "detectedPlatform": string | null, 
-        "metadata": {
-            "duration_months": number | null, // Si detectas una solicitud de renovación o precio y el cliente menciona un periodo de tiempo o duración específica (ej. "anualidad", "un año", "anual", "6 meses"), incluye la cantidad de meses correspondiente aquí.
-            "is2faScreen": boolean | null // Coloca true SI Y SOLO SI la imagen enviada por el usuario es una captura de pantalla pidiendo un código de verificación (2FA), código de acceso único o código para configurar el hogar en Netflix, Disney+, Max, etc. De lo contrario, pon false o null.
-        } | null 
+Categorías para "intent":
+- "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene. 
+  *IMPORTANTE*: Si el usuario pregunta "¿tienes disponible?", "¿entregas ya?", "¿qué tienes para entrega inmediata?", clasifícalo como "comprar" con frustración 0 y genera un mensaje que invite a la venta con total confianza.
+- "credenciales": El usuario solicita las credenciales (correo/contraseña) de su cuenta actual, reporta explícitamente "la contraseña no corresponde", "clave incorrecta", o pide recordar su pin de acceso.
+- "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado.
+- "pagar": El usuario pregunta cómo pagar o envía un comprobante.
+- "soporte": Problemas técnicos, fallas de conexión, errores en el cobro, perfiles caídos, o si pide explícitamente hablar con un humano/asesor. (NO usar si es explícitamente un error de clave).
+- "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale", "chao", "adiós").
+- "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio o pide la baja.
+- "desconocido": Cualquier otro mensaje, incluyendo saludos iniciales sin petición específica.
+
+Regla de Intents (MÁXIMA PRIORIDAD):
+1. **MENÚ NUMÉRICO:** Si el mensaje es exactamente "1", "2", "3", "4" o "5", clasifícalo según el menú: "1"->comprar, "2"->credenciales, "3"->renovar, "4"->soporte, "5"->soporte.
+2. **CONTINUIDAD:** Si es una respuesta corta ("sí", "nequi") a una pregunta previa, usa el intent de esa charla.
+3. **STOCK:** Si pregunta por "disponibilidad", "stock", "entrega ya", el intent es "comprar".
+4. **SOPORTE:** PRIORIDAD si hay errores o fallas.
+5. **PAGAR:** Si pregunta cómo pagar o envía comprobante.
+
+Lógica de recuperación ("recoveredState"):
+- "awaiting_payment_method": 
+    * Caso A: Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
+    * Caso B (COLABORATIVO): Si el "Asistente" (humano, sin 🤖) negoció un precio (ej: "te queda en 21") y el usuario actual acepta (ej: "Listo", "Dale", "Vale"). EN ESTE CASO, el bot debe saltar aquí para dar los medios de pago. Si detectas el monto negociado, ponlo en metadata.total.
+- "waiting_human": 
+    * Caso A (CONVERSACIÓN ACTIVA): Si en el historial reciente aparece un mensaje del "Asistente" (humano, sin el emoji 🤖) hablando con el usuario, pidiendo datos o dando soporte. ES VITAL que si ves al Asistente humano hablando, devuelvas "waiting_human" para no interrumpirlo.
+    * Caso B (SILENCIO FORZADO): Si el usuario ha enviado múltiples mensajes de queja, insultos o insistencia extrema (ej: "hola???", "alguien??", "que pasa?") sin respuesta, y el bot no tiene una solución técnica inmediata. 
+- "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
+- "awaiting_payment_confirmation": Si el mensaje es una imagen o texto indicando "ya pagué", "aquí el recibo", etc.
+- Si no hay un flujo claro a medias, pon null. 
+
+Regla de Frustración:
+- Analiza si el usuario suena desesperado, enojado o ha insistido mucho en corto tiempo sin ser atendido. Púntualo del 0 al 10 en "frustrationLevel". 
+- IMPORTANTE: Si el mensaje actual es un saludo (Hola, buenos días) o un ping (?, sigo esperando) y en el historial reciente (mensajes no leídos) hay una solicitud clara de **"credenciales", "comprar" o "pagar"** que NO fue respondida adecuadamente, PRIORIZA esa petición sobre el saludo. El intent debe ser el de la petición pendiente (ej: "comprar" si pidió Netflix).
+
+REGLA DE DEDUCCIÓN DE CONTEXTO Y CONTINUIDAD (MÁXIMA PRIORIDAD):
+Nunca analices el "Mensaje actual" de forma aislada. Debes deducir estrictamente a qué está respondiendo el cliente basándote en el historial:
+1. Si el "Mensaje actual" contiene varios mensajes (separados por \n), analízalos como una ráfaga lógica. Si hay contradicciones, dale prioridad al último mensaje de la ráfaga o al que sea más específico (ej: si dice "Hola" y luego "Quiero Netflix", el intent es "comprar").
+2. Si el Asistente (especialmente si es humano sin 🤖) acaba de hacer una pregunta o pedir un dato (ej: "¿Qué operador tienes?", "Confírmame tu correo", "Pásame el comprobante") y el cliente responde con ese dato (ej: "Claro", "Engativa", "Mi correo es..."), ES UNA CONTINUACIÓN DIRECTA.
+3. En este caso de continuación directa de una charla humana (donde el humano acaba de preguntar algo hace poco), puedes devolver "recoveredState": "waiting_human" para no estorbar. Sin embargo, si el usuario reporta una falla técnica clara, prioriza ayudarlo si el humano no ha respondido en más de 20-30 minutos.
+4. Si el bot 🤖 estaba a la mitad de un flujo (ej: esperando método de pago) y el cliente responde a eso, recupera el estado correspondiente. ¡El contexto manda!
+5. **RELEVANCIA TEMPORAL Y REANUDACIÓN:** 
+   - Si han pasado más de 2 horas (compara la hora actual del sistema vs la del historial) desde el último mensaje del "Asistente" humano, NO devuelvas "waiting_human" a menos que el usuario esté respondiendo a una pregunta muy específica que aún tenga sentido. 
+   - Si el "Mensaje actual" es una queja técnica clara (intent: "soporte" o "credenciales") y han pasado más de 30 minutos desde la última intervención humana, el bot DEBE retomar la ayuda si tiene la respuesta técnica. No dejes al cliente esperando si el humano ya no está activamente en el chat.
+   - Si el mensaje del humano fue solo un "gracias", "listo" o un cierre, no bloquees el bot para futuras dudas del usuario.
+
+Salida esperada JSON:
+{
+    "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "catalogo" | "desconocido",
+    "recoveredState": string | null,
+    "frustrationLevel": number,
+    "userName": string | null,
+    "isNameComplete": boolean,
+    "detectedPlatform": string | null, 
+    "metadata": {
+        "duration_months": number | null,
+        "is2faScreen": boolean | null
+    } | null 
+}
+
+Si el mensaje actual es una imagen o el texto menciona un pago, revisa si es un comprobante. Si lo es, pon intent: "pagar".
+Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VERIFICACIÓN (2FA, código enviado al correo/teléfono), pon intent: "soporte" (para que el bot asista con el código o lo derive al humano).`;
+
+  try {
+    const { pool } = require('./database');
+    const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "initial_intent_prompt"');
+    if (rows && rows.length > 0) {
+      promptTemplate = rows[0].cfg_value;
     }
+  } catch (err) {
+    console.warn("[aiService] Error al leer initial_intent_prompt de la base de datos:", err.message);
+  }
 
-    Si el mensaje actual es una imagen o el texto menciona un pago, revisa si es un comprobante. Si lo es, pon intent: "pagar".
-    Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VERIFICACIÓN (2FA, código enviado al correo/teléfono), pon intent: "soporte" (para que el bot asista con el código o lo derive al humano).
-  `;
+  const mediaSection = mediaDescription ? `DESCRIPCIÓN DE LA IMAGEN ENVIADA POR EL USUARIO (OCR/VISIÓN): \n"""\n${mediaDescription}\n"""\n` : "";
+  const prompt = promptTemplate
+    .replace('{{MEDIA_DESCRIPTION}}', mediaSection)
+    .replace('{{PLATFORM_CONTEXT}}', platformContext)
+    .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
+    .replace('{{CHAT_HISTORY}}', chatHistory)
+    .replace('{{MESSAGE_CONTENT}}', messageContent);
 
   // --- FALLBACK BASADO EN PALABRAS CLAVE (Ante fallos de IA) ---
   const txt = (messageContent || "").toLowerCase();
