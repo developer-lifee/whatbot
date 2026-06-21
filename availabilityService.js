@@ -34,6 +34,9 @@ function normalizeStreamingName(name) {
         return 'amazon';
     }
     if (normalized.includes('hbo') || normalized.includes('max')) {
+        if (normalized.includes('platino') || normalized.includes('platinum')) {
+            return 'hbo_platino';
+        }
         return 'hbo';
     }
     if (normalized.includes('disney')) {
