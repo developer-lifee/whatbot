@@ -5,15 +5,79 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 
-// Sobrescribir consola para añadir timestamps con la hora local correcta
-const originalLog = console.log;
-console.log = function () {
-    const now = new Date();
-    const timestamp = `[${now.toLocaleString('es-CO')}]`;
-    originalLog.apply(console, [timestamp, ...arguments]);
-};
+// Sobrescribir consola para añadir timestamps y desacoplar los logs por origen
 const fs = require('fs');
 const path = require('path');
+const util = require('util');
+
+const originalLog = console.log;
+const originalError = console.error;
+
+const logsDir = path.join(__dirname, 'logs');
+if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+}
+
+const botLogPath = path.join(logsDir, 'bot.log');
+const apiLogPath = path.join(logsDir, 'api.log');
+const errorLogPath = path.join(logsDir, 'error.log');
+const generalLogPath = path.join(logsDir, 'general.log');
+
+function writeLog(filePath, text) {
+    try {
+        fs.appendFileSync(filePath, text + '\n', 'utf8');
+    } catch (e) {
+        originalError.call(console, "Failed writing to log file:", filePath, e.message);
+    }
+}
+
+console.log = function (...args) {
+    const now = new Date();
+    const timestamp = `[${now.toLocaleString('es-CO')}]`;
+    
+    // Log to console (stdout) for PM2 compatibility
+    originalLog.apply(console, [timestamp, ...args]);
+    
+    // Format text representation
+    const textRepresentation = args.map(arg => typeof arg === 'object' ? util.inspect(arg, { depth: null }) : String(arg)).join(' ');
+    const logLine = `${timestamp} ${textRepresentation}`;
+    
+    const lowerText = textRepresentation.toLowerCase();
+    
+    // Routing logic
+    if (
+        lowerText.includes('[bot') ||
+        lowerText.includes('[ai') ||
+        lowerText.includes('[message') ||
+        lowerText.includes('[auto')
+    ) {
+        writeLog(botLogPath, logLine);
+    } else if (
+        lowerText.includes('[database') ||
+        lowerText.includes('[rpa') ||
+        lowerText.includes('[gmail') ||
+        lowerText.includes('[google') ||
+        lowerText.includes('[client') ||
+        lowerText.includes('/api/')
+    ) {
+        writeLog(apiLogPath, logLine);
+    } else {
+        writeLog(generalLogPath, logLine);
+    }
+};
+
+console.error = function (...args) {
+    const now = new Date();
+    const timestamp = `[${now.toLocaleString('es-CO')}]`;
+    
+    // Log to console (stderr) for PM2 compatibility
+    originalError.apply(console, [timestamp, ...args]);
+    
+    const textRepresentation = args.map(arg => arg instanceof Error ? arg.stack : (typeof arg === 'object' ? util.inspect(arg, { depth: null }) : String(arg))).join(' ');
+    const logLine = `${timestamp} ${textRepresentation}`;
+    
+    writeLog(errorLogPath, logLine);
+};
 const qrcode = require('qrcode-terminal');
 const { Client, LocalAuth } = require('whatsapp-web.js');
 
