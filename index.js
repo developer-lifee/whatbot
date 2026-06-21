@@ -13,9 +13,15 @@ const util = require('util');
 const originalLog = console.log;
 const originalError = console.error;
 
+let logsEnabled = true;
 const logsDir = path.join(__dirname, 'logs');
-if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
+try {
+    if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+    }
+} catch (err) {
+    originalError.call(console, "Failed to create logs directory:", err.message);
+    logsEnabled = false;
 }
 
 const botLogPath = path.join(logsDir, 'bot.log');
@@ -24,6 +30,7 @@ const errorLogPath = path.join(logsDir, 'error.log');
 const generalLogPath = path.join(logsDir, 'general.log');
 
 function writeLog(filePath, text) {
+    if (!logsEnabled) return;
     try {
         fs.appendFileSync(filePath, text + '\n', 'utf8');
     } catch (e) {
@@ -2453,18 +2460,39 @@ async function runRpaRecipe(recipe, variables = {}) {
 
 // POST Import Scribe PDF via Gemini
 app.post('/api/admin/rpa/import-scribe', upload.single('pdf'), async (req, res) => {
+    let tempPath = null;
     try {
         const password = req.body.password;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
         if (!req.file) return res.status(400).json({ success: false, message: 'No se envió ningún archivo PDF' });
 
+        tempPath = req.file.path;
+        let pdfBuffer;
+        if (req.file.buffer) {
+            pdfBuffer = req.file.buffer;
+        } else if (req.file.path) {
+            pdfBuffer = fs.readFileSync(req.file.path);
+        }
+
+        if (!pdfBuffer) {
+            return res.status(400).json({ success: false, message: 'No se pudo leer el archivo PDF' });
+        }
+
         const { parseScribePdfToRecipe } = require('./aiService');
-        const recipe = await parseScribePdfToRecipe(req.file.buffer);
+        const recipe = await parseScribePdfToRecipe(pdfBuffer);
 
         res.json({ success: true, recipe });
     } catch (e) {
         console.error('Error al importar PDF de Scribe:', e.message);
         res.status(500).json({ success: false, error: e.message });
+    } finally {
+        if (tempPath && fs.existsSync(tempPath)) {
+            try {
+                fs.unlinkSync(tempPath);
+            } catch (err) {
+                console.error('Error al limpiar archivo temporal:', err.message);
+            }
+        }
     }
 });
 
