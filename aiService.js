@@ -413,8 +413,27 @@ async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de so
  * @returns {Promise<string>} La descripción de la imagen.
  */
 async function describeImageWithGemini(mediaData) {
-  const prompt = "Analiza detalladamente esta imagen de comprobante de pago o transferencia. Realiza una extracción precisa (OCR) y detalla todo el texto visible, nombres de bancos (Nequi, Daviplata, Bancolombia, etc.), montos transferidos, fecha y hora de la transacción, número/ID de referencia o transacción, nombre del remitente/destinatario y el estado final de la transacción (exitoso, pendiente, fallido). No inventes datos, sé descriptivo.";
-  return await callGemini(prompt, "Eres un lector OCR y descriptor de imágenes de comprobantes bancarios extremadamente preciso.", false, mediaData);
+  const prompt = `Analiza detalladamente esta imagen. Puede ser un comprobante de pago, una captura de pantalla de un inicio de sesión/2FA, un mensaje de error o una consulta.
+
+Realiza una extracción precisa (OCR) y describe detalladamente lo que se ve en la imagen:
+
+1. Si es un COMPROBANTE DE PAGO o transferencia:
+   - Extrae el nombre del banco (Nequi, Daviplata, Bancolombia, etc.).
+   - Extrae el monto de la transacción, fecha, hora y número de referencia/transacción.
+   - Detalla el nombre del remitente y del destinatario, y el estado (exitoso, rechazado, pendiente).
+
+2. Si es una pantalla de INICIO DE SESIÓN, CÓDIGO DE ACCESO o 2FA:
+   - Identifica claramente la plataforma (Netflix, Disney+, Max/HBO, Prime Video, Spotify, ChatGPT, etc.).
+   - Extrae el correo o usuario mostrado en pantalla al que se envió el código (ej: "Hurkjua6554@outlook.com").
+   - Especifica qué solicita la pantalla (ej: "Código de 6 dígitos que vencerá en 15 minutos", "Código de hogar", etc.).
+
+3. Si es una pantalla de ERROR o falla técnica:
+   - Transcribe textualmente el mensaje de error o aviso que aparece (ej: "Contraseña incorrecta", "Demasiados dispositivos", "Tu suscripción ha expirado", "Este dispositivo no forma parte de tu hogar").
+   - Detalla el contexto técnico del error para que podamos identificar cómo solucionarlo.
+
+Sé sumamente descriptivo y preciso. Transcribe textualmente los textos importantes. No inventes datos.`;
+
+  return await callGemini(prompt, "Eres un analista de imágenes y lector OCR extremadamente preciso, capaz de procesar recibos de pago, pantallas de error y solicitudes de acceso/2FA.", false, mediaData);
 }
 
 
@@ -820,6 +839,23 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
 }
 
 async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = [], userId = null, userStates = null) {
+  const trimmedMsg = (messageContent || "").trim();
+  const isOnlySymbols = trimmedMsg.length > 0 && /^[?¿!¡\s\-_.,*#@]+$/.test(trimmedMsg);
+  
+  if (isOnlySymbols) {
+    let namePrompt = "";
+    if (userStates && userId) {
+      const stateData = userStates.get(userId);
+      if (stateData && stateData.nombre) {
+        namePrompt = ` *${stateData.nombre}*`;
+      }
+    }
+    return {
+      replyMessage: `🤖 ¡Hola${namePrompt}! Veo que respondiste con signos de pregunta o símbolos.\n\n¿Me podrías detallar en qué consiste tu duda o consulta? O si lo prefieres, elige una opción escribiendo el número correspondiente:\n\n1️⃣ *Comprar cuenta nueva*\n2️⃣ *Revisar mis credenciales*\n3️⃣ *Pagar o renovar mis cuentas*\n4️⃣ *Soporte Técnico*\n5️⃣ *Hablar con un asesor*`,
+      needsEscalation: false
+    };
+  }
+
   const accountSummary = summarizeAccounts(userAccounts);
   const platformDocs = await getPlatformKnowledge();
   const wisdomData = await getWisdomKnowledge();
@@ -1020,7 +1056,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
         "detectedPlatform": string | null, 
         "metadata": {
             "duration_months": number | null, // Si detectas una solicitud de renovación o precio y el cliente menciona un periodo de tiempo o duración específica (ej. "anualidad", "un año", "anual", "6 meses"), incluye la cantidad de meses correspondiente aquí.
-            ...
+            "is2faScreen": boolean | null // Coloca true SI Y SOLO SI la imagen enviada por el usuario es una captura de pantalla pidiendo un código de verificación (2FA), código de acceso único o código para configurar el hogar en Netflix, Disney+, Max, etc. De lo contrario, pon false o null.
         } | null 
     }
 

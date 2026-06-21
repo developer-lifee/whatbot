@@ -2053,8 +2053,12 @@ client.on('auth_failure', (msg) => {
 client.on('call', async (call) => {
     console.log(`[CALL] ✨ Llamada entrante detectada. ID: ${call.id}, De: ${call.from}`);
     try {
-        await call.reject();
-        console.log(`[CALL] 🚫 Llamada ${call.id} rechazada con éxito.`);
+        try {
+            await call.reject();
+            console.log(`[CALL] 🚫 Llamada ${call.id} rechazada con éxito.`);
+        } catch (rejectErr) {
+            console.error(`[CALL] ⚠️ No se pudo rechazar la llamada activamente (error de wwebjs):`, rejectErr.message);
+        }
         
         // Determinar el JID de destino correcto (debe incluir @c.us)
         let destJid = call.from;
@@ -2068,7 +2072,7 @@ client.on('call', async (call) => {
         await client.sendMessage(destJid, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
         console.log(`[CALL] ✉️ Aviso de chat enviado a ${destJid}`);
     } catch (e) {
-        console.error('Error al rechazar llamada:', e);
+        console.error('Error al procesar evento call:', e);
     }
 });
 
@@ -2076,8 +2080,12 @@ client.on('call', async (call) => {
 client.on('incoming_call', async (call) => {
     console.log(`[INCOMING_CALL] ✨ Llamada entrante detectada. ID: ${call.id}, De: ${call.from}`);
     try {
-        await call.reject();
-        console.log(`[INCOMING_CALL] 🚫 Llamada ${call.id} rechazada con éxito.`);
+        try {
+            await call.reject();
+            console.log(`[INCOMING_CALL] 🚫 Llamada ${call.id} rechazada con éxito.`);
+        } catch (rejectErr) {
+            console.error(`[INCOMING_CALL] ⚠️ No se pudo rechazar la llamada activamente (error de wwebjs):`, rejectErr.message);
+        }
         
         let destJid = call.from;
         if (destJid && !destJid.includes('@')) {
@@ -2090,7 +2098,7 @@ client.on('incoming_call', async (call) => {
         await client.sendMessage(destJid, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
         console.log(`[INCOMING_CALL] ✉️ Aviso de chat enviado a ${destJid}`);
     } catch (e) {
-        console.error('Error al rechazar llamada (incoming_call):', e);
+        console.error('Error al procesar evento incoming_call:', e);
     }
 });
 
@@ -4502,7 +4510,67 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 }
                 return;
             } else if (detection.intent === 'soporte') {
-                // Si el usuario pide soporte o reporta una falla, lo enviamos directamente a atención humana
+                const is2fa = detection.metadata && detection.metadata.is2faScreen;
+                const platform = detection.detectedPlatform;
+
+                if (is2fa && platform) {
+                    console.log(`[2FA Screen Interceptor] Detectado pantallazo de 2FA para la plataforma: ${platform}`);
+                    const { getAccountsByPhone } = require('./apiService');
+                    const userAccounts = await getAccountsByPhone(realPhone);
+
+                    if (userAccounts.length > 0) {
+                        const targetPlatformLower = platform.toLowerCase();
+                        let targetAccount = userAccounts.find(c => {
+                            const streamingName = (c.Streaming || "").toLowerCase();
+                            if (targetPlatformLower.includes('hbo') || targetPlatformLower.includes('max')) {
+                                return streamingName.includes('hbo') || streamingName.includes('max');
+                            }
+                            if (targetPlatformLower.includes('amazon') || targetPlatformLower.includes('prime')) {
+                                return streamingName.includes('amazon') || streamingName.includes('prime');
+                            }
+                            return streamingName.includes(targetPlatformLower) || targetPlatformLower.includes(streamingName);
+                        });
+
+                        // Si no hay coincidencia directa pero solo tiene 1 cuenta, usar esa
+                        if (!targetAccount && userAccounts.length === 1) {
+                            targetAccount = userAccounts[0];
+                        }
+
+                        // Si tiene varias, presentar opciones
+                        if (!targetAccount && userAccounts.length > 1) {
+                            let msg = `🤖 Hola, detecté que enviaste una captura de pantalla solicitando un código para *${platform.toUpperCase()}*.\n\nVeo que tienes registradas múltiples cuentas activas. ¿De cuál de ellas necesitas el código de verificación?\n\n`;
+                            userAccounts.forEach((acc, idx) => {
+                                const platName = (acc.Streaming || "").toUpperCase();
+                                const email = (acc.correo || "").trim().toLowerCase();
+                                const profile = acc['pin perfil'] || acc['Nombre'] || "";
+                                const profileStr = profile ? ` (Perfil: ${profile})` : "";
+                                msg += `${idx + 1} - *${platName}* - ${email}${profileStr}\n`;
+                            });
+                            msg += `\n*Responde únicamente con el número de la opción que deseas.* 📲`;
+
+                            await message.reply(msg);
+
+                            userStates.set(userId, {
+                                state: 'awaiting_code_account_selection',
+                                candidates: userAccounts,
+                                timestamp: Date.now(),
+                                nombre: foundName
+                            });
+                            return;
+                        }
+
+                        if (targetAccount) {
+                            await processAccountVerificationCode(message, userId, targetAccount, realPhone, client, userStates);
+                            return;
+                        }
+                    } else {
+                        // No tiene cuentas activas
+                        await message.reply(`🤖 ¡Hola! Veo que enviaste una captura de pantalla para obtener el código de *${platform.toUpperCase()}*, pero no encontré ninguna cuenta activa de esa plataforma vinculada a tu número de WhatsApp. Si deseas renovar o adquirir una, por favor indícalo. 😊`);
+                        return;
+                    }
+                }
+
+                // Si no es un caso de 2FA/código, lo enviamos directamente a atención humana
                 const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
                 const supportStatus = isSupportOpen();
                 
