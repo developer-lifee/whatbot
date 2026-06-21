@@ -15,10 +15,12 @@ async function saveMessage(message, botIntent = null) {
     let senderName = null;
 
     try {
-        const contact = await message.getContact();
-        senderName = contact ? (contact.name || contact.pushname || null) : null;
+        if (message.id && typeof message.getContact === 'function') {
+            const contact = await message.getContact();
+            senderName = contact ? (contact.name || contact.pushname || null) : null;
+        }
     } catch (e) {
-        console.error("[Message Logger] Error getting contact name:", e.message);
+        console.log("[Message Logger] Info: No se pudo obtener el nombre de contacto:", e.message);
     }
 
     if (message.hasMedia) {
