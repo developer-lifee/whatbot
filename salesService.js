@@ -62,8 +62,8 @@ async function getPlatforms() {
             });
         } else if (p.name === 'Microsoft 365') {
             p.name = "Microsoft Individual";
-            p.price = 12000;
-            const personalPlan = p.plans.find(plan => plan.name.toLowerCase().includes('personal') || plan.price === 12000);
+            p.price = 13000;
+            const personalPlan = p.plans.find(plan => plan.name.toLowerCase().includes('personal') || plan.price === 13000 || plan.price === 12000);
             if (personalPlan) {
                 p.plans = [personalPlan];
                 p.plans[0].name = "Individual (Cuenta Propia)";

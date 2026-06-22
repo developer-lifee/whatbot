@@ -173,6 +173,11 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
                     if (personalPlan) {
                         price = personalPlan.price;
                     }
+                } else if (platInfo.name.toUpperCase().includes('MICROSOFT') && !cleanExcel.includes('COMPARTIDA')) {
+                    const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL') || p.name.toUpperCase().includes('INDIVIDUAL'));
+                    if (personalPlan) {
+                        price = personalPlan.price;
+                    }
                 } else if (platInfo.plans && platInfo.plans.length > 0) {
                     const specificPlan = platInfo.plans.find(plan => {
                         const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
