@@ -2060,6 +2060,23 @@ app.post('/api/whatsapp/request-pairing-code', express.json(), async (req, res) 
     }
 });
 
+app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
+    try {
+        const { password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+
+        console.log('🔄 Reinicio del bot solicitado desde la interfaz web...');
+        res.json({ success: true, message: 'Reiniciando el bot para regenerar el código QR...' });
+        
+        setTimeout(() => {
+            process.exit(1);
+        }, 1000);
+    } catch (e) {
+        console.error('Error al procesar reinicio del bot:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Inicialización de la base de datos para SaaS
 (async () => {
     try {
