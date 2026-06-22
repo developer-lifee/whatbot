@@ -2664,6 +2664,21 @@ app.get('/api/admin/rpa/list', async (req, res) => {
     }
 });
 
+// DELETE RPA Recipe
+app.delete('/api/admin/rpa/delete/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const password = req.query.password || req.body.password || 'admin123';
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
+
+        const { pool } = require('./database');
+        await pool.query('DELETE FROM rpa_recipes WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Receta de automatización eliminada con éxito' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // POST Run RPA Recipe
 app.post('/api/admin/rpa/run', express.json(), async (req, res) => {
     try {
