@@ -530,22 +530,11 @@ async function getUpcomingExpirationsReport(providerPhoneFilter = null) {
             if (!isWithinWindow) return false;
 
             const clientEmail = (c.correo || "").toString().toLowerCase().trim();
-            if (managedEmails.includes(clientEmail)) return false;
+            if (providerPhoneFilter && managedEmails.includes(clientEmail)) return false;
 
             if (providerPhoneFilter && !providerEmails.includes(clientEmail)) {
                 // Temporalmente desactivamos esta restricción para enviar todas las cuentas próximas a vencer al proveedor
                 // return false;
-            }
-
-            const streaming = (c.Streaming || "").toString().toUpperCase();
-            const paymentMethod = (c['Metodo de pago'] || "").toString().toLowerCase().trim();
-
-            // Regla Netflix: Solo reportar si el método de pago es "net"
-            if (streaming.includes("NETFLIX") && !streaming.includes("EXTRA")) {
-                // Temporalmente omitimos la restricción del método de pago si es para el proveedor
-                if (!providerPhoneFilter) {
-                    return paymentMethod === "net";
-                }
             }
 
             return true;

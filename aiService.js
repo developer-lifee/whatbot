@@ -1564,5 +1564,6 @@ module.exports = {
   detectPaymentPromise,
   analyzeAdvisorReason,
   clearCachedSystemPrompt,
-  parseScribePdfToRecipe
+  parseScribePdfToRecipe,
+  getMaskedAccessData
 };
