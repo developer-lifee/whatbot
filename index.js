@@ -2521,26 +2521,36 @@ async function runRpaRecipe(recipe, variables = {}) {
                 value = value.replace(/\{\{(\w+)\}\}/g, (_, name) => variables[name] || '');
             }
 
+            const getTimeout = (defaultMs) => {
+                if (step.timeout) {
+                    const parsed = parseInt(step.timeout);
+                    if (!isNaN(parsed) && parsed > 0) {
+                        return parsed < 1000 ? parsed * 1000 : parsed;
+                    }
+                }
+                return defaultMs;
+            };
+
             switch (step.action) {
                 case 'navigate':
-                    await page.goto(step.url, { waitUntil: 'networkidle2', timeout: 30000 });
+                    await page.goto(step.url, { waitUntil: 'networkidle2', timeout: getTimeout(30000) });
                     break;
                 case 'type':
-                    await page.waitForSelector(step.selector, { timeout: 15000 });
+                    await page.waitForSelector(step.selector, { timeout: getTimeout(15000) });
                     await page.type(step.selector, value);
                     break;
                 case 'click':
-                    await page.waitForSelector(step.selector, { timeout: 15000 });
+                    await page.waitForSelector(step.selector, { timeout: getTimeout(15000) });
                     await page.click(step.selector);
                     break;
                 case 'wait_navigation':
-                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 });
+                    await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: getTimeout(20000) });
                     break;
                 case 'wait_selector':
-                    await page.waitForSelector(step.selector, { timeout: 20000 });
+                    await page.waitForSelector(step.selector, { timeout: getTimeout(60000) });
                     break;
                 case 'extract_text':
-                    await page.waitForSelector(step.selector, { timeout: 15000 });
+                    await page.waitForSelector(step.selector, { timeout: getTimeout(60000) });
                     const extracted = await page.evaluate((sel) => {
                         const el = document.querySelector(sel);
                         return el ? el.innerText.trim() : null;
