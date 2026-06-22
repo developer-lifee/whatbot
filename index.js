@@ -3522,6 +3522,12 @@ async function processIncomingMessage(messages) {
         userId = firstMsg.to;
     }
 
+    const cleanUserId = userId.replace('@c.us', '').replace(/\D/g, '');
+    if (cleanUserId === '573027892574') {
+        console.log(`[Provider Bypass] Ignorando mensaje entrante del proveedor: ${userId}`);
+        return;
+    }
+
     if (activeProcessingUsers.has(userId)) {
         console.log(`[Deduplicator] ⏳ El usuario @${userId.replace('@c.us', '')} ya tiene una petición en proceso activo. Omitiendo lote duplicado.`);
         return;
