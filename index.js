@@ -2111,7 +2111,19 @@ app.post('/api/whatsapp/request-pairing-code', express.json(), async (req, res) 
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
-        console.log('✅ Base de datos: Tablas de configuración SaaS, agentes y proveedores verificados.');
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS agent_schedules (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                agent_id INT NOT NULL,
+                day_of_week TINYINT NOT NULL,
+                start_time VARCHAR(10) NOT NULL,
+                end_time VARCHAR(10) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+                UNIQUE KEY unique_agent_day_slot (agent_id, day_of_week, start_time, end_time)
+            )
+        `);
+        console.log('✅ Base de datos: Tablas de configuración SaaS, agentes, horarios y proveedores verificados.');
     } catch (err) {
         console.error('❌ Base de datos: Error al verificar/crear tablas SaaS:', err.message);
     }
@@ -2137,6 +2149,95 @@ app.get('/api/admin/agent-role', async (req, res) => {
         }
 
         res.json({ success: true, role: 'agent' }); // Rol mínimo por defecto
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET All Agents
+app.get('/api/admin/agents', async (req, res) => {
+    try {
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT id, username, fullname, email, role, status FROM agents ORDER BY fullname ASC');
+        res.json({ success: true, agents: rows });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET Agent Schedule
+app.get('/api/admin/agents/schedule', async (req, res) => {
+    try {
+        const { email } = req.query;
+        if (!email) return res.status(400).json({ success: false, message: 'Falta el correo del asesor' });
+
+        const { pool } = require('./database');
+        const [agentRows] = await pool.query('SELECT id FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
+        if (!agentRows || agentRows.length === 0) {
+            return res.json({ success: true, schedule: [] });
+        }
+
+        const agentId = agentRows[0].id;
+        const [scheduleRows] = await pool.query(
+            'SELECT id, day_of_week, start_time, end_time FROM agent_schedules WHERE agent_id = ? ORDER BY day_of_week ASC, start_time ASC',
+            [agentId]
+        );
+
+        res.json({ success: true, schedule: scheduleRows });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Save Agent Schedule
+app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => {
+    try {
+        const { email, schedule } = req.body;
+        if (!email) return res.status(400).json({ success: false, message: 'Falta el correo del asesor' });
+        if (!Array.isArray(schedule)) return res.status(400).json({ success: false, message: 'El horario debe ser una lista de franjas' });
+
+        const { pool } = require('./database');
+        let [agentRows] = await pool.query('SELECT id FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
+        let agentId;
+        if (!agentRows || agentRows.length === 0) {
+            const username = email.split('@')[0];
+            const [insertRes] = await pool.query(
+                'INSERT INTO agents (username, fullname, email, role) VALUES (?, ?, ?, ?)',
+                [username, username, email.trim().toLowerCase(), 'agent']
+            );
+            agentId = insertRes.insertId;
+        } else {
+            agentId = agentRows[0].id;
+        }
+
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            await connection.query('DELETE FROM agent_schedules WHERE agent_id = ?', [agentId]);
+
+            for (const slot of schedule) {
+                const dayOfWeek = parseInt(slot.day_of_week);
+                const startTime = slot.start_time;
+                const endTime = slot.end_time;
+
+                if (isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) continue;
+                if (!startTime || !endTime) continue;
+
+                await connection.query(
+                    'INSERT INTO agent_schedules (agent_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)',
+                    [agentId, dayOfWeek, startTime, endTime]
+                );
+            }
+
+            await connection.commit();
+            res.json({ success: true, message: 'Horario del asesor guardado correctamente' });
+        } catch (err) {
+            await connection.rollback();
+            throw err;
+        } finally {
+            connection.release();
+        }
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }

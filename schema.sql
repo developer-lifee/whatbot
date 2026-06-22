@@ -141,3 +141,15 @@ CREATE TABLE IF NOT EXISTS provider_credentials (
     password VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 12. Horarios y Turnos de Asesores
+CREATE TABLE IF NOT EXISTS agent_schedules (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    agent_id INT NOT NULL,
+    day_of_week TINYINT NOT NULL, -- 0 (Domingo) a 6 (Sábado)
+    start_time VARCHAR(10) NOT NULL, -- Formato "HH:MM"
+    end_time VARCHAR(10) NOT NULL,   -- Formato "HH:MM"
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_agent_day_slot (agent_id, day_of_week, start_time, end_time)
+);
