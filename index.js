@@ -2508,7 +2508,9 @@ async function runRpaRecipe(recipe, variables = {}) {
         ]
     });
     const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 800 });
     const results = {};
+    const screenshots = [];
 
     try {
         for (const step of recipe.steps) {
@@ -2548,12 +2550,39 @@ async function runRpaRecipe(recipe, variables = {}) {
                 default:
                     console.warn(`[RPA Runner] Acción desconocida: ${step.action}`);
             }
+
+            // Capture step screenshot
+            try {
+                const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 50 });
+                screenshots.push({
+                    step: recipe.steps.indexOf(step) + 1,
+                    action: step.action,
+                    description: step.description || '',
+                    img: `data:image/jpeg;base64,${screenshotBase64}`
+                });
+            } catch (screenshotErr) {
+                console.warn('[RPA Runner] Error al tomar captura de pantalla del paso:', screenshotErr.message);
+            }
         }
 
-        return { success: true, data: results };
+        return { success: true, data: results, screenshots };
     } catch (err) {
         console.error(`[RPA Runner Error] Falla en la receta '${recipe.name}':`, err.message);
-        return { success: false, error: err.message };
+        
+        let failureScreenshot = null;
+        try {
+            const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 60 });
+            failureScreenshot = `data:image/jpeg;base64,${screenshotBase64}`;
+        } catch (screenshotErr) {
+            console.warn('[RPA Runner] Error al tomar captura de pantalla del fallo:', screenshotErr.message);
+        }
+
+        return { 
+            success: false, 
+            error: err.message, 
+            screenshots,
+            failureScreenshot 
+        };
     } finally {
         await browser.close();
     }
