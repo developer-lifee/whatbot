@@ -2629,19 +2629,26 @@ app.post('/api/admin/rpa/import-scribe', upload.single('pdf'), async (req, res) 
 // POST Save RPA Recipe
 app.post('/api/admin/rpa/save', express.json(), async (req, res) => {
     try {
-        const { name, platform, recipeJson, password } = req.body;
+        const { id, name, platform, recipeJson, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
         if (!name || !platform || !recipeJson) {
             return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
         }
 
         const { pool } = require('./database');
-        await pool.query(
-            'INSERT INTO rpa_recipes (name, platform, recipe_json) VALUES (?, ?, ?)',
-            [name, platform, JSON.stringify(recipeJson)]
-        );
-
-        res.json({ success: true, message: 'Receta de automatización guardada correctamente' });
+        if (id) {
+            await pool.query(
+                'UPDATE rpa_recipes SET name = ?, platform = ?, recipe_json = ? WHERE id = ?',
+                [name, platform, JSON.stringify(recipeJson), id]
+            );
+            res.json({ success: true, message: 'Receta de automatización actualizada correctamente' });
+        } else {
+            await pool.query(
+                'INSERT INTO rpa_recipes (name, platform, recipe_json) VALUES (?, ?, ?)',
+                [name, platform, JSON.stringify(recipeJson)]
+            );
+            res.json({ success: true, message: 'Receta de automatización guardada correctamente' });
+        }
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
