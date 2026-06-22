@@ -2006,6 +2006,14 @@ function broadcastSseEvent(type, data) {
     });
 }
 
+app.get('/api/whatsapp/status', (req, res) => {
+    res.json({
+        status: currentWhatsappStatus,
+        qr: latestQrCode,
+        pairingCode: latestPairingCode
+    });
+});
+
 app.get('/api/whatsapp/status-stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
