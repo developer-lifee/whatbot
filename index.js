@@ -469,6 +469,50 @@ app.get('/api/admin/clients', async (req, res) => {
     }
 });
 
+app.get('/api/admin/web-sales/pending', (req, res) => {
+    try {
+        const salesMap = loadPendingSales();
+        const list = Array.from(salesMap.entries()).map(([orderId, data]) => ({
+            orderId,
+            ...data
+        }));
+        list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+        res.json({ success: true, sales: list });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.get('/api/admin/web-sales/approved', (req, res) => {
+    try {
+        const approvedFile = path.join(__dirname, 'approved_sales.json');
+        let list = [];
+        if (fs.existsSync(approvedFile)) {
+            list = JSON.parse(fs.readFileSync(approvedFile, 'utf8') || '[]');
+        }
+        list.sort((a, b) => new Date(b.approvedAt || 0) - new Date(a.approvedAt || 0));
+        res.json({ success: true, sales: list });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/web-sales/pending/delete', express.json(), (req, res) => {
+    try {
+        const { orderId } = req.body;
+        if (!orderId) return res.status(400).json({ success: false, error: 'OrderId is required' });
+        const salesMap = loadPendingSales();
+        if (salesMap.has(orderId)) {
+            salesMap.delete(orderId);
+            savePendingSales(salesMap);
+            return res.json({ success: true, message: 'Venta pendiente eliminada' });
+        }
+        res.status(404).json({ success: false, error: 'Venta no encontrada' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 const crypto = require('crypto');
 
 app.post('/api/bold/generate-token', async (req, res) => {
@@ -500,7 +544,9 @@ app.post('/api/bold/generate-token', async (req, res) => {
         salesMap.set(orderId, {
             ...customer,
             numbersStr: numbers.join(','),
-            platformName: platform.name
+            platformName: platform.name,
+            amount: amount,
+            createdAt: new Date().toISOString()
         });
         savePendingSales(salesMap);
 
@@ -668,6 +714,26 @@ app.post('/api/bold/webhook', async (req, res) => {
                         await client.sendMessage(phoneId, successMsg);
                         userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
                     }
+                }
+
+                const approvedFile = path.join(__dirname, 'approved_sales.json');
+                let approvedList = [];
+                try {
+                    if (fs.existsSync(approvedFile)) {
+                        approvedList = JSON.parse(fs.readFileSync(approvedFile, 'utf8') || '[]');
+                    }
+                } catch (e) {
+                    console.error("Error reading approved_sales.json:", e);
+                }
+                approvedList.push({
+                    orderId,
+                    ...customerData,
+                    approvedAt: new Date().toISOString()
+                });
+                try {
+                    fs.writeFileSync(approvedFile, JSON.stringify(approvedList, null, 2), 'utf8');
+                } catch (e) {
+                    console.error("Error writing approved_sales.json:", e);
                 }
 
                 salesMap.delete(orderId);
