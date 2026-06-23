@@ -222,8 +222,14 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 
             const dateStr = vencimientoDate ? vencimientoDate.toLocaleDateString('es-CO') : 'N/A';
 
+            const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").toString().trim();
+            let emailToShow = customerMail;
+            if (!emailToShow) {
+                const adminMail = (acc.correo || 'Sin correo').toString().trim();
+                emailToShow = acc.correo ? `${adminMail} *(Administrador)*` : adminMail;
+            }
             response += `📺 *${streaming}*\n`;
-            response += `📧 ${acc.correo || 'Sin correo'}\n`;
+            response += `📧 ${emailToShow}\n`;
             response += `📅 Vence: ${dateStr} (${status})\n`;
             if (durationMonths > 1) {
                 const multiPrice = price * durationMonths;
