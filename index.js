@@ -3666,7 +3666,7 @@ async function baseProcessIncomingMessage(messages) {
     }
 
     // --- MUTE ABSOLUTO PROVEEDORES ---
-    if (realPhone.includes('3027892534')) {
+    if (realPhone.includes('3027892534') || realPhone.includes('3027892574')) {
         console.log(`[Mute] Chat con proveedor @${realPhone} ignorado.`);
         return;
     }
