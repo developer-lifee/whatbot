@@ -469,42 +469,33 @@ app.get('/api/admin/clients', async (req, res) => {
     }
 });
 
-app.get('/api/admin/web-sales/pending', (req, res) => {
+app.get('/api/admin/web-sales/pending', async (req, res) => {
     try {
-        const salesMap = loadPendingSales();
-        const list = Array.from(salesMap.entries()).map(([orderId, data]) => ({
-            orderId,
-            ...data
-        }));
-        list.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-        res.json({ success: true, sales: list });
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT * FROM web_sales_pending ORDER BY createdAt DESC');
+        res.json({ success: true, sales: rows });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
 });
 
-app.get('/api/admin/web-sales/approved', (req, res) => {
+app.get('/api/admin/web-sales/approved', async (req, res) => {
     try {
-        const approvedFile = path.join(__dirname, 'approved_sales.json');
-        let list = [];
-        if (fs.existsSync(approvedFile)) {
-            list = JSON.parse(fs.readFileSync(approvedFile, 'utf8') || '[]');
-        }
-        list.sort((a, b) => new Date(b.approvedAt || 0) - new Date(a.approvedAt || 0));
-        res.json({ success: true, sales: list });
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT * FROM web_sales_approved ORDER BY approvedAt DESC');
+        res.json({ success: true, sales: rows });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
 });
 
-app.post('/api/admin/web-sales/pending/delete', express.json(), (req, res) => {
+app.post('/api/admin/web-sales/pending/delete', express.json(), async (req, res) => {
     try {
         const { orderId } = req.body;
         if (!orderId) return res.status(400).json({ success: false, error: 'OrderId is required' });
-        const salesMap = loadPendingSales();
-        if (salesMap.has(orderId)) {
-            salesMap.delete(orderId);
-            savePendingSales(salesMap);
+        const { pool } = require('./database');
+        const [result] = await pool.query('DELETE FROM web_sales_pending WHERE order_id = ?', [orderId]);
+        if (result.affectedRows > 0) {
             return res.json({ success: true, message: 'Venta pendiente eliminada' });
         }
         res.status(404).json({ success: false, error: 'Venta no encontrada' });
@@ -535,20 +526,21 @@ app.post('/api/bold/generate-token', async (req, res) => {
         const concatenated = `${orderId}${amount}${currency}${secretKey}`;
         const integritySignature = crypto.createHash('sha256').update(concatenated).digest('hex');
 
-        // Guardar estado en memoria o base de datos.
-        // Simulando customers_temp con un objeto en memoria (si el bot se reinicia, se pierde, pero para el prototipo es funcional)
-        // Lo correcto sería guardarlo en customers_temp de MySQL si la tabla existe. 
-        // Ya que whatbot usa MySQL para `getExpiredAccounts` y no sabemos si `customers_temp` existe, guarderemos en global scope o lo probamos en mysql.
-        // Por seguridad lo guardamos en un local map:
-        const salesMap = loadPendingSales();
-        salesMap.set(orderId, {
-            ...customer,
-            numbersStr: numbers.join(','),
-            platformName: platform.name,
-            amount: amount,
-            createdAt: new Date().toISOString()
-        });
-        savePendingSales(salesMap);
+        // Guardar estado en base de datos.
+        const { pool } = require('./database');
+        await pool.query(
+            'INSERT INTO web_sales_pending (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                orderId,
+                customer.firstName || '',
+                customer.lastName || '',
+                customer.email || '',
+                customer.whatsapp || '',
+                platform.name,
+                amount,
+                numbers.join(',')
+            ]
+        );
 
         res.json({
             orderId,
@@ -587,8 +579,9 @@ app.post('/api/bold/webhook', async (req, res) => {
         else if (data.subject) orderId = data.subject;
 
         if (eventType === 'SALE_APPROVED') {
-            const salesMap = loadPendingSales();
-            const customerData = salesMap.get(orderId);
+            const { pool } = require('./database');
+            const [rows] = await pool.query('SELECT * FROM web_sales_pending WHERE order_id = ?', [orderId]);
+            const customerData = rows[0];
 
             if (customerData) {
                 console.log(`Venta aprobada vía Webhook para orden ${orderId}`);
@@ -596,7 +589,10 @@ app.post('/api/bold/webhook', async (req, res) => {
                 // Usando recordNewSale de whatbot
                 const { recordNewSale } = require('./salesRegistryService');
 
-                const formattedPhone = customerData.whatsapp.replace(/\D/g, '');
+                let formattedPhone = customerData.whatsapp.replace(/\D/g, '');
+                if (formattedPhone.length === 10 && !formattedPhone.startsWith('57') && !formattedPhone.startsWith('52')) {
+                    formattedPhone = '57' + formattedPhone;
+                }
                 const numericPhone = parseInt(formattedPhone) || 0;
 
                 const userState = {
@@ -610,7 +606,7 @@ app.post('/api/bold/webhook', async (req, res) => {
                     }
                 };
 
-                const phoneId = customerData.whatsapp.includes('@') ? customerData.whatsapp : `${customerData.whatsapp}@c.us`;
+                const phoneId = `${formattedPhone}@c.us`;
 
                 const results = await recordNewSale(phoneId, userState, "Bold Pagos");
                 console.log("Resultados guardado en Excel via Bold:", results);
@@ -716,28 +712,25 @@ app.post('/api/bold/webhook', async (req, res) => {
                     }
                 }
 
-                const approvedFile = path.join(__dirname, 'approved_sales.json');
-                let approvedList = [];
                 try {
-                    if (fs.existsSync(approvedFile)) {
-                        approvedList = JSON.parse(fs.readFileSync(approvedFile, 'utf8') || '[]');
-                    }
-                } catch (e) {
-                    console.error("Error reading approved_sales.json:", e);
+                    await pool.query(
+                        'INSERT INTO web_sales_approved (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [
+                            orderId,
+                            customerData.firstName || '',
+                            customerData.lastName || '',
+                            customerData.email || '',
+                            customerData.whatsapp || '',
+                            customerData.platformName || '',
+                            customerData.amount || 0,
+                            customerData.numbersStr || '',
+                            customerData.createdAt ? new Date(customerData.createdAt) : null
+                        ]
+                    );
+                    await pool.query('DELETE FROM web_sales_pending WHERE order_id = ?', [orderId]);
+                } catch (dbErr) {
+                    console.error("Error inserting approved web sale into DB:", dbErr.message);
                 }
-                approvedList.push({
-                    orderId,
-                    ...customerData,
-                    approvedAt: new Date().toISOString()
-                });
-                try {
-                    fs.writeFileSync(approvedFile, JSON.stringify(approvedList, null, 2), 'utf8');
-                } catch (e) {
-                    console.error("Error writing approved_sales.json:", e);
-                }
-
-                salesMap.delete(orderId);
-                savePendingSales(salesMap);
                 return res.json({ message: 'Compra aprobada y proceso iniciado' });
             } else {
                 return res.status(404).json({ message: 'No hay datos en cache para esta orden' });
@@ -2214,7 +2207,91 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 UNIQUE KEY unique_agent_day_slot (agent_id, day_of_week, start_time, end_time)
             )
         `);
-        console.log('✅ Base de datos: Tablas de configuración SaaS, agentes, horarios y proveedores verificados.');
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS web_sales_pending (
+                order_id VARCHAR(50) PRIMARY KEY,
+                firstName VARCHAR(100) NOT NULL,
+                lastName VARCHAR(100) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                whatsapp VARCHAR(50) NOT NULL,
+                platformName VARCHAR(100) NOT NULL,
+                amount INT NOT NULL,
+                numbersStr TEXT NOT NULL,
+                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS web_sales_approved (
+                order_id VARCHAR(50) PRIMARY KEY,
+                firstName VARCHAR(100) NOT NULL,
+                lastName VARCHAR(100) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                whatsapp VARCHAR(50) NOT NULL,
+                platformName VARCHAR(100) NOT NULL,
+                amount INT NOT NULL,
+                numbersStr TEXT NOT NULL,
+                createdAt TIMESTAMP NULL,
+                approvedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // --- MIGRACIÓN ÚNICA DE JSON A SQL ---
+        const pendingFile = path.join(__dirname, 'pending_sales.json');
+        if (fs.existsSync(pendingFile)) {
+            try {
+                const data = fs.readFileSync(pendingFile, 'utf8');
+                const salesMap = new Map(Object.entries(JSON.parse(data || '{}')));
+                for (const [orderId, customerData] of salesMap.entries()) {
+                    await pool.query(
+                        'INSERT INTO web_sales_pending (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE order_id=order_id',
+                        [
+                            orderId,
+                            customerData.firstName || '',
+                            customerData.lastName || '',
+                            customerData.email || '',
+                            customerData.whatsapp || '',
+                            customerData.platformName || '',
+                            customerData.amount || 0,
+                            customerData.numbersStr || ''
+                        ]
+                    );
+                }
+                fs.renameSync(pendingFile, pendingFile + '.bak');
+                console.log("✅ Migración de pending_sales.json a MySQL completada con éxito.");
+            } catch (e) {
+                console.error("Error migrating pending_sales.json:", e.message);
+            }
+        }
+
+        const approvedFile = path.join(__dirname, 'approved_sales.json');
+        if (fs.existsSync(approvedFile)) {
+            try {
+                const list = JSON.parse(fs.readFileSync(approvedFile, 'utf8') || '[]');
+                for (const sale of list) {
+                    await pool.query(
+                        'INSERT INTO web_sales_approved (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr, createdAt, approvedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE order_id=order_id',
+                        [
+                            sale.orderId,
+                            sale.firstName || '',
+                            sale.lastName || '',
+                            sale.email || '',
+                            sale.whatsapp || '',
+                            sale.platformName || '',
+                            sale.amount || 0,
+                            sale.numbersStr || '',
+                            sale.createdAt ? new Date(sale.createdAt) : null,
+                            sale.approvedAt ? new Date(sale.approvedAt) : new Date()
+                        ]
+                    );
+                }
+                fs.renameSync(approvedFile, approvedFile + '.bak');
+                console.log("✅ Migración de approved_sales.json a MySQL completada con éxito.");
+            } catch (e) {
+                console.error("Error migrating approved_sales.json:", e.message);
+            }
+        }
+
+        console.log('✅ Base de datos: Tablas de configuración SaaS, agentes, horarios, proveedores y transacciones web verificados.');
     } catch (err) {
         console.error('❌ Base de datos: Error al verificar/crear tablas SaaS:', err.message);
     }

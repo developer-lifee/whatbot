@@ -153,3 +153,30 @@ CREATE TABLE IF NOT EXISTS agent_schedules (
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
     UNIQUE KEY unique_agent_day_slot (agent_id, day_of_week, start_time, end_time)
 );
+
+-- 13. Ventas Web Pendientes (Intenciones de Pago)
+CREATE TABLE IF NOT EXISTS web_sales_pending (
+    order_id VARCHAR(50) PRIMARY KEY,
+    firstName VARCHAR(100) NOT NULL,
+    lastName VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    whatsapp VARCHAR(50) NOT NULL,
+    platformName VARCHAR(100) NOT NULL,
+    amount INT NOT NULL,
+    numbersStr TEXT NOT NULL,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 14. Ventas Web Aprobadas (Historial Definitivo)
+CREATE TABLE IF NOT EXISTS web_sales_approved (
+    order_id VARCHAR(50) PRIMARY KEY,
+    firstName VARCHAR(100) NOT NULL,
+    lastName VARCHAR(100) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    whatsapp VARCHAR(50) NOT NULL,
+    platformName VARCHAR(100) NOT NULL,
+    amount INT NOT NULL,
+    numbersStr TEXT NOT NULL,
+    createdAt TIMESTAMP NULL,
+    approvedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
