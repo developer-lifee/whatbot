@@ -2507,6 +2507,7 @@ Categorías para "intent":
 - "soporte": Problemas técnicos, fallas de conexión, errores en el cobro, perfiles caídos, o si pide explícitamente hablar con un humano/asesor. (NO usar si es explícitamente un error de clave).
 - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale", "chao", "adiós").
 - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio o pide la baja.
+- "duda_contexto": El usuario tiene dudas o hace preguntas sobre información recién discutida en el chat actual (por ejemplo: preguntas sobre qué significa "manual", de quién es la cuenta de Nequi/Daviplata, cómo proceder, o dudas sobre lo que el bot o el asesor acaban de decir, insistiendo en detalles que ya se le han explicado).
 - "desconocido": Cualquier otro mensaje, incluyendo saludos iniciales sin petición específica.
 
 Regla de Intents (MÁXIMA PRIORIDAD):
@@ -2544,7 +2545,7 @@ Nunca analices el "Mensaje actual" de forma aislada. Debes deducir estrictamente
 
 Salida esperada JSON:
 {
-    "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "catalogo" | "desconocido",
+    "intent": "comprar" | "credenciales" | "pagar" | "soporte" | "cierre" | "catalogo" | "duda_contexto" | "desconocido",
     "recoveredState": string | null,
     "frustrationLevel": number,
     "userName": string | null,
@@ -6330,6 +6331,15 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     return;
                 } else if (detection.intent === 'credenciales') {
                     await processCheckCredentials(userId, client, message.body, "", userStates);
+                    return;
+                } else if (detection.intent === 'duda_contexto') {
+                    const history = await getChatHistoryText(message);
+                    let accounts = [];
+                    try { accounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch (e) { }
+                    const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
+                    if (fallback.replyMessage) {
+                        await message.reply(fallback.replyMessage);
+                    }
                     return;
                 } else if (detection.intent === 'soporte') {
                     const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');

@@ -2,7 +2,9 @@
   "company_info": {
     "name": "Sheerit Store",
     "mission": "Proveer acceso premium a plataformas de streaming de forma económica y estable.",
-    "assistant_name": "Asistente Virtual de Sheerit Store"
+    "assistant_name": "Asistente Virtual de Sheerit Store",
+    "owner": "Esteban Avila (aparece como Est Avi / CC: 1032936324)",
+    "owner_note": "Todos los métodos de pago (Nequi, Daviplata, Bancolombia, Llave Bre-V) están registrados a nombre del dueño Esteban Avila (iniciales Est Avi). Katherine y Camilo son empleados de atención/soporte, no son los dueños de las cuentas bancarias."
   },
   "human_support_schedule": [
     {
