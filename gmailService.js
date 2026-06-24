@@ -321,17 +321,17 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
             if (diffMinutes > toleranceMinutes) continue;
 
             const snippet = fullMsg.data.snippet || '';
-            const bodyData = getMessageBody(fullMsg.data.payload);
-
-            const decodedBody = decodeQuotedPrintable(bodyData);
+            const parts = getMessageParts(fullMsg.data.payload);
+            const decodedText = decodeQuotedPrintable(parts.text || parts.html || "");
+            const decodedHtml = decodeQuotedPrintable(parts.html || "");
             const decodedSnippet = decodeQuotedPrintable(snippet);
 
-            const body = decodedSnippet + ' ' + decodedBody;
-            const subject = fullMsg.data.payload.headers.find(h => h.name === 'Subject')?.value || 'Sin asunto';
+            const subject = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'subject')?.value || 'Sin asunto';
             const decodedSubject = decodeQuotedPrintable(subject);
 
             // Eliminar URLs completas para evitar extraer números/IDs dentro de enlaces (como el 000000 de Disney+)
-            const bodyWithoutUrls = body.replace(/https?:\/\/[^\s<>"`']+/gi, ' ');
+            const textToSearchForCode = decodedSnippet + ' ' + decodedText;
+            const bodyWithoutUrls = textToSearchForCode.replace(/https?:\/\/[^\s<>"`']+/gi, ' ');
 
             // Eliminar bloques <style> enteros
             const noStyleBody = bodyWithoutUrls.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
@@ -391,9 +391,8 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
                 }
             }
 
-            // Intentar extraer links importantes de plataformas (Netflix, Disney+, Max, Star+, Claude, Crunchyroll, etc) o botones de acceso (incluye subdominios)
-            const linkMatch = body.match(/https:\/\/(?:www\.)?(?:[a-zA-Z0-9-]+\.)*(?:netflix\.com|disneyplus\.com|starplus\.com|max\.com|hbomax\.com|primevideo\.com|amazon\.com|auth\.max\.com|claude\.ai|anthropic\.com|mail\.anthropic\.com|crunchyroll\.com|paramountplus\.com|vix\.com|spotify\.com|canva\.com|plex\.tv)[^\s<>"']+/i);
-            const link = linkMatch ? linkMatch[0] : null;
+            // Extraer el mejor enlace (sin logos ni imágenes de Claude/Streaming)
+            const link = extractBestLink(decodedHtml || decodedText);
 
             codesFound.push({
                 subject: decodedSubject,
@@ -410,27 +409,62 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
     }
 }
 
-function getMessageBody(payload) {
-    if (!payload) return "";
-    let body = "";
+function getMessageParts(payload) {
+    let text = "";
+    let html = "";
+    if (!payload) return { text, html };
+
     if (payload.body && payload.body.data) {
-        body = Buffer.from(payload.body.data, 'base64').toString('utf8');
-    } else if (payload.parts && payload.parts.length > 0) {
-        for (const part of payload.parts) {
-            if (part.mimeType === 'text/plain' && part.body && part.body.data) {
-                body += Buffer.from(part.body.data, 'base64').toString('utf8');
-            } else if (part.mimeType === 'text/html' && part.body && part.body.data) {
-                if (!body) {
-                    body = Buffer.from(part.body.data, 'base64').toString('utf8');
-                }
-            } else if (part.parts) {
-                body += getMessageBody(part);
-            }
+        const decoded = Buffer.from(payload.body.data, 'base64').toString('utf8');
+        if (payload.mimeType === 'text/html') {
+            html = decoded;
+        } else {
+            text = decoded;
         }
     }
-    return body;
+
+    if (payload.parts && payload.parts.length > 0) {
+        for (const part of payload.parts) {
+            const partResult = getMessageParts(part);
+            text += partResult.text;
+            html += partResult.html;
+        }
+    }
+
+    return { text, html };
 }
 
+function getMessageBody(payload) {
+    const parts = getMessageParts(payload);
+    return parts.text || parts.html || "";
+}
+
+function extractBestLink(bodyText) {
+    if (!bodyText) return null;
+    const regex = /https?:\/\/(?:www\.)?(?:[a-zA-Z0-9-]+\.)*(?:netflix\.com|disneyplus\.com|starplus\.com|max\.com|hbomax\.com|primevideo\.com|amazon\.com|auth\.max\.com|claude\.ai|anthropic\.com|mail\.anthropic\.com|crunchyroll\.com|paramountplus\.com|vix\.com|spotify\.com|canva\.com|plex\.tv)[^\s<>"']+/gi;
+    const matches = bodyText.match(regex);
+    if (!matches) return null;
+
+    // Filter out images, logos, static assets
+    const filteredMatches = matches.filter(url => {
+        const lower = url.toLowerCase();
+        if (/\.(png|jpg|jpeg|gif|svg|webp|ico)(?:\?|$)/.test(lower)) return false;
+        if (lower.includes('/images/') || lower.includes('/logos/') || lower.includes('/assets/')) return false;
+        return true;
+    });
+
+    if (filteredMatches.length === 0) {
+        return matches[0];
+    }
+
+    // Prioritize links containing keywords like magic-link, click, login, signin, verify, etc.
+    const priorityMatch = filteredMatches.find(url => {
+        const lower = url.toLowerCase();
+        return lower.includes('magic-link') || lower.includes('click') || lower.includes('login') || lower.includes('signin') || lower.includes('verify') || lower.includes('code');
+    });
+
+    return priorityMatch || filteredMatches[0];
+}
 
 function cleanHtml(html) {
     if (!html) return "";
@@ -444,8 +478,7 @@ function cleanHtml(html) {
         const cleanLinkText = linkText.replace(/<[^>]+>/g, '').trim();
         // Solo mostrar la URL si es un link real (http) y diferente al texto
         if (/^https?:\/\//i.test(url) && cleanLinkText.toLowerCase() !== url.toLowerCase()) {
-            const displayUrl = url.length > 60 ? `${url.substring(0, 57)}...` : url;
-            return `${cleanLinkText} (${displayUrl})`;
+            return `${cleanLinkText} (${url})`;
         }
         return cleanLinkText || url;
     });
@@ -461,7 +494,6 @@ function cleanHtml(html) {
     text = text.replace(/\n\s*\n+/g, '\n\n');
     return text.trim();
 }
-
 
 async function getEmailsFromInbox(email, maxResults = 15) {
     const auth = await getOAuth2Client('gmail', null, email);
@@ -495,15 +527,36 @@ async function getEmailsFromInbox(email, maxResults = 15) {
             const internalDate = fullMsg.data.internalDate;
             const snippet = fullMsg.data.snippet || '';
 
-            const rawBody = getMessageBody(fullMsg.data.payload);
-            const decodedRawBody = decodeQuotedPrintable(rawBody);
-            const isHtml = fullMsg.data.payload.mimeType === 'text/html' || (fullMsg.data.payload.parts && fullMsg.data.payload.parts.some(p => p.mimeType === 'text/html'));
-            const cleanBody = isHtml ? cleanHtml(decodedRawBody) : decodedRawBody;
+            const parts = getMessageParts(fullMsg.data.payload);
+            const decodedText = decodeQuotedPrintable(parts.text);
+            const decodedHtml = decodeQuotedPrintable(parts.html);
+
+            const isHtml = !!decodedHtml;
+            const cleanBody = isHtml ? cleanHtml(decodedHtml) : decodedText;
 
             // rawHtml: HTML decodificado para renderizar en iframe (se añade meta charset para evitar garbled chars)
             const rawHtml = isHtml
-                ? `<meta charset="utf-8"><base target="_blank">${decodedRawBody}`
+                ? `<meta charset="utf-8"><base target="_blank">${decodedHtml}`
                 : `<meta charset="utf-8"><pre style="font-family:sans-serif;white-space:pre-wrap;word-break:break-word;padding:16px;">${cleanBody}</pre>`;
+
+            // Intentar extraer de forma anticipada el link y código
+            const textToSearchForCode = decodeQuotedPrintable(snippet) + ' ' + (isHtml ? cleanBody : decodedText);
+            const bodyWithoutUrls = textToSearchForCode.replace(/https?:\/\/[^\s<>"`']+/gi, ' ');
+            const noStyleBody = bodyWithoutUrls.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
+            const cleanBodyForCode = noStyleBody.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');
+            const superCleanBody = cleanBodyForCode.replace(/\b(?:F9F9F9|FFFFFF|000000|E5E5E5|CCCCCC|DEDEDE)\b/gi, ' ');
+
+            let code = null;
+            const specificCodeMatch = superCleanBody.match(/(?:c[oó]digo|pin|code)[\s\S]{0,250}?\b([0-9]{4,8}|[A-Z0-9]{6,8})\b/i);
+            if (specificCodeMatch && /[0-9]/.test(specificCodeMatch[1])) {
+                code = specificCodeMatch[1].toUpperCase();
+            }
+            if (!code) {
+                const sixDigitMatch = superCleanBody.match(/\b([0-9]{6})\b/);
+                if (sixDigitMatch) code = sixDigitMatch[1];
+            }
+
+            const link = extractBestLink(decodedHtml || decodedText);
 
             emailsList.push({
                 id: msg.id,
@@ -513,7 +566,9 @@ async function getEmailsFromInbox(email, maxResults = 15) {
                 internalDate,
                 snippet: decodeQuotedPrintable(snippet),
                 body: cleanBody || decodeQuotedPrintable(snippet),
-                rawHtml
+                rawHtml,
+                code,
+                link
             });
         }
 
@@ -530,3 +585,4 @@ module.exports = {
     findRecentCodes,
     getEmailsFromInbox
 };
+
