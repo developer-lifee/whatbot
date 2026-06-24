@@ -258,3 +258,21 @@ El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`con
 2.  **Monitoreo del Navegador (Heartbeat):** Cada 5 minutos se ejecuta y registra un reporte de salud del navegador (Puppeteer) para detectar cuelgues (estados zombies), reiniciando el proceso en caso de fallo crítico para que PM2 lo levante de nuevo.
 
 *(Documentación actualizada al 21 de Junio de 2026)*
+
+---
+
+## 🛠️ Actualizaciones Recientes (24 de Junio de 2026)
+
+### 1. 🧠 Sub-intenciones y Flujo de Paréntesis (`duda_contexto`)
+- **Flujos de Interrupción**: Se implementó una lógica de paréntesis conversacional para preguntas que rompen el flujo principal (ej: *"¿de quién es la cuenta de Nequi?"*, *"¿manual cómo así?"*, *"¿qué características tiene el plan?"*).
+- **Mantener Estado del Funnel**: La IA intercepta estas dudas contextuales, las responde con precisión revisando el historial ampliado y la base de conocimiento, pero **mantiene intacto el estado actual del usuario** en el embudo (como `awaiting_payment_method` o `selecting_plans`), evitando reiniciar o romper su flujo de compra.
+- **Historial Ampliado**: El historial reciente pasado a la IA se amplió de 6 a **15 mensajes** por defecto, evitando la pérdida de contexto en conversaciones rápidas.
+
+### 2. 📅 Panel de Pagos y Horarios de Colaboradores
+- **Reorganización de Vista**: En el panel administrativo se colocó la gestión de horarios y franjas de disponibilidad al inicio y la configuración de métodos de pago al final.
+- **Visualización Unificada ("Vista General")**: Se integró una cuadrícula en el panel que muestra los turnos de todos los colaboradores asignados (Camilo, Katherine, Esclépides) en un solo lugar.
+- **Gestión de Descansos (Lunch/Break)**: Cada franja permite configurar almuerzos (1 hora 🍱) o descansos (30 minutos ☕). Estas franjas se restan del cálculo de horas laborales netas.
+
+### 3. 🟢 Estado Dinámico del Soporte Técnico de Sheerit
+- **Detección Activa de Asesores**: El bot determina en tiempo real si el canal de soporte humano está **ONLINE** u **OFFLINE** analizando las franjas horarias y descansos de los colaboradores.
+- **Desactivación del Bot**: Si hay al menos un colaborador activo y fuera de su break, el soporte se considera online. Si todos están offline o en hora de almuerzo, el canal se marca automáticamente como cerrado y el bot responde amablemente informando los horarios.

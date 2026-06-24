@@ -1117,7 +1117,7 @@ Categorías para "intent":
 - "soporte": Problemas técnicos, fallas de conexión, errores en el cobro, perfiles caídos, o si pide explícitamente hablar con un humano/asesor. (NO usar si es explícitamente un error de clave).
 - "cierre": El usuario se despide, da las gracias, confirma fin de charla o da un cierre natural (ej: "ok", "listo", "gracias", "vale", "chao", "adiós").
 - "cancelar": El usuario manifiesta EXPRESAMENTE que no quiere renovar, que quiere cancelar el servicio o pide la baja.
-- "duda_contexto": El usuario tiene dudas o hace preguntas sobre información recién discutida en el chat actual (por ejemplo: preguntas sobre qué significa "manual", de quién es la cuenta de Nequi/Daviplata, cómo proceder, o dudas sobre lo que el bot o el asesor acaban de decir, insistiendo en detalles que ya se le han explicado).
+- "duda_contexto": El usuario tiene dudas o realiza preguntas sobre información recién discutida en el chat actual (por ejemplo: qué significa "manual", de quién es la cuenta de Nequi/Daviplata, cómo proceder, etc.) o realiza preguntas de consulta sobre características de las plataformas, precios de planes o detalles técnicos específicos que funcionan como un paréntesis en la charla actual.
 - "desconocido": Cualquier otro mensaje, incluyendo saludos iniciales sin petición específica.
 
 Regla de Intents (MÁXIMA PRIORIDAD):
