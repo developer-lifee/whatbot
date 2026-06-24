@@ -54,6 +54,9 @@ function normalizeStreamingName(name) {
     if (normalized.includes('microsoft') || normalized.includes('office')) {
         return 'microsoft';
     }
+    if (normalized.includes('claude')) {
+        return 'claude';
+    }
     return normalized;
 }
 

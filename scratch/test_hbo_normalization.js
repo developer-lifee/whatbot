@@ -6,7 +6,9 @@ const testCases = [
     { input: "HBO PLATINO", expected: "hbo_platino" },
     { input: "HBOMax Platino", expected: "hbo_platino" },
     { input: "hbo max platinum", expected: "hbo_platino" },
-    { input: "Netflix", expected: "netflix" }
+    { input: "Netflix", expected: "netflix" },
+    { input: "Claude Pro", expected: "claude" },
+    { input: "CLAUDE", expected: "claude" }
 ];
 
 let failed = false;
