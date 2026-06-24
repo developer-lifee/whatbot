@@ -2232,8 +2232,20 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 numbersStr TEXT NOT NULL,
                 createdAt TIMESTAMP NULL,
                 approvedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
         `);
+
+        // Check and add break columns to agent_schedules if they don't exist
+        try {
+            const [cols] = await pool.query("SHOW COLUMNS FROM agent_schedules");
+            const hasBreakType = cols.some(c => c.Field === 'break_type');
+            if (!hasBreakType) {
+                console.log("[Migration] Adding break_type and break_start to agent_schedules...");
+                await pool.query("ALTER TABLE agent_schedules ADD COLUMN break_type ENUM('none', 'break_30', 'lunch_60') DEFAULT 'none'");
+                await pool.query("ALTER TABLE agent_schedules ADD COLUMN break_start VARCHAR(10) NULL");
+            }
+        } catch (err) {
+            console.error("[Migration] Error checking/altering agent_schedules table:", err.message);
+        }
 
         // --- MIGRACIÓN ÚNICA DE JSON A SQL ---
         const pendingFile = path.join(__dirname, 'pending_sales.json');
@@ -2347,11 +2359,27 @@ app.get('/api/admin/agents/schedule', async (req, res) => {
 
         const agentId = agentRows[0].id;
         const [scheduleRows] = await pool.query(
-            'SELECT id, day_of_week, start_time, end_time FROM agent_schedules WHERE agent_id = ? ORDER BY day_of_week ASC, start_time ASC',
+            'SELECT id, day_of_week, start_time, end_time, break_type, break_start FROM agent_schedules WHERE agent_id = ? ORDER BY day_of_week ASC, start_time ASC',
             [agentId]
         );
 
         res.json({ success: true, schedule: scheduleRows });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET All Agent Schedules
+app.get('/api/admin/agents/schedules/all', async (req, res) => {
+    try {
+        const { pool } = require('./database');
+        const [rows] = await pool.query(`
+            SELECT s.id, s.day_of_week, s.start_time, s.end_time, s.break_type, s.break_start, a.fullname, a.email, a.role
+            FROM agent_schedules s
+            JOIN agents a ON s.agent_id = a.id
+            ORDER BY a.fullname ASC, s.day_of_week ASC, s.start_time ASC
+        `);
+        res.json({ success: true, schedules: rows });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -2392,9 +2420,12 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 if (isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) continue;
                 if (!startTime || !endTime) continue;
 
+                const breakType = slot.break_type || 'none';
+                const breakStart = slot.break_start || null;
+
                 await connection.query(
-                    'INSERT INTO agent_schedules (agent_id, day_of_week, start_time, end_time) VALUES (?, ?, ?, ?)',
-                    [agentId, dayOfWeek, startTime, endTime]
+                    'INSERT INTO agent_schedules (agent_id, day_of_week, start_time, end_time, break_type, break_start) VALUES (?, ?, ?, ?, ?, ?)',
+                    [agentId, dayOfWeek, startTime, endTime, breakType, breakStart]
                 );
             }
 
@@ -3512,7 +3543,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
 
     if (fallbackResult.needsEscalation) {
         const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
-        const supportStatus = isSupportOpen();
+        const supportStatus = await isSupportOpen();
         
         // Registrar primero la espera humana para que el usuario sea contado en la cola
         userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
@@ -5600,7 +5631,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
 
                 const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
-                const supportStatus = isSupportOpen();
+                const supportStatus = await isSupportOpen();
 
                 userStates.set(userId, {
                     state: 'waiting_human',
@@ -5805,7 +5836,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
                 // Si no es un caso de 2FA/código, lo enviamos directamente a atención humana
                 const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
-                const supportStatus = isSupportOpen();
+                const supportStatus = await isSupportOpen();
                 
                 userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 
@@ -6302,7 +6333,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     return;
                 } else if (detection.intent === 'soporte') {
                     const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
-                    const supportStatus = isSupportOpen();
+                    const supportStatus = await isSupportOpen();
                     
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 

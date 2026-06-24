@@ -984,7 +984,7 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
   const specificAccountIncidents = getSpecificAccountsIncidentsText(userAccounts);
 
   const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
-  const supportStatus = isSupportOpen();
+  const supportStatus = await isSupportOpen();
   const queuePos = (userId && userStates) ? getQueuePosition(userId, userStates) : null;
   const supportScheduleConfig = getSupportScheduleConfig();
 

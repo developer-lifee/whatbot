@@ -44,7 +44,7 @@ function saveSupportScheduleConfig(config) {
  * Checks if support is currently open (active)
  * Returns { open: boolean, reason: string }
  */
-function isSupportOpen() {
+async function isSupportOpen() {
   const config = getSupportScheduleConfig();
   if (config.manual_status === "online") {
     return { open: true, reason: "Habilitado manualmente por administración." };
@@ -71,11 +71,57 @@ function isSupportOpen() {
   const startMinutes = startHour * 60 + startMin;
   const endMinutes = endHour * 60 + endMin;
 
-  if (currentMinutes >= startMinutes && currentMinutes <= endMinutes) {
-    return { open: true, reason: "Dentro del horario automático de atención." };
+  if (currentMinutes < startMinutes || currentMinutes > endMinutes) {
+    return { open: false, reason: "Fuera del horario de atención." };
   }
 
-  return { open: false, reason: "Fuera del horario de atención." };
+  // Connected with Agent Schedules: Check if any agent is currently active and not on break
+  try {
+    const { pool } = require('./database');
+    const [allSchedules] = await pool.query('SELECT * FROM agent_schedules');
+    if (allSchedules.length > 0) {
+      // Find slots for today
+      const todaySlots = allSchedules.filter(s => s.day_of_week === day);
+      
+      const activeAgents = [];
+      for (const slot of todaySlots) {
+        const [sh, sm] = slot.start_time.split(':').map(Number);
+        const [eh, em] = slot.end_time.split(':').map(Number);
+        const slotStartMin = sh * 60 + sm;
+        const slotEndMin = eh * 60 + em;
+
+        // Check if current time is within this slot
+        if (currentMinutes >= slotStartMin && currentMinutes <= slotEndMin) {
+          // Check if agent is on break right now
+          let onBreak = false;
+          if (slot.break_type && slot.break_type !== 'none' && slot.break_start) {
+            const [bh, bm] = slot.break_start.split(':').map(Number);
+            const breakStartMin = bh * 60 + bm;
+            const breakDuration = slot.break_type === 'break_30' ? 30 : 60;
+            const breakEndMin = breakStartMin + breakDuration;
+
+            if (currentMinutes >= breakStartMin && currentMinutes <= breakEndMin) {
+              onBreak = true;
+            }
+          }
+          if (!onBreak) {
+            activeAgents.push(slot.agent_id);
+          }
+        }
+      }
+
+      if (activeAgents.length === 0) {
+        return { 
+          open: false, 
+          reason: "No hay colaboradores con turnos de trabajo activos en este momento (o todos están en su hora de almuerzo/descanso)." 
+        };
+      }
+    }
+  } catch (err) {
+    console.error("[Support Schedule Service] Error checking agent schedules in isSupportOpen:", err.message);
+  }
+
+  return { open: true, reason: "Dentro del horario automático de atención." };
 }
 
 /**
