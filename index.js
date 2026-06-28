@@ -2882,10 +2882,19 @@ async function runRpaRecipe(recipe, variables = {}) {
         for (const step of recipe.steps) {
             console.log(`[RPA Runner] Ejecutando paso: ${step.action} - ${step.description || ''}`);
 
-            let value = step.value || "";
-            if (typeof value === 'string') {
-                value = value.replace(/\{\{(\w+)\}\}/g, (_, name) => variables[name] || '');
-            }
+            const replaceVars = (val) => {
+                if (typeof val === 'string') {
+                    return val.replace(/\{\{(\w+)\}\}/g, (_, name) => {
+                        if (results[name] !== undefined) return results[name];
+                        return variables[name] !== undefined ? variables[name] : '';
+                    });
+                }
+                return val;
+            };
+
+            if (step.url) step.url = replaceVars(step.url);
+            if (step.selector) step.selector = replaceVars(step.selector);
+            let value = replaceVars(step.value || "");
 
             const getTimeout = (defaultMs) => {
                 if (step.timeout) {
