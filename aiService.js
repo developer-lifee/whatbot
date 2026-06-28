@@ -145,9 +145,9 @@ function getMaskedAccessData(acc) {
   };
 }
 
-// List of models to try in order. Prioritizes flash models for higher quota.
 const MODELS = [
-  "gemini-3.1-flash-lite" // Solo el modelo Lite ultra económico y rápido
+  "gemini-1.5-flash",
+  "gemini-1.5-pro"
 ];
 
 /**
