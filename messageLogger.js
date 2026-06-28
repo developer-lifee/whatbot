@@ -95,8 +95,10 @@ async function saveMessage(message, botIntent = null) {
 
         const columns = await getMessagesTableColumns();
         
-        let queryFields = ['message_id', 'chat_id', 'sender_id', 'sender_name', 'body', 'media_path', 'media_mime', 'bot_intent'];
-        let queryValues = [messageId, chatId, senderId, senderName, body, mediaPath, mediaMime, botIntent];
+        const originalTimestamp = message.timestamp ? new Date(message.timestamp * 1000) : new Date();
+        
+        let queryFields = ['message_id', 'chat_id', 'sender_id', 'sender_name', 'body', 'media_path', 'media_mime', 'bot_intent', 'created_at'];
+        let queryValues = [messageId, chatId, senderId, senderName, body, mediaPath, mediaMime, botIntent, originalTimestamp];
         
         if (columns.includes('direction')) {
             queryFields.push('direction');
@@ -115,7 +117,7 @@ async function saveMessage(message, botIntent = null) {
         await pool.query(
             `INSERT INTO messages (${fieldsStr})
              VALUES (${placeholders})
-             ON DUPLICATE KEY UPDATE body = VALUES(body), media_path = VALUES(media_path), bot_intent = VALUES(bot_intent)`,
+             ON DUPLICATE KEY UPDATE body = VALUES(body), media_path = VALUES(media_path), bot_intent = VALUES(bot_intent), created_at = VALUES(created_at)`,
             queryValues
         );
         console.log(`[Message Logger] Mensaje ${messageId || ''} guardado en BD.`);
