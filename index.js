@@ -1801,6 +1801,22 @@ app.post('/api/admin/subscriptions/save', express.json(), async (req, res) => {
     }
 });
 
+// POST: Vincular rpaRecipeId a múltiples cuentas de streaming (en lote)
+app.post('/api/admin/subscriptions/set-recipe-bulk', express.json(), async (req, res) => {
+    try {
+        const { ids, rpa_recipe_id, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ success: false, error: 'Lista de IDs vacía o inválida' });
+        }
+        const { pool } = require('./database');
+        await pool.query('UPDATE stream_accounts SET rpa_recipe_id = ? WHERE id IN (?)', [rpa_recipe_id || null, ids]);
+        res.json({ success: true, message: `Se asignó la receta a ${ids.length} cuentas.` });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // POST: Vincular rpaRecipeId a una cuenta de streaming específica
 app.post('/api/admin/subscriptions/set-recipe', express.json(), async (req, res) => {
     try {
