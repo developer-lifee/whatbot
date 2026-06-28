@@ -453,7 +453,7 @@ async function executeTestMode(message, client) {
 /**
  * Maneja el reporte de próximas expiraciones.
  */
-async function getUpcomingExpirationsReport(providerPhoneFilter = null) {
+async function getUpcomingExpirationsReport(targetEmailsArray = null) {
     const { fetchCustomersData, getTodayInBogota, getJsDateFromExcel } = require('./apiService');
     const today = getTodayInBogota();
 
@@ -501,25 +501,6 @@ async function getUpcomingExpirationsReport(providerPhoneFilter = null) {
         }
     }
 
-    let providerEmails = [];
-    if (providerPhoneFilter) {
-        const providerEmailsPath = path.join(__dirname, 'provider_emails.json');
-        if (fs.existsSync(providerEmailsPath)) {
-            try {
-                const content = fs.readFileSync(providerEmailsPath, 'utf8');
-                const data = JSON.parse(content);
-                if (Array.isArray(data)) {
-                    const cleanFilter = providerPhoneFilter.replace(/\D/g, '');
-                    providerEmails = data
-                        .filter(item => (item.providerNumber || '').replace(/\D/g, '') === cleanFilter)
-                        .map(item => item.email.toLowerCase().trim());
-                }
-            } catch (err) {
-                console.error("Error reading provider_emails.json for report:", err.message);
-            }
-        }
-    }
-
     try {
         const data = await fetchCustomersData();
 
@@ -530,11 +511,13 @@ async function getUpcomingExpirationsReport(providerPhoneFilter = null) {
             if (!isWithinWindow) return false;
 
             const clientEmail = (c.correo || "").toString().toLowerCase().trim();
-            if (providerPhoneFilter && managedEmails.includes(clientEmail)) return false;
+            
+            // Omit target emails if they belong to our managed accounts (direct keys)
+            if (managedEmails.includes(clientEmail)) return false;
 
-            if (providerPhoneFilter && !providerEmails.includes(clientEmail)) {
-                // Temporalmente desactivamos esta restricción para enviar todas las cuentas próximas a vencer al proveedor
-                // return false;
+            // If a specific list of provider emails is requested, restrict strictly to it
+            if (targetEmailsArray && !targetEmailsArray.includes(clientEmail)) {
+                return false;
             }
 
             return true;
@@ -962,14 +945,61 @@ async function handleSendManualPaymentMethods(message, command, client, userStat
  */
 async function notifyProviderExpiringAccounts(client) {
     try {
-        const providerNumber = "573027892574@c.us";
-        const report = await getUpcomingExpirationsReport("573027892574");
-        if (report.includes("No hay vencimientos programados") || report.includes("Error generando reporte")) return;
+        const { pool } = require('./database');
+        
+        // 1. Get all unique providers that have a phone number registered
+        const [providers] = await pool.query(
+            "SELECT DISTINCT provider_name, phone FROM provider_credentials WHERE phone IS NOT NULL AND phone != ''"
+        );
 
-        const msg = `🤖 *AVISO DE RENOVACIONES PRÓXIMAS*\n\nHola, te paso el reporte de las cuentas que vencen pronto para gestionar las renovaciones:\n\n${report}`;
+        if (!providers || providers.length === 0) {
+            console.log("[Automation] No se encontraron proveedores con número de WhatsApp registrado para notificaciones.");
+            return;
+        }
 
-        await client.sendMessage(providerNumber, msg);
-        console.log(`[Automation] Reporte de vencimientos enviado al proveedor.`);
+        // 2. Group by phone number (in case a provider has multiple platform accounts under different credentials)
+        const groupedProviders = new Map();
+        providers.forEach(p => {
+            const cleanPhone = p.phone.replace(/\D/g, '');
+            if (cleanPhone.length >= 8) {
+                const jid = `${cleanPhone.startsWith('57') ? cleanPhone : '57' + cleanPhone}@c.us`;
+                if (!groupedProviders.has(jid)) {
+                    groupedProviders.set(jid, new Set());
+                }
+                groupedProviders.get(jid).add(p.provider_name);
+            }
+        });
+
+        // 3. Process each provider phone number
+        for (const [providerJid, providerNamesSet] of groupedProviders.entries()) {
+            const providerNames = Array.from(providerNamesSet);
+            console.log(`[Automation] Generando reporte de vencimientos para proveedores: [${providerNames.join(', ')}] -> ${providerJid}`);
+
+            // Fetch all account emails assigned to these provider names
+            const [accounts] = await pool.query(
+                "SELECT account_email FROM stream_accounts WHERE provider_name IN (?)",
+                [providerNames]
+            );
+
+            if (!accounts || accounts.length === 0) {
+                console.log(`[Automation] Proveedores [${providerNames.join(', ')}] no tienen cuentas asociadas activas.`);
+                continue;
+            }
+
+            const targetEmails = accounts.map(a => a.account_email.toLowerCase().trim());
+
+            // Generate targeted report containing only this provider's emails
+            const report = await getUpcomingExpirationsReport(targetEmails);
+            if (report.includes("No hay vencimientos programados") || report.includes("Error generando reporte")) {
+                console.log(`[Automation] No hay vencimientos próximos para el proveedor ${providerJid}.`);
+                continue;
+            }
+
+            const msg = `🤖 *AVISO DE RENOVACIONES PRÓXIMAS*\n\nHola, te paso el reporte de las cuentas que vencen pronto para gestionar las renovaciones:\n\n${report}`;
+
+            await client.sendMessage(providerJid, msg);
+            console.log(`[Automation] Reporte de vencimientos enviado con éxito a ${providerJid} (${providerNames.join(', ')}).`);
+        }
     } catch (error) {
         console.error("Error en notifyProviderExpiringAccounts:", error);
     }
