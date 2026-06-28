@@ -3124,8 +3124,15 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                     } catch (selectorErr) {
                         console.log(`[RPA Runner] Selector ${step.selector} no hallado. Aplicando fallback de escaneo inteligente en pantalla...`);
                         
-                        // 2. Fallback: Scan elements on page that might contain session codes
+                        // 2. Fallback: Scan elements on page that might contain session codes or error alerts
                         extracted = await page.evaluate(() => {
+                            const bodyText = document.body ? document.body.innerText : '';
+                            
+                            // Check if the 20 minutes warning alert is present in page text
+                            if (bodyText.includes('últimos 20 min') || bodyText.toLowerCase().includes('no pediste el código')) {
+                                return '⚠️ El cliente no ha solicitado el código en su dispositivo en los últimos 20 minutos.';
+                            }
+
                             const elements = Array.from(document.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6'));
                             // Look for elements containing keywords like "Código" or "sesión" and having digit patterns
                             const matches = elements.filter(el => {
@@ -3139,7 +3146,6 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                             }
                             
                             // Last resort: scan the entire body text
-                            const bodyText = document.body ? document.body.innerText : '';
                             const bodyMatch = bodyText.match(/\b\d{6}\b/);
                             return bodyMatch ? `Código: ${bodyMatch[0]}` : null;
                         });
