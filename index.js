@@ -3830,14 +3830,49 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
             }
         }
 
-        // C. Es Netflix pero no tiene token (dar el verificador web)
+        // C. Es Disney+ y queremos usar el RPA de Spotinet (Receta ID: 4) como automatización de proveedor
+        if (streamingName.includes('DISNEY')) {
+            try {
+                // Notificar al usuario que estamos consultando el código
+                await message.reply("🤖 *Buscando tu código de acceso para Disney+...* ⏳\n\nEsto puede tardar unos 30-45 segundos. Por favor espera en línea.");
+
+                const { pool } = require('./database');
+                const [recipes] = await pool.query('SELECT * FROM rpa_recipes WHERE id = 4');
+                if (recipes && recipes.length > 0) {
+                    const recipeObj = recipes[0];
+                    const recipeJson = typeof recipeObj.recipe_json === 'string' ? JSON.parse(recipeObj.recipe_json) : recipeObj.recipe_json;
+
+                    // Inyectar variables (el correo de la cuenta del cliente en Spotinet)
+                    const rpaVariables = {
+                        CUSTOMER_EMAIL: accountEmail
+                    };
+
+                    console.log(`[RPA Disney Auto] Iniciando receta Spotinet para Disney: ${accountEmail}`);
+                    const rpaResult = await runRpaRecipe(recipeJson, rpaVariables);
+
+                    if (rpaResult && rpaResult.success && rpaResult.data && rpaResult.data.otp_code) {
+                        const code = rpaResult.data.otp_code.trim();
+                        if (code && code.length >= 4) {
+                            await message.reply(`🔐 *Tu código de acceso para Disney+:* 🚀\n\n🔢 Código: *${code}*\n\n_Úsalo pronto para iniciar sesión en tu dispositivo._`);
+                            userStates.delete(userId);
+                            return;
+                        }
+                    }
+                }
+            } catch (rpaErr) {
+                console.error("[RPA Disney Auto Error]", rpaErr.message);
+            }
+            // Si el RPA falla o no devuelve código, continúa al flujo manual abajo para no trabar al cliente
+        }
+
+        // D. Es Netflix pero no tiene token (dar el verificador web)
         if (streamingName.includes('NETFLIX')) {
             await message.reply(`🤖 ¡Hola! Para generar tu código de hogar, ingresa a este enlace:\n\n👉 https://sheerit.com.co/verificar?tel=${realPhone}`);
             userStates.delete(userId);
             return;
         }
 
-        // D. No tiene token y no es Netflix (explicar amablemente y alertar al grupo admin)
+        // E. No tiene token y no es Netflix (explicar amablemente y alertar al grupo admin)
         await message.reply(`🤖 ¡Hola! Encontré tu cuenta de *${streamingName}* (${accountEmail}), pero aún no está vinculada a nuestro sistema de códigos automáticos 2FA.\n\nHe notificado a tu asesor para que te entregue tu código manualmente en un momento. Además, vincularemos tu cuenta para que en futuras ocasiones puedas obtener tus códigos en segundos de forma automática. ¡Gracias por tu paciencia!`);
 
         // Silenciar bot para este cliente y poner en cola de espera humana
