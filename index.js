@@ -3124,7 +3124,40 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                     } catch (selectorErr) {
                         console.log(`[RPA Runner] Selector ${step.selector} no hallado. Aplicando fallback de escaneo inteligente en pantalla...`);
                         
-                        // 2. Fallback: Scan elements on page that might contain session codes or error alerts
+                        // 2. Fallback: Loop up to 6 times (12 seconds max) if page shows a loading message
+                        for (let attempt = 0; attempt < 6; attempt++) {
+                            const loadingState = await page.evaluate(() => {
+                                const bodyText = document.body ? document.body.innerText : '';
+                                return bodyText.includes('trayendo el código') || 
+                                       bodyText.includes('espera unos segundos') || 
+                                       bodyText.toLowerCase().includes('cargando');
+                            });
+
+                            if (loadingState) {
+                                console.log(`[RPA Runner] Cargando código de Spotinet... Reintento ${attempt + 1}/6`);
+                                await new Promise(r => setTimeout(r, 2000)); // Wait for Spotinet to fetch code
+                                
+                                // Take progress screenshot for user peace of mind
+                                try {
+                                    const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 40 });
+                                    const item = {
+                                        step: recipe.steps.indexOf(step) + 1,
+                                        action: 'extract_wait',
+                                        description: `Cargando código (intento ${attempt + 1})...`,
+                                        img: `data:image/jpeg;base64,${screenshotBase64}`
+                                    };
+                                    screenshots.push(item);
+                                    if (jobId) {
+                                        const job = rpaJobs.get(jobId);
+                                        if (job) job.screenshots = [...screenshots];
+                                    }
+                                } catch (e) {}
+                                continue;
+                            }
+                            break;
+                        }
+
+                        // Extract text using keywords and regex
                         extracted = await page.evaluate(() => {
                             const bodyText = document.body ? document.body.innerText : '';
                             
@@ -3141,7 +3174,6 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                             });
                             
                             if (matches.length > 0) {
-                                // Try to return the inner text of the best matching element
                                 return matches[0].innerText.trim();
                             }
                             
