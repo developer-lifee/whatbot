@@ -1817,6 +1817,35 @@ app.post('/api/admin/subscriptions/set-recipe-bulk', express.json(), async (req,
     }
 });
 
+// POST: Vincular provider_name a múltiples cuentas de streaming (en lote)
+app.post('/api/admin/subscriptions/set-provider-bulk', express.json(), async (req, res) => {
+    try {
+        const { ids, provider_name, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ success: false, error: 'Lista de IDs vacía o inválida' });
+        }
+        const { pool } = require('./database');
+        await pool.query('UPDATE stream_accounts SET provider_name = ? WHERE id IN (?)', [provider_name || null, ids]);
+        res.json({ success: true, message: `Se asignó el proveedor a ${ids.length} cuentas.` });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST: Vincular provider_name a una cuenta específica
+app.post('/api/admin/subscriptions/set-provider', express.json(), async (req, res) => {
+    try {
+        const { id, provider_name, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const { pool } = require('./database');
+        await pool.query('UPDATE stream_accounts SET provider_name = ? WHERE id = ?', [provider_name || null, id]);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // POST: Vincular rpaRecipeId a una cuenta de streaming específica
 app.post('/api/admin/subscriptions/set-recipe', express.json(), async (req, res) => {
     try {
