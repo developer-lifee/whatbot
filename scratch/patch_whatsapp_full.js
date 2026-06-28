@@ -258,7 +258,7 @@ if (fs.existsSync(channelPath)) {
     const newChannelLogic = `            if (searchOptions && searchOptions.limit > 0) {
 ${patchCode}
 
-                    if (!fromMeFilter && finite) {
+                    if (false) { // Bypassed for robustness
                         const anchorSerialized =
                             channel.lastReceivedKey?.toString();
                         if (!anchorSerialized) {
