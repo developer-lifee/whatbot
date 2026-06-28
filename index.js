@@ -1062,6 +1062,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             const phone = userId.replace('@c.us', '');
             let lastMessage = typeof state === 'object' ? (state.lastMessage || "") : "";
             let lastMessageTime = typeof state === 'object' ? (state.lastMessageTime || null) : null;
+            let lastMessageFromMe = false;
 
             // Try to fetch last message from Puppeteer, but with a very short timeout and in parallel
             try {
@@ -1077,6 +1078,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                     if (messages && messages.length > 0) {
                         lastMessage = messages[0].body || "";
                         lastMessageTime = messages[0].timestamp * 1000;
+                        lastMessageFromMe = messages[0].fromMe;
                     }
                 }
             } catch (err) {
@@ -1151,6 +1153,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                 agent: typeof state === 'object' ? state.agent : null,
                 lastMessage,
                 lastMessageTime,
+                lastMessageFromMe,
                 summary,
                 waitingHumanMode: typeof state === 'object' ? (state.waiting_human_mode || 'bot') : 'bot',
                 queuePosition,
@@ -1260,6 +1263,19 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
 
         // Resolver el ticket actual
         const stateData = userStates.get(userId) || {};
+        const agentName = stateData.agent || 'Bot / Sistema';
+        const customerName = stateData.nombre || 'Cliente WhatsApp';
+
+        // Log resolved ticket
+        try {
+            await pool.query(
+                'INSERT INTO resolved_tickets_log (phone, customerName, agent) VALUES (?, ?, ?)',
+                [cleanPhone, customerName, agentName]
+            );
+        } catch (logErr) {
+            console.error('[Resolved Log] Error logging resolved ticket:', logErr.message);
+        }
+
         userStates.set(userId, {
             ...(typeof stateData === 'object' ? stateData : { state: stateData }),
             state: 'resolved',
@@ -1283,6 +1299,16 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                         });
                         if (hasSharedEmail) {
                             const otherStateData = typeof otherState === 'object' ? otherState : { state: otherState };
+                            const otherAgentName = otherStateData.agent || 'Bot / Sistema';
+                            const otherCustomerName = otherStateData.nombre || 'Cliente WhatsApp';
+
+                            try {
+                                await pool.query(
+                                    'INSERT INTO resolved_tickets_log (phone, customerName, agent) VALUES (?, ?, ?)',
+                                    [otherPhone, otherCustomerName, otherAgentName]
+                                );
+                            } catch (logErr) {}
+
                             userStates.set(otherUserId, {
                                 ...otherStateData,
                                 state: 'resolved',
@@ -1316,6 +1342,28 @@ app.post('/api/admin/tickets/archive', async (req, res) => {
         const userId = phone.includes('@') ? phone : phone + '@c.us';
         userStates.delete(userId);
         return res.json({ success: true, message: 'Ticket archivado' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/tickets/metrics', async (req, res) => {
+    try {
+        const [summary] = await pool.query(`
+            SELECT agent, COUNT(*) as count 
+            FROM resolved_tickets_log 
+            GROUP BY agent 
+            ORDER BY count DESC
+        `);
+        
+        const [recent] = await pool.query(`
+            SELECT phone, customerName, agent, resolvedAt 
+            FROM resolved_tickets_log 
+            ORDER BY resolvedAt DESC 
+            LIMIT 100
+        `);
+
+        res.json({ success: true, summary, recent });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -2255,6 +2303,15 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 numbersStr TEXT NOT NULL,
                 createdAt TIMESTAMP NULL,
                 approvedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS resolved_tickets_log (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                phone VARCHAR(50) NOT NULL,
+                customerName VARCHAR(150) NOT NULL,
+                agent VARCHAR(100) NOT NULL,
+                resolvedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
         `);
 
         // Check and add break columns to agent_schedules if they don't exist
