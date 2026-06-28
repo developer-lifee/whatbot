@@ -3252,11 +3252,19 @@ app.post('/api/admin/rpa/run', express.json(), async (req, res) => {
         }
 
         console.log(`[RPA] Iniciando ejecución de receta: ${recipeObj.name}`);
-        const result = await runRpaRecipe(recipeJson, rpaVariables);
-
-        res.json(result);
+        try {
+            const result = await runRpaRecipe(recipeJson, rpaVariables);
+            res.json(result);
+        } catch (runErr) {
+            console.error(`[RPA Runner Error] Falla en la receta '${recipeObj.name}':`, runErr.message);
+            res.json({
+                success: false,
+                error: runErr.message,
+                screenshots: runErr.screenshots || []
+            });
+        }
     } catch (e) {
-        res.status(500).json({ success: false, error: e.message });
+        res.json({ success: false, error: e.message, screenshots: [] });
     }
 });
 
