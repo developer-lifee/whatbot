@@ -3083,17 +3083,28 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                 return defaultMs;
             };
 
+            // Update active job status with current action description
+            if (jobId) {
+                const job = rpaJobs.get(jobId);
+                if (job) {
+                    job.progress = `Paso ${recipe.steps.indexOf(step) + 1} de ${recipe.steps.length}: ${step.description || step.action}`;
+                }
+            }
+
             switch (step.action) {
                 case 'navigate':
                     await page.goto(step.url, { waitUntil: 'networkidle2', timeout: getTimeout(30000) });
+                    await new Promise(r => setTimeout(r, 2000)); // Pacing delay
                     break;
                 case 'type':
                     await page.waitForSelector(step.selector, { timeout: getTimeout(15000) });
                     await page.type(step.selector, value);
+                    await new Promise(r => setTimeout(r, 1000)); // Pacing delay
                     break;
                 case 'click':
                     await page.waitForSelector(step.selector, { timeout: getTimeout(15000) });
                     await page.click(step.selector);
+                    await new Promise(r => setTimeout(r, 2000)); // Pacing delay
                     break;
                 case 'wait_navigation':
                     await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: getTimeout(20000) });
@@ -3108,6 +3119,7 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                         return el ? el.innerText.trim() : null;
                     }, step.selector);
                     results[step.save_as || 'extracted'] = extracted;
+                    await new Promise(r => setTimeout(r, 1000)); // Pacing delay
                     break;
                 default:
                     console.warn(`[RPA Runner] Acción desconocida: ${step.action}`);
