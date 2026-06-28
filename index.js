@@ -1056,7 +1056,7 @@ app.get('/api/admin/tickets', async (req, res) => {
         const ticketsPromises = Array.from(userStates.entries()).map(async ([userId, state]) => {
             if (!state) return null;
             const stateStr = typeof state === 'object' ? state.state : state;
-            const pendingStates = ['waiting_human', 'awaiting_payment_confirmation', 'waiting_admin_confirmation'];
+            const pendingStates = ['waiting_human', 'awaiting_payment_confirmation', 'waiting_admin_confirmation', 'resolved'];
             if (!pendingStates.includes(stateStr)) return null;
 
             const phone = userId.replace('@c.us', '');
@@ -1259,7 +1259,12 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         }
 
         // Resolver el ticket actual
-        userStates.delete(userId);
+        const stateData = userStates.get(userId) || {};
+        userStates.set(userId, {
+            ...(typeof stateData === 'object' ? stateData : { state: stateData }),
+            state: 'resolved',
+            resolvedAt: Date.now()
+        });
 
         // Auto-resolver tickets de otras personas que tengan las mismas cuentas/correos
         let resolvedOthersCount = 0;
@@ -1277,7 +1282,12 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                             return email && targetEmails.includes(email);
                         });
                         if (hasSharedEmail) {
-                            userStates.delete(otherUserId);
+                            const otherStateData = typeof otherState === 'object' ? otherState : { state: otherState };
+                            userStates.set(otherUserId, {
+                                ...otherStateData,
+                                state: 'resolved',
+                                resolvedAt: Date.now()
+                            });
                             resolvedOthersCount++;
                         }
                     } catch (e) {
@@ -1293,6 +1303,19 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         }
 
         res.json({ success: true, message });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/tickets/archive', async (req, res) => {
+    try {
+        const { phone, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        userStates.delete(userId);
+        return res.json({ success: true, message: 'Ticket archivado' });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
