@@ -3437,6 +3437,28 @@ app.get('/api/admin/rpa/job-status/:jobId', async (req, res) => {
     }
 });
 
+// GET: Check if a specific email has an active RPA recipe associated with it
+app.get('/api/admin/rpa/check-recipe', async (req, res) => {
+    try {
+        const { email } = req.query;
+        if (!email) {
+            return res.status(400).json({ success: false, message: 'Falta el parámetro email' });
+        }
+        const { pool } = require('./database');
+        const [rows] = await pool.query(
+            'SELECT sa.rpa_recipe_id, r.name as recipe_name FROM stream_accounts sa JOIN rpa_recipes r ON r.id = sa.rpa_recipe_id WHERE sa.account_email = ? LIMIT 1',
+            [email]
+        );
+        if (rows && rows.length > 0) {
+            res.json({ success: true, hasRecipe: true, recipeId: rows[0].rpa_recipe_id, recipeName: rows[0].recipe_name });
+        } else {
+            res.json({ success: true, hasRecipe: false });
+        }
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // GET List Provider Credentials
 app.get('/api/admin/rpa/providers', async (req, res) => {
     try {
