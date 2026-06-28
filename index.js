@@ -1708,6 +1708,110 @@ app.get('/api/admin/rpa/recipes', async (req, res) => {
     }
 });
 
+// ==========================================
+// SUBSCRIPTIONS API (BD como fuente de verdad)
+// ==========================================
+
+// GET: Listar suscripciones con filtros opcionales
+app.get('/api/admin/subscriptions', async (req, res) => {
+    try {
+        const { pool } = require('./database');
+        const { is_provider, status, platform, search } = req.query;
+
+        let where = [];
+        let params = [];
+
+        if (is_provider !== undefined) { where.push('s.is_provider = ?'); params.push(parseInt(is_provider)); }
+        if (status) { where.push('s.status = ?'); params.push(status); }
+        if (platform) { where.push('s.streaming_platform LIKE ?'); params.push(`%${platform}%`); }
+        if (search) {
+            where.push('(s.account_email LIKE ? OR s.customer_phone LIKE ? OR c.fullname LIKE ?)');
+            params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+        }
+
+        const whereStr = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+        const [rows] = await pool.query(
+            `SELECT s.*, c.fullname, c.email as customer_email,
+                    r.name as recipe_name
+             FROM subscriptions s
+             LEFT JOIN customers c ON c.phone = s.customer_phone
+             LEFT JOIN rpa_recipes r ON r.id = s.rpa_recipe_id
+             ${whereStr}
+             ORDER BY s.expiration_date ASC`,
+            params
+        );
+        res.json({ success: true, data: rows, total: rows.length });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST: Guardar/actualizar suscripción (y su clasificación)
+app.post('/api/admin/subscriptions/save', express.json(), async (req, res) => {
+    try {
+        const { id, customer_phone, streaming_platform, account_email, account_password,
+                profile_pin, expiration_date, status, is_provider, provider_name,
+                rpa_recipe_id, notes, payment_method, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!customer_phone || !streaming_platform || !account_email) {
+            return res.status(400).json({ success: false, error: 'Faltan campos obligatorios' });
+        }
+        const { pool } = require('./database');
+        if (id) {
+            await pool.query(
+                `UPDATE subscriptions SET customer_phone=?, streaming_platform=?, account_email=?,
+                  account_password=?, profile_pin=?, expiration_date=?, status=?, is_provider=?,
+                  provider_name=?, rpa_recipe_id=?, notes=?, payment_method=? WHERE id=?`,
+                [customer_phone, streaming_platform, account_email, account_password || null,
+                 profile_pin || null, expiration_date || null, status || 'active',
+                 is_provider ? 1 : 0, provider_name || null, rpa_recipe_id || null,
+                 notes || null, payment_method || null, id]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO subscriptions (customer_phone, streaming_platform, account_email,
+                  account_password, profile_pin, expiration_date, status, is_provider,
+                  provider_name, rpa_recipe_id, notes, payment_method)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [customer_phone, streaming_platform, account_email, account_password || null,
+                 profile_pin || null, expiration_date || null, status || 'active',
+                 is_provider ? 1 : 0, provider_name || null, rpa_recipe_id || null,
+                 notes || null, payment_method || null]
+            );
+        }
+        res.json({ success: true, message: 'Suscripción guardada correctamente' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST: Marcar rpaRecipeId en una suscripción de proveedor
+app.post('/api/admin/subscriptions/set-recipe', express.json(), async (req, res) => {
+    try {
+        const { id, rpa_recipe_id, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const { pool } = require('./database');
+        await pool.query('UPDATE subscriptions SET rpa_recipe_id = ? WHERE id = ?', [rpa_recipe_id || null, id]);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST: Disparar sincronización Excel → BD desde el panel
+app.post('/api/admin/subscriptions/sync-excel', express.json(), async (req, res) => {
+    try {
+        const { password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const { syncExcelToDb } = require('./scripts/sync_excel_to_db');
+        const result = await syncExcelToDb();
+        res.json({ success: true, ...result });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+
 app.post('/api/admin/provider-emails/delete', (req, res) => {
     try {
         const { email, password } = req.body;
@@ -3842,42 +3946,40 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
             }
         }
 
-        // C. Correo externo vinculado a una receta RPA en provider_emails.json
-        const providerEmailsFile = path.join(__dirname, 'provider_emails.json');
-        if (accountEmail && fs.existsSync(providerEmailsFile)) {
+        // C. Correo externo vinculado a una receta RPA — consulta directamente la BD
+        if (accountEmail) {
             try {
-                const providerData = JSON.parse(fs.readFileSync(providerEmailsFile, 'utf8'));
-                const providerEntry = Array.isArray(providerData)
-                    ? providerData.find(p => p.email.toLowerCase().trim() === accountEmail.toLowerCase().trim())
-                    : null;
+                const { pool } = require('./database');
+                const [subRows] = await pool.query(
+                    `SELECT s.rpa_recipe_id, r.name as recipe_name, r.recipe_json
+                     FROM subscriptions s
+                     LEFT JOIN rpa_recipes r ON r.id = s.rpa_recipe_id
+                     WHERE s.account_email = ? AND s.is_provider = 1 AND s.status = 'active'
+                     LIMIT 1`,
+                    [accountEmail.toLowerCase().trim()]
+                );
 
-                if (providerEntry && providerEntry.rpaRecipeId) {
+                if (subRows.length > 0 && subRows[0].rpa_recipe_id && subRows[0].recipe_json) {
                     await message.reply(`🤖 *Buscando tu código de acceso para ${streamingName}...* ⏳\n\nEsto puede tardar unos 30-45 segundos. Por favor espera en línea.`);
 
-                    const { pool } = require('./database');
-                    const [recipes] = await pool.query('SELECT * FROM rpa_recipes WHERE id = ?', [providerEntry.rpaRecipeId]);
+                    const recipeJson = typeof subRows[0].recipe_json === 'string'
+                        ? JSON.parse(subRows[0].recipe_json)
+                        : subRows[0].recipe_json;
 
-                    if (recipes && recipes.length > 0) {
-                        const recipeObj = recipes[0];
-                        const recipeJson = typeof recipeObj.recipe_json === 'string' ? JSON.parse(recipeObj.recipe_json) : recipeObj.recipe_json;
+                    const rpaVariables = { CUSTOMER_EMAIL: accountEmail };
+                    console.log(`[RPA Auto] Ejecutando receta #${subRows[0].rpa_recipe_id} ("${subRows[0].recipe_name}") para ${accountEmail}`);
 
-                        const rpaVariables = { CUSTOMER_EMAIL: accountEmail };
-                        console.log(`[RPA Auto] Ejecutando receta #${providerEntry.rpaRecipeId} ("${recipeObj.name}") para ${accountEmail}`);
+                    const rpaResult = await runRpaRecipe(recipeJson, rpaVariables);
 
-                        const rpaResult = await runRpaRecipe(recipeJson, rpaVariables);
-
-                        if (rpaResult && rpaResult.success && rpaResult.data) {
-                            // Buscar cualquier variable extraída (otp_code u otras)
-                            const extractedCode = Object.values(rpaResult.data).find(v => v && v.toString().trim().length >= 4);
-                            if (extractedCode) {
-                                await message.reply(`🔐 *Tu código de acceso para ${streamingName}:* 🚀\n\n🔢 Código: *${extractedCode.toString().trim()}*\n\n_Úsalo pronto para iniciar sesión en tu dispositivo._`);
-                                userStates.delete(userId);
-                                return;
-                            }
+                    if (rpaResult && rpaResult.success && rpaResult.data) {
+                        const extractedCode = Object.values(rpaResult.data).find(v => v && v.toString().trim().length >= 4);
+                        if (extractedCode) {
+                            await message.reply(`🔐 *Tu código de acceso para ${streamingName}:* 🚀\n\n🔢 Código: *${extractedCode.toString().trim()}*\n\n_Úsalo pronto para iniciar sesión en tu dispositivo._`);
+                            userStates.delete(userId);
+                            return;
                         }
                     }
-                    // Si el RPA falla, cae al flujo manual abajo
-                    console.warn(`[RPA Auto] La receta #${providerEntry.rpaRecipeId} no devolvió un código válido para ${accountEmail}`);
+                    console.warn(`[RPA Auto] Receta #${subRows[0].rpa_recipe_id} no devolvió código válido para ${accountEmail}`);
                 }
             } catch (rpaErr) {
                 console.error('[RPA Auto Error]', rpaErr.message);
