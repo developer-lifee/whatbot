@@ -1712,7 +1712,7 @@ app.get('/api/admin/rpa/recipes', async (req, res) => {
 // SUBSCRIPTIONS API (BD como fuente de verdad)
 // ==========================================
 
-// GET: Listar suscripciones con filtros opcionales
+// GET: Listar cuentas de streaming con filtros opcionales (is_provider, search, etc.)
 app.get('/api/admin/subscriptions', async (req, res) => {
     try {
         const { pool } = require('./database');
@@ -1721,23 +1721,47 @@ app.get('/api/admin/subscriptions', async (req, res) => {
         let where = [];
         let params = [];
 
-        if (is_provider !== undefined) { where.push('s.is_provider = ?'); params.push(parseInt(is_provider)); }
-        if (status) { where.push('s.status = ?'); params.push(status); }
-        if (platform) { where.push('s.streaming_platform LIKE ?'); params.push(`%${platform}%`); }
+        if (is_provider !== undefined) {
+            where.push('sa.is_provider = ?');
+            params.push(parseInt(is_provider));
+        }
+        if (status) {
+            where.push('sa.status = ?');
+            params.push(status);
+        }
+        if (platform) {
+            where.push('sa.streaming_platform LIKE ?');
+            params.push(`%${platform}%`);
+        }
         if (search) {
-            where.push('(s.account_email LIKE ? OR s.customer_phone LIKE ? OR c.fullname LIKE ?)');
+            where.push('(sa.account_email LIKE ? OR aa.customer_phone LIKE ? OR c.fullname LIKE ?)');
             params.push(`%${search}%`, `%${search}%`, `%${search}%`);
         }
 
         const whereStr = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
+        
+        // Retornamos las cuentas únicas y les anexamos info del cliente principal o lista de clientes asignados
         const [rows] = await pool.query(
-            `SELECT s.*, c.fullname, c.email as customer_email,
-                    r.name as recipe_name
-             FROM subscriptions s
-             LEFT JOIN customers c ON c.phone = s.customer_phone
-             LEFT JOIN rpa_recipes r ON r.id = s.rpa_recipe_id
+            `SELECT 
+                sa.id,
+                sa.account_email,
+                sa.streaming_platform,
+                sa.is_provider,
+                sa.provider_name,
+                sa.rpa_recipe_id,
+                sa.notes,
+                r.name as recipe_name,
+                -- Agrupamos teléfonos y nombres de clientes vinculados
+                GROUP_CONCAT(aa.customer_phone SEPARATOR ', ') as customer_phone,
+                GROUP_CONCAT(c.fullname SEPARATOR ', ') as fullname,
+                MAX(aa.expiration_date) as expiration_date
+             FROM stream_accounts sa
+             LEFT JOIN account_assignments aa ON aa.account_id = sa.id
+             LEFT JOIN customers c ON c.phone = aa.customer_phone
+             LEFT JOIN rpa_recipes r ON r.id = sa.rpa_recipe_id
              ${whereStr}
-             ORDER BY s.expiration_date ASC`,
+             GROUP BY sa.id
+             ORDER BY expiration_date ASC`,
             params
         );
         res.json({ success: true, data: rows, total: rows.length });
@@ -1746,52 +1770,44 @@ app.get('/api/admin/subscriptions', async (req, res) => {
     }
 });
 
-// POST: Guardar/actualizar suscripción (y su clasificación)
+// POST: Guardar/actualizar cuenta de streaming
 app.post('/api/admin/subscriptions/save', express.json(), async (req, res) => {
     try {
-        const { id, customer_phone, streaming_platform, account_email, account_password,
-                profile_pin, expiration_date, status, is_provider, provider_name,
-                rpa_recipe_id, notes, payment_method, password } = req.body;
+        const { id, account_email, streaming_platform, is_provider, provider_name,
+                rpa_recipe_id, notes, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
-        if (!customer_phone || !streaming_platform || !account_email) {
+        if (!streaming_platform || !account_email) {
             return res.status(400).json({ success: false, error: 'Faltan campos obligatorios' });
         }
         const { pool } = require('./database');
         if (id) {
             await pool.query(
-                `UPDATE subscriptions SET customer_phone=?, streaming_platform=?, account_email=?,
-                  account_password=?, profile_pin=?, expiration_date=?, status=?, is_provider=?,
-                  provider_name=?, rpa_recipe_id=?, notes=?, payment_method=? WHERE id=?`,
-                [customer_phone, streaming_platform, account_email, account_password || null,
-                 profile_pin || null, expiration_date || null, status || 'active',
-                 is_provider ? 1 : 0, provider_name || null, rpa_recipe_id || null,
-                 notes || null, payment_method || null, id]
+                `UPDATE stream_accounts SET account_email=?, streaming_platform=?,
+                  is_provider=?, provider_name=?, rpa_recipe_id=?, notes=? WHERE id=?`,
+                [account_email, streaming_platform, is_provider ? 1 : 0, provider_name || null,
+                 rpa_recipe_id || null, notes || null, id]
             );
         } else {
             await pool.query(
-                `INSERT INTO subscriptions (customer_phone, streaming_platform, account_email,
-                  account_password, profile_pin, expiration_date, status, is_provider,
-                  provider_name, rpa_recipe_id, notes, payment_method)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [customer_phone, streaming_platform, account_email, account_password || null,
-                 profile_pin || null, expiration_date || null, status || 'active',
-                 is_provider ? 1 : 0, provider_name || null, rpa_recipe_id || null,
-                 notes || null, payment_method || null]
+                `INSERT INTO stream_accounts (account_email, streaming_platform, is_provider,
+                  provider_name, rpa_recipe_id, notes) VALUES (?, ?, ?, ?, ?, ?)`,
+                [account_email, streaming_platform, is_provider ? 1 : 0, provider_name || null,
+                 rpa_recipe_id || null, notes || null]
             );
         }
-        res.json({ success: true, message: 'Suscripción guardada correctamente' });
+        res.json({ success: true, message: 'Cuenta guardada correctamente' });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
 });
 
-// POST: Marcar rpaRecipeId en una suscripción de proveedor
+// POST: Vincular rpaRecipeId a una cuenta de streaming específica
 app.post('/api/admin/subscriptions/set-recipe', express.json(), async (req, res) => {
     try {
         const { id, rpa_recipe_id, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         const { pool } = require('./database');
-        await pool.query('UPDATE subscriptions SET rpa_recipe_id = ? WHERE id = ?', [rpa_recipe_id || null, id]);
+        await pool.query('UPDATE stream_accounts SET rpa_recipe_id = ? WHERE id = ?', [rpa_recipe_id || null, id]);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
