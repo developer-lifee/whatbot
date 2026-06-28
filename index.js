@@ -1665,7 +1665,7 @@ app.get('/api/admin/provider-emails', (req, res) => {
 
 app.post('/api/admin/provider-emails/save', (req, res) => {
     try {
-        const { email, providerNumber, notes, password } = req.body;
+        const { email, providerNumber, notes, rpaRecipeId, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!email || !providerNumber) return res.status(400).json({ error: 'Faltan campos obligatorios' });
 
@@ -1680,7 +1680,8 @@ app.post('/api/admin/provider-emails/save', (req, res) => {
         const newItem = {
             email: cleanEmail,
             providerNumber: providerNumber.trim(),
-            notes: (notes || "").trim()
+            notes: (notes || "").trim(),
+            rpaRecipeId: rpaRecipeId ? parseInt(rpaRecipeId) : null
         };
 
         if (index !== -1) {
@@ -1691,6 +1692,17 @@ app.post('/api/admin/provider-emails/save', (req, res) => {
 
         fs.writeFileSync(file, JSON.stringify(data, null, 2));
         res.json({ success: true, message: 'Correo de proveedor guardado con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET: Lista de recetas RPA disponibles para el selector de proveedor
+app.get('/api/admin/rpa/recipes', async (req, res) => {
+    try {
+        const { pool } = require('./database');
+        const [rows] = await pool.query('SELECT id, name, platform FROM rpa_recipes ORDER BY id ASC');
+        res.json(rows);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -3830,39 +3842,46 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
             }
         }
 
-        // C. Es Disney+ y queremos usar el RPA de Spotinet (Receta ID: 4) como automatización de proveedor
-        if (streamingName.includes('DISNEY')) {
+        // C. Correo externo vinculado a una receta RPA en provider_emails.json
+        const providerEmailsFile = path.join(__dirname, 'provider_emails.json');
+        if (accountEmail && fs.existsSync(providerEmailsFile)) {
             try {
-                // Notificar al usuario que estamos consultando el código
-                await message.reply("🤖 *Buscando tu código de acceso para Disney+...* ⏳\n\nEsto puede tardar unos 30-45 segundos. Por favor espera en línea.");
+                const providerData = JSON.parse(fs.readFileSync(providerEmailsFile, 'utf8'));
+                const providerEntry = Array.isArray(providerData)
+                    ? providerData.find(p => p.email.toLowerCase().trim() === accountEmail.toLowerCase().trim())
+                    : null;
 
-                const { pool } = require('./database');
-                const [recipes] = await pool.query('SELECT * FROM rpa_recipes WHERE id = 4');
-                if (recipes && recipes.length > 0) {
-                    const recipeObj = recipes[0];
-                    const recipeJson = typeof recipeObj.recipe_json === 'string' ? JSON.parse(recipeObj.recipe_json) : recipeObj.recipe_json;
+                if (providerEntry && providerEntry.rpaRecipeId) {
+                    await message.reply(`🤖 *Buscando tu código de acceso para ${streamingName}...* ⏳\n\nEsto puede tardar unos 30-45 segundos. Por favor espera en línea.`);
 
-                    // Inyectar variables (el correo de la cuenta del cliente en Spotinet)
-                    const rpaVariables = {
-                        CUSTOMER_EMAIL: accountEmail
-                    };
+                    const { pool } = require('./database');
+                    const [recipes] = await pool.query('SELECT * FROM rpa_recipes WHERE id = ?', [providerEntry.rpaRecipeId]);
 
-                    console.log(`[RPA Disney Auto] Iniciando receta Spotinet para Disney: ${accountEmail}`);
-                    const rpaResult = await runRpaRecipe(recipeJson, rpaVariables);
+                    if (recipes && recipes.length > 0) {
+                        const recipeObj = recipes[0];
+                        const recipeJson = typeof recipeObj.recipe_json === 'string' ? JSON.parse(recipeObj.recipe_json) : recipeObj.recipe_json;
 
-                    if (rpaResult && rpaResult.success && rpaResult.data && rpaResult.data.otp_code) {
-                        const code = rpaResult.data.otp_code.trim();
-                        if (code && code.length >= 4) {
-                            await message.reply(`🔐 *Tu código de acceso para Disney+:* 🚀\n\n🔢 Código: *${code}*\n\n_Úsalo pronto para iniciar sesión en tu dispositivo._`);
-                            userStates.delete(userId);
-                            return;
+                        const rpaVariables = { CUSTOMER_EMAIL: accountEmail };
+                        console.log(`[RPA Auto] Ejecutando receta #${providerEntry.rpaRecipeId} ("${recipeObj.name}") para ${accountEmail}`);
+
+                        const rpaResult = await runRpaRecipe(recipeJson, rpaVariables);
+
+                        if (rpaResult && rpaResult.success && rpaResult.data) {
+                            // Buscar cualquier variable extraída (otp_code u otras)
+                            const extractedCode = Object.values(rpaResult.data).find(v => v && v.toString().trim().length >= 4);
+                            if (extractedCode) {
+                                await message.reply(`🔐 *Tu código de acceso para ${streamingName}:* 🚀\n\n🔢 Código: *${extractedCode.toString().trim()}*\n\n_Úsalo pronto para iniciar sesión en tu dispositivo._`);
+                                userStates.delete(userId);
+                                return;
+                            }
                         }
                     }
+                    // Si el RPA falla, cae al flujo manual abajo
+                    console.warn(`[RPA Auto] La receta #${providerEntry.rpaRecipeId} no devolvió un código válido para ${accountEmail}`);
                 }
             } catch (rpaErr) {
-                console.error("[RPA Disney Auto Error]", rpaErr.message);
+                console.error('[RPA Auto Error]', rpaErr.message);
             }
-            // Si el RPA falla o no devuelve código, continúa al flujo manual abajo para no trabar al cliente
         }
 
         // D. Es Netflix pero no tiene token (dar el verificador web)
