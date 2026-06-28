@@ -3113,11 +3113,38 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                     await page.waitForSelector(step.selector, { timeout: getTimeout(60000) });
                     break;
                 case 'extract_text':
-                    await page.waitForSelector(step.selector, { timeout: getTimeout(60000) });
-                    const extracted = await page.evaluate((sel) => {
-                        const el = document.querySelector(sel);
-                        return el ? el.innerText.trim() : null;
-                    }, step.selector);
+                    let extracted = null;
+                    try {
+                        // 1. Try target selector first with a shorter, fast timeout (12s)
+                        await page.waitForSelector(step.selector, { timeout: 12000 });
+                        extracted = await page.evaluate((sel) => {
+                            const el = document.querySelector(sel);
+                            return el ? el.innerText.trim() : null;
+                        }, step.selector);
+                    } catch (selectorErr) {
+                        console.log(`[RPA Runner] Selector ${step.selector} no hallado. Aplicando fallback de escaneo inteligente en pantalla...`);
+                        
+                        // 2. Fallback: Scan elements on page that might contain session codes
+                        extracted = await page.evaluate(() => {
+                            const elements = Array.from(document.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6'));
+                            // Look for elements containing keywords like "Código" or "sesión" and having digit patterns
+                            const matches = elements.filter(el => {
+                                const text = el.innerText || '';
+                                return (text.toLowerCase().includes('código') || text.toLowerCase().includes('sesión') || text.toLowerCase().includes('codigo')) && /\b\d{6}\b/.test(text);
+                            });
+                            
+                            if (matches.length > 0) {
+                                // Try to return the inner text of the best matching element
+                                return matches[0].innerText.trim();
+                            }
+                            
+                            // Last resort: scan the entire body text
+                            const bodyText = document.body ? document.body.innerText : '';
+                            const bodyMatch = bodyText.match(/\b\d{6}\b/);
+                            return bodyMatch ? `Código: ${bodyMatch[0]}` : null;
+                        });
+                    }
+
                     results[step.save_as || 'extracted'] = extracted;
                     await new Promise(r => setTimeout(r, 1000)); // Pacing delay
                     break;
