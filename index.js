@@ -2303,6 +2303,7 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 numbersStr TEXT NOT NULL,
                 createdAt TIMESTAMP NULL,
                 approvedAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
         `);
         await pool.query(`
             CREATE TABLE IF NOT EXISTS resolved_tickets_log (
