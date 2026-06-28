@@ -41,7 +41,28 @@ async function getSystemPromptTemplate() {
   }
 }
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+// Supported API Keys array for automated rotation and failover
+const GEMINI_KEYS = [
+  process.env.GEMINI_API_KEY_182,
+  process.env.GEMINI_API_KEY_6324,
+  process.env.GEMINI_API_KEY
+].filter(Boolean);
+
+let currentKeyIndex = 0;
+
+function getActiveGeminiKey() {
+  if (GEMINI_KEYS.length === 0) return null;
+  return GEMINI_KEYS[currentKeyIndex % GEMINI_KEYS.length];
+}
+
+function rotateGeminiKey() {
+  if (GEMINI_KEYS.length > 1) {
+    currentKeyIndex = (currentKeyIndex + 1) % GEMINI_KEYS.length;
+    const activeKey = getActiveGeminiKey() || "";
+    console.log(`[Gemini Failover] Rotando clave a índice ${currentKeyIndex}. Clave activa ahora termina en: ...${activeKey.slice(-6)}`);
+  }
+}
+
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
 const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
 
@@ -280,11 +301,6 @@ function summarizeSupportKnowledge(supportData) {
  * @returns {Promise<string>}
  */
 async function callGemini(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true, mediaData = null) {
-  if (!GEMINI_API_KEY) {
-    console.error("GEMINI_API_KEY is missing in .env");
-    throw new Error("GEMINI_API_KEY not configured");
-  }
-
   const parts = [{ text: prompt }];
 
   if (mediaData) {
@@ -318,79 +334,75 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   }
 
   for (const modelName of MODELS) {
-    try {
-      // Forzamos v1beta para todos para evitar el error 400 de "Unknown name systemInstruction"
-      const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+    let attempts = 4; // Increment to 4 to allow key rotation to happen within attempts
+    let delay = 1000;
+    
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const activeKey = getActiveGeminiKey();
+      if (!activeKey) {
+        throw new Error("No hay claves de Gemini configuradas en el archivo .env");
+      }
 
-      let attempts = 3;
-      let delay = 1000;
-      let response;
+      try {
+        const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+        const response = await fetch(`${API_URL}?key=${activeKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
 
-      for (let attempt = 1; attempt <= attempts; attempt++) {
-        try {
-          response = await fetch(`${API_URL}?key=${GEMINI_API_KEY}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-
-          // Si es un error temporal, reintentamos
-          if (response.status === 429 || response.status === 503 || response.status === 502 || response.status === 504) {
-            if (attempt === attempts) {
-              console.warn(`⚠️ Gemini API temporary error ${response.status} on last attempt (${attempt}/${attempts}).`);
-              break;
-            }
-            console.warn(`⚠️ Gemini API temporary error ${response.status} on attempt ${attempt}/${attempts}. Retrying in ${delay}ms...`);
-            await new Promise(r => setTimeout(r, delay));
-            delay *= 2;
-            continue;
-          }
-          break; // éxito u otro código de error no reintentable (400, 403, 404)
-        } catch (fetchErr) {
-          if (attempt === attempts) {
-            throw fetchErr;
-          }
-          console.warn(`⚠️ Network/fetch error on attempt ${attempt}/${attempts}: ${fetchErr.message}. Retrying in ${delay}ms...`);
+        // 429 Quota or 5xx temporary errors
+        if (response.status === 429 || response.status === 503 || response.status === 502 || response.status === 504) {
+          console.warn(`⚠️ [Gemini API] Error ${response.status} en intento ${attempt}/${attempts}. Rotando API Key...`);
+          rotateGeminiKey();
           await new Promise(r => setTimeout(r, delay));
           delay *= 2;
+          continue;
         }
-      }
 
-      if (response.status === 404) {
-        console.warn(`⚠️ Model ${modelName} not found (404). Check API availability. Trying next...`);
-        continue;
-      }
+        // If the key is blocked or auth fails (400/403/401)
+        if (response.status === 400 || response.status === 403 || response.status === 401) {
+          const errText = await response.text();
+          console.warn(`⚠️ [Gemini API] Error de autenticación/clave ${response.status} en intento ${attempt}/${attempts}. Rotando API Key... Detalle: ${errText}`);
+          rotateGeminiKey();
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
 
-      if (response.status === 429) {
-        console.warn(`⚠️ Quota exceeded for ${modelName} (429). Rotating to next model...`);
-        continue;
-      }
+        if (response.status === 404) {
+          console.warn(`⚠️ Model ${modelName} not found (404). Trying next model...`);
+          break;
+        }
 
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(`Gemini API Error (${modelName}): ${response.status} ${response.statusText} - ${errText}`);
-      }
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Gemini API Error (${modelName}): ${response.status} - ${errText}`);
+        }
 
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-      if (!text) {
-        return isJson ? "{}" : "";
-      }
+        if (!text) {
+          return isJson ? "{}" : "";
+        }
 
-      return text;
+        return text;
 
-    } catch (error) {
-      console.error(`Error with ${modelName}:`, error.message);
-      // If it's the last model, we re-throw to be caught by the caller
-      if (modelName === MODELS[MODELS.length - 1]) {
-        throw error;
+      } catch (err) {
+        console.warn(`⚠️ [Gemini API] Error de red en intento ${attempt}/${attempts}: ${err.message}. Rotando clave...`);
+        rotateGeminiKey();
+        if (attempt === attempts) {
+          if (modelName === MODELS[MODELS.length - 1]) {
+            throw err;
+          }
+        }
+        await new Promise(r => setTimeout(r, delay));
+        delay *= 2;
       }
     }
   }
 
-  // If we reach here, it means all models were skipped (e.g. all 404 or 429)
-  throw new Error("All fallback models were unavailable or exceeded quota.");
+  throw new Error("No se pudo obtener respuesta de Gemini tras intentar con todos los modelos y claves disponibles.");
 }
 
 /**
