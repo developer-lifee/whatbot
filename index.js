@@ -3039,7 +3039,7 @@ app.post('/api/config/prompts/save', express.json(), async (req, res) => {
 // SAAS RPA RPA RECIPE EXECUTION & MANAGEMENT
 // ==========================================
 
-async function runRpaRecipe(recipe, variables = {}) {
+async function runRpaRecipe(recipe, variables = {}, jobId = null) {
     const puppeteer = require('puppeteer');
     const browser = await puppeteer.launch({
         headless: true,
@@ -3113,15 +3113,19 @@ async function runRpaRecipe(recipe, variables = {}) {
                     console.warn(`[RPA Runner] Acción desconocida: ${step.action}`);
             }
 
-            // Capture step screenshot
+            // Capture step screenshot in real-time
             try {
-                const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 50 });
-                screenshots.push({
-                    step: recipe.steps.indexOf(step) + 1,
-                    action: step.action,
-                    description: step.description || '',
-                    img: `data:image/jpeg;base64,${screenshotBase64}`
-                });
+                const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 40 });
+                const item = `data:image/jpeg;base64,${screenshotBase64}`;
+                screenshots.push(item);
+                
+                // Stream updates live to the job status if jobId exists
+                if (jobId) {
+                    const job = rpaJobs.get(jobId);
+                    if (job) {
+                        job.screenshots = [...screenshots];
+                    }
+                }
             } catch (screenshotErr) {
                 console.warn('[RPA Runner] Error al tomar captura de pantalla del paso:', screenshotErr.message);
             }
@@ -3135,6 +3139,14 @@ async function runRpaRecipe(recipe, variables = {}) {
         try {
             const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 60 });
             failureScreenshot = `data:image/jpeg;base64,${screenshotBase64}`;
+            screenshots.push(failureScreenshot);
+            
+            if (jobId) {
+                const job = rpaJobs.get(jobId);
+                if (job) {
+                    job.screenshots = [...screenshots];
+                }
+            }
         } catch (screenshotErr) {
             console.warn('[RPA Runner] Error al tomar captura de pantalla del fallo:', screenshotErr.message);
         }
@@ -3248,7 +3260,10 @@ app.delete('/api/admin/rpa/delete/:id', async (req, res) => {
     }
 });
 
-// POST Run RPA Recipe
+// In-memory queue for tracking asynchronous RPA executions
+const rpaJobs = new Map();
+
+// POST: Run RPA Recipe Asynchronously (non-blocking)
 app.post('/api/admin/rpa/run', express.json(), async (req, res) => {
     try {
         const { recipeId, variables, password } = req.body;
@@ -3272,28 +3287,64 @@ app.post('/api/admin/rpa/run', express.json(), async (req, res) => {
                 [recipeObj.platform]
             );
             if (providers && providers.length > 0) {
-                console.log(`[RPA] Proveedor detectado para ${recipeObj.platform}. Inyectando variables de acceso.`);
                 rpaVariables.PROVIDER_USER = providers[0].username;
                 rpaVariables.PROVIDER_PASSWORD = providers[0].password;
             }
         } catch (dbErr) {
-            console.error('[RPA] Error al consultar credenciales de proveedor para inyección:', dbErr.message);
+            console.error('[RPA] Error al consultar credenciales de proveedor:', dbErr.message);
         }
 
-        console.log(`[RPA] Iniciando ejecución de receta: ${recipeObj.name}`);
-        try {
-            const result = await runRpaRecipe(recipeJson, rpaVariables);
-            res.json(result);
-        } catch (runErr) {
-            console.error(`[RPA Runner Error] Falla en la receta '${recipeObj.name}':`, runErr.message);
-            res.json({
-                success: false,
-                error: runErr.message,
-                screenshots: runErr.screenshots || []
+        const jobId = `job_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+        
+        // Initial job state
+        rpaJobs.set(jobId, {
+            id: jobId,
+            status: 'running',
+            recipeName: recipeObj.name,
+            email: variables?.CUSTOMER_EMAIL || 'N/A',
+            screenshots: [],
+            error: null,
+            result: null,
+            startedAt: new Date()
+        });
+
+        // Trigger execution asynchronously without await
+        runRpaRecipe(recipeJson, rpaVariables, jobId)
+            .then(result => {
+                const job = rpaJobs.get(jobId);
+                if (job) {
+                    job.status = result.success ? 'success' : 'failed';
+                    job.result = result.data;
+                    job.screenshots = result.screenshots || [];
+                    job.error = result.error || null;
+                }
+            })
+            .catch(err => {
+                const job = rpaJobs.get(jobId);
+                if (job) {
+                    job.status = 'failed';
+                    job.error = err.message;
+                    job.screenshots = err.screenshots || [];
+                }
             });
-        }
+
+        res.json({ success: true, jobId });
     } catch (e) {
-        res.json({ success: false, error: e.message, screenshots: [] });
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET: Check status of an RPA execution job
+app.get('/api/admin/rpa/job-status/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const job = rpaJobs.get(jobId);
+        if (!job) {
+            return res.status(404).json({ success: false, message: 'Tarea no encontrada' });
+        }
+        res.json({ success: true, job });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
