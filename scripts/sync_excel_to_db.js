@@ -65,8 +65,8 @@ async function syncExcelToDb() {
     }
     console.log(`[Sync] Filas del Excel obtenidas: ${customers.length}`);
 
-    // 4. Insertar/actualizar en BD
-    let inserted = 0, updated = 0, skipped = 0;
+    // 4. Insertar/actualizar en BD (modelo: stream_accounts + account_assignments)
+    let insertedAccounts = 0, updatedAccounts = 0, insertedAssignments = 0, updatedAssignments = 0, skipped = 0;
 
     for (const c of customers) {
         const phone = (c.numero || c.Numero || '').toString().replace(/\D/g, '');
@@ -82,64 +82,84 @@ async function syncExcelToDb() {
 
         if (!phone || !email || !platform) { skipped++; continue; }
 
-        // Clasificar: es proveedor si el correo NO está en nuestra lista de managed
         const isProvider = managedEmails.has(email) ? 0 : 1;
         const providerInfo = providerEmailsMap.get(email);
         const rpaRecipeId = isProvider ? (providerInfo?.rpaRecipeId || null) : null;
         const providerName = isProvider ? (providerInfo?.providerName || null) : null;
+        const expirationStr = expDate ? expDate.toISOString().slice(0, 10) : null;
+        const statusVal = (expirationStr && new Date(expirationStr) < new Date()) ? 'expired' : 'active';
 
-        // Upsert customer
+        // A. Upsert customer
         await pool.query(
             `INSERT INTO customers (phone, fullname, email) VALUES (?, ?, ?)
              ON DUPLICATE KEY UPDATE fullname = VALUES(fullname), email = VALUES(email)`,
             [phone, name || 'Sin nombre', email]
         );
 
-        const expirationStr = expDate ? expDate.toISOString().slice(0, 10) : null;
-        const statusVal = (expirationStr && new Date(expirationStr) < new Date()) ? 'expired' : 'active';
-
-        // Upsert subscription por (customer_phone + streaming_platform + account_email)
-        const [existing] = await pool.query(
-            'SELECT id FROM subscriptions WHERE customer_phone = ? AND streaming_platform = ? AND account_email = ?',
-            [phone, platform, email]
+        // B. Upsert stream_account (único por email+platform)
+        const [existingAccount] = await pool.query(
+            'SELECT id FROM stream_accounts WHERE account_email = ? AND streaming_platform = ?',
+            [email, platform]
         );
 
-        if (existing.length > 0) {
+        let accountId;
+        if (existingAccount.length > 0) {
+            accountId = existingAccount[0].id;
+            // Solo actualizar password y clasificación; NO tocar rpa_recipe_id si ya fue asignado manualmente
             await pool.query(
-                `UPDATE subscriptions SET
-                    expiration_date = ?, status = ?,
-                    is_provider = ?, provider_name = ?, rpa_recipe_id = ?,
-                    account_password = ?, profile_pin = ?, payment_method = ?
+                `UPDATE stream_accounts SET
+                    account_password = ?,
+                    is_provider = ?,
+                    provider_name = COALESCE(provider_name, ?),
+                    rpa_recipe_id = COALESCE(rpa_recipe_id, ?)
                  WHERE id = ?`,
-                [expirationStr, statusVal,
-                 isProvider, providerName, rpaRecipeId,
-                 password || null, profilePin || null, payMethod || null,
-                 existing[0].id]
+                [password || null, isProvider, providerName, rpaRecipeId, accountId]
             );
-            updated++;
+            updatedAccounts++;
+        } else {
+            const [res] = await pool.query(
+                `INSERT INTO stream_accounts
+                    (account_email, streaming_platform, account_password, is_provider, provider_name, rpa_recipe_id, status)
+                 VALUES (?, ?, ?, ?, ?, ?, 'active')`,
+                [email, platform, password || null, isProvider, providerName, rpaRecipeId]
+            );
+            accountId = res.insertId;
+            insertedAccounts++;
+        }
+
+        // C. Upsert account_assignment (cliente → cuenta)
+        const [existingAssign] = await pool.query(
+            'SELECT id FROM account_assignments WHERE account_id = ? AND customer_phone = ?',
+            [accountId, phone]
+        );
+
+        if (existingAssign.length > 0) {
+            await pool.query(
+                `UPDATE account_assignments SET
+                    profile_pin = ?, expiration_date = ?, status = ?, payment_method = ?
+                 WHERE id = ?`,
+                [profilePin || null, expirationStr, statusVal, payMethod || null, existingAssign[0].id]
+            );
+            updatedAssignments++;
         } else {
             await pool.query(
-                `INSERT INTO subscriptions
-                    (customer_phone, streaming_platform, account_email, account_password,
-                     profile_pin, expiration_date, status, is_provider, provider_name,
-                     rpa_recipe_id, payment_method)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [phone, platform, email, password || null, profilePin || null,
-                 expirationStr, statusVal,
-                 isProvider, providerName, rpaRecipeId, payMethod || null]
+                `INSERT INTO account_assignments
+                    (account_id, customer_phone, profile_pin, expiration_date, status, payment_method)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [accountId, phone, profilePin || null, expirationStr, statusVal, payMethod || null]
             );
-            inserted++;
+            insertedAssignments++;
         }
     }
 
     const summary = {
-        inserted,
-        updated,
+        accounts: { inserted: insertedAccounts, updated: updatedAccounts },
+        assignments: { inserted: insertedAssignments, updated: updatedAssignments },
         skipped,
         total: customers.length,
         managed: managedEmails.size
     };
-    console.log(`[Sync] ✅ Completo: ${inserted} insertadas, ${updated} actualizadas, ${skipped} omitidas de ${customers.length} filas Excel.`);
+    console.log(`[Sync] ✅ Cuentas: ${insertedAccounts} nuevas / ${updatedAccounts} actualizadas | Asignaciones: ${insertedAssignments} nuevas / ${updatedAssignments} actualizadas | ${skipped} omitidas de ${customers.length} filas`);
     return summary;
 }
 
