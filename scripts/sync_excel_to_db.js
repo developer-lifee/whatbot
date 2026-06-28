@@ -76,8 +76,8 @@ async function syncExcelToDb() {
         const lastName = (c.Apellido || c.apellido || '').toString().trim();
         const name = [firstName, lastName].filter(Boolean).join(' ').trim();
         const expDate = getJsDateFromExcel(c.vencimiento || c.Vencimiento);
-        const payMethod = (c['metodo pago'] || c['Metodo Pago'] || c['metodopago'] || c['Método Pago'] || '').toString().trim();
-        const profilePin = (c['pin perfil'] || c['Pin Perfil'] || c.pin || '').toString().trim();
+        const payMethod = (c['metodo pago'] || c['Metodo Pago'] || c['metodopago'] || c['Método Pago'] || '').toString().trim().slice(0, 255);
+        const profilePin = (c['pin perfil'] || c['Pin Perfil'] || c.pin || '').toString().trim().slice(0, 500);
         const password = (c.contraseña || c.password || c.clave || c.Contraseña || '').toString().trim();
 
         if (!phone || !email || !platform) { skipped++; continue; }
