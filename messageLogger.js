@@ -25,7 +25,10 @@ async function saveMessage(message, botIntent = null) {
 
     if (message.hasMedia) {
         try {
-            const media = await message.downloadMedia();
+            const media = await Promise.race([
+                message.downloadMedia(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de descarga de media (15s)")), 15000))
+            ]);
             if (media && media.data && media.mimetype) {
                 mediaMime = media.mimetype.split(';')[0];
                 const buffer = Buffer.from(media.data, 'base64');

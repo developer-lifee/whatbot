@@ -2080,7 +2080,9 @@ app.get('/api/admin/chat-messages', async (req, res) => {
                 fromMe: m.direction ? (m.direction === 'outbound') : (m.is_from_me === 1 || m.isFromMe === 1),
                 timestamp: new Date(m.created_at).getTime(),
                 type: m.message_type || 'text',
-                hasMedia: !!m.media_path
+                hasMedia: !!m.media_path,
+                mediaPath: m.media_path,
+                mediaMime: m.media_mime
             }));
             // Retornar en orden cronológico (más antiguos primero)
             formatted.reverse();
@@ -2145,7 +2147,9 @@ app.post('/api/admin/chat-messages/sync', async (req, res) => {
             fromMe: m.direction ? (m.direction === 'outbound') : (m.is_from_me === 1 || m.isFromMe === 1),
             timestamp: new Date(m.created_at).getTime(),
             type: m.message_type || 'text',
-            hasMedia: !!m.media_path
+            hasMedia: !!m.media_path,
+            mediaPath: m.media_path,
+            mediaMime: m.media_mime
         }));
 
         formatted.reverse();
@@ -3359,6 +3363,7 @@ const client = new Client({
             '--disable-software-rasterizer'
         ],
         timeout: 60000, // Aumentar a 60 segundos
+        protocolTimeout: 120000, // Prevenir timeouts en descargas de multimedia
     },
     authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
     markOnlineAvailable: false,
