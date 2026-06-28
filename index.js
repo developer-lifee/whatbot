@@ -3116,7 +3116,12 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
             // Capture step screenshot in real-time
             try {
                 const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 40 });
-                const item = `data:image/jpeg;base64,${screenshotBase64}`;
+                const item = {
+                    step: recipe.steps.indexOf(step) + 1,
+                    action: step.action,
+                    description: step.description || '',
+                    img: `data:image/jpeg;base64,${screenshotBase64}`
+                };
                 screenshots.push(item);
                 
                 // Stream updates live to the job status if jobId exists
@@ -3139,7 +3144,14 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
         try {
             const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 60 });
             failureScreenshot = `data:image/jpeg;base64,${screenshotBase64}`;
-            screenshots.push(failureScreenshot);
+            
+            const item = {
+                step: recipe.steps.length + 1,
+                action: 'failure_capture',
+                description: 'Captura del momento de falla',
+                img: failureScreenshot
+            };
+            screenshots.push(item);
             
             if (jobId) {
                 const job = rpaJobs.get(jobId);
