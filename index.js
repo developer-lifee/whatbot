@@ -3124,8 +3124,8 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                     } catch (selectorErr) {
                         console.log(`[RPA Runner] Selector ${step.selector} no hallado. Aplicando fallback de escaneo inteligente en pantalla...`);
                         
-                        // 2. Fallback: Loop up to 6 times (12 seconds max) if page shows a loading message
-                        for (let attempt = 0; attempt < 6; attempt++) {
+                        // 2. Fallback: Loop up to 7 times (35 seconds max) if page shows a loading message
+                        for (let attempt = 0; attempt < 7; attempt++) {
                             const loadingState = await page.evaluate(() => {
                                 const bodyText = document.body ? document.body.innerText : '';
                                 return bodyText.includes('trayendo el código') || 
@@ -3134,8 +3134,8 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                             });
 
                             if (loadingState) {
-                                console.log(`[RPA Runner] Cargando código de Spotinet... Reintento ${attempt + 1}/6`);
-                                await new Promise(r => setTimeout(r, 2000)); // Wait for Spotinet to fetch code
+                                console.log(`[RPA Runner] Cargando código de Spotinet... Reintento ${attempt + 1}/7 (espera 5s)`);
+                                await new Promise(r => setTimeout(r, 5000)); // Wait 5s for Spotinet to fetch code
                                 
                                 // Take progress screenshot for user peace of mind
                                 try {
