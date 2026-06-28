@@ -1051,8 +1051,86 @@ app.get('/api/admin/match', async (req, res) => {
     }
 });
 
+let probablyFinishedTickets = new Set();
+let lastAiClassificationTime = 0;
+const AI_CLASSIFICATION_INTERVAL = 45 * 1000; // run classification every 45 seconds
+
+async function updateAiTicketsClassification() {
+    try {
+        const now = Date.now();
+        if (now - lastAiClassificationTime < AI_CLASSIFICATION_INTERVAL) return;
+        lastAiClassificationTime = now;
+
+        // Build list of active tickets
+        const activeTickets = [];
+        for (const [userId, state] of userStates.entries()) {
+            if (!state) continue;
+            const stateStr = typeof state === 'object' ? state.state : state;
+            const pendingStates = ['waiting_human', 'awaiting_payment_confirmation', 'waiting_admin_confirmation'];
+            if (!pendingStates.includes(stateStr)) continue;
+
+            const phone = userId.replace('@c.us', '');
+            let lastMessage = typeof state === 'object' ? (state.lastMessage || "") : "";
+            let lastMessageTime = typeof state === 'object' ? (state.lastMessageTime || null) : null;
+            let summary = "";
+            if (typeof state === 'object') {
+                if (state.state === 'awaiting_payment_confirmation') {
+                    summary = `💰 Pago Manual: ${state.bank || 'N/A'} - $${state.amount || 'N/A'}`;
+                } else if (state.advisorReason) {
+                    summary = `🚨 Motivo: "${state.advisorReason}"`;
+                } else if (state.items && state.items.length > 0) {
+                    const itemNames = state.items.map(it => it.platform?.name || it.platformName || '').filter(Boolean).join(', ');
+                    summary = `🛒 Interés: ${itemNames}`;
+                }
+            }
+
+            const timeDiff = lastMessageTime ? `${Math.round((now - lastMessageTime) / 60000)}m ago` : "unknown";
+
+            activeTickets.push({
+                phone,
+                nombre: (typeof state === 'object' ? state.nombre : 'Cliente') || 'Cliente',
+                lastMessage: lastMessage.substring(0, 100),
+                summary,
+                time: timeDiff
+            });
+        }
+
+        if (activeTickets.length === 0) {
+            probablyFinishedTickets.clear();
+            return;
+        }
+
+        // Call Gemini
+        const { callGemini } = require('./aiService');
+        const prompt = `Analiza la siguiente lista de tickets de soporte técnico y ventas en formato JSON:
+${JSON.stringify(activeTickets, null, 2)}
+
+Determina cuáles de ellos están **probablemente terminados o solucionados** y ya no requieren atención inmediata de un asesor.
+Criterios para considerar un ticket como probablemente terminado/solucionado:
+1. El último mensaje del chat ("lastMessage") indica un cierre o agradecimiento claro (ej. "gracias", "listo", "ok", "vale", "perfecto", "chao", "ya quedo", "excelente", emojis de pulgar arriba, etc.).
+2. El bot le asignó un turno o le dio una respuesta informativa y el usuario no ha respondido nada adicional por bastante tiempo (ej. "time" es más de 15 minutos).
+3. No hay ninguna duda, reclamo o solicitud pendiente de responder por parte del cliente en el último mensaje.
+
+Devuelve **únicamente** un arreglo JSON con los números de teléfono ("phone") de los tickets que consideres probablemente terminados/solucionados. No agregues texto explicativo ni nada fuera del formato JSON.
+Ejemplo de respuesta válida:
+["573166568300", "573185160611"]`;
+
+        const responseJson = await callGemini(prompt, "Eres un clasificador inteligente de estados de tickets de soporte técnico.", true);
+        const parsed = JSON.parse(responseJson);
+        if (Array.isArray(parsed)) {
+            probablyFinishedTickets = new Set(parsed.map(p => String(p)));
+            console.log(`[AI Classification] Actualizado caché de tickets probablemente terminados (${probablyFinishedTickets.size} de ${activeTickets.length})`);
+        }
+    } catch (err) {
+        console.error("[AI Classification] Error running AI batch classification:", err.message);
+    }
+}
+
 app.get('/api/admin/tickets', async (req, res) => {
     try {
+        // Run classification asynchronously in background
+        updateAiTicketsClassification().catch(err => console.error("[AI Classification Async]", err));
+
         const ticketsPromises = Array.from(userStates.entries()).map(async ([userId, state]) => {
             if (!state) return null;
             const stateStr = typeof state === 'object' ? state.state : state;
@@ -1144,6 +1222,8 @@ app.get('/api/admin/tickets', async (req, res) => {
             const { getQueuePosition } = require('./supportScheduleService');
             const queuePosition = getQueuePosition(userId, userStates);
 
+            const isProbablyFinished = probablyFinishedTickets.has(phone);
+
             return {
                 userId,
                 phone,
@@ -1154,6 +1234,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                 lastMessage,
                 lastMessageTime,
                 lastMessageFromMe,
+                isProbablyFinished,
                 summary,
                 waitingHumanMode: typeof state === 'object' ? (state.waiting_human_mode || 'bot') : 'bot',
                 queuePosition,

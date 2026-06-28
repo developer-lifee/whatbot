@@ -1566,5 +1566,6 @@ module.exports = {
   analyzeAdvisorReason,
   clearCachedSystemPrompt,
   parseScribePdfToRecipe,
-  getMaskedAccessData
+  getMaskedAccessData,
+  callGemini
 };
