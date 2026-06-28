@@ -1052,6 +1052,7 @@ app.get('/api/admin/match', async (req, res) => {
 });
 
 let probablyFinishedTickets = new Set();
+let aiTicketsSummaries = new Map();
 let lastAiClassificationTime = 0;
 const AI_CLASSIFICATION_INTERVAL = 45 * 1000; // run classification every 45 seconds
 
@@ -1089,7 +1090,7 @@ async function updateAiTicketsClassification() {
             activeTickets.push({
                 phone,
                 nombre: (typeof state === 'object' ? state.nombre : 'Cliente') || 'Cliente',
-                lastMessage: lastMessage.substring(0, 100),
+                lastMessage: lastMessage.substring(0, 200),
                 summary,
                 time: timeDiff
             });
@@ -1097,29 +1098,39 @@ async function updateAiTicketsClassification() {
 
         if (activeTickets.length === 0) {
             probablyFinishedTickets.clear();
+            aiTicketsSummaries.clear();
             return;
         }
 
-        // Call Gemini
+        // Call Gemini to get both: probably resolved tickets AND short descriptive summaries of each ticket's problem
         const { callGemini } = require('./aiService');
         const prompt = `Analiza la siguiente lista de tickets de soporte técnico y ventas en formato JSON:
 ${JSON.stringify(activeTickets, null, 2)}
 
-Determina cuáles de ellos están **probablemente terminados o solucionados** y ya no requieren atención inmediata de un asesor.
-Criterios para considerar un ticket como probablemente terminado/solucionado:
-1. El último mensaje del chat ("lastMessage") indica un cierre o agradecimiento claro (ej. "gracias", "listo", "ok", "vale", "perfecto", "chao", "ya quedo", "excelente", emojis de pulgar arriba, etc.).
-2. El bot le asignó un turno o le dio una respuesta informativa y el usuario no ha respondido nada adicional por bastante tiempo (ej. "time" es más de 15 minutos).
-3. No hay ninguna duda, reclamo o solicitud pendiente de responder por parte del cliente en el último mensaje.
+Realiza dos tareas:
+1. Determina cuáles de ellos están **probablemente terminados o solucionados** y ya no requieren atención inmediata de un asesor (ej. agradecimientos rápidos, respuestas afirmativas simples o inactividad tras resolver).
+2. Genera para **CADA ticket** un resumen descriptivo en español de 3 a 5 palabras explicando el motivo real o falla técnica reportada basándote en su "lastMessage" o "summary" (ej. "Pide código de Disney", "Netflix caída de hogar", "Problema de facturación", "Pregunta por catálogo"). Si el "summary" ya contiene un motivo manual claro (como Pago o Interés), consérvalo.
 
-Devuelve **únicamente** un arreglo JSON con los números de teléfono ("phone") de los tickets que consideres probablemente terminados/solucionados. No agregues texto explicativo ni nada fuera del formato JSON.
-Ejemplo de respuesta válida:
-["573166568300", "573185160611"]`;
+Devuelve **únicamente** un objeto JSON estructurado así (sin marcas markdown de bloque):
+{
+  "probablyFinished": ["573166568300"],
+  "summaries": {
+    "573166568300": "Falla Netflix Hogar",
+    "573185160611": "Solicita código Disney"
+  }
+}`;
 
-        const responseJson = await callGemini(prompt, "Eres un clasificador inteligente de estados de tickets de soporte técnico.", true);
+        const responseJson = await callGemini(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras.", true);
         const parsed = JSON.parse(responseJson);
-        if (Array.isArray(parsed)) {
-            probablyFinishedTickets = new Set(parsed.map(p => String(p)));
-            console.log(`[AI Classification] Actualizado caché de tickets probablemente terminados (${probablyFinishedTickets.size} de ${activeTickets.length})`);
+        
+        if (parsed) {
+            if (Array.isArray(parsed.probablyFinished)) {
+                probablyFinishedTickets = new Set(parsed.probablyFinished.map(p => String(p)));
+            }
+            if (parsed.summaries && typeof parsed.summaries === 'object') {
+                aiTicketsSummaries = new Map(Object.entries(parsed.summaries));
+            }
+            console.log(`[AI Classification] Actualizado caché de tickets en lote. Probablemente terminados: ${probablyFinishedTickets.size}. Resúmenes guardados: ${aiTicketsSummaries.size}`);
         }
     } catch (err) {
         console.error("[AI Classification] Error running AI batch classification:", err.message);
@@ -1206,7 +1217,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             let summary = "";
             if (typeof state === 'object') {
                 if (state.state === 'awaiting_payment_confirmation') {
-                    summary = `💰 Pago Manual: ${state.bank || 'N/A'} - $${state.amount || 'N/A'}`;
+                    summary = `💰 Pago: ${state.bank || 'N/A'} - $${state.amount || 'N/A'}`;
                 } else if (state.advisorReason) {
                     summary = `🚨 Motivo: "${state.advisorReason}"`;
                 } else if (state.items && state.items.length > 0) {
@@ -1217,6 +1228,11 @@ app.get('/api/admin/tickets', async (req, res) => {
                     }).filter(Boolean).join(', ');
                     summary = `🛒 Interés: ${itemNames} - Total: $${state.total || 'N/A'}`;
                 }
+            }
+
+            // Fallback: If no manual summary exists, use the dynamic AI summary generated by Gemini
+            if (!summary && aiTicketsSummaries.has(phone)) {
+                summary = `🤖 AI: ${aiTicketsSummaries.get(phone)}`;
             }
 
             const { getQueuePosition } = require('./supportScheduleService');
@@ -2577,6 +2593,18 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             )
         `);
 
+        // Check and add phone column to provider_credentials if it doesn't exist
+        try {
+            const [cols] = await pool.query("SHOW COLUMNS FROM provider_credentials");
+            const hasPhone = cols.some(c => c.Field === 'phone');
+            if (!hasPhone) {
+                console.log("[Migration] Adding phone column to provider_credentials...");
+                await pool.query("ALTER TABLE provider_credentials ADD COLUMN phone VARCHAR(50) NULL");
+            }
+        } catch (err) {
+            console.error("[Migration] Error checking/altering provider_credentials table:", err.message);
+        }
+
         // Check and add break columns to agent_schedules if they don't exist
         try {
             const [cols] = await pool.query("SHOW COLUMNS FROM agent_schedules");
@@ -3470,6 +3498,7 @@ app.get('/api/admin/rpa/providers', async (req, res) => {
             providerName: r.provider_name,
             username: r.username,
             password: r.password,
+            phone: r.phone || '',
             createdAt: r.created_at
         })));
     } catch (e) {
@@ -3480,7 +3509,7 @@ app.get('/api/admin/rpa/providers', async (req, res) => {
 // POST Save Provider Credentials
 app.post('/api/admin/rpa/providers/save', express.json(), async (req, res) => {
     try {
-        const { id, platform, providerName, username, password, adminPassword } = req.body;
+        const { id, platform, providerName, username, password, phone, adminPassword } = req.body;
         if (adminPassword !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
         if (!platform || !providerName || !username || !password) {
             return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
@@ -3489,13 +3518,13 @@ app.post('/api/admin/rpa/providers/save', express.json(), async (req, res) => {
         const { pool } = require('./database');
         if (id) {
             await pool.query(
-                'UPDATE provider_credentials SET platform = ?, provider_name = ?, username = ?, password = ? WHERE id = ?',
-                [platform, providerName, username, password, id]
+                'UPDATE provider_credentials SET platform = ?, provider_name = ?, username = ?, password = ?, phone = ? WHERE id = ?',
+                [platform, providerName, username, password, phone, id]
             );
         } else {
             await pool.query(
-                'INSERT INTO provider_credentials (platform, provider_name, username, password) VALUES (?, ?, ?, ?)',
-                [platform, providerName, username, password]
+                'INSERT INTO provider_credentials (platform, provider_name, username, password, phone) VALUES (?, ?, ?, ?, ?)',
+                [platform, providerName, username, password, phone]
             );
         }
         res.json({ success: true, message: 'Credenciales de proveedor guardadas correctamente' });
