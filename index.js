@@ -4558,6 +4558,16 @@ async function baseProcessIncomingMessage(messages) {
         const mode = (currentStateData && typeof currentStateData === 'object') ? (currentStateData.waiting_human_mode || 'bot') : 'bot';
         const cleanInput = (message.body || '').trim().toLowerCase();
 
+        // 0. FORCED SILENCE RULE: If the advisor interacted in the last 10 minutes, keep the bot strictly muted
+        const lastInteraction = (currentStateData && currentStateData.lastHumanInteraction) || 0;
+        const timeSinceLastHumanMs = Date.now() - lastInteraction;
+        const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
+
+        if (minutesSinceLastHuman < 10) {
+            console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} porque el asesor interactuó hace ${minutesSinceLastHuman.toFixed(1)} minutos (ventana de 10 min activa).`);
+            return;
+        }
+
         // 1. Evaluar de inmediato si es una intención resoluble para reactivar el bot (incluso si está en modo advisor/silenciado)
         let isSolvable = false;
         let mediaData = null;
@@ -4584,7 +4594,22 @@ async function baseProcessIncomingMessage(messages) {
                 'enviar código', 'enviar codigo', 'el código', 'el codigo',
                 'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
             ];
-            const isCodeRequest = wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) || cleanBody === '?';
+            
+            // Check if the message contains code request keywords
+            let isCodeRequest = wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) || cleanBody === '?';
+
+            // Also check if Gemini's media description detects a Netflix/Disney code or home screen
+            if (mediaData && detection) {
+                const imgDesc = (detection.explanation || "").toLowerCase();
+                const wantsImgCode = [
+                    'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor'
+                ].some(kw => imgDesc.includes(kw));
+
+                if (wantsImgCode) {
+                    isCodeRequest = true;
+                    console.log(`[BOT MEDIA OCR DETECTED] La imagen del cliente parece solicitar código de Netflix/Disney. Activando reactivación.`);
+                }
+            }
 
             if (isMenuSelection || isCodeRequest || (detection && solvableIntents.includes(detection.intent))) {
                 console.log(`[BOT MUTE REACTIVATE IMMEDIATE] Reactivando bot porque el mensaje de @${userId} es resoluble de inmediato (Menú/Código/Intención: ${detection ? detection.intent : 'desconocida'}). isCode=${isCodeRequest}`);
