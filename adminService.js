@@ -1099,5 +1099,6 @@ module.exports = {
     handleSendManualPaymentMethods,
     handleAdminForceRetrieve,
     notifyProviderExpiringAccounts,
-    getPendientesReport
+    getPendientesReport,
+    getDynamicSupportExpectationMessage
 };
