@@ -294,12 +294,19 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
  */
 async function sendBulkCharges(client, records, requesterId = null, userStates = null) {
   const file = path.join(__dirname, 'pending_charges.json');
-  
   let existing = [];
   try { existing = JSON.parse(fs.readFileSync(file, 'utf8') || '[]'); } catch (e) { }
   const entry = { requester: requesterId || 'SYSTEM_AUTO', records, timestamp: new Date().toISOString() };
   existing.push(entry);
   fs.writeFileSync(file, JSON.stringify(existing, null, 2));
+
+  // Load platform pricing definitions once to save DB/filesystem operations in the loop
+  let platforms = [];
+  try {
+    platforms = await getPlatformKnowledge();
+  } catch (err) {
+    console.error("[Billing Auto] Error loading platform pricing for billing reminders:", err.message);
+  }
 
   let exitosos = 0;
   for (const r of records) {
@@ -317,8 +324,91 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
     
     const serviceName = r.textToShow || r.services?.join(', ') || r.service || 'tus servicios';
     
+    // Dynamic total calculator for the initial reminder
+    let totalText = "";
     try {
-        await client.sendMessage(dest, `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${serviceName}\n\nEscribe *3* en este chat para conocer el valor a pagar y ver los medios de transferencia. ¡Gracias por preferirnos!`);
+      const userAccounts = await getAccountsByPhone(r.phone);
+      if (userAccounts && userAccounts.length > 0) {
+        let totalSum = 0;
+        
+        // Match only services that are expiring or expired
+        const today = getTodayInBogota();
+        const expiredOrExpiring = userAccounts.filter(acc => {
+            const vencimientoRaw = acc.deben || acc.vencimiento;
+            const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
+            if (!vencimientoDate) return false;
+            
+            const isExpired = vencimientoDate < today;
+            const diffTime = vencimientoDate.getTime() - today.getTime();
+            const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24));
+            
+            return isExpired || diffDays <= 5;
+        });
+
+        const targetAccounts = expiredOrExpiring.length > 0 ? expiredOrExpiring : userAccounts;
+
+        targetAccounts.forEach(acc => {
+          const streaming = (acc.Streaming || "").toUpperCase();
+          let price = 0;
+          let mappedStreaming = streaming.toUpperCase();
+          
+          const aliasMap = {
+              'AMAZON': 'PRIME VIDEO',
+              'PRIME': 'PRIME VIDEO',
+              'APPLE TV': 'APPLE',
+              'HBO': 'HBOMAX',
+              'MAX': 'HBOMAX',
+              'DISNEY': 'DISNEY+ PREMIUM',
+              'STAR': 'DISNEY+ PREMIUM',
+              'YOUTUBE': 'YOUTUBE PREMIUM',
+              'MICROSOFT': 'MICROSOFT 365'
+          };
+          for (const [alias, real] of Object.entries(aliasMap)) {
+              if (mappedStreaming.includes(alias)) {
+                  mappedStreaming = mappedStreaming.replace(alias, real);
+                  break;
+              }
+          }
+          const cleanExcel = mappedStreaming.replace(/[^A-Z0-9]/g, '');
+          const platInfo = platforms.find(p => {
+              const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+              return cleanExcel.includes(cleanPlat) || cleanPlat.includes(cleanExcel);
+          });
+
+          if (platInfo) {
+              price = platInfo.price || 0;
+              if (platInfo.name.toUpperCase() === 'SPOTIFY' && !cleanExcel.includes('PROPORCIONADO') && !cleanExcel.includes('OWNER')) {
+                  const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL'));
+                  if (personalPlan) price = personalPlan.price;
+              } else if (platInfo.name.toUpperCase().includes('GEMINI') && !cleanExcel.includes('COMPARTIDA')) {
+                  const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('CORREO') || p.name.toUpperCase().includes('PROPIO'));
+                  if (personalPlan) price = personalPlan.price;
+              } else if (platInfo.name.toUpperCase().includes('MICROSOFT') && !cleanExcel.includes('COMPARTIDA')) {
+                  const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL') || p.name.toUpperCase().includes('INDIVIDUAL'));
+                  if (personalPlan) price = personalPlan.price;
+              } else if (platInfo.plans && platInfo.plans.length > 0) {
+                  const specificPlan = platInfo.plans.find(plan => {
+                      const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                      return cleanPlan.includes('PERSONAL') || cleanPlan.includes('EXTRA') || cleanPlan.includes('COMPARTIDA');
+                  });
+                  if (specificPlan) price = specificPlan.price;
+              }
+          }
+          totalSum += price;
+        });
+
+        if (totalSum > 0) {
+          totalText = `\n\n*Total a transferir:* $${totalSum.toLocaleString('es-CO')} COP 💰\n*Medio de Pago:* Llave Bre-V: \`0087387259\` 🔑 (Entrega inmediata ⚡)`;
+        }
+      }
+    } catch (calcErr) {
+      console.error("[Billing Auto] Error calculating total for initial message:", calcErr.message);
+    }
+
+    try {
+        const customMessage = `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${serviceName}${totalText}\n\nEscribe *3* en este chat para conocer el desglose detallado (precios, combos y correos) o ver otros medios. ¡Gracias por preferirnos!`;
+        await client.sendMessage(dest, customMessage);
+        
         if (userStates && userStates.has(dest)) {
             const st = userStates.get(dest);
             const stateStr = (typeof st === 'object') ? st.state : st;
