@@ -659,7 +659,7 @@ app.post('/api/bold/webhook', async (req, res) => {
                     await client.sendMessage(phoneId, credentialsMsg);
 
                     if (manualItems.length > 0) {
-                        const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
+                        const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
                         if (hasAppleOne) {
                             const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
                                 `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
@@ -676,7 +676,7 @@ app.post('/api/bold/webhook', async (req, res) => {
                     }
                 } else {
                     if (manualItems.length > 0) {
-                        const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
+                        const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
                         if (hasAppleOne) {
                             const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
                                 `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
