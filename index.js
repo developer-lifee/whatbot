@@ -899,27 +899,73 @@ app.get('/api/admin/stats', async (req, res) => {
     }
 });
 
-// Endpoint to retrieve specific client history by phone number
+// Endpoint to retrieve specific client profile by phone number (including subscriptions, payments, and notes)
 app.get('/api/admin/client-history', async (req, res) => {
     try {
         const { phone } = req.query;
         if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
 
-        const { fetchHistoricoData } = require('./apiService');
-        const historico = await fetchHistoricoData();
+        const { pool } = require('./database');
         const cleanPhone = phone.toString().replace(/\D/g, '');
+        const targetTail = cleanPhone.slice(-10);
 
         if (cleanPhone.length < 7) {
-            return res.json({ nombre: "", apellido: "", historial: [] });
+            return res.json({ fullname: "", phone: cleanPhone, email: "", notes: "", subscriptions: [], purchases: [] });
         }
 
-        const targetTail = cleanPhone.slice(-10);
-        const histKey = Object.keys(historico).find(k => k.endsWith(targetTail));
-        const clientHistory = histKey ? historico[histKey] : null;
+        // 1. Get customer info & notes
+        const [custRows] = await pool.query(
+            "SELECT * FROM customers WHERE phone LIKE ? OR phone = ?",
+            [`%${targetTail}`, cleanPhone]
+        );
+        let customer = custRows[0] || { phone: cleanPhone, fullname: '', email: '', notes: '' };
 
-        res.json(clientHistory || { nombre: "", apellido: "", historial: [] });
+        // 2. Get active/expired subscriptions from subscriptions table
+        const [subRows] = await pool.query(
+            "SELECT streaming_platform, account_email, account_password, profile_pin, expiration_date, status, payment_method, notes FROM subscriptions WHERE customer_phone LIKE ? OR customer_phone = ? ORDER BY expiration_date DESC",
+            [`%${targetTail}`, cleanPhone]
+        );
+
+        // 3. Get approved purchases from web_sales_approved table
+        const [saleRows] = await pool.query(
+            "SELECT platformName, amount, createdAt, approvedAt, order_id FROM web_sales_approved WHERE whatsapp LIKE ? OR whatsapp = ? ORDER BY approvedAt DESC",
+            [`%${targetTail}`, cleanPhone]
+        );
+
+        res.json({
+            fullname: customer.fullname || '',
+            phone: customer.phone || cleanPhone,
+            email: customer.email || '',
+            notes: customer.notes || '',
+            subscriptions: subRows,
+            purchases: saleRows
+        });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// Endpoint to save/update customer notes (conocimientos)
+app.post('/api/admin/client-history/save-notes', express.json(), async (req, res) => {
+    try {
+        const { phone, notes, fullname, email } = req.body;
+        if (!phone) return res.status(400).json({ success: false, message: 'Falta el teléfono' });
+
+        const { pool } = require('./database');
+        const cleanPhone = phone.toString().replace(/\D/g, '');
+
+        await pool.query(`
+            INSERT INTO customers (phone, fullname, email, notes)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+                notes = VALUES(notes),
+                fullname = VALUES(fullname),
+                email = VALUES(email)
+        `, [cleanPhone, fullname || '', email || '', notes || '']);
+
+        res.json({ success: true, message: 'Conocimientos del cliente actualizados.' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
