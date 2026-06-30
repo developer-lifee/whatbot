@@ -276,3 +276,27 @@ El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`con
 ### 3. 🟢 Estado Dinámico del Soporte Técnico de Sheerit
 - **Detección Activa de Asesores**: El bot determina en tiempo real si el canal de soporte humano está **ONLINE** u **OFFLINE** analizando las franjas horarias y descansos de los colaboradores.
 - **Desactivación del Bot**: Si hay al menos un colaborador activo y fuera de su break, el soporte se considera online. Si todos están offline o en hora de almuerzo, el canal se marca automáticamente como cerrado y el bot responde amablemente informando los horarios.
+
+---
+
+## 🛠️ Actualizaciones Recientes (30 de Junio de 2026)
+
+### 1. 📅 Calendario de Horarios Persistente y Paginable
+- **Persistencia de Fechas**: Los horarios ahora se registran con base en fechas de calendario reales mediante la combinación de `week_start` (Lunes de la semana en curso) y `day_of_week`. Esto asegura que los datos no se sobreescriban semana a semana, habilitando el análisis histórico y cálculo de nómina.
+- **Paginador de Semanas**: Se implementó una barra de navegación que permite revisar y planificar turnos o asegurar descansos en semanas futuras. Si una semana no tiene turnos específicos, el sistema hereda automáticamente la **Plantilla Base (Default)** del colaborador.
+- **Unificación de Vistas**: Admins y asesores utilizan la misma cuadrícula de turnos de todo el equipo. Los asesores comunes solo pueden editar su propio horario, mientras que el administrador puede editar el de todos.
+
+### 2. 💸 Gestión de Nómina Mensual y Bonos (Panel de Esteban)
+- **Acceso Restringido**: Nueva pestaña **"Nómina y Pagos"** visible únicamente para el usuario `estebanavila182@outlook.com`.
+- **Cálculo Automático**: Muestra el total de horas netas acumuladas por asesor en el mes y estima el total a pagar en tiempo real.
+- **Módulo de Bonificaciones**: Permite registrar y eliminar bonos o incentivos detallados con motivo para cada colaborador.
+- **Cierre de Nómina**: Permite archivar/cerrar los registros mensuales de nómina persistiendo los totales en la tabla `monthly_payroll` para contabilidad.
+- **Valor Hora Configurable**: Ajuste del valor de la hora de soporte (por defecto `$8,333` COP) editable por el administrador.
+
+### 3. 🛡️ Control de Horas Extras, Relojito y Cuidado de Salud Mental
+- **Bloqueo de Horas Extras**: Interruptor administrativo `allow_overtime`. Si se desactiva, restringe a un máximo de 8.0 horas netas de trabajo diario por colaborador (se valida en frontend y backend).
+- **Dropdowns del Minutero Exacto**: Los selectores de hora de inicio, fin y break ahora son dropdowns en pasos de 30 minutos (ej. `09:30`), impidiendo el ingreso de minutos arbitrarios.
+- **Regla de Salud Mental (Separación de Break)**: La hora del almuerzo/break no puede ubicarse al extremo de la franja. El sistema calcula y exige una separación mínima de **1.5 horas (90 minutos)** respecto a la hora de entrada y la hora de salida de la franja.
+
+### 4. 🚨 Alerta de Huecos de Cobertura en WhatsApp
+- **Cron de Cobertura (6:00 PM)**: Un trabajo programado analiza diariamente a las 18:00 si el día de mañana tiene huecos (tiempos desatendidos dentro de la jornada de atención). Si se detectan brechas libres sin asesores asignados, envía de forma automática un mensaje detallado de alerta al grupo de WhatsApp de administración.
