@@ -2677,6 +2677,19 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             console.error("[Migration] Error creating payroll and bonuses tables:", err.message);
         }
 
+        // Check and add max_weekly_hours column to agents table if it doesn't exist
+        try {
+            const [cols] = await pool.query("SHOW COLUMNS FROM agents");
+            const hasMaxHours = cols.some(c => c.Field === 'max_weekly_hours');
+            if (!hasMaxHours) {
+                console.log("[Migration] Adding max_weekly_hours column to agents...");
+                await pool.query("ALTER TABLE agents ADD COLUMN max_weekly_hours DECIMAL(5,2) NOT NULL DEFAULT 40.00");
+                await pool.query("UPDATE agents SET max_weekly_hours = 18.00 WHERE username LIKE '%camilo%' OR email LIKE '%camilo%'");
+            }
+        } catch (err) {
+            console.error("[Migration] Error checking/altering agents table for max_weekly_hours:", err.message);
+        }
+
 
         // --- MIGRACIÓN ÚNICA DE JSON A SQL ---
         const pendingFile = path.join(__dirname, 'pending_sales.json');
