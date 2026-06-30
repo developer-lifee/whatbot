@@ -2528,7 +2528,8 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             INSERT INTO agents (username, fullname, email, role) VALUES 
             ('estebanavila182', 'Esteban', 'estebanavila182@outlook.com', 'admin'),
             ('esclepiades', 'Esclepiades', 'esclepiades@hotmail.com', 'agent'),
-            ('camilo', 'Camilo', 'camco08@hotmail.com', 'agent')
+            ('camilo', 'Camilo', 'camco08@hotmail.com', 'agent'),
+            ('carolcubillos03', 'Carol Cubillos', 'carolcubillos03@outlook.com', 'agent')
             ON DUPLICATE KEY UPDATE 
                 role = VALUES(role), 
                 fullname = VALUES(fullname),
@@ -2552,8 +2553,7 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 start_time VARCHAR(10) NOT NULL,
                 end_time VARCHAR(10) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
-                UNIQUE KEY unique_agent_day_slot (agent_id, day_of_week, start_time, end_time)
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
             )
         `);
         await pool.query(`
@@ -2615,8 +2615,31 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 await pool.query("ALTER TABLE agent_schedules ADD COLUMN break_start VARCHAR(10) NULL");
             }
         } catch (err) {
-            console.error("[Migration] Error checking/altering agent_schedules table:", err.message);
+            console.error("[Migration] Error checking/altering agent_schedules table for break columns:", err.message);
         }
+
+        // Check and add week_start column and constraints to agent_schedules if it doesn't exist
+        try {
+            const [cols] = await pool.query("SHOW COLUMNS FROM agent_schedules");
+            const hasWeekStart = cols.some(c => c.Field === 'week_start');
+            if (!hasWeekStart) {
+                console.log("[Migration] Adding week_start column to agent_schedules...");
+                await pool.query("ALTER TABLE agent_schedules ADD COLUMN week_start VARCHAR(20) NOT NULL DEFAULT 'default'");
+                
+                // Drop unique key unique_agent_day_slot if exists
+                try {
+                    await pool.query("ALTER TABLE agent_schedules DROP INDEX unique_agent_day_slot");
+                } catch (e) {
+                    console.log("[Migration] Old index unique_agent_day_slot not found or couldn't drop:", e.message);
+                }
+                
+                // Add unique key unique_agent_week_day_slot
+                await pool.query("ALTER TABLE agent_schedules ADD UNIQUE KEY unique_agent_week_day_slot (agent_id, week_start, day_of_week, start_time, end_time)");
+            }
+        } catch (err) {
+            console.error("[Migration] Error checking/altering agent_schedules table for week_start:", err.message);
+        }
+
 
         // --- MIGRACIÓN ÚNICA DE JSON A SQL ---
         const pendingFile = path.join(__dirname, 'pending_sales.json');
@@ -2719,7 +2742,8 @@ app.get('/api/admin/agents', async (req, res) => {
 // GET Agent Schedule
 app.get('/api/admin/agents/schedule', async (req, res) => {
     try {
-        const { email } = req.query;
+        const { email, week_start } = req.query;
+        const weekStartStr = week_start || 'default';
         if (!email) return res.status(400).json({ success: false, message: 'Falta el correo del asesor' });
 
         const { pool } = require('./database');
@@ -2729,12 +2753,20 @@ app.get('/api/admin/agents/schedule', async (req, res) => {
         }
 
         const agentId = agentRows[0].id;
-        const [scheduleRows] = await pool.query(
-            'SELECT id, day_of_week, start_time, end_time, break_type, break_start FROM agent_schedules WHERE agent_id = ? ORDER BY day_of_week ASC, start_time ASC',
-            [agentId]
+        let [scheduleRows] = await pool.query(
+            'SELECT id, day_of_week, start_time, end_time, break_type, break_start FROM agent_schedules WHERE agent_id = ? AND week_start = ? ORDER BY day_of_week ASC, start_time ASC',
+            [agentId, weekStartStr]
         );
+        let isTemplate = false;
+        if (scheduleRows.length === 0 && weekStartStr !== 'default') {
+            [scheduleRows] = await pool.query(
+                'SELECT id, day_of_week, start_time, end_time, break_type, break_start FROM agent_schedules WHERE agent_id = ? AND week_start = \'default\' ORDER BY day_of_week ASC, start_time ASC',
+                [agentId]
+            );
+            isTemplate = true;
+        }
 
-        res.json({ success: true, schedule: scheduleRows });
+        res.json({ success: true, schedule: scheduleRows, is_template: isTemplate });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -2743,14 +2775,38 @@ app.get('/api/admin/agents/schedule', async (req, res) => {
 // GET All Agent Schedules
 app.get('/api/admin/agents/schedules/all', async (req, res) => {
     try {
+        const week_start = req.query.week_start || 'default';
         const { pool } = require('./database');
-        const [rows] = await pool.query(`
-            SELECT s.id, s.day_of_week, s.start_time, s.end_time, s.break_type, s.break_start, a.fullname, a.email, a.role
-            FROM agent_schedules s
-            JOIN agents a ON s.agent_id = a.id
-            ORDER BY a.fullname ASC, s.day_of_week ASC, s.start_time ASC
-        `);
-        res.json({ success: true, schedules: rows });
+        
+        const [agents] = await pool.query('SELECT id, username, fullname, email, role FROM agents WHERE status = "active"');
+        const allSchedules = [];
+        
+        for (const agent of agents) {
+            let [scheduleRows] = await pool.query(
+                'SELECT id, day_of_week, start_time, end_time, break_type, break_start FROM agent_schedules WHERE agent_id = ? AND week_start = ? ORDER BY day_of_week ASC, start_time ASC',
+                [agent.id, week_start]
+            );
+            if (scheduleRows.length === 0 && week_start !== 'default') {
+                [scheduleRows] = await pool.query(
+                    'SELECT id, day_of_week, start_time, end_time, break_type, break_start FROM agent_schedules WHERE agent_id = ? AND week_start = \'default\' ORDER BY day_of_week ASC, start_time ASC',
+                    [agent.id]
+                );
+            }
+            for (const row of scheduleRows) {
+                allSchedules.push({
+                    id: row.id,
+                    day_of_week: row.day_of_week,
+                    start_time: row.start_time,
+                    end_time: row.end_time,
+                    break_type: row.break_type,
+                    break_start: row.break_start,
+                    fullname: agent.fullname,
+                    email: agent.email,
+                    role: agent.role
+                });
+            }
+        }
+        res.json({ success: true, schedules: allSchedules });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -2759,7 +2815,8 @@ app.get('/api/admin/agents/schedules/all', async (req, res) => {
 // POST Save Agent Schedule
 app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => {
     try {
-        const { email, schedule } = req.body;
+        const { email, schedule, week_start } = req.body;
+        const weekStartStr = week_start || 'default';
         if (!email) return res.status(400).json({ success: false, message: 'Falta el correo del asesor' });
         if (!Array.isArray(schedule)) return res.status(400).json({ success: false, message: 'El horario debe ser una lista de franjas' });
 
@@ -2781,7 +2838,7 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
         try {
             await connection.beginTransaction();
 
-            await connection.query('DELETE FROM agent_schedules WHERE agent_id = ?', [agentId]);
+            await connection.query('DELETE FROM agent_schedules WHERE agent_id = ? AND week_start = ?', [agentId, weekStartStr]);
 
             for (const slot of schedule) {
                 const dayOfWeek = parseInt(slot.day_of_week);
@@ -2795,8 +2852,8 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 const breakStart = slot.break_start || null;
 
                 await connection.query(
-                    'INSERT INTO agent_schedules (agent_id, day_of_week, start_time, end_time, break_type, break_start) VALUES (?, ?, ?, ?, ?, ?)',
-                    [agentId, dayOfWeek, startTime, endTime, breakType, breakStart]
+                    'INSERT INTO agent_schedules (agent_id, week_start, day_of_week, start_time, end_time, break_type, break_start) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [agentId, weekStartStr, dayOfWeek, startTime, endTime, breakType, breakStart]
                 );
             }
 

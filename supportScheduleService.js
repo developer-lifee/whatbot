@@ -78,34 +78,70 @@ async function isSupportOpen() {
   // Connected with Agent Schedules: Check if any agent is currently active and not on break
   try {
     const { pool } = require('./database');
-    const [allSchedules] = await pool.query('SELECT * FROM agent_schedules');
+    
+    // Calculate Monday of the current week (Bogota time)
+    const dayOffset = today.getDay() === 0 ? -6 : 1 - today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + dayOffset);
+    const year = monday.getFullYear();
+    const month = String(monday.getMonth() + 1).padStart(2, '0');
+    const dateVal = String(monday.getDate()).padStart(2, '0');
+    const currentWeekStart = `${year}-${month}-${dateVal}`;
+
+    const [allSchedules] = await pool.query(
+      "SELECT * FROM agent_schedules WHERE week_start = ? OR week_start = 'default'",
+      [currentWeekStart]
+    );
+
     if (allSchedules.length > 0) {
       // Find slots for today
       const todaySlots = allSchedules.filter(s => s.day_of_week === day);
       
-      const activeAgents = [];
+      // Group by agent to prefer custom slots over default
+      const customSlotsByAgent = new Map();
+      const defaultSlotsByAgent = new Map();
+      
       for (const slot of todaySlots) {
-        const [sh, sm] = slot.start_time.split(':').map(Number);
-        const [eh, em] = slot.end_time.split(':').map(Number);
-        const slotStartMin = sh * 60 + sm;
-        const slotEndMin = eh * 60 + em;
+        if (slot.week_start === currentWeekStart) {
+          if (!customSlotsByAgent.has(slot.agent_id)) customSlotsByAgent.set(slot.agent_id, []);
+          customSlotsByAgent.get(slot.agent_id).push(slot);
+        } else {
+          if (!defaultSlotsByAgent.has(slot.agent_id)) defaultSlotsByAgent.set(slot.agent_id, []);
+          defaultSlotsByAgent.get(slot.agent_id).push(slot);
+        }
+      }
+      
+      const activeAgents = [];
+      const agentsToEvaluate = new Set([...customSlotsByAgent.keys(), ...defaultSlotsByAgent.keys()]);
+      
+      for (const agentId of agentsToEvaluate) {
+        const slots = customSlotsByAgent.has(agentId) 
+          ? customSlotsByAgent.get(agentId) 
+          : defaultSlotsByAgent.get(agentId);
 
-        // Check if current time is within this slot
-        if (currentMinutes >= slotStartMin && currentMinutes <= slotEndMin) {
-          // Check if agent is on break right now
-          let onBreak = false;
-          if (slot.break_type && slot.break_type !== 'none' && slot.break_start) {
-            const [bh, bm] = slot.break_start.split(':').map(Number);
-            const breakStartMin = bh * 60 + bm;
-            const breakDuration = slot.break_type === 'break_30' ? 30 : 60;
-            const breakEndMin = breakStartMin + breakDuration;
+        for (const slot of slots) {
+          const [sh, sm] = slot.start_time.split(':').map(Number);
+          const [eh, em] = slot.end_time.split(':').map(Number);
+          const slotStartMin = sh * 60 + sm;
+          const slotEndMin = eh * 60 + em;
 
-            if (currentMinutes >= breakStartMin && currentMinutes <= breakEndMin) {
-              onBreak = true;
+          // Check if current time is within this slot
+          if (currentMinutes >= slotStartMin && currentMinutes <= slotEndMin) {
+            // Check if agent is on break right now
+            let onBreak = false;
+            if (slot.break_type && slot.break_type !== 'none' && slot.break_start) {
+              const [bh, bm] = slot.break_start.split(':').map(Number);
+              const breakStartMin = bh * 60 + bm;
+              const breakDuration = slot.break_type === 'break_30' ? 30 : 60;
+              const breakEndMin = breakStartMin + breakDuration;
+
+              if (currentMinutes >= breakStartMin && currentMinutes <= breakEndMin) {
+                onBreak = true;
+              }
             }
-          }
-          if (!onBreak) {
-            activeAgents.push(slot.agent_id);
+            if (!onBreak) {
+              activeAgents.push(slot.agent_id);
+            }
           }
         }
       }
