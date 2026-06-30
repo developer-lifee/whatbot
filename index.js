@@ -4165,17 +4165,32 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
         const hasTotpSecret = gptSecrets[accountEmail];
 
         if (hasTotpSecret) {
-            const { generateGPTCode, checkAndIncrementUsage } = require('./totpService');
-            const canRequest = checkAndIncrementUsage(realPhone, accountEmail);
-            if (!canRequest) {
-                await message.reply("🤖 Has alcanzado el límite de 3 códigos para este inicio de sesión. Por seguridad, si necesitas más ayuda, un asesor humano revisará tu caso.");
-                return;
+            let secretService = "CHATGPT";
+            if (typeof hasTotpSecret === 'object' && hasTotpSecret.service) {
+                secretService = hasTotpSecret.service.toUpperCase();
+            } else {
+                if (accountEmail.includes('amazon') || accountEmail.includes('prime')) {
+                    secretService = 'AMAZON';
+                } else if (accountEmail.includes('netflix')) {
+                    secretService = 'NETFLIX';
+                }
             }
-            const code = generateGPTCode(accountEmail);
-            if (code) {
-                await message.reply(`🔐 *Tu código de acceso (2FA) para ${streamingName}:* 🚀\n\n🔢 Código: *${code}*\n\n_Este código cambia cada 30 segundos. Úsalo pronto._`);
-                userStates.delete(userId);
-                return;
+
+            const matchesService = streamingName.includes(secretService) || secretService.includes(streamingName);
+
+            if (matchesService) {
+                const { generateGPTCode, checkAndIncrementUsage } = require('./totpService');
+                const canRequest = checkAndIncrementUsage(realPhone, accountEmail);
+                if (!canRequest) {
+                    await message.reply("🤖 Has alcanzado el límite de 3 códigos para este inicio de sesión. Por seguridad, si necesitas más ayuda, un asesor humano revisará tu caso.");
+                    return;
+                }
+                const code = generateGPTCode(accountEmail);
+                if (code) {
+                    await message.reply(`🔐 *Tu código de acceso (2FA) para ${streamingName}:* 🚀\n\n🔢 Código: *${code}*\n\n_Este código cambia cada 30 segundos. Úsalo pronto._`);
+                    userStates.delete(userId);
+                    return;
+                }
             }
         }
 
