@@ -2916,6 +2916,23 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 const breakType = slot.break_type || 'none';
                 const breakStart = slot.break_start || null;
 
+                if (breakType !== 'none' && breakStart) {
+                    const [sh, sm] = startTime.split(':').map(Number);
+                    const [eh, em] = endTime.split(':').map(Number);
+                    const [bh, bm] = breakStart.split(':').map(Number);
+                    const startMin = sh * 60 + sm;
+                    const endMin = eh * 60 + em;
+                    const breakStartMin = bh * 60 + bm;
+                    const duration = breakType === 'break_30' ? 30 : 60;
+                    const buffer = 90; // 90 mins = 1.5 hours buffer
+                    if (breakStartMin < startMin + buffer || breakStartMin > endMin - duration - buffer) {
+                        return res.status(400).json({
+                            success: false,
+                            message: `La hora de descanso no puede estar al inicio ni al final de la franja laboral.`
+                        });
+                    }
+                }
+
                 await connection.query(
                     'INSERT INTO agent_schedules (agent_id, week_start, day_of_week, start_time, end_time, break_type, break_start) VALUES (?, ?, ?, ?, ?, ?, ?)',
                     [agentId, weekStartStr, dayOfWeek, startTime, endTime, breakType, breakStart]
