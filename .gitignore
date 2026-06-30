@@ -26,4 +26,9 @@ scratch/*.exp
 *.sh
 scratch/*.sh
 
+# Logs and registration files
+logs/
+*.log
 
+# Contacts cache
+contacts_cache.json
