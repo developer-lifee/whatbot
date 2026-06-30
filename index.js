@@ -1493,11 +1493,16 @@ app.post('/api/admin/availability/save', (req, res) => {
 });
 
 // Endpoint to read human support schedule configuration
-app.get('/api/admin/support-schedule', (req, res) => {
+app.get('/api/admin/support-schedule', async (req, res) => {
     try {
-        const { getSupportScheduleConfig } = require('./supportScheduleService');
+        const { getSupportScheduleConfig, isSupportOpen } = require('./supportScheduleService');
         const config = getSupportScheduleConfig();
-        res.json(config);
+        const supportStatus = await isSupportOpen();
+        res.json({
+            ...config,
+            is_open: supportStatus.open,
+            reason: supportStatus.reason
+        });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -4424,13 +4429,9 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
         userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 
         if (!supportStatus.open) {
-            const config = getSupportScheduleConfig();
-            const queuePos = getQueuePosition(userId, userStates);
-            let offlineMsg = config.offline_message || "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos.";
-            if (queuePos) {
-                offlineMsg += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}.\n⚠️ _(Nota: Dado que estamos fuera de nuestro horario de atención, tu turno no avanzará hasta que nuestros asesores inicien labores de nuevo)._`;
-            }
-            await message.reply(offlineMsg + " 🤖");
+            const { getOfflineReplyMessage } = require('./supportScheduleService');
+            const offlineMsg = await getOfflineReplyMessage(userId, userStates);
+            await message.reply(offlineMsg);
         } else {
             let replyText = fallbackResult.replyMessage || "";
             const queuePos = getQueuePosition(userId, userStates);
@@ -6611,13 +6612,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 });
 
                 if (!supportStatus.open) {
-                    const config = getSupportScheduleConfig();
-                    const queuePos = getQueuePosition(userId, userStates);
-                    let offlineMsg = config.offline_message || "Hola, he detectado que necesitas soporte personalizado. En este momento estamos fuera de nuestro horario de atención humana y no hay asesores activos.";
-                    if (queuePos) {
-                        offlineMsg += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}.\n⚠️ _(Nota: Dado que estamos fuera de nuestro horario de atención, tu turno no avanzará hasta que nuestros asesores inicien labores de nuevo)._`;
-                    }
-                    await message.reply(offlineMsg + " 🤖");
+                    const { getOfflineReplyMessage } = require('./supportScheduleService');
+                    const offlineMsg = await getOfflineReplyMessage(userId, userStates);
+                    await message.reply(offlineMsg);
                 } else {
                     const queuePos = getQueuePosition(userId, userStates);
                     let replyText = "🤖 Hola, he detectado que necesitas soporte personalizado. Ya le dejé un recordatorio a un asesor humano para que revise tu caso personalmente. Recuerda que de forma automática puedo ayudarte a **vender cuentas, revisar tus credenciales, registrar pagos y extraer códigos de acceso (2FA/Hogar/TV de Netflix, Disney+, Max, etc. escribiendo 'código de ...')**.";
@@ -6811,13 +6808,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 
                 if (!supportStatus.open) {
-                    const config = getSupportScheduleConfig();
-                    const queuePos = getQueuePosition(userId, userStates);
-                    let offlineMsg = config.offline_message || "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos.";
-                    if (queuePos) {
-                        offlineMsg += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}.\n⚠️ _(Nota: Dado que estamos fuera de nuestro horario de atención, tu turno no avanzará hasta que nuestros asesores inicien labores de nuevo)._`;
-                    }
-                    await safeReply(message, offlineMsg + " 🤖", userId);
+                    const { getOfflineReplyMessage } = require('./supportScheduleService');
+                    const offlineMsg = await getOfflineReplyMessage(userId, userStates);
+                    await safeReply(message, offlineMsg, userId);
                 } else {
                     const queuePos = getQueuePosition(userId, userStates);
                     let replyText = "🤖 Entendido. He transferido tu caso a soporte técnico. Un asesor humano te atenderá lo antes posible.";
@@ -7317,13 +7310,9 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 
                     if (!supportStatus.open) {
-                        const config = getSupportScheduleConfig();
-                        const queuePos = getQueuePosition(userId, userStates);
-                        let offlineMsg = config.offline_message || "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos.";
-                        if (queuePos) {
-                            offlineMsg += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}.\n⚠️ _(Nota: Dado que estamos fuera de nuestro horario de atención, tu turno no avanzará hasta que nuestros asesores inicien labores de nuevo)._`;
-                        }
-                        await safeReply(message, offlineMsg + " 🤖", userId);
+                        const { getOfflineReplyMessage } = require('./supportScheduleService');
+                        const offlineMsg = await getOfflineReplyMessage(userId, userStates);
+                        await safeReply(message, offlineMsg, userId);
                     } else {
                         const queuePos = getQueuePosition(userId, userStates);
                         let replyText = "🤖 Entendido. He transferido tu caso a soporte técnico. Un asesor humano te atenderá lo antes posible.";

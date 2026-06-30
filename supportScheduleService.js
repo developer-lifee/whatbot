@@ -315,10 +315,85 @@ async function checkUpcomingDayCoverage(client, groupId) {
   }
 }
 
+async function getTodayScheduledShifts() {
+  try {
+    const { pool } = require('./database');
+    const today = getNowInBogota();
+    const day = today.getDay();
+    
+    // Calculate current week start date (Monday)
+    const dayOffset = today.getDay() === 0 ? -6 : 1 - today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + dayOffset);
+    const currentWeekStart = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+
+    const [rows] = await pool.query(
+      "SELECT s.*, a.fullname FROM agent_schedules s JOIN agents a ON s.agent_id = a.id WHERE (s.week_start = ? OR s.week_start = 'default') AND s.day_of_week = ? ORDER BY s.start_time ASC",
+      [currentWeekStart, day]
+    );
+    
+    if (rows.length === 0) return "";
+    
+    const customSlotsByAgent = new Map();
+    const defaultSlotsByAgent = new Map();
+    for (const row of rows) {
+      if (row.week_start === currentWeekStart) {
+        if (!customSlotsByAgent.has(row.agent_id)) customSlotsByAgent.set(row.agent_id, []);
+        customSlotsByAgent.get(row.agent_id).push(row);
+      } else {
+        if (!defaultSlotsByAgent.has(row.agent_id)) defaultSlotsByAgent.set(row.agent_id, []);
+        defaultSlotsByAgent.get(row.agent_id).push(row);
+      }
+    }
+    
+    const activeSlots = [];
+    const agentsToEvaluate = new Set([...customSlotsByAgent.keys(), ...defaultSlotsByAgent.keys()]);
+    for (const agentId of agentsToEvaluate) {
+      const slots = customSlotsByAgent.has(agentId) 
+        ? customSlotsByAgent.get(agentId) 
+        : defaultSlotsByAgent.get(agentId);
+      activeSlots.push(...slots);
+    }
+    
+    if (activeSlots.length === 0) return "";
+    
+    let shiftText = "\n\n📅 *Horario de atención de asesores para hoy:*";
+    for (const slot of activeSlots) {
+      shiftText += `\n- *${slot.fullname}*: de ${slot.start_time.substring(0, 5)} a ${slot.end_time.substring(0, 5)}`;
+      if (slot.break_type && slot.break_type !== 'none' && slot.break_start) {
+        const breakName = slot.break_type === 'lunch_60' ? 'Almuerzo' : 'Descanso';
+        shiftText += ` _(${breakName}: ${slot.break_start.substring(0, 5)})_`;
+      }
+    }
+    return shiftText;
+  } catch (err) {
+    console.error("Error in getTodayScheduledShifts:", err.message);
+    return "";
+  }
+}
+
+async function getOfflineReplyMessage(userId, userStates) {
+  const config = getSupportScheduleConfig();
+  const queuePos = getQueuePosition(userId, userStates);
+  let offlineMsg = config.offline_message || "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos.";
+  
+  const shiftText = await getTodayScheduledShifts();
+  if (shiftText) {
+    offlineMsg += shiftText;
+  }
+  
+  if (queuePos) {
+    offlineMsg += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}.\n⚠️ _(Nota: Dado que estamos fuera de nuestro horario de atención, tu turno no avanzará hasta que nuestros asesores inicien labores de nuevo)._`;
+  }
+  return offlineMsg + " 🤖";
+}
+
 module.exports = {
   getSupportScheduleConfig,
   saveSupportScheduleConfig,
   isSupportOpen,
   getQueuePosition,
-  checkUpcomingDayCoverage
+  checkUpcomingDayCoverage,
+  getTodayScheduledShifts,
+  getOfflineReplyMessage
 };
