@@ -2944,6 +2944,16 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 const breakType = slot.break_type || 'none';
                 const breakStart = slot.break_start || null;
 
+                const [shVal, smVal] = startTime.split(':').map(Number);
+                const [ehVal, emVal] = endTime.split(':').map(Number);
+                const durationHoursVal = (ehVal * 60 + emVal - (shVal * 60 + smVal)) / 60;
+                if (durationHoursVal >= 5 && breakType === 'none') {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Los turnos de 5 horas o más deben incluir obligatoriamente un descanso por salud mental.`
+                    });
+                }
+
                 if (breakType !== 'none' && breakStart) {
                     const [sh, sm] = startTime.split(':').map(Number);
                     const [eh, em] = endTime.split(':').map(Number);
