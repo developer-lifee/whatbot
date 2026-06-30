@@ -10,7 +10,8 @@ const DEFAULT_CONFIG = {
   weekday_end: "22:00",
   weekend_start: "16:00",
   weekend_end: "22:00",
-  offline_message: "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos. Te responderemos tan pronto regresemos."
+  offline_message: "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos. Te responderemos tan pronto regresemos.",
+  allow_overtime: true
 };
 
 function getNowInBogota() {
@@ -187,10 +188,137 @@ function getQueuePosition(userId, userStates) {
   if (index === -1) return null;
   return index + 1; // 1-based index
 }
+async function checkUpcomingDayCoverage(client, groupId) {
+  try {
+    const { pool } = require('./database');
+    const today = getNowInBogota();
+    
+    // Check for tomorrow
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+    const tomorrowDay = tomorrow.getDay();
+    
+    // Calculate week start for tomorrow (Monday of tomorrow's week)
+    const dayOffset = tomorrowDay === 0 ? -6 : 1 - tomorrowDay;
+    const monday = new Date(tomorrow);
+    monday.setDate(tomorrow.getDate() + dayOffset);
+    const currentWeekStart = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+
+    const config = getSupportScheduleConfig();
+    const isWeekend = (tomorrowDay === 0 || tomorrowDay === 6);
+    const startStr = isWeekend ? config.weekend_start : config.weekday_start;
+    const endStr = isWeekend ? config.weekend_end : config.weekday_end;
+    
+    const [startHour, startMin] = startStr.split(':').map(Number);
+    const [endHour, endMin] = endStr.split(':').map(Number);
+    const supportStartMin = startHour * 60 + startMin;
+    const supportEndMin = endHour * 60 + endMin;
+
+    // Fetch all schedules
+    const [allSchedules] = await pool.query(
+      "SELECT s.*, a.fullname FROM agent_schedules s JOIN agents a ON s.agent_id = a.id WHERE s.week_start = ? OR s.week_start = 'default'",
+      [currentWeekStart]
+    );
+
+    const todaySlots = allSchedules.filter(s => s.day_of_week === tomorrowDay);
+    const customSlotsByAgent = new Map();
+    const defaultSlotsByAgent = new Map();
+    
+    for (const slot of todaySlots) {
+      if (slot.week_start === currentWeekStart) {
+        if (!customSlotsByAgent.has(slot.agent_id)) customSlotsByAgent.set(slot.agent_id, []);
+        customSlotsByAgent.get(slot.agent_id).push(slot);
+      } else {
+        if (!defaultSlotsByAgent.has(slot.agent_id)) defaultSlotsByAgent.set(slot.agent_id, []);
+        defaultSlotsByAgent.get(slot.agent_id).push(slot);
+      }
+    }
+
+    const agentsToEvaluate = new Set([...customSlotsByAgent.keys(), ...defaultSlotsByAgent.keys()]);
+    const activeSlots = [];
+    for (const agentId of agentsToEvaluate) {
+      const slots = customSlotsByAgent.has(agentId) 
+        ? customSlotsByAgent.get(agentId) 
+        : defaultSlotsByAgent.get(agentId);
+      activeSlots.push(...slots);
+    }
+
+    // Check every 5 minutes
+    const uncoveredSegments = [];
+    let segmentStart = null;
+
+    for (let m = supportStartMin; m <= supportEndMin; m += 5) {
+      let isCovered = false;
+      for (const slot of activeSlots) {
+        const [sh, sm] = slot.start_time.split(':').map(Number);
+        const [eh, em] = slot.end_time.split(':').map(Number);
+        const slotStartMin = sh * 60 + sm;
+        const slotEndMin = eh * 60 + em;
+
+        if (m >= slotStartMin && m <= slotEndMin) {
+          // Check break
+          let onBreak = false;
+          if (slot.break_type && slot.break_type !== 'none' && slot.break_start) {
+            const [bh, bm] = slot.break_start.split(':').map(Number);
+            const breakStartMin = bh * 60 + bm;
+            const breakDuration = slot.break_type === 'break_30' ? 30 : 60;
+            const breakEndMin = breakStartMin + breakDuration;
+            if (m >= breakStartMin && m <= breakEndMin) {
+              onBreak = true;
+            }
+          }
+          if (!onBreak) {
+            isCovered = true;
+            break;
+          }
+        }
+      }
+
+      if (!isCovered) {
+        if (segmentStart === null) {
+          segmentStart = m;
+        }
+      } else {
+        if (segmentStart !== null) {
+          uncoveredSegments.push({ start: segmentStart, end: m - 5 });
+          segmentStart = null;
+        }
+      }
+    }
+    if (segmentStart !== null) {
+      uncoveredSegments.push({ start: segmentStart, end: supportEndMin });
+    }
+
+    if (uncoveredSegments.length > 0) {
+      const formatMinToTime = (min) => {
+        const h = Math.floor(min / 60);
+        const m = min % 60;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      };
+
+      const daysNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+      const tomorrowName = daysNames[tomorrowDay];
+      
+      let message = `🚨 *ALERTA DE HUECOS EN EL HORARIO* 🚨\n\nEl horario de mañana *${tomorrowName}* (${currentWeekStart}) no está cubierto por completo.\n\nFaltan asesores en las siguientes franjas:\n`;
+      for (const seg of uncoveredSegments) {
+        message += `- ⏰ *${formatMinToTime(seg.start)}* a *${formatMinToTime(seg.end)}*\n`;
+      }
+      message += `\nPor favor, algún colaborador libre hágase cargo de cubrir estas horas. ¡Gracias! 😊`;
+      
+      const chat = await client.getChatById(groupId);
+      if (chat) {
+        await chat.sendMessage(message);
+      }
+    }
+  } catch (err) {
+    console.error('Error checking upcoming day coverage:', err);
+  }
+}
 
 module.exports = {
   getSupportScheduleConfig,
   saveSupportScheduleConfig,
   isSupportOpen,
-  getQueuePosition
+  getQueuePosition,
+  checkUpcomingDayCoverage
 };

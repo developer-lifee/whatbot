@@ -88,6 +88,17 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
         }
     });
 
+    // 4. VERIFICACIÓN DE COBERTURA DE HORARIOS (6:00 PM)
+    schedule.scheduleJob('0 18 * * *', async () => {
+        console.log('🚀 [18:00 PM] Iniciando verificación de cobertura de horarios...');
+        try {
+            const { checkUpcomingDayCoverage } = require('./supportScheduleService');
+            await checkUpcomingDayCoverage(client, groupId);
+        } catch (err) {
+            console.error('❌ Error en tarea de cobertura de horarios:', err);
+        }
+    });
+
     console.log('✅ [AUTOMATION] Tareas programadas con éxito.');
 }
 

@@ -2640,6 +2640,38 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             console.error("[Migration] Error checking/altering agent_schedules table for week_start:", err.message);
         }
 
+        // Create agent_bonuses and monthly_payroll tables
+        try {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS agent_bonuses (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    agent_id INT NOT NULL,
+                    bonus_month VARCHAR(7) NOT NULL,
+                    amount DECIMAL(10,2) NOT NULL,
+                    reason VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+                )
+            `);
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS monthly_payroll (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    agent_id INT NOT NULL,
+                    payroll_month VARCHAR(7) NOT NULL,
+                    total_hours DECIMAL(10,2) NOT NULL,
+                    hourly_rate DECIMAL(10,2) NOT NULL,
+                    total_bonuses DECIMAL(10,2) NOT NULL,
+                    total_payment DECIMAL(10,2) NOT NULL,
+                    status VARCHAR(20) NOT NULL DEFAULT 'draft',
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+                    UNIQUE KEY unique_agent_month (agent_id, payroll_month)
+                )
+            `);
+        } catch (err) {
+            console.error("[Migration] Error creating payroll and bonuses tables:", err.message);
+        }
+
 
         // --- MIGRACIÓN ÚNICA DE JSON A SQL ---
         const pendingFile = path.join(__dirname, 'pending_sales.json');
@@ -2834,6 +2866,39 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             agentId = agentRows[0].id;
         }
 
+        // Overtime validation
+        const { getSupportScheduleConfig } = require('./supportScheduleService');
+        const supportConfig = getSupportScheduleConfig();
+        if (supportConfig.allow_overtime === false) {
+            const slotsByDay = new Map();
+            for (const slot of schedule) {
+                const day = parseInt(slot.day_of_week);
+                if (isNaN(day)) continue;
+                if (!slotsByDay.has(day)) slotsByDay.set(day, []);
+                slotsByDay.get(day).push(slot);
+            }
+            for (const [day, daySlots] of slotsByDay.entries()) {
+                let dailyNetMinutes = 0;
+                for (const slot of daySlots) {
+                    if (!slot.start_time || !slot.end_time) continue;
+                    const [sh, sm] = slot.start_time.split(':').map(Number);
+                    const [eh, em] = slot.end_time.split(':').map(Number);
+                    let diff = (eh * 60 + em) - (sh * 60 + sm);
+                    if (diff <= 0) continue;
+                    let breakMin = 0;
+                    if (slot.break_type === 'break_30') breakMin = 30;
+                    else if (slot.break_type === 'lunch_60') breakMin = 60;
+                    dailyNetMinutes += Math.max(0, diff - breakMin);
+                }
+                if (dailyNetMinutes > 8 * 60) {
+                    return res.status(400).json({ 
+                        success: false, 
+                        message: `No se permiten horas extras (límite de 8.0 horas netas diarias superado).` 
+                    });
+                }
+            }
+        }
+
         const connection = await pool.getConnection();
         try {
             await connection.beginTransaction();
@@ -2865,6 +2930,189 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
         } finally {
             connection.release();
         }
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET Monthly Payroll and Bonuses
+app.get('/api/admin/payroll', async (req, res) => {
+    try {
+        const { month } = req.query; // Format: "YYYY-MM"
+        if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+            return res.status(400).json({ success: false, message: 'Formato de mes inválido (debe ser YYYY-MM)' });
+        }
+
+        const { pool } = require('./database');
+        const { getSupportScheduleConfig } = require('./supportScheduleService');
+        const supportConfig = getSupportScheduleConfig();
+        const hourlyRate = parseFloat(supportConfig.hourly_rate || 8333);
+
+        const [agents] = await pool.query('SELECT id, fullname, email, role FROM agents WHERE status = "active"');
+
+        const [yr, mo] = month.split('-').map(Number);
+        const daysInMonth = new Date(yr, mo, 0).getDate();
+        const weekStarts = new Set();
+        
+        const getBogotaMondayStr = (date) => {
+            const d = new Date(date);
+            const day = d.getDay();
+            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(d.setDate(diff));
+            return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+        };
+
+        const daysMapping = [];
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateObj = new Date(yr, mo - 1, day);
+            const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const dayOfWeek = dateObj.getDay();
+            const mondayStr = getBogotaMondayStr(dateObj);
+            
+            weekStarts.add(mondayStr);
+            daysMapping.push({ dateStr, dayOfWeek, mondayStr });
+        }
+
+        const weekStartsList = Array.from(weekStarts);
+        
+        let schedules = [];
+        if (weekStartsList.length > 0) {
+            const [rows] = await pool.query(
+                'SELECT * FROM agent_schedules WHERE week_start IN (?) OR week_start = "default"',
+                [weekStartsList]
+            );
+            schedules = rows;
+        }
+
+        const [bonuses] = await pool.query('SELECT * FROM agent_bonuses WHERE bonus_month = ?', [month]);
+        const [closedRecords] = await pool.query('SELECT * FROM monthly_payroll WHERE payroll_month = ?', [month]);
+
+        const payrollData = [];
+
+        for (const agent of agents) {
+            const closed = closedRecords.find(r => r.agent_id === agent.id);
+            const agentBonuses = bonuses.filter(b => b.agent_id === agent.id);
+            const totalBonuses = agentBonuses.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+
+            let totalNetMinutes = 0;
+
+            for (const day of daysMapping) {
+                let daySlots = schedules.filter(s => s.agent_id === agent.id && s.week_start === day.mondayStr && s.day_of_week === day.dayOfWeek);
+                if (daySlots.length === 0) {
+                    daySlots = schedules.filter(s => s.agent_id === agent.id && s.week_start === 'default' && s.day_of_week === day.dayOfWeek);
+                }
+
+                for (const slot of daySlots) {
+                    if (!slot.start_time || !slot.end_time) continue;
+                    const [sh, sm] = slot.start_time.split(':').map(Number);
+                    const [eh, em] = slot.end_time.split(':').map(Number);
+                    const diff = (eh * 60 + em) - (sh * 60 + sm);
+                    if (diff <= 0) continue;
+
+                    let breakMin = 0;
+                    if (slot.break_type === 'break_30') breakMin = 30;
+                    else if (slot.break_type === 'lunch_60') breakMin = 60;
+
+                    totalNetMinutes += Math.max(0, diff - breakMin);
+                }
+            }
+
+            const totalHours = totalNetMinutes / 60;
+            const rateToUse = closed ? parseFloat(closed.hourly_rate) : hourlyRate;
+            const hoursToUse = closed ? parseFloat(closed.total_hours) : totalHours;
+            const bonusesToUse = closed ? parseFloat(closed.total_bonuses) : totalBonuses;
+            const finalPayment = closed ? parseFloat(closed.total_payment) : (hoursToUse * rateToUse + bonusesToUse);
+
+            payrollData.push({
+                agent_id: agent.id,
+                fullname: agent.fullname,
+                email: agent.email,
+                role: agent.role,
+                total_hours: hoursToUse,
+                hourly_rate: rateToUse,
+                bonuses: agentBonuses,
+                total_bonuses: bonusesToUse,
+                total_payment: finalPayment,
+                status: closed ? closed.status : 'draft'
+            });
+        }
+
+        res.json({ success: true, payroll: payrollData });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Add or Update Bonus
+app.post('/api/admin/bonuses/save', express.json(), async (req, res) => {
+    try {
+        const { email, amount, reason, bonus_month } = req.body;
+        if (!email || !amount || !reason || !bonus_month) {
+            return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
+        }
+
+        const { pool } = require('./database');
+        const [agentRows] = await pool.query('SELECT id FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
+        if (!agentRows || agentRows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Asesor no encontrado' });
+        }
+        const agentId = agentRows[0].id;
+
+        await pool.query(
+            'INSERT INTO agent_bonuses (agent_id, bonus_month, amount, reason) VALUES (?, ?, ?, ?)',
+            [agentId, bonus_month, parseFloat(amount), reason]
+        );
+
+        res.json({ success: true, message: 'Bono registrado correctamente' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Delete Bonus
+app.post('/api/admin/bonuses/delete', express.json(), async (req, res) => {
+    try {
+        const { id } = req.body;
+        if (!id) return res.status(400).json({ success: false, message: 'Falta el id del bono' });
+
+        const { pool } = require('./database');
+        await pool.query('DELETE FROM agent_bonuses WHERE id = ?', [id]);
+
+        res.json({ success: true, message: 'Bono eliminado correctamente' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Close Monthly Payroll
+app.post('/api/admin/payroll/close', express.json(), async (req, res) => {
+    try {
+        const { email, payroll_month, total_hours, hourly_rate, total_bonuses, total_payment, status } = req.body;
+        if (!email || !payroll_month) {
+            return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
+        }
+
+        const { pool } = require('./database');
+        const [agentRows] = await pool.query('SELECT id FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
+        if (!agentRows || agentRows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Asesor no encontrado' });
+        }
+        const agentId = agentRows[0].id;
+
+        const stat = status || 'paid';
+
+        await pool.query(`
+            INSERT INTO monthly_payroll (agent_id, payroll_month, total_hours, hourly_rate, total_bonuses, total_payment, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+                total_hours = VALUES(total_hours),
+                hourly_rate = VALUES(hourly_rate),
+                total_bonuses = VALUES(total_bonuses),
+                total_payment = VALUES(total_payment),
+                status = VALUES(status)
+        `, [agentId, payroll_month, parseFloat(total_hours), parseFloat(hourly_rate), parseFloat(total_bonuses), parseFloat(total_payment), stat]);
+
+        res.json({ success: true, message: 'Nómina cerrada correctamente' });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
