@@ -2852,12 +2852,22 @@ app.get('/api/admin/agents/schedules/all', async (req, res) => {
 // POST Save Agent Schedule
 app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => {
     try {
-        const { email, schedule, week_start } = req.body;
+        const { email, schedule, week_start, requester_email } = req.body;
         const weekStartStr = week_start || 'default';
         if (!email) return res.status(400).json({ success: false, message: 'Falta el correo del asesor' });
         if (!Array.isArray(schedule)) return res.status(400).json({ success: false, message: 'El horario debe ser una lista de franjas' });
 
         const { pool } = require('./database');
+        
+        // Authorization check to ensure advisors cannot edit each other
+        if (requester_email) {
+            const [reqRows] = await pool.query('SELECT role FROM agents WHERE email = ?', [requester_email.trim().toLowerCase()]);
+            const isReqAdmin = reqRows.length > 0 && reqRows[0].role === 'admin';
+            const isSelf = requester_email.trim().toLowerCase() === email.trim().toLowerCase();
+            if (!isReqAdmin && !isSelf) {
+                return res.status(403).json({ success: false, message: 'No tienes permiso para modificar el horario de otro colaborador.' });
+            }
+        }
         let [agentRows] = await pool.query('SELECT id FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
         let agentId;
         if (!agentRows || agentRows.length === 0) {
