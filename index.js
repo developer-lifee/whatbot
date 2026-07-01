@@ -4036,7 +4036,7 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
                 id: acc.id || acc._rowNumber,
                 platform: (acc.Streaming || "").toUpperCase(),
                 email: acc.correo || "",
-                password: acc.clave || "",
+                password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
                 profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
                 vencimiento: acc.vencimiento || acc.deben || ""
             };
