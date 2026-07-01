@@ -929,13 +929,30 @@ app.get('/api/admin/client-history', async (req, res) => {
             [`%${targetTail}`, cleanPhone]
         );
 
+        // Fetch matching historical records from the Excel sheet 'histórico'
+        let excelHistory = [];
+        try {
+            const { fetchHistoricoData } = require('./apiService');
+            const historicoData = await fetchHistoricoData();
+            for (const [keyPhone, obj] of Object.entries(historicoData)) {
+                const cleanKeyPhone = keyPhone.replace(/\D/g, '');
+                if (cleanKeyPhone.endsWith(targetTail) || targetTail.endsWith(cleanKeyPhone.slice(-10))) {
+                    excelHistory = obj.historial || [];
+                    break;
+                }
+            }
+        } catch (histErr) {
+            console.error("[client-history] Error fetching excel historico:", histErr.message);
+        }
+
         res.json({
             fullname: customer.fullname || '',
             phone: customer.phone || cleanPhone,
             email: customer.email || '',
             notes: customer.notes || '',
             subscriptions: subRows,
-            purchases: saleRows
+            purchases: saleRows,
+            excelHistory: excelHistory
         });
     } catch (e) {
         res.status(500).json({ error: e.message });
