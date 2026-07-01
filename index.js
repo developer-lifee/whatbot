@@ -1487,7 +1487,7 @@ app.post('/api/admin/tickets/release', async (req, res) => {
 
 app.post('/api/admin/tickets/resolve', async (req, res) => {
     try {
-        const { phone, password, resolveAll } = req.body;
+        const { phone, password, resolveAll, agentName: bodyAgentName } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const userId = phone.includes('@') ? phone : phone + '@c.us';
@@ -1503,10 +1503,30 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
             console.error('[Tickets Resolve] Error obteniendo cuentas para:', cleanPhone, e.message);
         }
 
+        // Helper para resolver el nombre real del cliente
+        const getRealCustomerName = async (tgtPhone, defaultName) => {
+            if (defaultName && defaultName !== 'Cliente WhatsApp') return defaultName;
+            try {
+                const { searchContactByPhone } = require('./googleContactsService');
+                const matchedContactName = await searchContactByPhone(tgtPhone);
+                if (matchedContactName) return matchedContactName;
+
+                const { getAccountsByPhone } = require('./apiService');
+                const userAccs = await getAccountsByPhone(tgtPhone);
+                if (userAccs.length > 0) {
+                    const rowWithName = userAccs.find(a => a.Nombre || a.nombre);
+                    if (rowWithName) return rowWithName.Nombre || rowWithName.nombre;
+                }
+            } catch (e) {
+                console.error('[Resolve Name Helper] Error:', e.message);
+            }
+            return 'Cliente WhatsApp';
+        };
+
         // Resolver el ticket actual
         const stateData = userStates.get(userId) || {};
-        const agentName = stateData.agent || 'Bot / Sistema';
-        const customerName = stateData.nombre || 'Cliente WhatsApp';
+        const agentName = bodyAgentName || stateData.agent || 'Bot / Sistema';
+        const customerName = await getRealCustomerName(cleanPhone, stateData.nombre);
 
         // Log resolved ticket
         try {
@@ -1541,8 +1561,8 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                         });
                         if (hasSharedEmail) {
                             const otherStateData = typeof otherState === 'object' ? otherState : { state: otherState };
-                            const otherAgentName = otherStateData.agent || 'Bot / Sistema';
-                            const otherCustomerName = otherStateData.nombre || 'Cliente WhatsApp';
+                            const otherAgentName = bodyAgentName || otherStateData.agent || 'Bot / Sistema';
+                            const otherCustomerName = await getRealCustomerName(otherPhone, otherStateData.nombre);
 
                             try {
                                 await pool.query(

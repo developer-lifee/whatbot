@@ -9,7 +9,37 @@ const fs = require('fs');
  */
 async function processCheckCredentials(userId, client, triggerMessage = "", history = "", userStates = null) {
     try {
-        const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, ''); 
+        const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+
+        // Validar si tiene un pago en proceso de validación humana
+        let isPendingValidation = false;
+        if (userStates) {
+            const stateData = userStates.get(userId);
+            if (stateData && (stateData.state === 'waiting_admin_confirmation' || stateData.state === 'awaiting_payment_confirmation')) {
+                isPendingValidation = true;
+            }
+        }
+
+        if (!isPendingValidation) {
+            try {
+                const { pool } = require('./database');
+                const [pendingSales] = await pool.query(
+                    "SELECT * FROM web_sales_pending WHERE whatsapp LIKE ? OR whatsapp = ?",
+                    [`%${phoneNumber}%`, phoneNumber]
+                );
+                if (pendingSales && pendingSales.length > 0) {
+                    isPendingValidation = true;
+                }
+            } catch (dbErr) {
+                console.error('[Billing Service] Error buscando ventas pendientes:', dbErr.message);
+            }
+        }
+
+        if (isPendingValidation) {
+            await client.sendMessage(userId, "🤖 Un humano aún no ha validado tu pago, estamos en proceso de validación. Para la próxima vez, te recomendamos usar la Llave de Pago para una activación inmediata sin esperar verificación humana.");
+            return;
+        }
+
         let userAccounts = await getAccountsByPhone(phoneNumber);
 
         if (userAccounts.length === 0) {
