@@ -2059,6 +2059,10 @@ app.post('/api/admin/gmail-inboxes/confirm-code', async (req, res) => {
             const safeEmail = email.toLowerCase().trim();
             const tokenPath = path.join(__dirname, 'tokens', `token_${safeEmail}.json`);
             fs.writeFileSync(tokenPath, JSON.stringify(token));
+            
+            const { clearCachedClient } = require('./googleAuthService');
+            clearCachedClient('gmail', safeEmail);
+
             res.json({ success: true, message: `Bandeja ${email} vinculada con éxito.` });
         });
     } catch (e) {
@@ -2076,6 +2080,8 @@ app.post('/api/admin/gmail-inboxes/delete', (req, res) => {
         const tokenPath = path.join(__dirname, 'tokens', `token_${safeEmail}.json`);
         if (fs.existsSync(tokenPath)) {
             fs.unlinkSync(tokenPath);
+            const { clearCachedClient } = require('./googleAuthService');
+            clearCachedClient('gmail', safeEmail);
             res.json({ success: true, message: 'Bandeja desvinculada con éxito' });
         } else {
             res.status(404).json({ success: false, message: 'Bandeja no encontrada' });
@@ -4601,23 +4607,34 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
         if (tokenExists) {
             const { findRecentCodes } = require('./gmailService');
-            const codes = await findRecentCodes(accountEmail, 10);
+            try {
+                const codes = await findRecentCodes(accountEmail, 10);
 
-            if (codes && codes.length > 0) {
-                const latest = codes[0];
-                let response = `🤖 *Código / Enlace de ${streamingName} Encontrado* 🚀\n\n`;
-                if (latest.code) {
-                    response += `🔢 Código: *${latest.code}*\n`;
+                if (codes && codes.length > 0) {
+                    const latest = codes[0];
+                    let response = `🤖 *Código / Enlace de ${streamingName} Encontrado* 🚀\n\n`;
+                    if (latest.code) {
+                        response += `🔢 Código: *${latest.code}*\n`;
+                    }
+                    if (latest.link) {
+                        response += `🔗 Enlace de inicio de sesión:\n👉 ${latest.link}\n\n`;
+                    }
+                    response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código/enlace vence pronto._`;
+                    await message.reply(response);
+                    userStates.delete(userId);
+                    return;
+                } else {
+                    await message.reply(`🤖 No encontré códigos recientes en ${accountEmail} para ${streamingName}. Por favor, asegúrate de haber seleccionado la opción de enviar el código en tu pantalla hace menos de 10 minutos y vuelve a escribir *código*.`);
+                    userStates.delete(userId);
+                    return;
                 }
-                if (latest.link) {
-                    response += `🔗 Enlace de inicio de sesión:\n👉 ${latest.link}\n\n`;
+            } catch (err) {
+                console.error(`Error al buscar códigos en Gmail para ${accountEmail}:`, err.message);
+                if (err.message.includes('invalid_grant') || err.message.includes('auth') || err.message.includes('token') || err.message.includes('credential')) {
+                    await message.reply(`⚠️ *Error de conexión con la cuenta* ⚠️\n\nEl buzón de correo de ${accountEmail} ha perdido la conexión de seguridad o requiere volver a vincularse.\n\nPor favor, contacta a soporte para que un administrador vincule la cuenta nuevamente.`);
+                } else {
+                    await message.reply(`🤖 Hubo un inconveniente temporal al consultar los códigos en ${accountEmail}. Por favor, vuelve a intentarlo en un momento.`);
                 }
-                response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código/enlace vence pronto._`;
-                await message.reply(response);
-                userStates.delete(userId);
-                return;
-            } else {
-                await message.reply(`🤖 No encontré códigos recientes en ${accountEmail} para ${streamingName}. Por favor, asegúrate de haber seleccionado la opción de enviar el código en tu pantalla hace menos de 10 minutos y vuelve a escribir *código*.`);
                 userStates.delete(userId);
                 return;
             }

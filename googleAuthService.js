@@ -114,7 +114,13 @@ async function getOAuth2Client(serviceName = 'contacts', code = null, email = nu
     }
 }
 
+function clearCachedClient(serviceName, email) {
+    const cacheKey = email ? `${serviceName}_${email.toLowerCase().trim()}` : serviceName;
+    cachedClients.delete(cacheKey);
+}
+
 module.exports = {
     getOAuth2Client,
-    setAlertCallback
+    setAlertCallback,
+    clearCachedClient
 };
