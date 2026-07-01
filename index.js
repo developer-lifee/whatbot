@@ -2600,22 +2600,55 @@ app.post('/api/admin/chat-messages/send-audio', express.json({ limit: '10mb' }),
             base64Data = audio.split('base64,')[1];
         }
 
-        const { MessageMedia } = require('whatsapp-web.js');
-        const media = new MessageMedia(mimetype, base64Data, 'voice.ogg');
-        
-        // Send audio as voice note
-        const msg = await client.sendMessage(userId, media, { sendAudioAsVoice: true });
-
-        // Save audio locally in uploads directory so the chat can play it back
         const fs = require('fs');
         const path = require('path');
-        const fileName = `${Date.now()}_voice.ogg`;
+        const { exec } = require('child_process');
         const uploadDir = path.join(__dirname, 'uploads', 'media');
         if (!fs.existsSync(uploadDir)) {
             fs.mkdirSync(uploadDir, { recursive: true });
         }
+
+        const tempId = Date.now();
+        const tempRawPath = path.join(uploadDir, `temp_raw_${tempId}`);
+        const tempOpusPath = path.join(uploadDir, `temp_opus_${tempId}.ogg`);
+
+        // Write raw WebM/audio data to temporary file
+        fs.writeFileSync(tempRawPath, Buffer.from(base64Data, 'base64'));
+
+        // Convert raw WebM to proper Ogg/Opus voice note
+        await new Promise((resolve, reject) => {
+            exec(`ffmpeg -y -i "${tempRawPath}" -c:a libopus -b:a 64k "${tempOpusPath}"`, (err, stdout, stderr) => {
+                if (err) {
+                    console.error("[send-audio] ffmpeg error:", stderr);
+                    reject(err);
+                } else {
+                    resolve();
+                }
+            });
+        });
+
+        // Read the proper Opus Ogg file
+        const opusBuffer = fs.readFileSync(tempOpusPath);
+        const base64Opus = opusBuffer.toString('base64');
+
+        // Delete temporary files
+        try {
+            if (fs.existsSync(tempRawPath)) fs.unlinkSync(tempRawPath);
+            if (fs.existsSync(tempOpusPath)) fs.unlinkSync(tempOpusPath);
+        } catch (delErr) {
+            console.error("[send-audio] Error cleaning temp files:", delErr);
+        }
+
+        const { MessageMedia } = require('whatsapp-web.js');
+        const media = new MessageMedia('audio/ogg; codecs=opus', base64Opus, 'voice.ogg');
+        
+        // Send audio as voice note
+        const msg = await client.sendMessage(userId, media, { sendAudioAsVoice: true });
+
+        // Save proper audio file in uploads directory
+        const fileName = `${Date.now()}_voice.ogg`;
         const filePath = path.join(uploadDir, fileName);
-        fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+        fs.writeFileSync(filePath, opusBuffer);
 
         // Save message to MySQL
         try {
