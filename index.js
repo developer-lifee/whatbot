@@ -2720,8 +2720,18 @@ app.post('/api/admin/chat-messages/delete', express.json(), async (req, res) => 
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!messageId) return res.status(400).json({ success: false, message: 'Falta el id del mensaje' });
 
+        // Intentar eliminar para todos (revoke) en WhatsApp Web
+        try {
+            const msg = await client.getMessageById(messageId);
+            if (msg) {
+                await msg.delete(true);
+            }
+        } catch (waErr) {
+            console.error('[Delete Message WA] No se pudo borrar el mensaje en WhatsApp:', waErr.message);
+        }
+
         await pool.query('DELETE FROM messages WHERE message_id = ?', [messageId]);
-        res.json({ success: true, message: 'Mensaje eliminado correctamente de la base de datos' });
+        res.json({ success: true, message: 'Mensaje eliminado correctamente de WhatsApp y la base de datos' });
     } catch (e) {
         console.error('[Delete Message] Error:', e.message);
         res.status(500).json({ success: false, message: e.message });
