@@ -389,9 +389,33 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
               } else if (platInfo.plans && platInfo.plans.length > 0) {
                   const specificPlan = platInfo.plans.find(plan => {
                       const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                      return cleanPlan.includes('PERSONAL') || cleanPlan.includes('EXTRA') || cleanPlan.includes('COMPARTIDA');
+                      
+                      const keywords = ['PERSONAL', 'EXTRA', 'COMPARTIDA', 'ESTANDAR', 'PLATINO', 'MENSUAL', 'ANUAL', 'PLUS', 'PRO', 'CORREOPROPIO', 'NUEVA', 'RENOVACION', 'PROPORCIONADO', 'OWNER', 'INDIVIDUAL', 'PROPIO', 'CORREO'];
+                      const synonyms = {
+                          'INDIVIDUAL': ['PERSONAL', 'CORREOPROPIO', 'PROPIO', 'CORREO'],
+                          'PERSONAL': ['INDIVIDUAL', 'CORREOPROPIO', 'PROPIO', 'CORREO'],
+                          'PROPIO': ['PERSONAL', 'INDIVIDUAL', 'CORREOPROPIO', 'CORREO'],
+                          'CORREOPROPIO': ['PERSONAL', 'INDIVIDUAL', 'PROPIO', 'CORREO'],
+                          'CORREO': ['PERSONAL', 'INDIVIDUAL', 'PROPIO', 'CORREOPROPIO']
+                      };
+
+                      for (const kw of keywords) {
+                          if (cleanExcel.includes(kw)) {
+                              if (cleanPlan.includes(kw)) return true;
+                              if (synonyms[kw] && synonyms[kw].some(syn => cleanPlan.includes(syn))) {
+                                  return true;
+                              }
+                          }
+                      }
+                      
+                      return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
                   });
-                  if (specificPlan) price = specificPlan.price;
+                  
+                  if (specificPlan) {
+                      price = specificPlan.price;
+                  } else if (price === 0) {
+                      price = platInfo.plans[0].price;
+                  }
               }
           }
           totalSum += price;
