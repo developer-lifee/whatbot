@@ -535,6 +535,18 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
           totalSum += price;
         });
 
+        // Apply combo discount in automatic charging notice
+        const imminentRenewals = targetAccounts.filter(acc => {
+            const expDate = getJsDateFromExcel(acc.deben || acc.vencimiento);
+            if (!expDate) return false;
+            const diffDays = Math.floor((expDate - today) / (1000 * 60 * 60 * 24));
+            return diffDays <= 1;
+        });
+        if (totalSum > 0 && imminentRenewals.length > 1) {
+            const discount = (imminentRenewals.length - 1) * 1000;
+            totalSum -= discount;
+        }
+
         if (totalSum > 0) {
           totalText = `\n\n*Total a transferir:* $${totalSum.toLocaleString('es-CO')} COP 💰\n*Medio de Pago:* Llave Bre-V: \`0087387259\` 🔑 (Entrega inmediata ⚡)`;
           if (billedServicesList.length > 0) {
