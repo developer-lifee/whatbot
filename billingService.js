@@ -323,6 +323,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
     }
     
     const serviceName = r.textToShow || r.services?.join(', ') || r.service || 'tus servicios';
+    let servicesToPrint = serviceName;
     
     // Dynamic total calculator for the initial reminder
     let totalText = "";
@@ -330,6 +331,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
       const userAccounts = await getAccountsByPhone(r.phone);
       if (userAccounts && userAccounts.length > 0) {
         let totalSum = 0;
+        const billedServicesList = [];
         
         // Match only services that are expiring or expired
         const today = getTodayInBogota();
@@ -349,6 +351,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
 
         targetAccounts.forEach(acc => {
           const streaming = (acc.Streaming || "").toUpperCase();
+          if (streaming) billedServicesList.push(streaming);
           let price = 0;
           let mappedStreaming = streaming.toUpperCase();
           
@@ -423,6 +426,10 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
 
         if (totalSum > 0) {
           totalText = `\n\n*Total a transferir:* $${totalSum.toLocaleString('es-CO')} COP 💰\n*Medio de Pago:* Llave Bre-V: \`0087387259\` 🔑 (Entrega inmediata ⚡)`;
+          if (billedServicesList.length > 0) {
+              const uniqueBilled = Array.from(new Set(billedServicesList));
+              servicesToPrint = uniqueBilled.join(', ');
+          }
         }
       }
     } catch (calcErr) {
@@ -430,7 +437,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
     }
 
     try {
-        const customMessage = `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${serviceName}${totalText}\n\nEscribe *3* en este chat para conocer el desglose detallado (precios, combos y correos) o ver otros medios. ¡Gracias por preferirnos!`;
+        const customMessage = `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${servicesToPrint}${totalText}\n\nEscribe *3* en este chat para conocer el desglose detallado (precios, combos y correos) o ver otros medios. ¡Gracias por preferirnos!`;
         await client.sendMessage(dest, customMessage);
         
         if (userStates && userStates.has(dest)) {

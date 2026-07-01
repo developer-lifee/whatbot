@@ -929,76 +929,86 @@ app.get('/api/admin/client-history', async (req, res) => {
             [`%${targetTail}`, cleanPhone]
         );
 
-        // Fetch and sync matching historical records from the Excel sheet 'histórico' to DB
-        try {
-            const { fetchHistoricoData } = require('./apiService');
-            const historicoData = await fetchHistoricoData();
-            
-            let matchedPhoneInExcel = null;
-            let excelRowsToSync = [];
-            let excelProfileName = "";
+        const forceSync = req.query.force === 'true';
 
-            for (const [keyPhone, obj] of Object.entries(historicoData)) {
-                const cleanKeyPhone = keyPhone.replace(/\D/g, '');
-                if (cleanKeyPhone.endsWith(targetTail) || targetTail.endsWith(cleanKeyPhone.slice(-10))) {
-                    matchedPhoneInExcel = cleanKeyPhone;
-                    excelRowsToSync = obj.historial || [];
-                    excelProfileName = `${obj.nombre || ''} ${obj.apellido || ''}`.trim();
-                    break;
-                }
-            }
+        // Check if there are already records in the DB for this client
+        const [existingDbRows] = await pool.query(
+            "SELECT 1 FROM excel_historical_records WHERE customer_phone LIKE ? OR customer_phone = ? LIMIT 1",
+            [`%${targetTail}`, cleanPhone]
+        );
 
-            if (excelRowsToSync.length > 0 && matchedPhoneInExcel) {
-                for (const hist of excelRowsToSync) {
-                    const streaming = (hist.streaming || "").toString().trim();
-                    const emailAcct = (hist.correo || "").toString().toLowerCase().trim();
-                    const cutDate = (hist.fecha_corte || "").toString().trim();
-                    
-                    if (!streaming || !emailAcct || !cutDate) continue;
+        if (forceSync || existingDbRows.length === 0) {
+            // Sync matching records from Excel to DB on-demand
+            try {
+                const { fetchHistoricoData } = require('./apiService');
+                const historicoData = await fetchHistoricoData();
+                
+                let matchedPhoneInExcel = null;
+                let excelRowsToSync = [];
+                let excelProfileName = "";
 
-                    // Parse amount_paid (deben)
-                    let amountPaid = 0;
-                    if (hist.deben) {
-                        const parsed = parseInt(hist.deben.toString().replace(/\D/g, ''));
-                        if (!isNaN(parsed)) amountPaid = parsed;
+                for (const [keyPhone, obj] of Object.entries(historicoData)) {
+                    const cleanKeyPhone = keyPhone.replace(/\D/g, '');
+                    if (cleanKeyPhone.endsWith(targetTail) || targetTail.endsWith(cleanKeyPhone.slice(-10))) {
+                        matchedPhoneInExcel = cleanKeyPhone;
+                        excelRowsToSync = obj.historial || [];
+                        excelProfileName = `${obj.nombre || ''} ${obj.apellido || ''}`.trim();
+                        break;
                     }
+                }
 
-                    // Format vencimiento
-                    let vencimientoDate = null;
-                    if (hist.vencimiento) {
-                        const { getJsDateFromExcel } = require('./apiService');
-                        const jsDate = getJsDateFromExcel(hist.vencimiento);
-                        if (jsDate) {
-                            vencimientoDate = jsDate.toISOString().slice(0, 10);
+                if (excelRowsToSync.length > 0 && matchedPhoneInExcel) {
+                    for (const hist of excelRowsToSync) {
+                        const streaming = (hist.streaming || "").toString().trim();
+                        const emailAcct = (hist.correo || "").toString().toLowerCase().trim();
+                        const cutDate = (hist.fecha_corte || "").toString().trim();
+                        
+                        if (!streaming || !emailAcct || !cutDate) continue;
+
+                        // Parse amount_paid (deben)
+                        let amountPaid = 0;
+                        if (hist.deben) {
+                            const parsed = parseInt(hist.deben.toString().replace(/\D/g, ''));
+                            if (!isNaN(parsed)) amountPaid = parsed;
                         }
-                    }
 
-                    await pool.query(
-                        `INSERT INTO excel_historical_records 
-                            (customer_phone, streaming_platform, account_email, profile_name, profile_pin, fecha_corte, vencimiento, payment_method, amount_paid)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                         ON DUPLICATE KEY UPDATE 
-                            profile_name = VALUES(profile_name),
-                            profile_pin = VALUES(profile_pin),
-                            vencimiento = VALUES(vencimiento),
-                            payment_method = VALUES(payment_method),
-                            amount_paid = VALUES(amount_paid)`,
-                        [
-                            matchedPhoneInExcel,
-                            streaming,
-                            emailAcct,
-                            excelProfileName || null,
-                            hist.pin_perfil || null,
-                            cutDate,
-                            vencimientoDate,
-                            hist.metodo_pago || null,
-                            amountPaid
-                        ]
-                    );
+                        // Format vencimiento
+                        let vencimientoDate = null;
+                        if (hist.vencimiento) {
+                            const { getJsDateFromExcel } = require('./apiService');
+                            const jsDate = getJsDateFromExcel(hist.vencimiento);
+                            if (jsDate) {
+                                vencimientoDate = jsDate.toISOString().slice(0, 10);
+                            }
+                        }
+
+                        await pool.query(
+                            `INSERT INTO excel_historical_records 
+                                (customer_phone, streaming_platform, account_email, profile_name, profile_pin, fecha_corte, vencimiento, payment_method, amount_paid)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             ON DUPLICATE KEY UPDATE 
+                                profile_name = VALUES(profile_name),
+                                profile_pin = VALUES(profile_pin),
+                                vencimiento = VALUES(vencimiento),
+                                payment_method = VALUES(payment_method),
+                                amount_paid = VALUES(amount_paid)`,
+                            [
+                                matchedPhoneInExcel,
+                                streaming,
+                                emailAcct,
+                                excelProfileName || null,
+                                hist.pin_perfil || null,
+                                cutDate,
+                                vencimientoDate,
+                                hist.metodo_pago || null,
+                                amountPaid
+                            ]
+                        );
+                    }
                 }
+            } catch (histErr) {
+                console.error("[client-history] Error syncing excel historico to DB on-demand:", histErr.message);
             }
-        } catch (histErr) {
-            console.error("[client-history] Error syncing excel historico to DB:", histErr.message);
         }
 
         // Query the excel_historical_records table to return it
@@ -2013,9 +2023,19 @@ app.post('/api/admin/subscriptions/sync-excel', express.json(), async (req, res)
     try {
         const { password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
-        const { syncExcelToDb } = require('./scripts/sync_excel_to_db');
+        const { syncExcelToDb, syncHistoricoToDb } = require('./scripts/sync_excel_to_db');
+        
+        console.log('[Sync API] Sincronizando suscripciones actuales...');
         const result = await syncExcelToDb();
-        res.json({ success: true, ...result });
+        
+        console.log('[Sync API] Sincronizando cortes históricos...');
+        const historicoResult = await syncHistoricoToDb();
+
+        res.json({ 
+            success: true, 
+            current: result, 
+            historico: historicoResult 
+        });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }

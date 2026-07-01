@@ -163,11 +163,103 @@ async function syncExcelToDb() {
     return summary;
 }
 
+async function syncHistoricoToDb() {
+    console.log('[Sync Historico] Iniciando sincronización del Excel Histórico a la BD...');
+    const { fetchHistoricoData, getJsDateFromExcel } = require('../apiService');
+    
+    let historicoData;
+    try {
+        historicoData = await fetchHistoricoData();
+    } catch (e) {
+        console.error('[Sync Historico] Error al obtener datos históricos:', e.message);
+        throw e;
+    }
+
+    let syncedCount = 0;
+    let skippedCount = 0;
+
+    for (const [keyPhone, obj] of Object.entries(historicoData)) {
+        const cleanPhone = keyPhone.replace(/\D/g, '');
+        if (!cleanPhone || cleanPhone.length < 7) {
+            skippedCount += (obj.historial || []).length;
+            continue;
+        }
+
+        const profileName = `${obj.nombre || ''} ${obj.apellido || ''}`.trim();
+        const historial = obj.historial || [];
+
+        for (const hist of historial) {
+            const streaming = (hist.streaming || "").toString().trim();
+            const emailAcct = (hist.correo || "").toString().toLowerCase().trim();
+            const cutDate = (hist.fecha_corte || "").toString().trim();
+
+            if (!streaming || !emailAcct || !cutDate) {
+                skippedCount++;
+                continue;
+            }
+
+            // Validar coherencia del registro (ej: debe ser un correo válido)
+            if (!emailAcct.includes('@')) {
+                skippedCount++;
+                continue;
+            }
+
+            // Parse amount_paid (deben)
+            let amountPaid = 0;
+            if (hist.deben) {
+                const parsed = parseInt(hist.deben.toString().replace(/\D/g, ''));
+                if (!isNaN(parsed)) amountPaid = parsed;
+            }
+
+            // Format vencimiento
+            let vencimientoDate = null;
+            if (hist.vencimiento) {
+                const jsDate = getJsDateFromExcel(hist.vencimiento);
+                if (jsDate) {
+                    vencimientoDate = jsDate.toISOString().slice(0, 10);
+                }
+            }
+
+            try {
+                await pool.query(
+                    `INSERT INTO excel_historical_records 
+                        (customer_phone, streaming_platform, account_email, profile_name, profile_pin, fecha_corte, vencimiento, payment_method, amount_paid)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE 
+                        profile_name = VALUES(profile_name),
+                        profile_pin = VALUES(profile_pin),
+                        vencimiento = VALUES(vencimiento),
+                        payment_method = VALUES(payment_method),
+                        amount_paid = VALUES(amount_paid)`,
+                    [
+                        cleanPhone,
+                        streaming,
+                        emailAcct,
+                        profileName || null,
+                        hist.pin_perfil || null,
+                        cutDate,
+                        vencimientoDate,
+                        hist.metodo_pago || null,
+                        amountPaid
+                    ]
+                );
+                syncedCount++;
+            } catch (dbErr) {
+                console.error(`[Sync Historico] Error guardando fila para ${cleanPhone}:`, dbErr.message);
+                skippedCount++;
+            }
+        }
+    }
+
+    console.log(`[Sync Historico] Sincronización completada. ${syncedCount} filas guardadas/actualizadas, ${skippedCount} omitidas/inválidas.`);
+    return { syncedCount, skippedCount };
+}
+
 // Ejecutar directamente si se llama como script
 if (require.main === module) {
-    syncExcelToDb()
-        .then(r => { console.log('[Sync] Resultado:', r); process.exit(0); })
+    Promise.all([syncExcelToDb(), syncHistoricoToDb()])
+        .then(r => { console.log('[Sync] Completado con éxito.'); process.exit(0); })
         .catch(e => { console.error('[Sync] Error fatal:', e); process.exit(1); });
 }
 
-module.exports = { syncExcelToDb };
+module.exports = { syncExcelToDb, syncHistoricoToDb };
