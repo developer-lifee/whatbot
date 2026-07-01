@@ -2582,6 +2582,83 @@ app.post('/api/admin/chat-messages/send', async (req, res) => {
     }
 });
 
+app.post('/api/admin/chat-messages/send-audio', express.json({ limit: '10mb' }), async (req, res) => {
+    try {
+        const { phone, audio, mimetype, agentName, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!phone || !audio || !mimetype) return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        if (!client || !client.info) {
+            return res.status(503).json({ success: false, message: 'WhatsApp client is not ready' });
+        }
+
+        // Parse base64
+        let base64Data = audio;
+        if (audio.includes('base64,')) {
+            base64Data = audio.split('base64,')[1];
+        }
+
+        const { MessageMedia } = require('whatsapp-web.js');
+        const media = new MessageMedia(mimetype, base64Data, 'voice.ogg');
+        
+        // Send audio as voice note
+        const msg = await client.sendMessage(userId, media, { sendAudioAsVoice: true });
+
+        // Save audio locally in uploads directory so the chat can play it back
+        const fs = require('fs');
+        const path = require('path');
+        const fileName = `${Date.now()}_voice.ogg`;
+        const uploadDir = path.join(__dirname, 'uploads', 'media');
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        const filePath = path.join(uploadDir, fileName);
+        fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+
+        // Save message to MySQL
+        try {
+            await pool.query(
+                `INSERT INTO messages (message_id, chat_id, body, is_from_me, created_at, message_type, media_path, media_mime)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    msg.id ? msg.id._serialized : `voice_${Date.now()}`,
+                    userId,
+                    "",
+                    1,
+                    new Date(),
+                    'audio',
+                    `uploads/media/${fileName}`,
+                    mimetype
+                ]
+            );
+        } catch (dbErr) {
+            console.error("Error guardando nota de voz enviada en DB:", dbErr.message);
+        }
+
+        // Silenciar bot para este usuario (modo advisor)
+        const currentState = userStates.get(userId) || {};
+        userStates.set(userId, {
+            state: 'waiting_human',
+            waitingCount: 0,
+            lastHumanInteraction: Date.now(),
+            waiting_human_mode: 'advisor',
+            agent: agentName || currentState.agent || null,
+            lastMessage: "🎙️ Nota de voz",
+            lastMessageTime: Date.now()
+        });
+
+        if (global.supportQueue) {
+            const qIdx = global.supportQueue.indexOf(userId);
+            if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
+        }
+
+        res.json({ success: true, message: 'Nota de voz enviada correctamente' });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 
 // ==========================================
 // WHATSAPP SAAS CONNECTION SYSTEM (QR / OTP)
