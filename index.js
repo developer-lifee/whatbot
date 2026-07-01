@@ -2738,6 +2738,30 @@ app.post('/api/admin/chat-messages/delete', express.json(), async (req, res) => 
     }
 });
 
+app.post('/api/admin/chat-messages/edit', express.json(), async (req, res) => {
+    try {
+        const { messageId, newBody, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!messageId || !newBody) return res.status(400).json({ success: false, message: 'Faltan parámetros' });
+
+        // Intentar editar en WhatsApp Web
+        try {
+            const msg = await client.getMessageById(messageId);
+            if (msg) {
+                await msg.edit(newBody);
+            }
+        } catch (waErr) {
+            console.error('[Edit Message WA] No se pudo editar el mensaje en WhatsApp:', waErr.message);
+        }
+
+        await pool.query('UPDATE messages SET body = ? WHERE message_id = ?', [newBody, messageId]);
+        res.json({ success: true, message: 'Mensaje editado correctamente en WhatsApp y la base de datos' });
+    } catch (e) {
+        console.error('[Edit Message] Error:', e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 
 // ==========================================
 // WHATSAPP SAAS CONNECTION SYSTEM (QR / OTP)
