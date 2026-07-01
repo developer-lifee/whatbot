@@ -102,6 +102,87 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
 }
 
 /**
+ * Intenta ajustar la duración y el total de la renovación en stateData si el monto pagado coincide con múltiples meses.
+ */
+async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
+    if (!stateData || !stateData.isRenewal || !paidAmount) return;
+    try {
+        const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+        const userAccounts = await getAccountsByPhone(phoneNumber);
+        if (userAccounts.length === 0) return;
+
+        const platforms = await getPlatformKnowledge();
+        const today = getTodayInBogota();
+
+        // Probar duraciones de 1 a 12 meses
+        for (let m = 1; m <= 12; m++) {
+            let total = 0;
+            let hasZeroPrice = false;
+
+            userAccounts.forEach(acc => {
+                const streaming = (acc.Streaming || "").toUpperCase();
+                let price = 0;
+                let mappedStreaming = streaming;
+                const aliasMap = {
+                    'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE',
+                    'HBO': 'HBOMAX', 'MAX': 'HBOMAX', 'DISNEY': 'DISNEY+ PREMIUM',
+                    'STAR': 'DISNEY+ PREMIUM', 'YOUTUBE': 'YOUTUBE PREMIUM', 'MICROSOFT': 'MICROSOFT 365'
+                };
+                for (const [alias, real] of Object.entries(aliasMap)) {
+                    if (mappedStreaming.includes(alias)) {
+                        mappedStreaming = mappedStreaming.replace(alias, real);
+                        break;
+                    }
+                }
+                const cleanExcel = mappedStreaming.replace(/[^A-Z0-9]/g, '');
+                const platInfo = platforms.find(p => {
+                    const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    return cleanExcel.includes(cleanPlat) || cleanPlat.includes(cleanExcel);
+                });
+                if (platInfo) {
+                    price = platInfo.price || 0;
+                    if (platInfo.name.toUpperCase() === 'SPOTIFY' && !cleanExcel.includes('PROPORCIONADO') && !cleanExcel.includes('OWNER')) {
+                        const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL'));
+                        if (personalPlan) price = personalPlan.price;
+                    } else if (platInfo.plans && platInfo.plans.length > 0) {
+                        const specificPlan = platInfo.plans.find(plan => {
+                            const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                            return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
+                        });
+                        if (specificPlan) price = specificPlan.price;
+                    }
+                }
+                if (price === 0) hasZeroPrice = true;
+                total += price * m;
+            });
+
+            if (hasZeroPrice) continue;
+
+            // Descuento combo
+            const imminentRenewals = userAccounts.filter(acc => {
+                const expDate = getJsDateFromExcel(acc.deben || acc.vencimiento);
+                if (!expDate) return false;
+                const diffDays = Math.floor((expDate - today) / (1000 * 60 * 60 * 24));
+                return diffDays <= 1;
+            });
+            if (total > 0 && imminentRenewals.length > 1) {
+                const discount = (imminentRenewals.length - 1) * 1000 * m;
+                total -= discount;
+            }
+
+            if (Math.abs(total - paidAmount) < 500) {
+                console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} detectado para ${m} meses de renovación.`);
+                stateData.durationMonths = m;
+                stateData.total = total;
+                return;
+            }
+        }
+    } catch (e) {
+        console.error('[Duration Adjuster] Error:', e.message);
+    }
+}
+
+/**
  * Procesa la solicitud de precios/deudas de un usuario (Opción 3 del menú).
  */
 async function processCheckPrices(message, userId, userStates, inputToUse = "", detectedPlatform = null, durationMonths = 1) {
@@ -859,5 +940,6 @@ module.exports = {
   processCheckPrices,
   handleAutoCobros,
   handleCobrosParser,
-  handleAwaitingCobrosConfirmation
+  handleAwaitingCobrosConfirmation,
+  adjustDurationToMatchAmount
 };

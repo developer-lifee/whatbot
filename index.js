@@ -6523,6 +6523,9 @@ async function baseProcessIncomingMessage(messages) {
                 }
 
                 // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---
+                const { adjustDurationToMatchAmount } = require('./billingService');
+                await adjustDurationToMatchAmount(stateData, check.amount, userId);
+
                 let leftoverAmount = 0;
                 if (check.amount && check.amount > 0) {
                     const expectedTotal = stateData.total || 0;
@@ -7976,6 +7979,9 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
 
                     if (isAutoValidate) {
                         // ✅ Llave Bre-V correcta o QR del negocio: validar monto y proceder
+                        const { adjustDurationToMatchAmount } = require('./billingService');
+                        await adjustDurationToMatchAmount(stateData, check.amount, userId);
+
                         const expectedTotal = stateData.total || 0;
                         const amountMatches = expectedTotal <= 0 || Math.abs(check.amount - expectedTotal) < 500;
 

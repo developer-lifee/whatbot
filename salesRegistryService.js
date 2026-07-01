@@ -119,7 +119,8 @@ function findAvailableSlot(platformName, allRows) {
  * Registra una venta intentando llenar cupos existentes.
  */
 async function recordNewSale(userId, userState, paymentMethod, overrideMonths = null) {
-    console.log(`[Sales Registry] Procesando registro inteligente para ${userId} (${overrideMonths || 'auto'} meses)...`);
+    const months = overrideMonths || userState.durationMonths || null;
+    console.log(`[Sales Registry] Procesando registro inteligente para ${userId} (${months || 'auto'} meses)...`);
 
     try {
         const items = userState.items || [];
@@ -165,7 +166,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             if (userState.isRenewal && (item._rowNumber || item.index)) {
                 const targetRow = item._rowNumber || item.index;
                 const baseDate = item.deben || null;
-                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths, baseDate);
+                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, months, baseDate);
 
                 const excelRow = allRows[targetRow - 2];
                 const realStreamingName = excelRow ? (excelRow.Streaming || excelRow.Plataforma || platformName) : platformName;
@@ -181,9 +182,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     status: 'success', 
                     rowNumber: targetRow, 
                     type: 'renewal',
-                    correo: item.correo || item.Correo || (excelRow ? excelRow.correo || excelRow.Correo : ""),
-                    contraseña: item.contraseña || item.Contraseña || item.password || (excelRow ? excelRow.contraseña || excelRow.Contraseña || excelRow.password : ""),
-                    pin: item["pin perfil"] || item.pin || (excelRow ? excelRow["pin perfil"] || excelRow.pin : ""),
+                    correo: excelRow ? (excelRow.correo || excelRow.Correo || "") : "",
+                    contraseña: excelRow ? (excelRow.contraseña || excelRow.Contraseña || excelRow.password || "") : "",
+                    pin: excelRow ? (excelRow["pin perfil"] || excelRow.pin || "") : "",
                     vencimiento: nextPaymentDate
                 });
                 continue;
@@ -211,7 +212,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
             if (finalRow) {
                 const baseDate = matchedRow ? (matchedRow.deben || matchedRow.Deben) : null;
-                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths, baseDate);
+                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, months, baseDate);
 
                 const updates = {
                     "deben": nextPaymentDate,
@@ -253,7 +254,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             const slot = findAvailableSlot(platformName, allRows);
 
             if (slot) {
-                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, overrideMonths);
+                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, months);
                 console.log(`[Sales Registry] Cupo encontrado para ${platformName} en fila ${slot.index}`);
 
                 // Lógica de separación de nombres
