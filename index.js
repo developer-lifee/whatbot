@@ -2714,6 +2714,20 @@ app.post('/api/admin/chat-messages/send-audio', express.json({ limit: '10mb' }),
     }
 });
 
+app.post('/api/admin/chat-messages/delete', express.json(), async (req, res) => {
+    try {
+        const { messageId, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!messageId) return res.status(400).json({ success: false, message: 'Falta el id del mensaje' });
+
+        await pool.query('DELETE FROM messages WHERE message_id = ?', [messageId]);
+        res.json({ success: true, message: 'Mensaje eliminado correctamente de la base de datos' });
+    } catch (e) {
+        console.error('[Delete Message] Error:', e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 
 // ==========================================
 // WHATSAPP SAAS CONNECTION SYSTEM (QR / OTP)
