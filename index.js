@@ -348,16 +348,14 @@ app.post('/api/netflix/verify', async (req, res) => {
             if (!fs.existsSync(tokenPath)) {
                 return res.json({
                     success: false,
-                    message: `Se registró tu conexión (IP: ${clientIp}), pero la bandeja de correo de la cuenta (${netflixAcct.correo}) no está vinculada al bot. Por favor, solicita el código al soporte técnico de Sheerit para recibirlo manualmente.`,
-                    account: netflixAcct.correo,
-                    ip: clientIp
+                    message: `Se registró tu conexión, pero la bandeja de correo de la cuenta (${netflixAcct.correo}) no está vinculada al bot. Por favor, solicita el código al soporte técnico de Sheerit para recibirlo manualmente.`,
+                    account: netflixAcct.correo
                 });
             } else {
                 return res.json({
                     success: false,
-                    message: `Se registró tu conexión (IP: ${clientIp}), pero no pudimos extraer ningún código o enlace reciente de Netflix para la cuenta ${netflixAcct.correo}. Por favor, asegúrate de presionar 'Actualizar Hogar' en tu TV para enviar el correo y refresca esta página en unos momentos.`,
-                    account: netflixAcct.correo,
-                    ip: clientIp
+                    message: `Se registró tu conexión, pero no pudimos extraer ningún código o enlace reciente de Netflix para la cuenta ${netflixAcct.correo}. Por favor, asegúrate de presionar 'Actualizar Hogar' en tu TV para enviar el correo y refresca esta página en unos momentos.`,
+                    account: netflixAcct.correo
                 });
             }
         }
@@ -368,7 +366,6 @@ app.post('/api/netflix/verify', async (req, res) => {
                 ? `¡Conexión verificada! Haz clic en el botón rojo de abajo para autorizar este dispositivo.`
                 : `¡Conexión verificada! Ingresa el código mostrado a continuación en tu pantalla de Netflix.`, 
             account: netflixAcct.correo, 
-            ip: clientIp,
             code,
             link
         });
