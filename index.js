@@ -2656,7 +2656,8 @@ app.post('/api/admin/chat-messages/send-audio', express.json({ limit: '10mb' }),
 
         res.json({ success: true, message: 'Nota de voz enviada correctamente' });
     } catch (e) {
-        res.status(500).json({ success: false, message: e.message });
+        console.error("[send-audio] Error sending voice note:", e);
+        res.status(500).json({ success: false, message: e.message || String(e) });
     }
 });
 
