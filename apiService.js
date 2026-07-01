@@ -271,6 +271,7 @@ function procesarHistoricoArray(matriz2D) {
             let itemVencimiento = "";
             let itemMetodoPago = "";
             let itemDeben = "";
+            let itemPinPerfil = "";
 
             for (let i = bloque.start; i <= bloque.end; i++) {
                 let rawTitulo = filaTitulos[i] ? filaTitulos[i].toString().trim() : "";
@@ -286,6 +287,7 @@ function procesarHistoricoArray(matriz2D) {
                 else if (titulo.includes("vencimiento")) itemVencimiento = valor;
                 else if (titulo.includes("metodo") || titulo.includes("medio") || titulo.includes("pago")) itemMetodoPago = valor;
                 else if (titulo.includes("deben")) itemDeben = valor;
+                else if (titulo.includes("pin") || titulo.includes("perfil")) itemPinPerfil = valor;
 
                 // If the column header itself is a date or "hoy", use it as the snapshot date
                 if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(titulo)) {
@@ -320,7 +322,8 @@ function procesarHistoricoArray(matriz2D) {
                     correo: itemCorreo,
                     vencimiento: itemVencimiento,
                     metodo_pago: itemMetodoPago,
-                    deben: itemDeben
+                    deben: itemDeben,
+                    pin_perfil: itemPinPerfil
                 });
             }
         }
