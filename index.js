@@ -2972,7 +2972,7 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             ('estebanavila182', 'Esteban', 'estebanavila182@outlook.com', 'admin'),
             ('esclepiades', 'Esclepiades', 'esclepiades@hotmail.com', 'agent'),
             ('camilo', 'Camilo', 'camco08@hotmail.com', 'agent'),
-            ('carolcubillos03', 'Carol Cubillos', 'carolcubillos03@outlook.com', 'agent')
+            ('carolcubillos03', 'Carol Cubillos', 'carolcubillos03@outlook.es', 'agent')
             ON DUPLICATE KEY UPDATE 
                 role = VALUES(role), 
                 fullname = VALUES(fullname),
