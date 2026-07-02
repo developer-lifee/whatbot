@@ -1609,6 +1609,80 @@ app.post('/api/admin/tickets/archive', async (req, res) => {
     }
 });
 
+app.post('/api/admin/tickets/create', express.json(), async (req, res) => {
+    try {
+        const { phone, name, reason, agentName, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!phone) return res.status(400).json({ success: false, message: 'Falta el número de teléfono' });
+
+        // Clean and format phone number to JID format
+        const cleanPhone = phone.replace(/\D/g, '');
+        const jid = `${cleanPhone}@c.us`;
+
+        // Check if there is already a state, or create one
+        const existingState = userStates.get(jid) || {};
+        
+        // Try to resolve name from accounts or contacts if not provided
+        let resolvedName = name || existingState.nombre;
+        if (!resolvedName || resolvedName === 'Cliente' || resolvedName === 'Cliente WhatsApp') {
+            try {
+                const { getAccountsByPhone } = require('./apiService');
+                const accounts = await getAccountsByPhone(cleanPhone);
+                if (accounts && accounts.length > 0) {
+                    const first = accounts[0].Nombre || accounts[0].nombre || "";
+                    const last = accounts[0].apellido || accounts[0].Apellido || "";
+                    resolvedName = `${first} ${last}`.trim();
+                }
+            } catch (err) {}
+            if (!resolvedName) {
+                try {
+                    const { searchContactByPhone } = require('./googleContactsService');
+                    resolvedName = await searchContactByPhone(cleanPhone);
+                } catch (e) {}
+            }
+        }
+        if (!resolvedName) {
+            resolvedName = `Cliente ${cleanPhone}`;
+        }
+
+        const newState = {
+            ...existingState,
+            state: 'waiting_human',
+            agent: agentName || null,
+            nombre: resolvedName,
+            lastMessage: 'Chat iniciado por asesor',
+            lastMessageTime: Date.now(),
+            advisorReason: reason || 'Contacto directo'
+        };
+
+        userStates.set(jid, newState);
+
+        // Intenta silenciar las respuestas del bot
+        try {
+            await pool.query('INSERT INTO user_modes (phone, mode) VALUES (?, ?) ON DUPLICATE KEY UPDATE mode = ?', [cleanPhone, 'human', 'human']);
+        } catch (e) {}
+
+        res.json({
+            success: true,
+            message: 'Ticket creado y chat iniciado correctamente',
+            ticket: {
+                userId: jid,
+                phone: cleanPhone,
+                nombre: resolvedName,
+                state: 'waiting_human',
+                agent: agentName || null,
+                lastMessage: 'Chat iniciado por asesor',
+                lastMessageTime: Date.now(),
+                summary: `🚨 Motivo: "${reason || 'Contacto directo'}"`,
+                accounts: []
+            }
+        });
+    } catch (e) {
+        console.error('[Create Ticket] Error:', e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 app.get('/api/admin/tickets/metrics', async (req, res) => {
     try {
         const [summary] = await pool.query(`
