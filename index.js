@@ -8254,7 +8254,10 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
 });
 
-client.initialize().catch(err => console.error('Error al inicializar cliente:', err));
+client.initialize().catch(err => {
+    console.error('❌ Error al inicializar cliente:', err);
+    process.exit(1);
+});
 
 // Escáner Atiende Pendientes (cada 5 minutos)
 setInterval(async () => {

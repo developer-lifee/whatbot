@@ -301,8 +301,7 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
     try {
         const res = await gmail.users.messages.list({
             userId: 'me',
-            q: 'subject:(código OR code OR inició OR inicio OR iniciar OR sesion OR sesión OR login OR otp OR verification OR hogar OR link OR actualiza OR claude OR anthropic OR "iniciar su sesión" OR "vamos a iniciar")',
-            maxResults: 5
+            maxResults: 10
         });
 
         const messages = res.data.messages || [];
@@ -320,14 +319,19 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
 
             if (diffMinutes > toleranceMinutes) continue;
 
+            const subject = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'subject')?.value || 'Sin asunto';
+            const decodedSubject = decodeQuotedPrintable(subject);
+
+            // Filtrar en memoria por palabras clave del asunto para omitir correos no relacionados
+            const subjectLower = decodedSubject.toLowerCase();
+            const isRelevantSubject = /c[oó]digo|code|inici|sesi[oó]n|login|otp|verific|hogar|link|actualiz|claude|anthropic|password|contrase[ñn]a|security|seguridad|attempt|access|acceso/.test(subjectLower);
+            if (!isRelevantSubject) continue;
+
             const snippet = fullMsg.data.snippet || '';
             const parts = getMessageParts(fullMsg.data.payload);
             const decodedText = decodeQuotedPrintable(parts.text || parts.html || "");
             const decodedHtml = decodeQuotedPrintable(parts.html || "");
             const decodedSnippet = decodeQuotedPrintable(snippet);
-
-            const subject = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'subject')?.value || 'Sin asunto';
-            const decodedSubject = decodeQuotedPrintable(subject);
 
             // Eliminar URLs completas para evitar extraer números/IDs dentro de enlaces (como el 000000 de Disney+)
             const textToSearchForCode = decodedSnippet + ' ' + decodedText;
