@@ -1578,5 +1578,6 @@ module.exports = {
   clearCachedSystemPrompt,
   parseScribePdfToRecipe,
   getMaskedAccessData,
-  callGemini
+  callGemini,
+  callDeepSeek
 };
