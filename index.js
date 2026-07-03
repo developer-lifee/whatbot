@@ -5432,7 +5432,8 @@ async function baseProcessIncomingMessage(messages) {
             if (mediaData && detection) {
                 const imgDesc = (detection.explanation || "").toLowerCase();
                 const wantsImgCode = [
-                    'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor'
+                    'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor',
+                    'gpt', 'chatgpt', '2fa', 'authenticator', 'autenticación', 'openai', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating'
                 ].some(kw => imgDesc.includes(kw));
 
                 if (wantsImgCode) {
@@ -6931,6 +6932,83 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
     const timedHist = `[ESTE MENSAJE LLEGÓ HACE ${messageAgeMinutes} MINUTOS]\n${hist}`;
     const detection = await detectInitialIntent(inputToUse, timedHist, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
+
+    // --- OCR/IMAGE CODE REQUEST INTERCEPTOR via Gemini ---
+    let isCodeRequestFromImage = false;
+    if (detection && mediaData && mediaData.length > 0) {
+        const explanationLower = (detection.explanation || "").toLowerCase();
+        const bodyLower = inputToUse.toLowerCase();
+        const wantsImgCode = [
+            'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor',
+            'gpt', 'chatgpt', '2fa', 'authenticator', 'autenticación', 'openai', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating'
+        ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
+
+        if (wantsImgCode) {
+            isCodeRequestFromImage = true;
+            console.log(`[BOT MEDIA OCR DETECTED IN FLOW] Gemini detected code request in image/explanation. Routing to code generator.`);
+        }
+    }
+
+    if (isCodeRequestFromImage) {
+        try {
+            if (userAccounts.length > 0) {
+                let targetAccount = null;
+                const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify'];
+
+                // 1. Intentar buscar coincidencia por plataforma analizando el texto del usuario o la explicación de la imagen
+                const textForPlatform = (inputToUse + " " + detection.explanation).toLowerCase();
+                const matchedPlatform = platformsSupported.find(p => textForPlatform.includes(p));
+                
+                if (matchedPlatform) {
+                    targetAccount = userAccounts.find(c => {
+                        const streamingName = (c.Streaming || "").toLowerCase();
+                        if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
+                            return streamingName.includes('hbo') || streamingName.includes('max');
+                        }
+                        if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
+                            return streamingName.includes('amazon') || streamingName.includes('prime');
+                        }
+                        return streamingName.includes(matchedPlatform);
+                    });
+                }
+
+                // 2. Si no hay coincidencia directa, pero solo tiene 1 cuenta, usar esa
+                if (!targetAccount && userAccounts.length === 1) {
+                    targetAccount = userAccounts[0];
+                }
+
+                // 3. Si tiene varias, presentar opciones
+                if (!targetAccount && userAccounts.length > 1) {
+                    let msg = `🤖 Veo que tienes registradas múltiples cuentas activas. ¿De cuál de ellas necesitas el código de verificación?\n\n`;
+                    userAccounts.forEach((acc, idx) => {
+                        const platName = (acc.Streaming || "").toUpperCase();
+                        const email = (acc.correo || "").trim().toLowerCase();
+                        const profile = acc['pin perfil'] || acc['Nombre'] || "";
+                        const profileStr = profile ? ` (Perfil: ${profile})` : "";
+                        msg += `${idx + 1} - *${platName}* - ${email}${profileStr}\n`;
+                    });
+                    msg += `\n*Responde únicamente con el número de la opción que deseas.* 📲`;
+
+                    await message.reply(msg);
+
+                    userStates.set(userId, {
+                        state: 'awaiting_code_account_selection',
+                        candidates: userAccounts,
+                        timestamp: Date.now(),
+                        nombre: foundName
+                    });
+                    return;
+                }
+
+                if (targetAccount) {
+                    await processAccountVerificationCode(message, userId, targetAccount, phoneNumber, client, userStates);
+                    return;
+                }
+            }
+        } catch (e) {
+            console.error("Error en interceptor OCR de códigos:", e);
+        }
+    }
 
     // 3. IDENTIDAD TERCERO: IA revisando historial o mensaje actual
     if ((!foundName || foundName === 'Cliente') && detection.userName) {
