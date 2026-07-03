@@ -5446,7 +5446,8 @@ async function baseProcessIncomingMessage(messages) {
                 const imgDesc = (detection.explanation || "").toLowerCase();
                 const wantsImgCode = [
                     'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor',
-                    'gpt', 'chatgpt', '2fa', 'authenticator', 'autenticación', 'openai', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating'
+                    'gpt', 'chatgpt', '2fa', 'authenticator', 'autenticación', 'openai', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
+                    'error', 'fallo', 'falla', 'pantalla', 'problema', 'cuenta', 'iniciar', 'bloqueo', 'límite', 'limite', 'suscripción', 'suscripcion', 'incorrecto', 'incorrecta', 'incorrect', 'warning', 'alert', 'failed', 'blocked'
                 ].some(kw => imgDesc.includes(kw));
 
                 if (wantsImgCode) {
