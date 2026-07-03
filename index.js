@@ -2580,76 +2580,27 @@ app.get('/api/admin/chat-messages', async (req, res) => {
 
         const userId = phone.includes('@') ? phone : phone + '@c.us';
 
-        // 1. Si el cliente de WhatsApp está listo, traer de WhatsApp para garantizar los últimos mensajes en vivo
-        if (client && client.info) {
-            try {
-                const chat = await client.getChatById(userId);
-                const messages = await chat.fetchMessages({ limit: 40 });
-
-                const formatted = [];
-                for (const m of messages) {
-                    let mediaPath = null;
-                    let mediaMime = null;
-                    
-                    if (m.hasMedia) {
-                        try {
-                            const [dbMsg] = await pool.query(
-                                "SELECT media_path, media_mime FROM messages WHERE message_id = ? LIMIT 1",
-                                [m.id._serialized]
-                            );
-                            if (dbMsg && dbMsg.length > 0) {
-                                mediaPath = dbMsg[0].media_path;
-                                mediaMime = dbMsg[0].media_mime;
-                            }
-                        } catch (dbErr) {
-                            console.error("Error buscando media en DB para chat message:", dbErr.message);
-                        }
-                    }
-
-                    formatted.push({
-                        id: m.id ? m.id._serialized : null,
-                        body: m.body || "",
-                        fromMe: m.fromMe,
-                        timestamp: m.timestamp * 1000,
-                        type: m.type,
-                        hasMedia: m.hasMedia,
-                        mediaPath: mediaPath,
-                        mediaMime: mediaMime
-                    });
-                }
-
-                // Guardar en la base de datos en segundo plano para poblar el historial
-                for (const msg of messages) {
-                    saveMessage(msg).catch(err => console.error("Error guardando mensaje en segundo plano:", err.message));
-                }
-
-                return res.json(formatted);
-            } catch (errWpp) {
-                console.warn("[chat-messages] Error al obtener de WhatsApp, usando fallback de DB:", errWpp.message);
-            }
-        }
-
-        // 2. Fallback de Base de Datos si WhatsApp no está listo o falló
+        // 1. Obtener el historial directamente de la base de datos (ultra rápido: ~5ms)
         const [rows] = await pool.query(
-            `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 40`,
+            `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 50`,
             [userId]
         );
 
         const formatted = rows.map(m => ({
             id: m.message_id,
             body: m.body || "",
-            fromMe: m.direction ? (m.direction === 'outbound') : (m.is_from_me === 1 || m.isFromMe === 1),
+            fromMe: m.is_from_me === 1,
             timestamp: new Date(m.created_at).getTime(),
             type: m.message_type || 'text',
-            hasMedia: !!m.media_path,
+            hasMedia: m.media_path ? true : false,
             mediaPath: m.media_path,
             mediaMime: m.media_mime
-        }));
-        
-        formatted.reverse();
-        res.json(formatted);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
+        })).reverse(); // Orden cronológico ascendente para el chat
+
+        return res.json(formatted);
+    } catch (err) {
+        console.error("Error fetching chat messages from DB:", err.message);
+        return res.status(500).json({ error: 'Error interno al obtener los mensajes del chat' });
     }
 });
 
