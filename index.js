@@ -1192,6 +1192,7 @@ app.get('/api/admin/match', async (req, res) => {
 
 let probablyFinishedTickets = new Set();
 let aiTicketsSummaries = new Map();
+let classifiedTicketsCache = new Map(); // phone -> { lastMessage, state, summary }
 let lastAiClassificationTime = 0;
 const AI_CLASSIFICATION_INTERVAL = 45 * 1000; // run classification every 45 seconds
 
@@ -1201,8 +1202,11 @@ async function updateAiTicketsClassification() {
         if (now - lastAiClassificationTime < AI_CLASSIFICATION_INTERVAL) return;
         lastAiClassificationTime = now;
 
-        // Build list of active tickets
+        // Build list of active tickets and determine delta
         const activeTickets = [];
+        const ticketsToClassify = [];
+        const currentActivePhones = new Set();
+
         for (const [userId, state] of userStates.entries()) {
             if (!state) continue;
             const stateStr = typeof state === 'object' ? state.state : state;
@@ -1210,13 +1214,16 @@ async function updateAiTicketsClassification() {
             if (!pendingStates.includes(stateStr)) continue;
 
             const phone = userId.replace('@c.us', '');
+            currentActivePhones.add(phone);
+
             let lastMessage = typeof state === 'object' ? (state.lastMessage || "") : "";
             let lastMessageTime = typeof state === 'object' ? (state.lastMessageTime || null) : null;
             let summary = "";
+
             if (typeof state === 'object') {
                 if (state.state === 'awaiting_payment_confirmation') {
-                    summary = `💰 Pago Manual: ${state.bank || 'N/A'} - $${state.amount || 'N/A'}`;
-                } else if (state.advisorReason) {
+                    summary = "💸 Validando Pago";
+                } else if (state.state === 'waiting_human' && state.advisorReason) {
                     summary = `🚨 Motivo: "${state.advisorReason}"`;
                 } else if (state.items && state.items.length > 0) {
                     const itemNames = state.items.map(it => it.platform?.name || it.platformName || '').filter(Boolean).join(', ');
@@ -1225,27 +1232,43 @@ async function updateAiTicketsClassification() {
             }
 
             const timeDiff = lastMessageTime ? `${Math.round((now - lastMessageTime) / 60000)}m ago` : "unknown";
-
-            activeTickets.push({
+            const ticketData = {
                 phone,
                 nombre: (typeof state === 'object' ? state.nombre : 'Cliente') || 'Cliente',
                 lastMessage: lastMessage.substring(0, 200),
                 summary,
                 state: stateStr,
                 time: timeDiff
-            });
+            };
+
+            activeTickets.push(ticketData);
+
+            // Compare with cache
+            const cached = classifiedTicketsCache.get(phone);
+            if (!cached || cached.lastMessage !== ticketData.lastMessage || cached.state !== ticketData.state || cached.summary !== ticketData.summary) {
+                ticketsToClassify.push(ticketData);
+            }
         }
 
-        if (activeTickets.length === 0) {
-            probablyFinishedTickets.clear();
-            aiTicketsSummaries.clear();
+        // Clean up stale cache items
+        for (const cachedPhone of classifiedTicketsCache.keys()) {
+            if (!currentActivePhones.has(cachedPhone)) {
+                classifiedTicketsCache.delete(cachedPhone);
+                probablyFinishedTickets.delete(cachedPhone);
+                aiTicketsSummaries.delete(cachedPhone);
+            }
+        }
+
+        if (ticketsToClassify.length === 0) {
+            console.log(`[AI Classification Cache] No changes in active tickets. Skipping LLM classification call.`);
             return;
         }
 
-        // Call Gemini to get both: probably resolved tickets AND short descriptive summaries of each ticket's problem
-        const { callGemini } = require('./aiService');
+        console.log(`[AI Classification Cache] Classifying ${ticketsToClassify.length} new/changed tickets out of ${activeTickets.length} total active.`);
+
+        const { callDeepSeek } = require('./aiService');
         const prompt = `Analiza la siguiente lista de tickets de soporte técnico y ventas en formato JSON:
-${JSON.stringify(activeTickets, null, 2)}
+${JSON.stringify(ticketsToClassify, null, 2)}
 
 Realiza dos tareas:
 1. Determina cuáles de ellos están **probablemente terminados o solucionados** y ya no requieren atención inmediata de un asesor (ej. agradecimientos rápidos, respuestas afirmativas simples o inactividad tras resolver).
@@ -1263,17 +1286,34 @@ Devuelve **únicamente** un objeto JSON estructurado así (sin marcas markdown d
   }
 }`;
 
-        const responseJson = await callGemini(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras.", true);
+        const responseJson = await callDeepSeek(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras.", true);
         const parsed = JSON.parse(responseJson);
-        
+
         if (parsed) {
+            // Remove previous finished status for reclassified tickets before merging new results
+            ticketsToClassify.forEach(t => {
+                probablyFinishedTickets.delete(t.phone);
+            });
+
             if (Array.isArray(parsed.probablyFinished)) {
-                probablyFinishedTickets = new Set(parsed.probablyFinished.map(p => String(p)));
+                parsed.probablyFinished.forEach(p => probablyFinishedTickets.add(String(p)));
             }
             if (parsed.summaries && typeof parsed.summaries === 'object') {
-                aiTicketsSummaries = new Map(Object.entries(parsed.summaries));
+                for (const [phone, sum] of Object.entries(parsed.summaries)) {
+                    aiTicketsSummaries.set(phone, sum);
+                }
             }
-            console.log(`[AI Classification] Actualizado caché de tickets en lote. Probablemente terminados: ${probablyFinishedTickets.size}. Resúmenes guardados: ${aiTicketsSummaries.size}`);
+
+            // Update cache for these tickets
+            ticketsToClassify.forEach(t => {
+                classifiedTicketsCache.set(t.phone, {
+                    lastMessage: t.lastMessage,
+                    state: t.state,
+                    summary: t.summary
+                });
+            });
+
+            console.log(`[AI Classification Cache] Re-classified ${ticketsToClassify.length} tickets. Cache size: ${classifiedTicketsCache.size}. Probably finished total: ${probablyFinishedTickets.size}`);
         }
     } catch (err) {
         console.error("[AI Classification] Error running AI batch classification:", err.message);
