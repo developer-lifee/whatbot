@@ -1541,6 +1541,7 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         userStates.set(userId, {
             ...(typeof stateData === 'object' ? stateData : { state: stateData }),
             state: 'resolved',
+            agent: agentName,
             resolvedAt: Date.now()
         });
 
@@ -1574,6 +1575,7 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                             userStates.set(otherUserId, {
                                 ...otherStateData,
                                 state: 'resolved',
+                                agent: otherAgentName,
                                 resolvedAt: Date.now()
                             });
                             resolvedOthersCount++;
@@ -1691,6 +1693,14 @@ app.get('/api/admin/tickets/metrics', async (req, res) => {
             GROUP BY agent 
             ORDER BY count DESC
         `);
+
+        const [summaryToday] = await pool.query(`
+            SELECT agent, COUNT(*) as count 
+            FROM resolved_tickets_log 
+            WHERE DATE(resolvedAt) = CURDATE()
+            GROUP BY agent 
+            ORDER BY count DESC
+        `);
         
         const [recent] = await pool.query(`
             SELECT phone, customerName, agent, resolvedAt 
@@ -1699,7 +1709,7 @@ app.get('/api/admin/tickets/metrics', async (req, res) => {
             LIMIT 100
         `);
 
-        res.json({ success: true, summary, recent });
+        res.json({ success: true, summary, summaryToday, recent });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
