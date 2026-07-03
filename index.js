@@ -1231,6 +1231,7 @@ async function updateAiTicketsClassification() {
                 nombre: (typeof state === 'object' ? state.nombre : 'Cliente') || 'Cliente',
                 lastMessage: lastMessage.substring(0, 200),
                 summary,
+                state: stateStr,
                 time: timeDiff
             });
         }
@@ -1248,11 +1249,14 @@ ${JSON.stringify(activeTickets, null, 2)}
 
 Realiza dos tareas:
 1. Determina cuáles de ellos están **probablemente terminados o solucionados** y ya no requieren atención inmediata de un asesor (ej. agradecimientos rápidos, respuestas afirmativas simples o inactividad tras resolver).
+   *REGLAS MUY IMPORTANTES PARA DETERMINAR SI UN TICKET ESTÁ TERMINADO:*
+   - Si un ticket tiene state "waiting_human" (en cola de espera de asesor humano), "awaiting_payment_confirmation" (esperando validación de pago) o "waiting_admin_confirmation", y el último mensaje es del cliente pidiendo ayuda, reclamando, saludando o consultando, NUNCA lo consideres como terminado. Estos tickets requieren atención obligatoria.
+   - Solo puedes marcar como terminados (probablyFinished) aquellos tickets donde el cliente dice gracias, se despide, confirma que ya quedó solucionado, o tras una resolución explícita no ha vuelto a escribir nada relevante.
 2. Genera para **CADA ticket** un resumen descriptivo en español de 3 a 5 palabras explicando el motivo real o falla técnica reportada basándote en su "lastMessage" o "summary" (ej. "Pide código de Disney", "Netflix caída de hogar", "Problema de facturación", "Pregunta por catálogo"). Si el "summary" ya contiene un motivo manual claro (como Pago o Interés), consérvalo.
 
 Devuelve **únicamente** un objeto JSON estructurado así (sin marcas markdown de bloque):
 {
-  "probablyFinished": ["573166568300"],
+  "probablyFinished": [],
   "summaries": {
     "573166568300": "Falla Netflix Hogar",
     "573185160611": "Solicita código Disney"
@@ -1328,6 +1332,15 @@ app.get('/api/admin/tickets', async (req, res) => {
                     }
                 }
             } catch (err) { }
+
+            if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
+                try {
+                    const [custRows] = await pool.query("SELECT fullname FROM customers WHERE phone = ?", [phone]);
+                    if (custRows.length > 0 && custRows[0].fullname) {
+                        resolvedName = custRows[0].fullname;
+                    }
+                } catch (err) { }
+            }
 
             if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
                 try {
