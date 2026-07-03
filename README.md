@@ -300,3 +300,25 @@ El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`con
 
 ### 4. 🚨 Alerta de Huecos de Cobertura en WhatsApp
 - **Cron de Cobertura (6:00 PM)**: Un trabajo programado analiza diariamente a las 18:00 si el día de mañana tiene huecos (tiempos desatendidos dentro de la jornada de atención). Si se detectan brechas libres sin asesores asignados, envía de forma automática un mensaje detallado de alerta al grupo de WhatsApp de administración.
+
+---
+
+## 🛠️ Actualizaciones Recientes (3 de Julio de 2026)
+
+### 1. 🧠 Clasificación de Tickets Optimizada (DeepSeek + Caché Delta)
+- **Migración a DeepSeek**: Se cambió el motor de clasificación masiva de tickets de Gemini Lite a DeepSeek Chat (`callDeepSeek`), logrando una estructuración JSON y análisis de intenciones conversacionales infinitamente superior y sin alucinaciones.
+- **Sistema de Caché Delta**: Se implementó `classifiedTicketsCache` en memoria. El bot ahora realiza la validación contra el último mensaje y estado de cada chat. Si no hay novedades en los chats, **cancela la llamada a la IA de inmediato** (0 consumo de API). Si hay cambios, **envía únicamente el ticket modificado a clasificar**, reduciendo el uso de tokens en un 95% y eliminando la latencia en las consultas del panel de soporte técnico.
+- **Contexto de Estado de Tickets**: Se le pasa a DeepSeek el estado en vivo del chat (`waiting_human`, `awaiting_payment_confirmation`, etc.) junto con reglas estrictas de flujo para impedir que clasifique erróneamente en "Probablemente Terminados" a usuarios que están esperando activamente en cola.
+
+### 2. 📸 Auto-Entrega de Códigos 2FA / ChatGPT por Imagen
+- **OCR Multi-Intenciones**: Se expandió el detector visual de imágenes de Gemini (`wantsImgCode`) agregando palabras clave amplias de errores técnicos (`'error', 'fallo', 'falla', 'bloqueo', 'limite'`, etc.) e inicios de sesión 2FA (`'gpt', 'chatgpt', '2fa', 'authenticator', 'openai'`).
+- **Entrega Inmediata**: Si un cliente envía una captura de pantalla solicitando el código de su cuenta de ChatGPT o alguna plataforma de streaming con doble factor, el bot la detecta mediante OCR, se reactiva automáticamente, calcula el código TOTP offline desde `gpt_secrets.json` y se lo responde en segundos sin intervención del asesor.
+
+### 3. 👤 Resolución Directa de Nombres de Clientes
+- **Búsqueda por BD local**: Si el cliente no tiene suscripciones de streaming activas vinculadas (lo que impedía traer su nombre desde el Excel), ahora el endpoint `/api/admin/tickets` consulta directamente la tabla local de MariaDB `customers` usando el número de teléfono del chat.
+- **Visualización Limpia**: Esto garantiza que nombres registrados (como en el caso de *Aldren Nobles*) se muestren correctamente en el Dashboard administrativo en lugar de mostrar su número telefónico genérico.
+
+### 4. 🛡️ Estabilidad Conversacional y Anticaídas (Anti-Spam)
+- **Evitar Spam de Bienvenida**: En el escaneo de mensajes pendientes al iniciar el bot, se implementó un filtro de tiempo de máximo 2 horas. Si el mensaje sin leer tiene más antigüedad, el bot lo ignora, previniendo que se disparen saludos automáticos de forma masiva a clientes con chats viejos tras una desconexión.
+- **Cierre Limpio de Clientes Zombies**: Si la conexión de Puppeteer falla críticamente al inicializar (ej. `Execution context was destroyed`), el bot realiza un cierre limpio forzado (`process.exit(1)`). Esto activa el ciclo de auto-recuperación de PM2 para reintentar la conexión de WhatsApp Web de forma transparente en segundos.
+- **Optimización Gmail en Tiempo Real**: Se eliminó el parámetro de búsqueda indexada `q` de la API de Gmail (el cual sufría retrasos de indexación de hasta 3 minutos). Ahora el bot recupera los últimos correos del Inbox directamente y los filtra en memoria, permitiendo que los códigos OTP de Amazon/Prime Video, Netflix y demás plataformas se extraigan e informen al instante.
