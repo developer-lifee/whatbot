@@ -82,8 +82,9 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     // Si no hay no leídos (pero estaba en waiting_human), procesar al menos el último
                     const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
 
-                    // Procesar solo mensajes que NO sean del bot
-                    const filteredMessages = toProcess.filter(m => !m.fromMe);
+                    // Procesar solo mensajes que NO sean del bot y que no sean extremadamente antiguos (máximo 2 horas de antigüedad)
+                    const twoHoursAgo = Math.floor(Date.now() / 1000) - (2 * 60 * 60);
+                    const filteredMessages = toProcess.filter(m => !m.fromMe && m.timestamp > twoHoursAgo);
 
                     if (filteredMessages.length > 0) {
                         await processIncomingMessage(filteredMessages);
