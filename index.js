@@ -3736,12 +3736,14 @@ Salida esperada JSON:
     "userName": string | null,
     "isNameComplete": boolean,
     "detectedPlatform": string | null, 
+    "explanation": string | null,
     "metadata": {
         "duration_months": number | null,
         "is2faScreen": boolean | null
     } | null 
 }
 
+En "explanation", escribe una breve explicación en español del contenido de la imagen (OCR, textos principales, errores detectados, códigos) o del mensaje del usuario.
 Si el mensaje actual es una imagen o el texto menciona un pago, revisa si es un comprobante. Si lo es, pon intent: "pagar".
 Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VERIFICACIÓN (2FA, código enviado al correo/teléfono), pon intent: "soporte" (para que el bot asista con el código o lo derive al humano).`;
 
