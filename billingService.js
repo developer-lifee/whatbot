@@ -377,8 +377,42 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             response += `✨ *Descuento por combo:* -$${discount}\n`;
         }
 
+        // Detección automática de Churn (si renueva una plataforma pero deja vencer otras)
+        const churnPlatforms = [];
+        let churnText = "";
+        if (detectedPlatform) {
+            const notRenewed = userAccounts.filter(acc => !accountsToProcess.includes(acc));
+            const expiredOrExpiringSoon = notRenewed.filter(acc => {
+                const venc = acc.deben || acc.vencimiento;
+                const vencDate = getJsDateFromExcel(venc);
+                if (!vencDate) return false;
+                const isExpired = vencDate < today;
+                const diffTime = vencDate.getTime() - today.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24));
+                return isExpired || diffDays <= 3;
+            });
+            
+            if (expiredOrExpiringSoon.length > 0) {
+                const { updateExcelData } = require('./apiService');
+                const dateStr = new Date().toLocaleDateString('es-CO');
+                for (const acc of expiredOrExpiringSoon) {
+                    const rowNum = acc._rowNumber || acc.index;
+                    if (rowNum) {
+                        churnPlatforms.push(rowNum);
+                        await updateExcelData(rowNum, { "observaciones": `cortar (bot ${dateStr})` }).catch(e => {});
+                    }
+                }
+                const platformNames = expiredOrExpiringSoon.map(acc => (acc.Streaming || "Servicio").toUpperCase()).join(', ');
+                churnText = `\n\n😔 *Nota:* Veo que decidiste no continuar con tu servicio de *${platformNames}*. Nos encantaría seguir mejorando: ¿podrías contarnos brevemente la razón de tu decisión? Tu opinión nos ayuda mucho.`;
+            }
+        }
+
         response += `*TOTAL A PAGAR: $${total}*\n\n`;
         response += "🤖 ¿Por cuál medio deseas realizar la transferencia?\n\n⭐ *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n⭐ *Llave Bre-V (AUTOMÁTICA ⚡)*:\n   • Celular: *0087387259*\n⭐ *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*:\n   • Ahorros: *46772753713* (CC: 1032936324)\n\n💡 *Tip de Renovación:* Si pagas por un medio automático (QR, Llave Bre-V o Bancolombia), tu servicio se renovará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
+        
+        if (churnText) {
+            response += churnText;
+        }
 
         await message.reply(response);
         
@@ -388,7 +422,8 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             total: total, 
             items: itemsForRenewal, 
             isRenewal: true,
-            durationMonths: durationMonths
+            durationMonths: durationMonths,
+            churnPlatforms: churnPlatforms.length > 0 ? churnPlatforms : null
         });
 
     } catch (error) {

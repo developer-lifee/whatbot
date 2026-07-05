@@ -183,13 +183,33 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             const lowerName = platformName.toLowerCase();
 
             // 1. CASO RENOVACIÓN: Ya tenemos la fila
+            let targetRow = null;
+            let excelRow = null;
             if (userState.isRenewal && (item._rowNumber || item.index)) {
-                const targetRow = item._rowNumber || item.index;
+                const tempRow = item._rowNumber || item.index;
+                const tempRowData = allRows[tempRow - 2];
+                if (tempRowData) {
+                    const rowPhone = (tempRowData.numero || tempRowData.Numero || "").toString().replace(/\D/g, '');
+                    const whatsappVal = (tempRowData.whatsapp || "").toString().trim();
+                    const whatsappDigits = whatsappVal.replace(/\D/g, '');
+                    let isPhoneMatch = rowPhone && rowPhone.includes(phone.slice(-10));
+                    if (!isPhoneMatch && whatsappDigits) {
+                        isPhoneMatch = whatsappDigits.includes(phone.slice(-10));
+                    }
+                    
+                    if (isPhoneMatch) {
+                        targetRow = tempRow;
+                        excelRow = tempRowData;
+                    } else {
+                        console.log(`[Sales Registry] Advertencia: Desfase de fila detectado para ${platformName}. Fila sugerida ${tempRow} no coincide con el teléfono ${phone}. Buscando inteligentemente...`);
+                    }
+                }
+            }
+
+            if (targetRow && excelRow) {
                 const baseDate = item.deben || null;
                 const nextPaymentDate = calculateNextPaymentDate(subscriptionType, months, baseDate);
-
-                const excelRow = allRows[targetRow - 2];
-                const realStreamingName = excelRow ? (excelRow.Streaming || excelRow.Plataforma || platformName) : platformName;
+                const realStreamingName = excelRow.Streaming || excelRow.Plataforma || platformName;
 
                 console.log(`[Sales Registry] RENOVACIÓN detectada para ${realStreamingName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
                 const updates = {
@@ -202,9 +222,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     status: 'success', 
                     rowNumber: targetRow, 
                     type: 'renewal',
-                    correo: excelRow ? (excelRow.correo || excelRow.Correo || "") : "",
-                    contraseña: excelRow ? (excelRow.contraseña || excelRow.Contraseña || excelRow.password || "") : "",
-                    pin: excelRow ? (excelRow["pin perfil"] || excelRow.pin || "") : "",
+                    correo: excelRow.correo || excelRow.Correo || "",
+                    contraseña: excelRow.contraseña || excelRow.Contraseña || excelRow.password || "",
+                    pin: excelRow["pin perfil"] || excelRow.pin || "",
                     vencimiento: nextPaymentDate
                 });
                 continue;
@@ -235,9 +255,10 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     if (cleanWhatsapp && !whatsappDigits) { // Es un nombre de texto, no un número
                         const cleanName = (userState.nombre || "").toLowerCase().replace(/[^a-z0-9]/g, '');
                         const cleanPush = (userState.pushname || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                        if (cleanName && (cleanName.includes(cleanWhatsapp) || cleanWhatsapp.includes(cleanName))) {
+                        
+                        if (cleanName === cleanWhatsapp || cleanPush === cleanWhatsapp) {
                             isNameMatch = true;
-                        } else if (cleanPush && (cleanPush.includes(cleanWhatsapp) || cleanWhatsapp.includes(cleanPush))) {
+                        } else if (cleanName && (cleanName.startsWith(cleanWhatsapp) || cleanWhatsapp.startsWith(cleanName)) && Math.abs(cleanName.length - cleanWhatsapp.length) <= 3) {
                             isNameMatch = true;
                         }
                     }

@@ -8224,6 +8224,24 @@ async function handleAwaitingPaymentMethod(message, userId, isMedia = false, sin
     const textToUse = text || message.body || '';
     const stateData = userStates.get(userId) || {};
 
+    // Si tenemos plataformas de churn pendientes de razón y el cliente responde con texto (no un comprobante ni método)
+    const hasChurnPlatforms = stateData.churnPlatforms && stateData.churnPlatforms.length > 0;
+    const isPaymentMethod = ['nequi', 'daviplata', 'bancolombia', 'llave', 'qr', 'efectivo', 'pagar', 'comprobante', 'recibo', 'medio', 'transf', 'banco'].some(k => textToUse.toLowerCase().includes(k));
+    
+    if (hasChurnPlatforms && !isPaymentMethod && !message.hasMedia && textToUse.trim().length > 3) {
+        const { updateExcelData } = require('./apiService');
+        const cleanReason = textToUse.trim();
+        console.log(`[Churn Auto-Collector] Recibida razón de churn de @${userId}: "${cleanReason}" para filas:`, stateData.churnPlatforms);
+        for (const row of stateData.churnPlatforms) {
+            await updateExcelData(row, { observaciones: `cortar - ${cleanReason} (bot)` }).catch(e => {});
+        }
+        await message.reply("🤖 Muchas gracias por tu retroalimentación, la tendremos en cuenta para mejorar. 😊 ¿Por cuál de los medios mencionados anteriormente deseas realizar el pago de tu renovación?");
+        
+        stateData.churnPlatforms = null;
+        userStates.set(userId, stateData);
+        return;
+    }
+
     const wasModified = await handleRenewalModification(message, userId, textToUse, stateData);
     if (wasModified) return;
 
