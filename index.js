@@ -5580,6 +5580,22 @@ async function baseProcessIncomingMessage(messages) {
                 userStates.delete(userId);
                 currentState = undefined;
             } else {
+                // Si el cliente está en cola y sigue enviando mensajes, informarle periódicamente de su posición (límite 5 min)
+                const lastWarning = (currentStateData && currentStateData.lastWarningTime) || 0;
+                if (Date.now() - lastWarning > 5 * 60 * 1000) {
+                    const { getQueuePosition } = require('./supportScheduleService');
+                    const queuePos = getQueuePosition(userId, userStates);
+                    if (queuePos) {
+                        await message.reply(`🤖 Sigues en nuestra lista de espera para atención humana.\n\n📌 *Tu turno actual en la cola:* #${queuePos}.\n\nUn asesor te atenderá lo antes posible. ¡Gracias por tu paciencia! 😊`);
+                    } else {
+                        await message.reply(`🤖 Sigues en nuestra lista de espera para atención humana. Un asesor te atenderá lo antes posible. ¡Gracias por tu paciencia! 😊`);
+                    }
+                    userStates.set(userId, { 
+                        ...currentStateData, 
+                        lastWarningTime: Date.now() 
+                    });
+                }
+
                 // Silencio absoluto para consultas no resolubles en modo advisor / bot
                 console.log(`[DEBUG] Usuario @${userId.replace('@c.us', '')} está en waiting_human (modo ${mode}). Manteniendo silencio absoluto.`);
                 return;
@@ -7069,12 +7085,16 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     if (detection && mediaData && mediaData.length > 0) {
         const explanationLower = (detection.explanation || "").toLowerCase();
         const bodyLower = inputToUse.toLowerCase();
+        const isIncorrectPassword = [
+            'incorrecta', 'incorrecto', 'no son correctos', 'contraseña incorrecta', 'clave incorrecta', 'credenciales incorrectas'
+        ].some(kw => explanationLower.includes(kw));
+
         const wantsImgCode = [
-            'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor',
-            'gpt', 'chatgpt', '2fa', 'authenticator', 'autenticación', 'openai', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating'
+            'hogar', 'dispositivo', 'código', 'codigo', '2fa', 'authenticator', 'autenticación', 
+            'televisor', 'tv', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating'
         ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
 
-        if (wantsImgCode) {
+        if (wantsImgCode && !isIncorrectPassword) {
             isCodeRequestFromImage = true;
             console.log(`[BOT MEDIA OCR DETECTED IN FLOW] Gemini detected code request in image/explanation. Routing to code generator.`);
         }
