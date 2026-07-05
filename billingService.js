@@ -124,7 +124,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
                 let price = 0;
                 let mappedStreaming = streaming;
                 const aliasMap = {
-                    'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE',
+                    'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE TV+',
                     'HBO': 'HBOMAX', 'MAX': 'HBOMAX', 'DISNEY': 'DISNEY+ PREMIUM',
                     'STAR': 'DISNEY+ PREMIUM', 'YOUTUBE': 'YOUTUBE PREMIUM', 'MICROSOFT': 'MICROSOFT 365'
                 };
@@ -246,7 +246,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             const aliasMap = {
                 'AMAZON': 'PRIME VIDEO',
                 'PRIME': 'PRIME VIDEO',
-                'APPLE TV': 'APPLE',
+                'APPLE TV': 'APPLE TV+',
                 'HBO': 'HBOMAX',
                 'MAX': 'HBOMAX',
                 'DISNEY': 'DISNEY+ PREMIUM',
@@ -469,7 +469,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
           const aliasMap = {
               'AMAZON': 'PRIME VIDEO',
               'PRIME': 'PRIME VIDEO',
-              'APPLE TV': 'APPLE',
+              'APPLE TV': 'APPLE TV+',
               'HBO': 'HBOMAX',
               'MAX': 'HBOMAX',
               'DISNEY': 'DISNEY+ PREMIUM',
