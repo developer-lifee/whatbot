@@ -3,6 +3,26 @@ const { getAvailabilityConfig, normalizeStreamingName } = require('./availabilit
 
 const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify individual', 'spotify personal', 'spotify familiar', 'familiar', 'family', 'xbox', 'netflix extra', 'extra', 'individual', 'personal', 'correo propio', 'tu correo'];
 
+function isSamePlatformFamily(name1, name2) {
+    const n1 = normalizeStreamingName(name1);
+    const n2 = normalizeStreamingName(name2);
+    if (n1 === n2) return true;
+    
+    const families = [
+        ['hbo', 'hbo_platino'],
+        ['netflix', 'netflix_extra'],
+        ['spotify', 'spotify_familiar', 'spotify_personal', 'spotify_individual'],
+        ['disney', 'disney_premium', 'disney_standard']
+    ];
+    
+    for (const fam of families) {
+        if (fam.includes(n1) && fam.includes(n2)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /**
  * Calcula la fecha del próximo pago sumando los meses correspondientes.
  * @param {string} subscriptionType - 'mensual', 'semestral', 'anual'
@@ -197,9 +217,32 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
             if (!userState.isRenewal) {
                 const existingAccount = allRows.find(r => {
-                    const rowPhone = (r.numero || r.Numero || r.whatsapp || "").toString().replace(/\D/g, '');
-                    const rowStreaming = normalizeStreamingName(r.Streaming);
-                    return rowPhone.includes(phone.slice(-10)) && rowStreaming === normalizeStreamingName(platformName);
+                    const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
+                    const whatsappVal = (r.whatsapp || "").toString().trim();
+                    const whatsappDigits = whatsappVal.replace(/\D/g, '');
+                    
+                    // Match by phone number
+                    let isPhoneMatch = false;
+                    if (rowPhone && rowPhone.includes(phone.slice(-10))) {
+                        isPhoneMatch = true;
+                    } else if (whatsappDigits && whatsappDigits.includes(phone.slice(-10))) {
+                        isPhoneMatch = true;
+                    }
+
+                    // Match by name
+                    let isNameMatch = false;
+                    const cleanWhatsapp = whatsappVal.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    if (cleanWhatsapp && !whatsappDigits) { // Es un nombre de texto, no un número
+                        const cleanName = (userState.nombre || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                        const cleanPush = (userState.pushname || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                        if (cleanName && (cleanName.includes(cleanWhatsapp) || cleanWhatsapp.includes(cleanName))) {
+                            isNameMatch = true;
+                        } else if (cleanPush && (cleanPush.includes(cleanWhatsapp) || cleanWhatsapp.includes(cleanPush))) {
+                            isNameMatch = true;
+                        }
+                    }
+
+                    return (isPhoneMatch || isNameMatch) && isSamePlatformFamily(r.Streaming, platformName);
                 });
 
                 if (existingAccount) {
