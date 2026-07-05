@@ -6582,31 +6582,85 @@ async function baseProcessIncomingMessage(messages) {
 
                         // Intentar obtener el precio real de la plataforma en el catálogo
                         let catalogPrice = 0;
+                        let matchedItems = [];
                         try {
                             const { getPlatforms } = require('./salesService');
                             const platforms = await getPlatforms();
                             const lowerInferred = check.inferredPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
-                            const matchedPlatform = platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(lowerInferred)) ||
-                                platforms.find(p => lowerInferred.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
-                            if (matchedPlatform) {
-                                if (matchedPlatform.name.toLowerCase().includes('spotify')) {
-                                    // Spotify tiene planes de 10000 (Individual) y 8000 (Owner)
-                                    const matchedPlan = matchedPlatform.plans.find(p => p.price === check.amount);
+                            
+                            // Encontrar todas las plataformas mencionadas en inferredPlatform
+                            const matchedPlats = platforms.filter(p => {
+                                const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                return lowerInferred.includes(cleanPlat) || cleanPlat.includes(lowerInferred);
+                            });
+
+                            for (const plat of matchedPlats) {
+                                let price = plat.price || 0;
+                                let planName = plat.name;
+
+                                // 1. Primero intentar encontrar coincidencia con las cuentas activas del usuario
+                                const userAccForPlat = userAccounts.find(acc => {
+                                    const accStreaming = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                                    const platName = plat.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                    return accStreaming.includes(platName) || platName.includes(accStreaming);
+                                });
+
+                                if (userAccForPlat && plat.plans && plat.plans.length > 0) {
+                                    const cleanAccStreaming = userAccForPlat.Streaming.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                    const matchedPlan = plat.plans.find(plan => {
+                                        const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                        return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
+                                    });
                                     if (matchedPlan) {
-                                        catalogPrice = matchedPlan.price;
-                                    } else {
-                                        const individualPlan = matchedPlatform.plans.find(p => p.name.toLowerCase().includes('individual'));
-                                        catalogPrice = individualPlan ? individualPlan.price : 10000;
+                                        price = matchedPlan.price;
+                                        planName = `${plat.name} - ${matchedPlan.name}`;
                                     }
-                                } else if (matchedPlatform.plans && matchedPlatform.plans.length > 0) {
-                                    catalogPrice = matchedPlatform.plans[0].price;
                                 }
+
+                                // 2. Si no coincide con ninguna cuenta del usuario, intentar coincidir con texto de inferredPlatform
+                                if (price === 0 || planName === plat.name) {
+                                    if (plat.name.toLowerCase().includes('spotify')) {
+                                        const matchedPlan = plat.plans.find(p => p.price === check.amount);
+                                        if (matchedPlan) {
+                                            price = matchedPlan.price;
+                                            planName = `${plat.name} - ${matchedPlan.name}`;
+                                        } else {
+                                            const individualPlan = plat.plans.find(p => p.name.toLowerCase().includes('individual'));
+                                            price = individualPlan ? individualPlan.price : 10000;
+                                            planName = individualPlan ? `${plat.name} - ${individualPlan.name}` : plat.name;
+                                        }
+                                    } else if (plat.plans && plat.plans.length > 0) {
+                                        const specificPlan = plat.plans.find(plan => {
+                                            const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                            const cleanInferred = check.inferredPlatform.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                            return cleanInferred.includes(cleanPlan) || cleanPlan.includes(cleanInferred);
+                                        });
+                                        if (specificPlan) {
+                                            price = specificPlan.price;
+                                            planName = `${plat.name} - ${specificPlan.name}`;
+                                        } else {
+                                            price = plat.plans[0].price;
+                                            planName = `${plat.name} - ${plat.plans[0].name}`;
+                                        }
+                                    }
+                                }
+
+                                catalogPrice += price;
+                                matchedItems.push({
+                                    Streaming: planName,
+                                    platform: { name: plat.name }
+                                });
                             }
                         } catch (platErr) {
                             console.error("[PAYMENT INTERCEPTOR] Error buscando precio de plataforma en catálogo:", platErr.message);
                         }
 
-                        stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
+                        // Si encontramos múltiples plataformas, aplicar descuento por combo de ser aplicable
+                        if (matchedItems.length > 1) {
+                            catalogPrice = Math.max(0, catalogPrice - 1000);
+                        }
+
+                        stateData.items = matchedItems.length > 0 ? matchedItems : [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
                         stateData.total = catalogPrice || check.amount;
                         stateData.isAutoFilled = true;
                         userStates.set(userId, stateData); // Persistir el auto-llenado
