@@ -1540,6 +1540,48 @@ app.post('/api/admin/tickets/release', async (req, res) => {
     }
 });
 
+app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
+    try {
+        const { phone, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        userStates.delete(userId); // Liberar de modo asesor / espera
+
+        const chat = await client.getChatById(userId);
+        if (!chat) return res.status(404).json({ success: false, message: 'Chat no encontrado' });
+
+        const messages = await chat.fetchMessages({ limit: 10 });
+        if (!messages || messages.length === 0) {
+            return res.status(400).json({ success: false, message: 'No hay mensajes en el chat' });
+        }
+
+        // Buscar últimos mensajes consecutivos que no sean nuestros ni del bot
+        const clientMessages = [];
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const m = messages[i];
+            if (!m.fromMe && !m.body.includes('🤖')) {
+                clientMessages.unshift(m);
+            } else {
+                break;
+            }
+        }
+
+        if (clientMessages.length === 0) {
+            return res.status(400).json({ success: false, message: 'El último mensaje no es del cliente' });
+        }
+
+        console.log(`[Force Bot Reply] Procesando manualmente ${clientMessages.length} mensajes para @${phone}`);
+        processIncomingMessage(clientMessages).catch(err => {
+            console.error('[Force Bot Reply] Error en procesamiento manual:', err.message);
+        });
+
+        res.json({ success: true, message: 'Respuesta del bot forzada con éxito' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/admin/tickets/resolve', async (req, res) => {
     try {
         const { phone, password, resolveAll, agentName: bodyAgentName } = req.body;
@@ -5213,9 +5255,17 @@ async function baseProcessIncomingMessage(messages) {
         }
     }
 
-    const message = messages[messages.length - 1];
-    const isMedia = messages.some(m => m.hasMedia);
-    const combinedBody = messages.map(m => m.body || "").filter(b => b !== "").join("\n");
+    // Filtrar stickers, reacciones y estados del lote
+    const validMessages = messages.filter(m => m.type !== 'sticker' && m.type !== 'reaction' && !m.isStatus);
+    
+    if (validMessages.length === 0) {
+        console.log(`[Batch Processor] Ignorando lote porque solo contiene stickers, reacciones o estados para @${userId.replace('@c.us', '')}`);
+        return;
+    }
+
+    const message = validMessages[validMessages.length - 1];
+    const isMedia = validMessages.some(m => m.hasMedia);
+    const combinedBody = validMessages.map(m => m.body || "").filter(b => b !== "").join("\n");
     message.combinedBody = combinedBody;
 
     // --- INTERCEPTOR ESPECIAL ADMINISTRADOR ---
