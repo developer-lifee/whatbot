@@ -7260,8 +7260,13 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const unreads = message._unreadCount || 0;
 
             const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "renovar"];
-            if ((frustration >= 7 || unreads >= 10) && !solvableIntents.includes(detection.intent)) {
-                console.log(`[Flow Recovery] 🚨 Detectada alta frustración (${frustration}) o insistencia (${unreads}) para @${userId}. Pasando a waiting_human.`);
+            const cleanText = (message.body || "").toLowerCase().trim();
+            const isExplicitHumanRequest = cleanText.includes('asesor') || cleanText.includes('humano') || cleanText === '5';
+            const isAwaitingDetails = currentStateData && currentStateData.state === 'awaiting_support_details';
+            const shouldForceHuman = (frustration >= 9 || unreads >= 10 || isExplicitHumanRequest || isAwaitingDetails);
+
+            if (shouldForceHuman && !solvableIntents.includes(detection.intent)) {
+                console.log(`[Flow Recovery] 🚨 Detectada alta frustración/insistencia para @${userId}. Pasando a waiting_human.`);
 
                 const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
                 const supportStatus = await isSupportOpen();
@@ -7463,23 +7468,32 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     }
                 }
 
-                // Si no es un caso de 2FA/código, lo enviamos directamente a atención humana
-                const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
-                const supportStatus = await isSupportOpen();
-                
-                userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                // Si no es un caso de 2FA/código, revisamos si ya le habíamos pedido detalles
+                const wasAwaitingDetails = currentStateData && currentStateData.state === 'awaiting_support_details';
+                const cleanText = (message.body || "").toLowerCase().trim();
+                const isExplicitHumanRequest = cleanText.includes('asesor') || cleanText.includes('humano') || cleanText === '5';
 
-                if (!supportStatus.open) {
-                    const { getOfflineReplyMessage } = require('./supportScheduleService');
-                    const offlineMsg = await getOfflineReplyMessage(userId, userStates);
-                    await safeReply(message, offlineMsg, userId);
-                } else {
-                    const queuePos = getQueuePosition(userId, userStates);
-                    let replyText = "🤖 Entendido. He transferido tu caso a soporte técnico. Un asesor humano te atenderá lo antes posible.";
-                    if (queuePos) {
-                        replyText += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}. ¡Gracias por tu paciencia!`;
+                if (wasAwaitingDetails || isExplicitHumanRequest) {
+                    const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
+                    const supportStatus = await isSupportOpen();
+                    
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+
+                    if (!supportStatus.open) {
+                        const { getOfflineReplyMessage } = require('./supportScheduleService');
+                        const offlineMsg = await getOfflineReplyMessage(userId, userStates);
+                        await safeReply(message, offlineMsg, userId);
+                    } else {
+                        const queuePos = getQueuePosition(userId, userStates);
+                        let replyText = "🤖 Entendido. He transferido tu caso a soporte técnico. Un asesor humano te atenderá lo antes posible.";
+                        if (queuePos) {
+                            replyText += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}. ¡Gracias por tu paciencia!`;
+                        }
+                        await safeReply(message, replyText, userId);
                     }
-                    await safeReply(message, replyText, userId);
+                } else {
+                    await safeReply(message, `🤖 ¡Hola! Entiendo que tienes un inconveniente con tu cuenta. Para poder ayudarte a solucionarlo lo antes posible (e incluso resolverlo automáticamente si es un código de acceso o restablecimiento de hogar), por favor **envíame una foto del error que te aparece en pantalla o descríbeme detalladamente qué plataforma es y qué error te sale**. 📲`, userId);
+                    userStates.set(userId, { state: 'awaiting_support_details', timestamp: Date.now(), platform: platform, nombre: foundName });
                 }
                 return;
             }
