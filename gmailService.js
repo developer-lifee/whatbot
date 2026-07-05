@@ -145,7 +145,7 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
                 const isTransfer = /transferencia/i.test(body) || /recibida/i.test(body) || /abono/i.test(body) || /transferencia/i.test(subject);
                 if (!isTransfer) continue;
 
-                const amountRegex = /(?:por valor de|por|monto|valor)\s*(?:\$)?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i;
+                const amountRegex = /(?:por valor de|por|monto|valor)(?:\s+de)?\s*(?:\$)?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i;
                 const amountMatches = body.match(amountRegex);
 
                 if (amountMatches) {
@@ -219,7 +219,7 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
     // 2. Buscar en Esteban (Bancolombia)
     const matchEsteban = await findMatchingPaymentInAccount(
         'estebanavila6324@gmail.com',
-        'subject:("Transferencia recibida" OR "Le informamos" OR "Bancolombia te informa") newer_than:1d',
+        'subject:("Transferencia recibida" OR "Le informamos" OR "Bancolombia te informa" OR "Lulo Bank te informa") newer_than:1d',
         targetAmount,
         toleranceMinutes,
         true
