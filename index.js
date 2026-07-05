@@ -5436,7 +5436,7 @@ async function baseProcessIncomingMessage(messages) {
 
             // Also check if Gemini's media description detects a Netflix/Disney code or home screen
             if (mediaData && detection) {
-                const imgDesc = (detection.explanation || "").toLowerCase();
+                const imgDesc = ((detection.explanation || "") + " " + (detection.mediaDescription || "")).toLowerCase();
                 const wantsImgCode = [
                     'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor',
                     'gpt', 'chatgpt', '2fa', 'authenticator', 'autenticación', 'openai', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',

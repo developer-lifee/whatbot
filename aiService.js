@@ -1055,6 +1055,17 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
   if (isMedia && mediaData) {
     try {
       mediaDescription = await describeImageWithGemini(mediaData);
+      
+      if (mediaDescription) {
+        const descLower = mediaDescription.toLowerCase();
+        const isNetflixCodeScreen = (descLower.includes('ingresa el código') || descLower.includes('ingresar el código') || descLower.includes('código que enviamos') || descLower.includes('codigo que enviamos') || descLower.includes('enviamos a tu email') || descLower.includes('enviamos a tu correo')) && descLower.includes('netflix');
+        if (isNetflixCodeScreen) {
+          return {
+            replyMessage: `🤖 *Tip de Inicio de Sesión de Netflix:* 💡\n\nVeo que tu pantalla te está solicitando un código enviado al correo.\n\n*No es necesario que esperes por un código.* Por favor realiza lo siguiente:\n\n1. Selecciona el botón **"Obtener ayuda"** (ubicado abajo a la izquierda en tu pantalla).\n2. Elige la opción **"Usar contraseña"**.\n3. Ingresa la contraseña de Netflix que te proporcionamos.\n\n¡De esta forma podrás iniciar sesión de inmediato sin esperar un código! 😊 🤖`,
+            needsEscalation: false
+          };
+        }
+      }
     } catch (e) {
       console.error("Error generating media description in fallback:", e);
     }
@@ -1248,7 +1259,7 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
     console.log('Resultado IA:', JSON.stringify(parsed, null, 2));
     console.log('-------------------------\n');
 
-    return parsed;
+    return { ...parsed, mediaDescription: mediaDescription || null };
   } catch (error) {
     console.error("Error detecting initial intent (DeepSeek fail):", error.message);
 
@@ -1260,7 +1271,8 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
       userName: null,
       isNameComplete: false,
       detectedPlatform: null,
-      metadata: null
+      metadata: null,
+      mediaDescription: mediaDescription || null
     };
   }
 }
