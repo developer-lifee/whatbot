@@ -6610,6 +6610,7 @@ async function baseProcessIncomingMessage(messages) {
                         stateData.total = check.amount;
                         stateData.isAutoFilled = true;
                         stateData.isImplicitFallback = true; // Flag para confirmación de precisión
+                        stateData.isRenewal = true; // Indicar que es renovación
                         userStates.set(userId, stateData); // Persistir el auto-llenado
                     }
                 }
