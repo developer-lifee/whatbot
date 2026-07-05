@@ -5416,10 +5416,16 @@ async function baseProcessIncomingMessage(messages) {
             } catch (e) { }
         }
 
+        let userAccounts = [];
+        try {
+            const { getAccountsByPhone } = require('./apiService');
+            userAccounts = await getAccountsByPhone(realPhone);
+        } catch (e) { }
+
         try {
             const { detectInitialIntent } = require('./aiService');
             const hist = await getChatHistoryText(message, 15);
-            const detection = await detectInitialIntent(message.body, hist, mediaData);
+            const detection = await detectInitialIntent(message.body, hist, mediaData, userAccounts);
 
             const cleanBody = (message.body || "").trim();
             const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "renovar"];
