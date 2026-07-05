@@ -67,6 +67,7 @@ async function syncExcelToDb() {
 
     // 4. Insertar/actualizar en BD (modelo: stream_accounts + account_assignments)
     let insertedAccounts = 0, updatedAccounts = 0, insertedAssignments = 0, updatedAssignments = 0, skipped = 0;
+    const activeExcelCombos = new Set();
 
     for (const c of customers) {
         const phone = (c.numero || c.Numero || '').toString().replace(/\D/g, '');
@@ -81,6 +82,7 @@ async function syncExcelToDb() {
         const password = (c.contraseña || c.password || c.clave || c.Contraseña || '').toString().trim();
 
         if (!phone || !email || !platform) { skipped++; continue; }
+        activeExcelCombos.add(email + '|' + platform);
 
         const isProvider = managedEmails.has(email) ? 0 : 1;
         const providerInfo = providerEmailsMap.get(email);
@@ -150,6 +152,22 @@ async function syncExcelToDb() {
             );
             insertedAssignments++;
         }
+    }
+
+    // 5. Borrar cuentas y asignaciones que ya no existen en el Excel
+    if (activeExcelCombos.size > 0) {
+        console.log(`[Sync] Depurando cuentas obsoletas en la base de datos...`);
+        const [dbAccounts] = await pool.query('SELECT id, account_email, streaming_platform FROM stream_accounts');
+        let deletedCount = 0;
+        for (const dbAcc of dbAccounts) {
+            const comboKey = dbAcc.account_email.toLowerCase().trim() + '|' + dbAcc.streaming_platform.toLowerCase().trim();
+            if (!activeExcelCombos.has(comboKey)) {
+                await pool.query('DELETE FROM account_assignments WHERE account_id = ?', [dbAcc.id]);
+                await pool.query('DELETE FROM stream_accounts WHERE id = ?', [dbAcc.id]);
+                deletedCount++;
+            }
+        }
+        console.log(`[Sync] Depuración completa: ${deletedCount} cuentas eliminadas de la base de datos.`);
     }
 
     const summary = {
