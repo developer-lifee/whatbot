@@ -5432,7 +5432,7 @@ async function baseProcessIncomingMessage(messages) {
             ];
             
             // Check if the message contains code request keywords
-            let isCodeRequest = wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) || cleanBody === '?';
+            let isCodeRequest = (wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) && !cleanBody.toLowerCase().includes('qr') && !cleanBody.toLowerCase().includes('barras') && !cleanBody.toLowerCase().includes('pago')) || cleanBody === '?';
 
             // Also check if Gemini's media description detects a Netflix/Disney code or home screen
             if (mediaData && detection) {
@@ -6455,11 +6455,11 @@ async function baseProcessIncomingMessage(messages) {
         'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
     ];
     const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify'];
-    const hasCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw));
+    const hasCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) && !lowerBody.includes('qr') && !lowerBody.includes('barras') && !lowerBody.includes('pago');
     const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
     const isQuestionOrCode = lowerBody === '?' || lowerBody.includes('enviar') || wantsCodeKeywords.some(kw => lowerBody === kw);
 
-    if (hasCodeKeyword || (isQuestionOrCode && hasPlatformKeyword) || isQuestionOrCode) {
+    if ((hasCodeKeyword && !lowerBody.includes('qr') && !lowerBody.includes('barras') && !lowerBody.includes('pago')) || (isQuestionOrCode && hasPlatformKeyword) || isQuestionOrCode) {
         try {
             const { getAccountsByPhone } = require('./apiService');
             const userAccounts = await getAccountsByPhone(realPhone);
@@ -7084,8 +7084,16 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         }
     }
 
-    if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform || isForcedMenuBreakout)) || isChurnRefusal) {
-        console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isForcedMenuBreakout ? 'Fuerza de menú numérico' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema (' + detection.intent + ')' : 'Alta frustración')))}`);
+    let isNumericSelectionBreakout = false;
+    if (statesExpectingNumbers.includes(currentState) && !isSingleDigit) {
+        if (['comprar', 'pagar', 'renovar', 'soporte'].includes(detection.intent)) {
+            isNumericSelectionBreakout = true;
+            console.log(`[Flow Breakout] Rompiendo selección numérica '${currentState}' por intent de texto: ${detection.intent}`);
+        }
+    }
+
+    if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform || isForcedMenuBreakout)) || isChurnRefusal || isNumericSelectionBreakout) {
+        console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isNumericSelectionBreakout ? 'Breakout selección numérica' : (isForcedMenuBreakout ? 'Fuerza de menú numérico' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema (' + detection.intent + ')' : 'Alta frustración'))))}`);
 
         if (isVeryFrustrated) {
             userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1, waiting_human_mode: 'bot' });
