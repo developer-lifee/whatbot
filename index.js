@@ -247,7 +247,9 @@ const {
     getNetflixMatchReport,
     handleAdminSuggestions,
     executeTestMode,
-    executePaymentValidation
+    executePaymentValidation,
+    applyLabelToChat,
+    removeLabelFromChat
 } = require('./adminService');
 
 
@@ -5045,10 +5047,10 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
             try {
                 const { pool } = require('./database');
                 const [subRows] = await pool.query(
-                    `SELECT s.rpa_recipe_id, r.name as recipe_name, r.recipe_json
-                     FROM subscriptions s
-                     LEFT JOIN rpa_recipes r ON r.id = s.rpa_recipe_id
-                     WHERE s.account_email = ? AND s.is_provider = 1 AND s.status = 'active'
+                    `SELECT sa.rpa_recipe_id, r.name as recipe_name, r.recipe_json
+                     FROM stream_accounts sa
+                     LEFT JOIN rpa_recipes r ON r.id = sa.rpa_recipe_id
+                     WHERE sa.account_email = ? AND sa.is_provider = 1
                      LIMIT 1`,
                     [accountEmail.toLowerCase().trim()]
                 );
@@ -6616,38 +6618,41 @@ async function baseProcessIncomingMessage(messages) {
                 const { adjustDurationToMatchAmount } = require('./billingService');
                 await adjustDurationToMatchAmount(stateData, check.amount, userId);
 
+                let totalPaidSoFar = (stateData.checkAmount || 0) + (check.amount || 0);
                 let leftoverAmount = 0;
                 if (check.amount && check.amount > 0) {
                     const expectedTotal = stateData.total || 0;
-                    leftoverAmount = (expectedTotal > 0 && check.amount > expectedTotal) ? (check.amount - expectedTotal) : 0;
+                    leftoverAmount = (expectedTotal > 0 && totalPaidSoFar > expectedTotal) ? (totalPaidSoFar - expectedTotal) : 0;
                     try {
-                        const isShortPayment = expectedTotal > 0 && check.amount < expectedTotal;
+                        const isShortPayment = expectedTotal > 0 && totalPaidSoFar < expectedTotal;
 
                         if (isShortPayment) {
-                            console.log(`[PAYMENT AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) es menor al total esperado ($${expectedTotal}) para @${userId}. No se auto-validará.`);
+                            console.log(`[PAYMENT AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) + anterior ($${stateData.checkAmount || 0}) es menor al total esperado ($${expectedTotal}) para @${userId}. No se auto-validará.`);
                             
                             userStates.set(userId, {
                                 ...stateData,
                                 state: 'awaiting_payment_confirmation',
                                 paymentMethod: check.bank || 'Transferencia',
-                                checkAmount: check.amount
+                                checkAmount: totalPaidSoFar
                             });
                             globalLastPaymentUserId = userId;
                             
-                            const diff = expectedTotal - check.amount;
+                            const diff = expectedTotal - totalPaidSoFar;
                             const replyText = `🤖 ¡Hola! He recibido tu comprobante por valor de *$${check.amount.toLocaleString('es-CO')}*.\n\n` +
-                                `Sin embargo, el total de tu pedido es de *$${expectedTotal.toLocaleString('es-CO')}* COP. Aún hace falta un pago por el valor restante de *$${diff.toLocaleString('es-CO')}* COP. ⚠️\n\n` +
+                                `Con esto, has pagado un total acumulado de *$${totalPaidSoFar.toLocaleString('es-CO')}* COP. Sin embargo, el total de tu pedido es de *$${expectedTotal.toLocaleString('es-CO')}* COP. Aún hace falta un pago por el valor restante de *$${diff.toLocaleString('es-CO')}* COP. ⚠️\n\n` +
                                 `Por favor realiza la transferencia del monto restante y envía el nuevo comprobante para poder completar tu pedido y entregar/activar tu servicio. ¡Muchas gracias! 😊`;
                             
                             await message.reply(replyText);
+                            await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                             
                             try {
                                 const groupChat = await client.getChatById(GROUP_ID);
                                 if (groupChat) {
                                     let adminMsg = `🚨 *COMPROBANTE DETECTADO INCOMPLETO* (@${userId.replace('@c.us', '')})\n` +
-                                        `⚠️ *PAGO INCOMPLETO* (Faltan $${diff})\n` +
+                                        `⚠️ *PAGO INCOMPLETO ACCUMULADO* (Faltan $${diff})\n` +
                                         `Banco: ${check.bank || 'No identificado'}\n` +
                                         `Monto Recibido: $${check.amount}\n` +
+                                        `Total Acumulado: $${totalPaidSoFar}\n` +
                                         `Monto Esperado: $${expectedTotal}\n\n` +
                                         `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
 
@@ -7936,8 +7941,129 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
 }
 
 
+async function handleRenewalModification(message, userId, textToUse, stateData) {
+    if (!stateData.isRenewal || !stateData.items || stateData.items.length === 0) return false;
+    
+    try {
+        const { analyzeRenewalModification } = require('./aiService');
+        const modification = await analyzeRenewalModification(textToUse, stateData.items);
+        if (modification && modification.shouldModify) {
+            console.log(`[Renewal Mod] User requested modification for @${userId}:`, modification);
+            
+            const originalItems = stateData.items;
+            const updatedItems = originalItems.filter(item => {
+                const name = (item.Streaming || (item.platform ? item.platform.name : '') || item.name || '').toLowerCase();
+                return modification.platformsToRenew.some(p => name.includes(p.toLowerCase()) || p.toLowerCase().includes(name));
+            });
+
+            const excludedItems = originalItems.filter(item => !updatedItems.includes(item));
+            if (excludedItems.length > 0) {
+                const { updateExcelData } = require('./apiService');
+                const dateStr = new Date().toLocaleDateString('es-CO');
+                for (const item of excludedItems) {
+                    const row = item._rowNumber || item.index;
+                    if (row) {
+                        try {
+                            await updateExcelData(row, { "observaciones": `cortar (bot ${dateStr})` });
+                            console.log(`[Renewal Mod] Fila ${row} marcada como cortar (bot)`);
+                        } catch (e) {
+                            console.error(`[Renewal Mod] Error al marcar cortar para fila ${row}:`, e.message);
+                        }
+                    }
+                }
+            }
+
+            if (updatedItems.length === 0) {
+                await message.reply(modification.reply || "🤖 Entendido, he cancelado la renovación de todos los servicios. ¡Aquí tienes tu casa para cuando gustes volver! 👋");
+                userStates.delete(userId);
+                return true;
+            }
+
+            const { getPlatformKnowledge, getTodayInBogota } = require('./apiService');
+            const platforms = await getPlatformKnowledge();
+            const today = getTodayInBogota();
+            const duration = stateData.durationMonths || 1;
+            
+            let total = 0;
+            let finalItems = [];
+            updatedItems.forEach(item => {
+                const streaming = (item.Streaming || "").toUpperCase();
+                let price = 0;
+                let mappedStreaming = streaming;
+                const aliasMap = {
+                    'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE',
+                    'HBO': 'HBOMAX', 'MAX': 'HBOMAX', 'DISNEY': 'DISNEY+ PREMIUM',
+                    'STAR': 'DISNEY+ PREMIUM', 'YOUTUBE': 'YOUTUBE PREMIUM', 'MICROSOFT': 'MICROSOFT 365'
+                };
+                for (const [alias, real] of Object.entries(aliasMap)) {
+                    if (mappedStreaming.includes(alias)) {
+                        mappedStreaming = mappedStreaming.replace(alias, real);
+                        break;
+                    }
+                }
+                const cleanExcel = mappedStreaming.replace(/[^A-Z0-9]/g, '');
+                const platInfo = platforms.find(p => {
+                    const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    return cleanExcel.includes(cleanPlat) || cleanPlat.includes(cleanExcel);
+                });
+                if (platInfo) {
+                    price = platInfo.price || 0;
+                    if (platInfo.name.toUpperCase() === 'SPOTIFY' && !cleanExcel.includes('PROPORCIONADO') && !cleanExcel.includes('OWNER')) {
+                        const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL'));
+                        if (personalPlan) price = personalPlan.price;
+                    } else if (platInfo.plans && platInfo.plans.length > 0) {
+                        const specificPlan = platInfo.plans.find(plan => {
+                            const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                            return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
+                        });
+                        if (specificPlan) price = specificPlan.price;
+                    }
+                }
+                const itemPrice = price * duration;
+                total += itemPrice;
+                finalItems.push({ ...item, price: itemPrice });
+            });
+
+            const imminentRenewals = finalItems.filter(item => {
+                const expDate = require('./apiService').getJsDateFromExcel(item.deben || item.vencimiento);
+                if (!expDate) return false;
+                const diffDays = Math.floor((expDate - today) / (1000 * 60 * 60 * 24));
+                return diffDays <= 1; 
+            });
+            if (total > 0 && imminentRenewals.length > 1) {
+                const discount = (imminentRenewals.length - 1) * 1000 * duration;
+                total -= discount;
+            }
+
+            userStates.set(userId, {
+                ...stateData,
+                state: 'awaiting_payment_method',
+                total: total,
+                items: finalItems,
+                checkAmount: 0
+            });
+
+            let newMsg = `${modification.reply}\n\n💰 *NUEVO TOTAL A PAGAR: $${total}*\n\n` +
+                         `Puedes transferir por:\n` +
+                         `🔑 *Llave Bre-V:* \`0087387259\` (AUTOMÁTICA ⚡)\n` +
+                         `⭐ *Bancolombia Ahorros:* \`46772753713\` (CC: 1032936324)\n\n` +
+                         `Una vez realizado el pago, envíame la captura del comprobante por aquí. 🤖`;
+            await message.reply(newMsg);
+            return true;
+        }
+    } catch (err) {
+        console.error("Error in handleRenewalModification interceptor:", err.message);
+    }
+    return false;
+}
+
 async function handleAwaitingPaymentMethod(message, userId, isMedia = false, singleMediaData = null, text = null) {
     const textToUse = text || message.body || '';
+    const stateData = userStates.get(userId) || {};
+
+    const wasModified = await handleRenewalModification(message, userId, textToUse, stateData);
+    if (wasModified) return;
+
     await processPaymentSelection(message, userId, textToUse, isMedia, singleMediaData);
 }
 
@@ -8052,6 +8178,12 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
 
     // --- EVITAR DUPLICADO SI SE ACABA DE VALIDAR EL PAGO ---
     const stateData = userStates.get(userId) || {};
+
+    if (stateData.isRenewal && stateData.items && stateData.items.length > 0 && body && !message.hasMedia) {
+        const wasModified = await handleRenewalModification(message, userId, message.body, stateData);
+        if (wasModified) return;
+    }
+
     const lastValidated = stateData.lastPaymentValidated || 0;
     const timeSinceValidation = Date.now() - lastValidated;
 
@@ -8141,6 +8273,7 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         } catch (e) { }
                         await message.reply("🤖 ¡Gracias! He recibido tu comprobante y lo he enviado a nuestro equipo para validación. En breve un asesor confirmará tu pago y te entregará tus accesos. 😊");
                         userStates.set(userId, { ...stateData, state: 'waiting_admin_confirmation' });
+                        await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                         return;
                     }
 
@@ -8150,15 +8283,34 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         await adjustDurationToMatchAmount(stateData, check.amount, userId);
 
                         const expectedTotal = stateData.total || 0;
-                        const amountMatches = expectedTotal <= 0 || Math.abs(check.amount - expectedTotal) < 500;
+                        const totalPaidSoFar = (stateData.checkAmount || 0) + (check.amount || 0);
+                        const amountMatches = expectedTotal <= 0 || Math.abs(totalPaidSoFar - expectedTotal) < 500;
 
                         if (!amountMatches) {
-                            console.log(`[AUTO-VALIDATE] ❌ Monto ${check.amount} no coincide con esperado ${expectedTotal}.`);
-                            await message.reply(
-                                `🤖 Revisé tu comprobante: detecté un pago de *$${check.amount.toLocaleString('es-CO')}* a la llave correcta, ` +
-                                `pero el total de tu pedido es *$${expectedTotal.toLocaleString('es-CO')}*. ` +
-                                `Por favor verifica el monto y envía nuevamente el comprobante correcto. 😊`
-                            );
+                            if (expectedTotal > 0 && totalPaidSoFar < expectedTotal) {
+                                console.log(`[AUTO-VALIDATE] ❌ Monto acumulado ${totalPaidSoFar} es menor a esperado ${expectedTotal}. Guardando pago corto.`);
+                                userStates.set(userId, {
+                                    ...stateData,
+                                    state: 'awaiting_payment_confirmation',
+                                    paymentMethod: check.bank || 'Transferencia',
+                                    checkAmount: totalPaidSoFar
+                                });
+                                const diff = expectedTotal - totalPaidSoFar;
+                                await message.reply(
+                                    `🤖 Revisé tu comprobante: detecté un pago de *$${check.amount.toLocaleString('es-CO')}* a la llave correcta.\n\n` +
+                                    `Con esto, has pagado un total de *$${totalPaidSoFar.toLocaleString('es-CO')}* COP de un total de *$${expectedTotal.toLocaleString('es-CO')}* COP. ` +
+                                    `Aún hace falta un pago por el valor restante de *$${diff.toLocaleString('es-CO')}* COP. ⚠️\n\n` +
+                                    `Por favor realiza la transferencia del monto restante y envía nuevamente el comprobante. 😊`
+                                );
+                                await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
+                            } else {
+                                console.log(`[AUTO-VALIDATE] ❌ Monto ${check.amount} no coincide con esperado ${expectedTotal}.`);
+                                await message.reply(
+                                    `🤖 Revisé tu comprobante: detecté un pago de *$${check.amount.toLocaleString('es-CO')}* a la llave correcta, ` +
+                                    `pero el total de tu pedido es *$${expectedTotal.toLocaleString('es-CO')}*. ` +
+                                    `Por favor verifica el monto y envía nuevamente el comprobante correcto. 😊`
+                                );
+                            }
                             return;
                         }
 
@@ -8178,14 +8330,14 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                                 ...stateData,
                                 state: 'awaiting_netflix_operator_post_payment',
                                 paymentMethod: check.bank || 'Transferencia',
-                                checkAmount: check.amount
+                                checkAmount: totalPaidSoFar
                             });
                             return;
                         }
 
                         const validationResult = await executePaymentValidation(
                             userId,
-                            { ...stateData, total: check.amount || stateData.total, paymentMethod: `Auto-OCR Llave (${check.bank || 'Transferencia'})` },
+                            { ...stateData, total: totalPaidSoFar, paymentMethod: `Auto-OCR Llave (${check.bank || 'Transferencia'})` },
                             client, userStates, null, null
                         );
 
@@ -8232,6 +8384,7 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
         } catch (error) {
             console.error('Error enviando notificación al grupo:', error);
         }
+        await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
 
         // Revisar Netflix para pedir operador
         let hasNetflix = false;

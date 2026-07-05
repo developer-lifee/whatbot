@@ -949,13 +949,22 @@ Reglas:
     const result = JSON.parse(jsonString);
     console.log("[PAYMENT RECEIPT DEBUG] Resultado IA (DeepSeek + Gemini) Raw:", JSON.stringify(result, null, 2));
 
+    let inferred = result.inferredPlatform || null;
+    if (inferred) {
+      const lower = inferred.toLowerCase();
+      const forbidden = ['sheerit', 'esteban', 'avila', 'store', 'nequi', 'daviplata', 'bancolombia', 'transfiya', 'ahorros', 'corriente', 'transferencia', 'pago', 'comprobante'];
+      if (forbidden.some(word => lower.includes(word))) {
+        inferred = null;
+      }
+    }
+
     return {
       isReceipt: result.isReceipt && result.confidence > 0.7,
       amount: result.amount,
       bank: result.bank,
       destinationKey: result.destinationKey || null,
       destinationName: result.destinationName || null,
-      inferredPlatform: result.inferredPlatform || null
+      inferredPlatform: inferred
     };
   } catch (error) {
     console.error("Error recognizing payment proof:", error);
@@ -1219,6 +1228,14 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
   try {
     const jsonString = await callDeepSeek(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true);
     const parsed = JSON.parse(jsonString);
+
+    if (parsed && parsed.detectedPlatform) {
+      const lowerPlat = parsed.detectedPlatform.toLowerCase();
+      const forbidden = ['sheerit', 'esteban', 'avila', 'store'];
+      if (forbidden.some(word => lowerPlat.includes(word))) {
+        parsed.detectedPlatform = null;
+      }
+    }
 
     // Si la IA devuelve desconocido pero tenemos un keywordIntent, lo usamos
     if (parsed.intent === "desconocido" && keywordIntent) {
@@ -1557,6 +1574,45 @@ Salida esperada usando formato JSON estricto:
   }
 }
 
+async function analyzeRenewalModification(messageContent, currentItems) {
+  const itemsSummary = (currentItems || []).map(item => {
+    const name = item.Streaming || (item.platform ? item.platform.name : '') || item.name || '';
+    return `- Fila: ${item._rowNumber || item.index || 'N/A'}, Plataforma: ${name}`;
+  }).join('\n');
+
+  const prompt = `Analiza el mensaje del cliente que está en proceso de renovación/pago de sus servicios.
+Determina si el cliente desea MODIFICAR los servicios a renovar: ya sea excluyendo (no renovar, quitar, cancelar) o incluyendo (solo renovar ciertas plataformas) algún servicio de la lista actual.
+
+Lista de servicios actualmente en el carrito de renovación:
+${itemsSummary}
+
+Mensaje del cliente: "${messageContent}"
+
+REGLAS DE CLASIFICACIÓN:
+1. Si el cliente dice que no desea renovar alguna plataforma, que la cancele, que la quite, o que solo desea pagar por cierta plataforma (y por ende quitar las demás), pon "shouldModify": true.
+2. Identifica en "platformsToRenew" los nombres de las plataformas que el cliente SÍ desea conservar/renovar. Deben coincidir con el campo 'Plataforma' de la lista actual.
+3. Identifica en "platformsToExclude" los nombres de las plataformas que el cliente desea EXCLUIR/NO renovar/cancelar.
+4. Genera una respuesta empática y clara en "reply" en español confirmando la modificación. Sé muy directo y breve (máximo 2 líneas), informando el cambio y diciendo que recalculas el total. Firma con 🤖 al final.
+5. Si el mensaje no indica ninguna intención de quitar o seleccionar un subconjunto de plataformas (por ejemplo, solo saluda, hace una pregunta genérica, o envía un comprobante), pon "shouldModify": false.
+
+Salida esperada JSON:
+{
+  "shouldModify": boolean,
+  "platformsToRenew": string[], // plataformas de la lista actual que desea renovar
+  "platformsToExclude": string[], // plataformas de la lista actual que desea quitar/cancelar
+  "reply": string // Mensaje de confirmación para el cliente con el emoji 🤖 al final
+}
+`;
+
+  try {
+    const jsonString = await callDeepSeek(prompt, "Eres un asistente de ventas experto. Responde estrictamente con JSON.", true);
+    return JSON.parse(jsonString);
+  } catch (error) {
+    console.error("Error en analyzeRenewalModification:", error);
+    return { shouldModify: false, platformsToRenew: [], platformsToExclude: [], reply: "" };
+  }
+}
+
 module.exports = {
   parsePurchaseIntent,
   detectPaymentMethod,
@@ -1579,5 +1635,6 @@ module.exports = {
   parseScribePdfToRecipe,
   getMaskedAccessData,
   callGemini,
-  callDeepSeek
+  callDeepSeek,
+  analyzeRenewalModification
 };

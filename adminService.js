@@ -371,6 +371,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     } else {
                         userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     }
+                    await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                     return { success: true };
                 }
             } else {
@@ -413,6 +414,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
 
                         userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     }
+                    await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                     return { success: true };
                 }
 
@@ -431,6 +433,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
         }
     }
 
+    await removeLabelFromChat(userId, client, ['pago', 'revisión', 'manual']);
     userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: userState.chatJid, lastPaymentValidated: Date.now() });
     return { success: true };
 }
@@ -1115,6 +1118,72 @@ async function getPendientesReport(userStates) {
     return report + `\nTotal: ${count} pendientes.`;
 }
 
+async function applyLabelToChat(userId, client, labelSearchNames = ['pago', 'revisión', 'manual']) {
+    try {
+        const chat = await client.getChatById(userId);
+        const allLabels = await client.getLabels();
+        
+        let targetLabel = null;
+        for (const searchName of labelSearchNames) {
+            targetLabel = allLabels.find(l => (l.name || '').toLowerCase().includes(searchName.toLowerCase()));
+            if (targetLabel) break;
+        }
+
+        if (targetLabel) {
+            let currentLabelIds = [];
+            try {
+                const currentLabels = await chat.getLabels();
+                currentLabelIds = (currentLabels || []).map(l => l.id);
+            } catch (e) {
+                console.warn("[Label Helper] No se pudieron obtener etiquetas actuales del chat, usando array vacío:", e.message);
+            }
+
+            if (!currentLabelIds.includes(targetLabel.id)) {
+                currentLabelIds.push(targetLabel.id);
+                await chat.changeLabels(currentLabelIds);
+                console.log(`[Label Helper] Etiqueta "${targetLabel.name}" aplicada con éxito al chat ${userId}`);
+            } else {
+                console.log(`[Label Helper] El chat ${userId} ya tiene la etiqueta "${targetLabel.name}"`);
+            }
+        } else {
+            console.log(`[Label Helper] No se encontró ninguna etiqueta en WhatsApp Business que coincida con: ${labelSearchNames.join(', ')}`);
+        }
+    } catch (err) {
+        console.error("[Label Helper] Error al aplicar etiqueta al chat:", err.message);
+    }
+}
+
+async function removeLabelFromChat(userId, client, labelSearchNames = ['pago', 'revisión', 'manual']) {
+    try {
+        const chat = await client.getChatById(userId);
+        const allLabels = await client.getLabels();
+        
+        let targetLabel = null;
+        for (const searchName of labelSearchNames) {
+            targetLabel = allLabels.find(l => (l.name || '').toLowerCase().includes(searchName.toLowerCase()));
+            if (targetLabel) break;
+        }
+
+        if (targetLabel) {
+            let currentLabels = [];
+            try {
+                currentLabels = await chat.getLabels();
+            } catch (e) {
+                return;
+            }
+            const currentLabelIds = (currentLabels || []).map(l => l.id);
+
+            if (currentLabelIds.includes(targetLabel.id)) {
+                const updatedLabelIds = currentLabelIds.filter(id => id !== targetLabel.id);
+                await chat.changeLabels(updatedLabelIds);
+                console.log(`[Label Helper] Etiqueta "${targetLabel.name}" removida con éxito del chat ${userId}`);
+            }
+        }
+    } catch (err) {
+        console.error("[Label Helper] Error al remover etiqueta del chat:", err.message);
+    }
+}
+
 module.exports = {
     processPendingChats,
     handleBatchUnanswered,
@@ -1131,5 +1200,7 @@ module.exports = {
     handleAdminForceRetrieve,
     notifyProviderExpiringAccounts,
     getPendientesReport,
-    getDynamicSupportExpectationMessage
+    getDynamicSupportExpectationMessage,
+    applyLabelToChat,
+    removeLabelFromChat
 };

@@ -74,7 +74,7 @@ async function checkSpreadsheetStock(platformName) {
             const rowStreaming = normalizeStreamingName(row.Streaming || row.Plataforma);
             if (!rowStreaming) return false;
             
-            if (rowStreaming === targetSearch) {
+            if (rowStreaming === targetSearch || targetSearch.includes(rowStreaming) || rowStreaming.includes(targetSearch)) {
                 const email = (row.correo || row.Correo || "").toString().toLowerCase().trim();
                 if (email && config[email] && config[email].immediate === false) {
                     return false;
