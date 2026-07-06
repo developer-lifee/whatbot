@@ -671,6 +671,7 @@ app.post('/api/bold/webhook', async (req, res) => {
                         } else {
                             userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
                         }
+                        await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => {});
                     } else {
                         userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
                     }
@@ -705,6 +706,7 @@ app.post('/api/bold/webhook', async (req, res) => {
 
                             userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
                         }
+                        await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => {});
                     } else {
                         const successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema. En breve te enviaremos tus credenciales.`;
                         await client.sendMessage(phoneId, successMsg);

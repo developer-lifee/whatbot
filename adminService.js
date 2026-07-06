@@ -1126,7 +1126,7 @@ async function applyLabelToChat(userId, client, labelSearchNames = ['pago', 'rev
         
         let targetLabel = null;
         for (const searchName of labelSearchNames) {
-            targetLabel = allLabels.find(l => (l.name || '').toLowerCase().includes(searchName.toLowerCase()));
+            targetLabel = allLabels.find(l => (l.name || '').toLowerCase().trim() === searchName.toLowerCase().trim());
             if (targetLabel) break;
         }
 
@@ -1147,7 +1147,7 @@ async function applyLabelToChat(userId, client, labelSearchNames = ['pago', 'rev
                 console.log(`[Label Helper] El chat ${userId} ya tiene la etiqueta "${targetLabel.name}"`);
             }
         } else {
-            console.log(`[Label Helper] No se encontró ninguna etiqueta en WhatsApp Business que coincida con: ${labelSearchNames.join(', ')}`);
+            console.log(`[Label Helper] No se encontró ninguna etiqueta en WhatsApp Business que coincida exactamente con: ${labelSearchNames.join(', ')}`);
         }
     } catch (err) {
         console.error("[Label Helper] Error al aplicar etiqueta al chat:", err.message);
@@ -1156,16 +1156,16 @@ async function applyLabelToChat(userId, client, labelSearchNames = ['pago', 'rev
 
 async function removeLabelFromChat(userId, client, labelSearchNames = ['pago', 'revisión', 'manual']) {
     try {
-        const chat = await client.getChatById(userId);
-        const allLabels = await client.getLabels();
-        
-        let targetLabel = null;
-        for (const searchName of labelSearchNames) {
-            targetLabel = allLabels.find(l => (l.name || '').toLowerCase().includes(searchName.toLowerCase()));
-            if (targetLabel) break;
-        }
+         const chat = await client.getChatById(userId);
+         const allLabels = await client.getLabels();
+         
+         let targetLabel = null;
+         for (const searchName of labelSearchNames) {
+             targetLabel = allLabels.find(l => (l.name || '').toLowerCase().trim() === searchName.toLowerCase().trim());
+             if (targetLabel) break;
+         }
 
-        if (targetLabel) {
+         if (targetLabel) {
             let currentLabels = [];
             try {
                 currentLabels = await chat.getLabels();
