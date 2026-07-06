@@ -230,12 +230,12 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 continue;
             }
 
-            // 2. CASO INTELIGENTE: Si no viene marcado como renovación, BUSCAR si el usuario YA TIENE esta plataforma
+            // 2. CASO INTELIGENTE: BUSCAR si el usuario YA TIENE esta plataforma en el Excel
             let finalRow = null;
             let matchedRow = null;
             let isAutoRenewal = false;
 
-            if (!userState.isRenewal) {
+            if (true) {
                 const existingAccount = allRows.find(r => {
                     const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
                     const whatsappVal = (r.whatsapp || "").toString().trim();
