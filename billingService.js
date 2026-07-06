@@ -9,7 +9,19 @@ const fs = require('fs');
  */
 async function processCheckCredentials(userId, client, triggerMessage = "", history = "", userStates = null) {
     try {
-        const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+        let phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+        let contactName = null;
+        if (userId.includes('@lid')) {
+            try {
+                const contact = await client.getContactById(userId);
+                if (contact && contact.number) {
+                    phoneNumber = contact.number;
+                    contactName = contact.name || contact.pushname;
+                }
+            } catch (e) {
+                console.warn("[processCheckCredentials] No se pudo obtener contacto para LID:", e.message);
+            }
+        }
 
         // Validar si tiene un pago en proceso de validación humana
         let isPendingValidation = false;
@@ -40,7 +52,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             return;
         }
 
-        let userAccounts = await getAccountsByPhone(phoneNumber);
+        let userAccounts = await getAccountsByPhone(phoneNumber, contactName);
 
         if (userAccounts.length === 0) {
             await client.sendMessage(userId, "🤖 No encontré servicios activos vinculados a este número. Si compraste desde otro número, por favor dímelo para ayudarte a buscar o contacta a un asesor.");
@@ -187,8 +199,21 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
  */
 async function processCheckPrices(message, userId, userStates, inputToUse = "", detectedPlatform = null, durationMonths = 1) {
     try {
-        const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
-        const userAccounts = await getAccountsByPhone(phoneNumber);
+        let phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+        let contactName = null;
+        try {
+            if (message && typeof message.getContact === 'function') {
+                const contact = await message.getContact();
+                if (contact && contact.number) {
+                    phoneNumber = contact.number;
+                    contactName = contact.name || contact.pushname;
+                }
+            }
+        } catch (contactErr) {
+            console.warn("[processCheckPrices] No se pudo obtener contacto del mensaje:", contactErr.message);
+        }
+
+        const userAccounts = await getAccountsByPhone(phoneNumber, contactName);
 
         if (userAccounts.length === 0) {
             await message.reply("🤖 No encontré servicios activos vinculados a este número para renovar. Si deseas comprar algo nuevo, escribe *1*.");
