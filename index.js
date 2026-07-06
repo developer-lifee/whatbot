@@ -5059,11 +5059,18 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 if (codes && codes.length > 0) {
                     const latest = codes[0];
                     let response = `🤖 *Código / Enlace de ${streamingName} Encontrado* 🚀\n\n`;
-                    if (latest.code) {
-                        response += `🔢 Código: *${latest.code}*\n`;
-                    }
                     if (latest.link) {
-                        response += `🔗 Enlace de inicio de sesión:\n👉 ${latest.link}\n\n`;
+                        if (streamingName.toLowerCase().includes('netflix')) {
+                            const cleanPhone = userId.replace(/\D/g, '');
+                            response += `🔗 Enlace de inicio de sesión:\n👉 https://sheerit.com.co/verificar?tel=${cleanPhone}\n\n`;
+                        } else {
+                            if (latest.code) {
+                                response += `🔢 Código: *${latest.code}*\n`;
+                            }
+                            response += `🔗 Enlace de inicio de sesión:\n👉 ${latest.link}\n\n`;
+                        }
+                    } else if (latest.code) {
+                        response += `🔢 Código: *${latest.code}*\n`;
                     }
                     response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código/enlace vence pronto._`;
                     await message.reply(response);
@@ -5471,7 +5478,7 @@ async function baseProcessIncomingMessage(messages) {
         let userAccounts = [];
         try {
             const { getAccountsByPhone } = require('./apiService');
-            userAccounts = await getAccountsByPhone(realPhone);
+            userAccounts = await getAccountsByPhone(realPhone, foundName);
         } catch (e) { }
 
         try {
@@ -6536,7 +6543,7 @@ async function baseProcessIncomingMessage(messages) {
     if ((hasCodeKeyword && !lowerBody.includes('qr') && !lowerBody.includes('barras') && !lowerBody.includes('pago')) || (isQuestionOrCode && hasPlatformKeyword) || isQuestionOrCode) {
         try {
             const { getAccountsByPhone } = require('./apiService');
-            const userAccounts = await getAccountsByPhone(realPhone);
+            const userAccounts = await getAccountsByPhone(realPhone, foundName);
 
             if (userAccounts.length > 0) {
                 let targetAccount = null;
@@ -6643,7 +6650,7 @@ async function baseProcessIncomingMessage(messages) {
                 if (!stateData.items || stateData.items.length === 0) {
                     const { getAccountsByPhone } = require('./apiService');
                     let userAccounts = [];
-                    try { userAccounts = await getAccountsByPhone(realPhone); } catch (e) { }
+                    try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
                     if (check.inferredPlatform) {
                         console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}`);
@@ -7484,7 +7491,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 if (is2fa && platform) {
                     console.log(`[2FA Screen Interceptor] Detectado pantallazo de 2FA para la plataforma: ${platform}`);
                     const { getAccountsByPhone } = require('./apiService');
-                    const userAccounts = await getAccountsByPhone(realPhone);
+                    const userAccounts = await getAccountsByPhone(realPhone, foundName);
 
                     if (userAccounts.length > 0) {
                         const targetPlatformLower = platform.toLowerCase();
@@ -7572,7 +7579,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const historyForFallback = await getChatHistoryText(message);
 
             userAccounts = [];
-            try { userAccounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch (e) { }
+            try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
             const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
 
@@ -8043,7 +8050,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                 } else if (detection.intent === 'duda_contexto') {
                     const history = await getChatHistoryText(message);
                     let accounts = [];
-                    try { accounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch (e) { }
+                    try { accounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
                     const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
                     if (fallback.replyMessage) {
                         await message.reply(fallback.replyMessage);
@@ -8075,7 +8082,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
             const history = await getChatHistoryText(message);
 
             let accounts = [];
-            try { accounts = await getAccountsByPhone(userId.replace(/\D/g, '')); } catch (e) { }
+            try { accounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
             const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
 

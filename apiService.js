@@ -143,17 +143,42 @@ async function fetchCustomersData(retries = 3, delay = 2000, force = false) {
   }
 }
 
-async function getAccountsByPhone(phoneNumber) {
+async function getAccountsByPhone(phoneNumber, contactName = null) {
   try {
     if (!phoneNumber) return [];
     const cleanInputPhone = phoneNumber.toString().replace(/\D/g, '');
     const clientes = await fetchCustomersData();
-    const userAccounts = clientes.filter(c => {
+    let userAccounts = clientes.filter(c => {
       const rowNumber = c.numero || c.Numero;
       if (!rowNumber) return false;
       const normalizedJsonNumber = rowNumber.toString().replace(/\D/g, '');
       return normalizedJsonNumber === cleanInputPhone || (normalizedJsonNumber.length >= 10 && cleanInputPhone.endsWith(normalizedJsonNumber.slice(-10)));
     });
+
+    // FALLBACK: Si no hay cuentas asociadas al número y tenemos el nombre de contacto (útil para LIDs o números desactualizados)
+    if (userAccounts.length === 0 && contactName) {
+      const cleanContactName = contactName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (cleanContactName.length > 2) {
+        userAccounts = clientes.filter(c => {
+          const whatsappVal = (c.whatsapp || "").toString().trim();
+          const whatsappDigits = whatsappVal.replace(/\D/g, '');
+          if (whatsappVal && !whatsappDigits) {
+            const cleanWhatsapp = whatsappVal.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (cleanWhatsapp === cleanContactName || cleanContactName.includes(cleanWhatsapp) || cleanWhatsapp.includes(cleanContactName)) {
+              return true;
+            }
+          }
+          const nameVal = (c.Nombre || c.nombre || "").toString().trim().toLowerCase();
+          const lastNameVal = (c.Apellido || c.apellido || "").toString().trim().toLowerCase();
+          const fullName = `${nameVal} ${lastNameVal}`.replace(/[^a-z0-9]/g, '');
+          return fullName && (fullName === cleanContactName || cleanContactName.includes(fullName) || fullName.includes(cleanContactName));
+        });
+        if (userAccounts.length > 0) {
+          console.log(`[getAccountsByPhone] Fallback por nombre exitoso: "${contactName}" asoció ${userAccounts.length} cuentas.`);
+        }
+      }
+    }
+
     return userAccounts;
   } catch (error) {
     console.error("[API Service] Error buscando cuentas por número:", error);
