@@ -182,6 +182,7 @@ async function getChatHistoryText(message, limit = 15) {
 async function safeFetchMessages(chat, limit) {
     try {
         if (!chat) return [];
+        await chat.syncHistory().catch(() => {});
         return await chat.fetchMessages({ limit });
     } catch (err) {
         if (err.message.includes('waitForChatLoading') || err.message.includes('undefined')) {

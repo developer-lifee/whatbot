@@ -705,6 +705,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             let fetchedItems = [];
             try {
                 const chat = await client.getChatById(userId);
+                await chat.syncHistory().catch(() => {});
                 const messages = await chat.fetchMessages({ limit: 15 });
 
                 if (messages && messages.length > 0) {

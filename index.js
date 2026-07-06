@@ -1551,6 +1551,7 @@ app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
         const chat = await client.getChatById(userId);
         if (!chat) return res.status(404).json({ success: false, message: 'Chat no encontrado' });
 
+        await chat.syncHistory().catch(() => {});
         const messages = await chat.fetchMessages({ limit: 10 });
         if (!messages || messages.length === 0) {
             return res.status(400).json({ success: false, message: 'No hay mensajes en el chat' });
@@ -2659,6 +2660,7 @@ app.post('/api/admin/chat-messages/sync', async (req, res) => {
         }
 
         const chat = await client.getChatById(userId);
+        await chat.syncHistory().catch(() => {});
         const messages = await chat.fetchMessages({ limit: 50 });
 
         // Guardar/actualizar en base de datos de manera secuencial para no saturar
