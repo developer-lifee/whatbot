@@ -203,8 +203,96 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
  * @param {number} toleranceMinutes 
  * @returns {Promise<Object|null>}
  */
-async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
-    console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min...`);
+function matchMaskedPhone(fullText, phone) {
+    if (!phone) return true;
+    const cleanPhone = phone.replace(/\D/g, '');
+    const localPhone = cleanPhone.length === 12 && cleanPhone.startsWith('57') ? cleanPhone.substring(2) : cleanPhone;
+    if (localPhone.length !== 10) return true;
+
+    const prefix = localPhone.substring(0, 3);
+    const suffix = localPhone.substring(7);
+    const pattern = new RegExp(prefix + '\\*+' + suffix);
+    return pattern.test(fullText) || fullText.includes(localPhone);
+}
+
+async function findMatchingBoldPayment(email, targetAmount, toleranceMinutes, phone = null) {
+    const auth = await getOAuth2Client('gmail', null, email);
+    if (!auth) return null;
+
+    const gmail = google.gmail({ version: 'v1', auth });
+    const processedIds = loadProcessedEmails();
+
+    try {
+        const res = await gmail.users.messages.list({
+            userId: 'me',
+            q: 'subject:("Compra por" "en sheerit") newer_than:1d',
+            maxResults: 15
+        });
+
+        const messages = res.data.messages || [];
+        const now = Date.now();
+
+        for (const msg of messages) {
+            if (processedIds.includes(msg.id)) continue;
+
+            const fullMsg = await gmail.users.messages.get({
+                userId: 'me',
+                id: msg.id
+            });
+
+            const internalDate = parseInt(fullMsg.data.internalDate);
+            const diffMinutes = (now - internalDate) / (1000 * 60);
+
+            if (diffMinutes > toleranceMinutes) continue;
+
+            const snippet = fullMsg.data.snippet || '';
+            const bodyData = fullMsg.data.payload.body && fullMsg.data.payload.body.data ? Buffer.from(fullMsg.data.payload.body.data, 'base64').toString() : '';
+            const body = snippet + ' ' + bodyData;
+
+            const subjectHeader = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'subject');
+            const subject = subjectHeader ? subjectHeader.value : 'Sin asunto';
+
+            const amountRegex = /Compra por\s*(?:\$)?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i;
+            const amountMatches = subject.match(amountRegex);
+
+            if (amountMatches) {
+                const rawValue = amountMatches[1];
+                const cleanValue = parseInt(rawValue.replace(/\./g, '').split(',')[0]);
+
+                if (cleanValue === targetAmount) {
+                    if (phone && !matchMaskedPhone(body, phone)) {
+                        console.log(`[GMAIL MATCH BOLD] Saltando mensaje ID: ${msg.id} porque el teléfono no coincide con ${phone}.`);
+                        continue;
+                    }
+
+                    console.log(`[GMAIL MATCH BOLD] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
+                    saveProcessedEmail(msg.id);
+                    return {
+                        id: msg.id,
+                        amount: cleanValue,
+                        date: internalDate,
+                        diffMinutes: Math.round(diffMinutes),
+                        subject: subject,
+                        bank: "Bold"
+                    };
+                }
+            }
+        }
+    } catch (e) {
+        console.error(`Error en findMatchingBoldPayment para ${email}:`, e.message);
+    }
+    return null;
+}
+
+/**
+ * Busca un pago específico por monto en los correos recientes de Gmail (Bre-B y Bancolombia).
+ * @param {number} targetAmount 
+ * @param {number} toleranceMinutes 
+ * @param {string} phone 
+ * @returns {Promise<Object|null>}
+ */
+async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = null) {
+    console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min para @${phone || 'todos'}...`);
 
     // 1. Buscar en Jordi (Bre-B)
     const matchJordi = await findMatchingPaymentInAccount(
@@ -225,6 +313,15 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30) {
         true
     );
     if (matchEsteban) return matchEsteban;
+
+    // 3. Buscar en Esteban (Bold)
+    const matchBold = await findMatchingBoldPayment(
+        'estebanavila6324@gmail.com',
+        targetAmount,
+        toleranceMinutes,
+        phone
+    );
+    if (matchBold) return matchBold;
 
     return null;
 }

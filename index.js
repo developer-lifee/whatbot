@@ -565,7 +565,7 @@ app.post('/api/bold/webhook', async (req, res) => {
         if (!secretKey) throw new Error("BOLD_SECRET_KEY missing");
 
         const rawBodyBase64 = req.rawBody.toString('base64');
-        const computedSignature = crypto.createHmac('sha256', secretKey).update(rawBodyBase64).digest('hex');
+        const computedSignature = crypto.createHmac('sha256', secretKey).update(req.rawBody).digest('hex');
 
         if (computedSignature !== signatureHeader) {
             console.log(`Firma no válida. Recibida: ${signatureHeader} Calculada: ${computedSignature}`);
@@ -5537,10 +5537,11 @@ async function baseProcessIncomingMessage(messages) {
             userAccounts = await getAccountsByPhone(realPhone, foundName);
         } catch (e) { }
 
+        let detection = null;
         try {
             const { detectInitialIntent } = require('./aiService');
             const hist = await getChatHistoryText(message, 15);
-            const detection = await detectInitialIntent(message.body, hist, mediaData, userAccounts);
+            detection = await detectInitialIntent(message.body, hist, mediaData, userAccounts);
 
             const cleanBody = (message.body || "").trim();
             const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "renovar"];
@@ -6869,7 +6870,7 @@ async function baseProcessIncomingMessage(messages) {
                             }
                             return;
                         } else {
-                            const match = await findMatchingPayment(check.amount, 60); // Ventana de 60 min
+                            const match = await findMatchingPayment(check.amount, 60, userId); // Ventana de 60 min
                             if (match) {
                                 console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
 

@@ -701,104 +701,143 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             }
             userStates.set(userId, activeStateData);
         } else {
-            // 1. INTENTO INTELIGENTE 1: Leer el historial del chat para ver qué plataforma solicitaba
-            let fetchedItems = [];
+            let foundWebSale = false;
             try {
-                const chat = await client.getChatById(userId);
-                await chat.syncHistory().catch(() => {});
-                const messages = await chat.fetchMessages({ limit: 15 });
+                const { pool } = require('./database');
+                const cleanPhone = phone.replace(/\D/g, '');
+                const [pendingRows] = await pool.query(
+                    "SELECT * FROM web_sales_pending WHERE whatsapp LIKE ? OR whatsapp = ?",
+                    [`%${cleanPhone}%`, cleanPhone]
+                );
+                if (pendingRows && pendingRows.length > 0) {
+                    const webSale = pendingRows[0];
+                    const cleanPlat = webSale.platformName;
+                    const newItem = { Streaming: cleanPlat, platform: { name: cleanPlat } };
+                    
+                    await message.reply(`ℹ️ El cliente no tenía pedido activo, pero detecté una compra web pendiente de *${cleanPlat}* por $${webSale.amount} en el panel. Procediendo a confirmar...`);
 
-                if (messages && messages.length > 0) {
-                    const chatHistory = messages.map(m => `${m.fromMe ? 'Bot' : 'Cliente'}: ${m.body}`).join('\n');
-                    const lastClientMsg = [...messages].reverse().find(m => !m.fromMe && m.body);
-
-                    if (lastClientMsg) {
-                        const { parsePurchaseIntent } = require('./aiService');
-                        const intent = await parsePurchaseIntent(lastClientMsg.body, chatHistory);
-
-                        if (intent && intent.items && intent.items.length > 0) {
-                            fetchedItems = intent.items.map(item => ({
-                                Streaming: item.platform,
-                                platform: { name: item.platform },
-                                plan: item.plan ? { name: item.plan } : null
-                            }));
-                            console.log(`[Admin Payment Auto-Recover] Recuperados items desde historial:`, fetchedItems);
-                        }
+                    if (!activeStateData) {
+                        activeStateData = { 
+                            state: 'awaiting_payment_confirmation', 
+                            nombre: `${webSale.firstName} ${webSale.lastName}`.trim() || "Cliente", 
+                            items: [newItem],
+                            total: webSale.amount
+                        };
+                    } else {
+                        activeStateData.items = [newItem];
+                        activeStateData.nombre = `${webSale.firstName} ${webSale.lastName}`.trim() || activeStateData.nombre;
+                        activeStateData.total = webSale.amount;
                     }
+                    userStates.set(userId, activeStateData);
+                    
+                    activeStateData.webOrderId = webSale.order_id;
+                    activeStateData.webSaleData = webSale;
+                    foundWebSale = true;
                 }
-            } catch (chatErr) {
-                console.error('Error recuperando historial del chat para confirmación:', chatErr.message);
+            } catch (webErr) {
+                console.error('Error buscando venta web pendiente para confirmación:', webErr.message);
             }
 
-            if (fetchedItems.length > 0) {
-                const plist = fetchedItems.map(i => i.Streaming.toUpperCase()).join(', ');
-                await message.reply(`ℹ️ El cliente no tenía un pedido activo en memoria, pero leí su historial de conversación y detecté que estaba intentando adquirir *${plist}*. Procediendo a confirmar el pago...`);
-
-                if (!activeStateData) {
-                    activeStateData = { state: 'awaiting_payment_confirmation', nombre: "Cliente", items: fetchedItems };
-                } else {
-                    activeStateData.items = fetchedItems;
-                }
-                userStates.set(userId, activeStateData);
-            } else {
-                // 2. INTENTO INTELIGENTE 2: Buscar en Excel las cuentas de este cliente
-                const { fetchRawData, getJsDateFromExcel, getTodayInBogota } = require('./apiService');
+            if (!foundWebSale) {
+                // 1. INTENTO INTELIGENTE 1: Leer el historial del chat para ver qué plataforma solicitaba
+                let fetchedItems = [];
                 try {
-                    const rawData = await fetchRawData();
-                    const cleanPhone = phone.replace(/\D/g, '');
+                    const chat = await client.getChatById(userId);
+                    await chat.syncHistory().catch(() => {});
+                    const messages = await chat.fetchMessages({ limit: 15 });
 
-                    // Filtrar las cuentas de este número de teléfono
-                    const clientRows = rawData.filter(row => {
-                        const rowNum = (row.numero || row.whatsapp || '').toString().replace(/\D/g, '');
-                        return rowNum.includes(cleanPhone) || cleanPhone.includes(rowNum);
-                    });
+                    if (messages && messages.length > 0) {
+                        const chatHistory = messages.map(m => `${m.fromMe ? 'Bot' : 'Cliente'}: ${m.body}`).join('\n');
+                        const lastClientMsg = [...messages].reverse().find(m => !m.fromMe && m.body);
 
-                    if (clientRows.length > 0) {
-                        const today = getTodayInBogota();
+                        if (lastClientMsg) {
+                            const { parsePurchaseIntent } = require('./aiService');
+                            const intent = await parsePurchaseIntent(lastClientMsg.body, chatHistory);
 
-                        // Buscar cuentas vencidas o próximas a vencer (3 días)
-                        const expiredOrExpiring = clientRows.filter(row => {
-                            if (!row.deben && !row.vencimiento) return false;
-                            const expDate = getJsDateFromExcel(row.deben || row.vencimiento);
-                            if (!expDate) return false;
-                            const diffDays = (expDate - today) / (1000 * 60 * 60 * 24);
-                            return diffDays <= 3; // Vencida o vence en los próximos 3 días
+                            if (intent && intent.items && intent.items.length > 0) {
+                                fetchedItems = intent.items.map(item => ({
+                                    Streaming: item.platform,
+                                    platform: { name: item.platform },
+                                    plan: item.plan ? { name: item.plan } : null
+                                }));
+                                console.log(`[Admin Payment Auto-Recover] Recuperados items desde historial:`, fetchedItems);
+                            }
+                        }
+                    }
+                } catch (chatErr) {
+                    console.error('Error recuperando historial del chat para confirmación:', chatErr.message);
+                }
+
+                if (fetchedItems.length > 0) {
+                    const plist = fetchedItems.map(i => i.Streaming.toUpperCase()).join(', ');
+                    await message.reply(`ℹ️ El cliente no tenía un pedido activo en memoria, pero leí su historial de conversación y detecté que estaba intentando adquirir *${plist}*. Procediendo a confirmar el pago...`);
+
+                    if (!activeStateData) {
+                        activeStateData = { state: 'awaiting_payment_confirmation', nombre: "Cliente", items: fetchedItems };
+                    } else {
+                        activeStateData.items = fetchedItems;
+                    }
+                    userStates.set(userId, activeStateData);
+                } else {
+                    // 2. INTENTO INTELIGENTE 2: Buscar en Excel las cuentas de este cliente
+                    const { fetchRawData, getJsDateFromExcel, getTodayInBogota } = require('./apiService');
+                    try {
+                        const rawData = await fetchRawData();
+                        const cleanPhone = phone.replace(/\D/g, '');
+
+                        // Filtrar las cuentas de este número de teléfono
+                        const clientRows = rawData.filter(row => {
+                            const rowNum = (row.numero || row.whatsapp || '').toString().replace(/\D/g, '');
+                            return rowNum.includes(cleanPhone) || cleanPhone.includes(rowNum);
                         });
 
-                        if (expiredOrExpiring.length === 1) {
-                            // Caso A: Hay exactamente UNA cuenta vencida o por vencer, ¡asumimos que pagó esa!
-                            const targetRow = expiredOrExpiring[0];
-                            const platName = (targetRow.Streaming || 'Streaming');
-                            const newItem = { Streaming: platName, platform: { name: platName } };
+                        if (clientRows.length > 0) {
+                            const today = getTodayInBogota();
 
-                            await message.reply(`ℹ️ El cliente no tenía un pedido activo en memoria, pero detecté en Excel que su cuenta de *${platName.toUpperCase()}* está vencida o por vencer. Procediendo a confirmar pago para ese servicio...`);
+                            // Buscar cuentas vencidas o próximas a vencer (3 días)
+                            const expiredOrExpiring = clientRows.filter(row => {
+                                if (!row.deben && !row.vencimiento) return false;
+                                const expDate = getJsDateFromExcel(row.deben || row.vencimiento);
+                                if (!expDate) return false;
+                                const diffDays = (expDate - today) / (1000 * 60 * 60 * 24);
+                                return diffDays <= 3; // Vencida o vence en los próximos 3 días
+                            });
 
-                            if (!activeStateData) {
-                                activeStateData = { state: 'awaiting_payment_confirmation', nombre: targetRow.Nombre || "Cliente", items: [newItem] };
+                            if (expiredOrExpiring.length === 1) {
+                                // Caso A: Hay exactamente UNA cuenta vencida o por vencer, ¡asumimos que pagó esa!
+                                const targetRow = expiredOrExpiring[0];
+                                const platName = (targetRow.Streaming || 'Streaming');
+                                const newItem = { Streaming: platName, platform: { name: platName } };
+
+                                await message.reply(`ℹ️ El cliente no tenía un pedido activo en memoria, pero detecté en Excel que su cuenta de *${platName.toUpperCase()}* está vencida o por vencer. Procediendo a confirmar pago para ese servicio...`);
+
+                                if (!activeStateData) {
+                                    activeStateData = { state: 'awaiting_payment_confirmation', nombre: targetRow.Nombre || "Cliente", items: [newItem] };
+                                } else {
+                                    activeStateData.items = [newItem];
+                                }
+                                userStates.set(userId, activeStateData);
+                            } else if (expiredOrExpiring.length > 1) {
+                                // Caso B: Múltiples cuentas vencidas
+                                const list = expiredOrExpiring.map((r, i) => `${i + 1}. *${(r.Streaming || '').toUpperCase()}* (Vence: ${r.deben || r.vencimiento})`).join('\n');
+                                await message.reply(`⚠️ El cliente no tiene un pedido activo y tiene múltiples cuentas vencidas o por vencer en Excel:\n\n${list}\n\nPor favor, especifica cuál pagó repitiendo el comando. Ej:\n*@bot confirmar ${displayPhone} ${(expiredOrExpiring[0].Streaming || 'Netflix')}*`);
+                                return;
                             } else {
-                                activeStateData.items = [newItem];
+                                // Caso C: No hay vencidas, pero tiene activas
+                                const list = clientRows.map((r, i) => `${i + 1}. *${(r.Streaming || '').toUpperCase()}* (Vence: ${r.deben || r.vencimiento})`).join('\n');
+                                await message.reply(`⚠️ El cliente no tiene un pedido activo en el bot, pero tiene estas cuentas activas en Excel:\n\n${list}\n\nPor favor, repite el comando especificando la plataforma. Ej:\n*@bot confirmar ${displayPhone} ${(clientRows[0].Streaming || 'Netflix')}*`);
+                                return;
                             }
-                            userStates.set(userId, activeStateData);
-                        } else if (expiredOrExpiring.length > 1) {
-                            // Caso B: Múltiples cuentas vencidas
-                            const list = expiredOrExpiring.map((r, i) => `${i + 1}. *${(r.Streaming || '').toUpperCase()}* (Vence: ${r.deben || r.vencimiento})`).join('\n');
-                            await message.reply(`⚠️ El cliente no tiene un pedido activo y tiene múltiples cuentas vencidas o por vencer en Excel:\n\n${list}\n\nPor favor, especifica cuál pagó repitiendo el comando. Ej:\n*@bot confirmar ${displayPhone} ${(expiredOrExpiring[0].Streaming || 'Netflix')}*`);
-                            return;
                         } else {
-                            // Caso C: No hay vencidas, pero tiene activas
-                            const list = clientRows.map((r, i) => `${i + 1}. *${(r.Streaming || '').toUpperCase()}* (Vence: ${r.deben || r.vencimiento})`).join('\n');
-                            await message.reply(`⚠️ El cliente no tiene un pedido activo en el bot, pero tiene estas cuentas activas en Excel:\n\n${list}\n\nPor favor, repite el comando especificando la plataforma. Ej:\n*@bot confirmar ${displayPhone} ${(clientRows[0].Streaming || 'Netflix')}*`);
+                            // Sin cuentas en Excel
+                            await message.reply(`⚠️ El cliente ${displayPhone} no tiene un pedido activo y no encontramos ninguna cuenta a su nombre en Excel.\n\nPor favor, especifica qué plataforma pagó agregando el nombre al final. Ej: *@bot confirmar ${displayPhone} Netflix*`);
                             return;
                         }
-                    } else {
-                        // Sin cuentas en Excel
-                        await message.reply(`⚠️ El cliente ${displayPhone} no tiene un pedido activo y no encontramos ninguna cuenta a su nombre en Excel.\n\nPor favor, especifica qué plataforma pagó agregando el nombre al final. Ej: *@bot confirmar ${displayPhone} Netflix*`);
+                    } catch (err) {
+                        console.error('Error en búsqueda inteligente de confirmación:', err.message);
+                        await message.reply(`⚠️ El cliente ${displayPhone} no tiene un pedido activo y falló la búsqueda en Excel. Por favor especifica la plataforma. Ej: *@bot confirmar ${displayPhone} Netflix*`);
                         return;
                     }
-                } catch (err) {
-                    console.error('Error en búsqueda inteligente de confirmación:', err.message);
-                    await message.reply(`⚠️ El cliente ${displayPhone} no tiene un pedido activo y falló la búsqueda en Excel. Por favor especifica la plataforma. Ej: *@bot confirmar ${displayPhone} Netflix*`);
-                    return;
                 }
             }
         }
@@ -822,8 +861,33 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         overrideMonths = parseInt(monthsMatch[1]);
     }
 
-    try {
         const results = await recordNewSale(userId, activeStateData, "Confirmado por Admin", overrideMonths);
+
+        if (activeStateData && activeStateData.webOrderId) {
+            try {
+                const { pool } = require('./database');
+                const orderId = activeStateData.webOrderId;
+                const customerData = activeStateData.webSaleData;
+                await pool.query(
+                    'INSERT INTO web_sales_approved (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        orderId,
+                        customerData.firstName || '',
+                        customerData.lastName || '',
+                        customerData.email || '',
+                        customerData.whatsapp || '',
+                        customerData.platformName || '',
+                        customerData.amount || 0,
+                        customerData.numbersStr || '',
+                        customerData.createdAt ? new Date(customerData.createdAt) : null
+                    ]
+                );
+                await pool.query('DELETE FROM web_sales_pending WHERE order_id = ?', [orderId]);
+                console.log(`[Admin Confirm] Venta web ${orderId} marcada como aprobada en DB.`);
+            } catch (dbErr) {
+                console.error("Error al aprobar venta web desde confirmación manual:", dbErr.message);
+            }
+        }
 
         let report = `✅ *PAGO PROCESADO*\nCliente: ${(activeStateData && activeStateData.nombre) || displayPhone}\n\n`;
         results.forEach(res => {
