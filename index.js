@@ -4983,6 +4983,10 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
         return;
     }
 
+    if (fallbackResult.replyMessage) {
+        updateStateTotalFromAiText(userId, fallbackResult.replyMessage, userStates);
+    }
+
     if (fallbackResult.needsEscalation) {
         const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
         const supportStatus = await isSupportOpen();
@@ -7227,6 +7231,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         if (typeof fallbackResult === 'string') {
             await safeReply(message, fallbackResult, userId);
         } else {
+            if (fallbackResult.replyMessage) {
+                updateStateTotalFromAiText(userId, fallbackResult.replyMessage, userStates);
+            }
             await safeReply(message, fallbackResult.replyMessage, userId);
             if (fallbackResult.needsEscalation) {
                 userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
@@ -8094,6 +8101,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     try { accounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
                     const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
                     if (fallback.replyMessage) {
+                        updateStateTotalFromAiText(userId, fallback.replyMessage, userStates);
                         await message.reply(fallback.replyMessage);
                     }
                     return;
@@ -8128,6 +8136,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
             const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
 
             if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
+                updateStateTotalFromAiText(userId, fallback.replyMessage, userStates);
                 await message.reply(fallback.replyMessage);
 
                 if (fallback.needsEscalation) {
@@ -8706,6 +8715,29 @@ function getDurationMonths(detection, inputToUse) {
         }
     }
     return durationMonths;
+}
+
+function updateStateTotalFromAiText(userId, replyText, userStates) {
+    if (!replyText || !userStates) return;
+    try {
+        // Buscar patrones como "transferir $6.000", "transferir $6,000", "pago de $6.000", "pagar $6.000", "solo necesitas transferir $X", "solo transfieres $X"
+        const transferRegex = /(?:transferir|pagar|transferencia de|total a transferir|solo\s+\w+\s+transfieres|solo\s+transfieres)\s+\*?\$?([\d.]+)\*?/i;
+        const match = replyText.match(transferRegex);
+        if (match && match[1]) {
+            const cleanAmountStr = match[1].replace(/\./g, '').replace(/,/g, '');
+            const num = parseInt(cleanAmountStr);
+            if (num && num >= 1000 && num <= 200000) {
+                const currentState = userStates.get(userId);
+                if (currentState && typeof currentState === 'object') {
+                    currentState.total = num;
+                    userStates.set(userId, currentState);
+                    console.log(`[AI Price Extractor] Sincronizado total en memoria para @${userId.replace('@c.us', '')}: $${num} (extraído de respuesta de la IA)`);
+                }
+            }
+        }
+    } catch (e) {
+        console.error("Error en updateStateTotalFromAiText:", e.message);
+    }
 }
 
 // --- AL FINAL DEL ARCHIVO index.js ---
