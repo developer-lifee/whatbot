@@ -2626,11 +2626,32 @@ app.get('/api/admin/chat-messages', async (req, res) => {
         if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
 
         const userId = phone.includes('@') ? phone : phone + '@c.us';
+        let targetChatId = userId;
+
+        // Intentar resolver LID desde el estado en memoria
+        const state = userStates.get(userId);
+        if (state && state.chatJid) {
+            targetChatId = state.chatJid;
+        } else {
+            // Intentar resolver LID desde la base de datos (chats)
+            try {
+                const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
+                const [chatRows] = await pool.query(
+                    `SELECT chat_id FROM chats WHERE customer_phone = ? LIMIT 1`,
+                    [cleanPhone]
+                );
+                if (chatRows.length > 0) {
+                    targetChatId = chatRows[0].chat_id;
+                }
+            } catch (chatErr) {
+                console.error("[chat-messages] Error al buscar JID alternativo en chats:", chatErr.message);
+            }
+        }
 
         // 1. Obtener el historial directamente de la base de datos (ultra rápido: ~5ms)
         const [rows] = await pool.query(
             `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 50`,
-            [userId]
+            [targetChatId]
         );
 
         const formatted = rows.map(m => ({
@@ -2709,11 +2730,17 @@ app.post('/api/admin/chat-messages/send', async (req, res) => {
             return res.status(503).json({ success: false, message: 'WhatsApp client is not ready' });
         }
 
+        let targetChatId = userId;
+        const state = userStates.get(userId);
+        if (state && state.chatJid) {
+            targetChatId = state.chatJid;
+        }
+
         // Concatenar el emoji del asesor si está presente
         const prefix = emoji ? `${emoji.trim()} ` : "";
         const finalMessage = prefix + message;
 
-        await client.sendMessage(userId, finalMessage);
+        await client.sendMessage(targetChatId, finalMessage);
 
         // Silenciar el bot para este usuario (modo advisor) ya que hay interacción manual
         const currentState = userStates.get(userId) || {};

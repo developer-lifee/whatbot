@@ -69,9 +69,24 @@ async function saveMessage(message, botIntent = null) {
     }
 
     try {
-        // Ensure customer and chat exist to avoid foreign key errors
+        let customerPhone = null;
         if (chatId && chatId.endsWith('@c.us')) {
-            const customerPhone = chatId.replace('@c.us', '');
+            customerPhone = chatId.replace('@c.us', '');
+        } else if (chatId && chatId.includes('@lid')) {
+            try {
+                if (message.id && typeof message.getContact === 'function') {
+                    const contact = await message.getContact();
+                    if (contact && contact.number) {
+                        customerPhone = contact.number;
+                    }
+                }
+            } catch (e) {
+                console.warn("[Message Logger] Error resolviendo teléfono para LID:", e.message);
+            }
+        }
+
+        // Ensure customer and chat exist to avoid foreign key errors
+        if (customerPhone) {
             const contactName = senderName || customerPhone;
             await pool.query(
                 `INSERT IGNORE INTO customers (phone, fullname) VALUES (?, ?)`,
@@ -81,7 +96,7 @@ async function saveMessage(message, botIntent = null) {
             await pool.query(
                 `INSERT INTO chats (chat_id, customer_phone, status, last_message_text, last_message_time)
                  VALUES (?, ?, 'bot', ?, NOW())
-                 ON DUPLICATE KEY UPDATE last_message_text = VALUES(last_message_text), last_message_time = NOW()`,
+                 ON DUPLICATE KEY UPDATE last_message_text = VALUES(last_message_text), last_message_time = NOW(), customer_phone = VALUES(customer_phone)`,
                 [chatId, customerPhone, body.substring(0, 500)]
             );
         } else if (chatId) {
