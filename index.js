@@ -5654,8 +5654,10 @@ async function baseProcessIncomingMessage(messages) {
                 currentState = undefined;
             } else {
                 // Si el cliente está en cola y sigue enviando mensajes, informarle periódicamente de su posición (límite 5 min)
+                // Excluimos mensajes de cierre/agradecimiento para no molestar al cliente.
                 const lastWarning = (currentStateData && currentStateData.lastWarningTime) || 0;
-                if (Date.now() - lastWarning > 5 * 60 * 1000) {
+                const isClosingMsg = detection && detection.intent === 'cierre';
+                if (!isClosingMsg && (Date.now() - lastWarning > 5 * 60 * 1000)) {
                     const { getQueuePosition } = require('./supportScheduleService');
                     const queuePos = getQueuePosition(userId, userStates);
                     if (queuePos) {
