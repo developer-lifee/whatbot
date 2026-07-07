@@ -1441,6 +1441,8 @@ app.get('/api/admin/tickets', async (req, res) => {
                 phone,
                 nombre: resolvedName,
                 state: stateStr,
+                total: typeof state === 'object' ? state.total : null,
+                saldo: typeof state === 'object' ? state.saldo : null,
                 lastHumanInteraction: typeof state === 'object' ? state.lastHumanInteraction : null,
                 agent: typeof state === 'object' ? state.agent : null,
                 lastMessage,
@@ -1526,6 +1528,27 @@ app.post('/api/admin/tickets/update-mode', async (req, res) => {
         res.json({ success: true, message: `Modo actualizado a ${mode}` });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/tickets/update-state', async (req, res) => {
+    try {
+        const { phone, state, total, saldo, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!phone) return res.status(400).json({ success: false, message: 'Falta el teléfono' });
+
+        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        const currentState = userStates.get(userId) || {};
+
+        let updatedState = { ...currentState };
+        if (state !== undefined) updatedState.state = state;
+        if (total !== undefined) updatedState.total = total === null ? null : parseInt(total) || 0;
+        if (saldo !== undefined) updatedState.saldo = saldo === null ? null : parseInt(saldo) || 0;
+
+        userStates.set(userId, updatedState);
+        res.json({ success: true, message: 'Estado del ticket actualizado con éxito', state: updatedState });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
@@ -4983,9 +5006,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
         return;
     }
 
-    if (fallbackResult.replyMessage) {
-        updateStateTotalFromAiText(userId, fallbackResult.replyMessage, userStates);
-    }
+
 
     if (fallbackResult.needsEscalation) {
         const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
@@ -6802,7 +6823,7 @@ async function baseProcessIncomingMessage(messages) {
                 let totalPaidSoFar = (stateData.checkAmount || 0) + (check.amount || 0);
                 let leftoverAmount = 0;
                 if (check.amount && check.amount > 0) {
-                    const expectedTotal = stateData.total || 0;
+                    const expectedTotal = Math.max(0, (stateData.total || 0) - (stateData.saldo || 0));
                     leftoverAmount = (expectedTotal > 0 && totalPaidSoFar > expectedTotal) ? (totalPaidSoFar - expectedTotal) : 0;
                     try {
                         const isShortPayment = expectedTotal > 0 && totalPaidSoFar < expectedTotal;
@@ -7231,9 +7252,6 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         if (typeof fallbackResult === 'string') {
             await safeReply(message, fallbackResult, userId);
         } else {
-            if (fallbackResult.replyMessage) {
-                updateStateTotalFromAiText(userId, fallbackResult.replyMessage, userStates);
-            }
             await safeReply(message, fallbackResult.replyMessage, userId);
             if (fallbackResult.needsEscalation) {
                 userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
@@ -8101,7 +8119,6 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     try { accounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
                     const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
                     if (fallback.replyMessage) {
-                        updateStateTotalFromAiText(userId, fallback.replyMessage, userStates);
                         await message.reply(fallback.replyMessage);
                     }
                     return;
@@ -8136,7 +8153,6 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
             const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
 
             if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
-                updateStateTotalFromAiText(userId, fallback.replyMessage, userStates);
                 await message.reply(fallback.replyMessage);
 
                 if (fallback.needsEscalation) {
@@ -8520,7 +8536,7 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         const { adjustDurationToMatchAmount } = require('./billingService');
                         await adjustDurationToMatchAmount(stateData, check.amount, userId);
 
-                        const expectedTotal = stateData.total || 0;
+                        const expectedTotal = Math.max(0, (stateData.total || 0) - (stateData.saldo || 0));
                         const totalPaidSoFar = (stateData.checkAmount || 0) + (check.amount || 0);
                         const amountMatches = expectedTotal <= 0 || Math.abs(totalPaidSoFar - expectedTotal) < 500;
 
@@ -8717,28 +8733,7 @@ function getDurationMonths(detection, inputToUse) {
     return durationMonths;
 }
 
-function updateStateTotalFromAiText(userId, replyText, userStates) {
-    if (!replyText || !userStates) return;
-    try {
-        // Buscar patrones como "transferir $6.000", "transferir $6,000", "pago de $6.000", "pagar $6.000", "solo necesitas transferir $X", "solo transfieres $X"
-        const transferRegex = /(?:transferir|pagar|transferencia de|total a transferir|solo\s+\w+\s+transfieres|solo\s+transfieres)\s+\*?\$?([\d.]+)\*?/i;
-        const match = replyText.match(transferRegex);
-        if (match && match[1]) {
-            const cleanAmountStr = match[1].replace(/\./g, '').replace(/,/g, '');
-            const num = parseInt(cleanAmountStr);
-            if (num && num >= 1000 && num <= 200000) {
-                const currentState = userStates.get(userId);
-                if (currentState && typeof currentState === 'object') {
-                    currentState.total = num;
-                    userStates.set(userId, currentState);
-                    console.log(`[AI Price Extractor] Sincronizado total en memoria para @${userId.replace('@c.us', '')}: $${num} (extraído de respuesta de la IA)`);
-                }
-            }
-        }
-    } catch (e) {
-        console.error("Error en updateStateTotalFromAiText:", e.message);
-    }
-}
+
 
 // --- AL FINAL DEL ARCHIVO index.js ---
 
