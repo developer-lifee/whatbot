@@ -151,7 +151,7 @@ CREATE TABLE IF NOT EXISTS agent_schedules (
     end_time VARCHAR(10) NOT NULL,   -- Formato "HH:MM"
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_agent_day_slot (agent_id, day_of_week, start_time, end_time)
+    UNIQUE KEY unique_agent_day_slot (agent_id, week_start, day_of_week, start_time, end_time)
 );
 
 -- 13. Ventas Web Pendientes (Intenciones de Pago)
