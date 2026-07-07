@@ -861,6 +861,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         overrideMonths = parseInt(monthsMatch[1]);
     }
 
+    try {
         const results = await recordNewSale(userId, activeStateData, "Confirmado por Admin", overrideMonths);
 
         if (activeStateData && activeStateData.webOrderId) {
