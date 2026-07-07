@@ -3536,6 +3536,7 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             connection.release();
         }
     } catch (e) {
+        console.error('❌ Error en /api/admin/agents/schedule/save:', e);
         res.status(500).json({ success: false, error: e.message });
     }
 });
