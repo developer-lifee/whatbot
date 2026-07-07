@@ -5506,13 +5506,23 @@ async function baseProcessIncomingMessage(messages) {
             // Also check if Gemini's media description detects a Netflix/Disney code or home screen
             if (mediaData && detection) {
                 const imgDesc = ((detection.explanation || "") + " " + (detection.mediaDescription || "")).toLowerCase();
+                
+                const isWrongPassword = imgDesc.includes('contraseña incorrecta') || 
+                                        imgDesc.includes('contraseña no es correcta') || 
+                                        imgDesc.includes('clave incorrecta') || 
+                                        imgDesc.includes('incorrect password') || 
+                                        imgDesc.includes('wrong password') || 
+                                        imgDesc.includes('password incorrect') ||
+                                        imgDesc.includes('contraseña no coincide') ||
+                                        imgDesc.includes('clave no coincide');
+
                 const wantsImgCode = [
                     'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor',
                     'gpt', 'chatgpt', '2fa', 'authenticator', 'autenticación', 'openai', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
                     'error', 'fallo', 'falla', 'pantalla', 'problema', 'cuenta', 'iniciar', 'bloqueo', 'límite', 'limite', 'suscripción', 'suscripcion', 'incorrecto', 'incorrecta', 'incorrect', 'warning', 'alert', 'failed', 'blocked'
                 ].some(kw => imgDesc.includes(kw));
 
-                if (wantsImgCode) {
+                if (wantsImgCode && !isWrongPassword) {
                     isCodeRequest = true;
                     console.log(`[BOT MEDIA OCR DETECTED] La imagen del cliente parece solicitar código de Netflix/Disney. Activando reactivación.`);
                 }
