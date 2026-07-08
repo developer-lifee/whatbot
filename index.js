@@ -3709,14 +3709,6 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 });
             }
         }
-          if (breakStartMin < startMin + buffer || breakStartMin > endMin - duration - buffer) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `La hora de descanso no puede estar al inicio ni al final de la franja laboral.`
-                    });
-                }
-            }
-        }
 
         // 2. Ejecutar la transacción de base de datos
         const connection = await pool.getConnection();
