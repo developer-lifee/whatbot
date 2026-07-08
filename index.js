@@ -1880,6 +1880,81 @@ app.get('/api/admin/support-schedule', async (req, res) => {
     }
 });
 
+// --- CONTABILIDAD Y PRECIOS ENDPOINTS ---
+const accountingService = require('./accountingService');
+
+app.get('/api/admin/prices', async (req, res) => {
+    try {
+        const prices = await accountingService.getPrices();
+        res.json(prices);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/prices/save', async (req, res) => {
+    try {
+        const { platform, price, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        await accountingService.savePrice(platform, price);
+        res.json({ success: true, message: 'Precio actualizado con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/costs', async (req, res) => {
+    try {
+        const costs = await accountingService.getCosts();
+        res.json(costs);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/costs/save', async (req, res) => {
+    try {
+        const { costData, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        await accountingService.saveCost(costData);
+        res.json({ success: true, message: 'Costo actualizado con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/costs/delete', async (req, res) => {
+    try {
+        const { id, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        await accountingService.deleteCost(id);
+        res.json({ success: true, message: 'Costo eliminado con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/accounting/daily', async (req, res) => {
+    try {
+        const data = await accountingService.calculateDailyAccounting();
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/accounting/transaction', async (req, res) => {
+    try {
+        const { type, platform, amount, description, entryDate, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        await accountingService.addTransaction(type, platform, amount, description, entryDate, 0);
+        res.json({ success: true, message: 'Transacción registrada con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
 // Endpoint to write human support schedule configuration
 app.post('/api/admin/support-schedule/save', (req, res) => {
     try {
@@ -3484,40 +3559,19 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             agentId = agentRows[0].id;
         }
 
-        // Overtime validation
+        // Support Config and Roles lookup
         const { getSupportScheduleConfig } = require('./supportScheduleService');
         const supportConfig = getSupportScheduleConfig();
-        if (supportConfig.allow_overtime === false) {
-            const slotsByDay = new Map();
-            for (const slot of schedule) {
-                const day = parseInt(slot.day_of_week);
-                if (isNaN(day)) continue;
-                if (!slotsByDay.has(day)) slotsByDay.set(day, []);
-                slotsByDay.get(day).push(slot);
-            }
-            for (const [day, daySlots] of slotsByDay.entries()) {
-                let dailyNetMinutes = 0;
-                for (const slot of daySlots) {
-                    if (!slot.start_time || !slot.end_time) continue;
-                    const [sh, sm] = slot.start_time.split(':').map(Number);
-                    const [eh, em] = slot.end_time.split(':').map(Number);
-                    let diff = (eh * 60 + em) - (sh * 60 + sm);
-                    if (diff <= 0) continue;
-                    let breakMin = 0;
-                    if (slot.break_type === 'break_30') breakMin = 30;
-                    else if (slot.break_type === 'lunch_60') breakMin = 60;
-                    dailyNetMinutes += Math.max(0, diff - breakMin);
-                }
-                if (dailyNetMinutes > 8 * 60) {
-                    return res.status(400).json({ 
-                        success: false, 
-                        message: `No se permiten horas extras (límite de 8.0 horas netas diarias superado).` 
-                    });
-                }
-            }
-        }
 
-        // 1. Validaciones previas antes de tocar la base de datos
+        const [allAgents] = await pool.query('SELECT id, role, fullname FROM agents');
+        const agentMap = {};
+        allAgents.forEach(a => {
+            agentMap[a.id] = { role: a.role, fullname: a.fullname };
+        });
+
+        const currentAgentRole = agentMap[agentId]?.role || 'agent';
+
+        // 1. Validaciones previas de franja horaria y descanso antes de tocar la base de datos
         for (const slot of schedule) {
             const dayOfWeek = parseInt(slot.day_of_week);
             const startTime = slot.start_time;
@@ -3531,6 +3585,15 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
 
             const [shVal, smVal] = startTime.split(':').map(Number);
             const [ehVal, emVal] = endTime.split(':').map(Number);
+
+            // Franja de 10 a 10 (10:00 a 22:00)
+            if (shVal < 10 || ehVal > 22 || (ehVal === 22 && emVal > 0)) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Los turnos de soporte deben estar estrictamente dentro de la franja de 10:00 AM a 10:00 PM.`
+                });
+            }
+
             const durationHoursVal = (ehVal * 60 + emVal - (shVal * 60 + smVal)) / 60;
             if (durationHoursVal >= 5 && breakType === 'none') {
                 return res.status(400).json({
@@ -3540,15 +3603,113 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             }
 
             if (breakType !== 'none' && breakStart) {
-                const [sh, sm] = startTime.split(':').map(Number);
-                const [eh, em] = endTime.split(':').map(Number);
                 const [bh, bm] = breakStart.split(':').map(Number);
-                const startMin = sh * 60 + sm;
-                const endMin = eh * 60 + em;
+                const startMin = shVal * 60 + smVal;
+                const endMin = ehVal * 60 + emVal;
                 const breakStartMin = bh * 60 + bm;
                 const duration = breakType === 'break_30' ? 30 : 60;
                 const buffer = 90; // 90 mins = 1.5 hours buffer
                 if (breakStartMin < startMin + buffer || breakStartMin > endMin - duration - buffer) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `La hora de descanso no puede estar al inicio ni al final de la franja laboral.`
+                    });
+                }
+            }
+        }
+
+        // Group incoming slots by day to validate overlaps and sum of hours with existing schedules
+        const incomingSlotsByDay = new Map();
+        for (const slot of schedule) {
+            const day = parseInt(slot.day_of_week);
+            if (isNaN(day)) continue;
+            if (!incomingSlotsByDay.has(day)) incomingSlotsByDay.set(day, []);
+            incomingSlotsByDay.get(day).push(slot);
+        }
+
+        for (const [dayOfWeek, daySlots] of incomingSlotsByDay.entries()) {
+            // Get other agents' schedules for this specific day and week
+            const [otherSchedules] = await pool.query(
+                `SELECT s.*, a.role, a.fullname FROM agent_schedules s 
+                 JOIN agents a ON s.agent_id = a.id 
+                 WHERE (s.week_start = ? OR s.week_start = "default") 
+                   AND s.agent_id != ? 
+                   AND s.day_of_week = ?`,
+                [weekStartStr, agentId, dayOfWeek]
+            );
+
+            // Merge current agent's new slots and other agents' slots to check validation
+            const mergedSlots = [
+                ...daySlots.map(s => ({
+                    agent_id: agentId,
+                    role: currentAgentRole,
+                    fullname: agentMap[agentId]?.fullname || 'Este Asesor',
+                    start_time: s.start_time,
+                    end_time: s.end_time,
+                    break_type: s.break_type
+                })),
+                ...otherSchedules.map(s => ({
+                    agent_id: s.agent_id,
+                    role: s.role,
+                    fullname: s.fullname,
+                    start_time: s.start_time.substring(0, 5),
+                    end_time: s.end_time.substring(0, 5),
+                    break_type: s.break_type
+                }))
+            ];
+
+            // 1. Validate overlaps
+            for (let i = 0; i < mergedSlots.length; i++) {
+                for (let j = i + 1; j < mergedSlots.length; j++) {
+                    const slotA = mergedSlots[i];
+                    const slotB = mergedSlots[j];
+
+                    const [shA, smA] = slotA.start_time.split(':').map(Number);
+                    const [ehA, emA] = slotA.end_time.split(':').map(Number);
+                    const [shB, smB] = slotB.start_time.split(':').map(Number);
+                    const [ehB, emB] = slotB.end_time.split(':').map(Number);
+
+                    const startA = shA * 60 + smA;
+                    const endA = ehA * 60 + emA;
+                    const startB = shB * 60 + smB;
+                    const endB = ehB * 60 + emB;
+
+                    // Check overlap
+                    if (startA < endB && endA > startB) {
+                        // Exception: Overlap is allowed only if at least one agent is 'trial' (cangureando)
+                        if (slotA.role !== 'trial' && slotB.role !== 'trial') {
+                            return res.status(400).json({
+                                success: false,
+                                message: `Conflicto de horario: Los turnos de ${slotA.fullname} y ${slotB.fullname} se solapan de ${slotA.start_time}-${slotA.end_time} y ${slotB.start_time}-${slotB.end_time}. Los turnos no se pueden solapar a menos que uno de ellos sea un asesor en prueba (rol trial).`
+                            });
+                        }
+                    }
+                }
+            }
+
+            // 2. Validate total daily sum of hours (Max 12 hours)
+            let dailyTotalNetMinutes = 0;
+            for (const slot of mergedSlots) {
+                const [sh, sm] = slot.start_time.split(':').map(Number);
+                const [eh, em] = slot.end_time.split(':').map(Number);
+                const diff = (eh * 60 + em) - (sh * 60 + sm);
+                if (diff <= 0) continue;
+
+                let breakMin = 0;
+                if (slot.break_type === 'break_30') breakMin = 30;
+                else if (slot.break_type === 'lunch_60') breakMin = 60;
+
+                dailyTotalNetMinutes += Math.max(0, diff - breakMin);
+            }
+
+            if (dailyTotalNetMinutes > 12 * 60) {
+                return res.status(400).json({
+                    success: false,
+                    message: `La sumatoria total de turnos de todos los asesores para este día supera el límite de 12 horas diarias (actual: ${(dailyTotalNetMinutes / 60).toFixed(1)} horas).`
+                });
+            }
+        }
+          if (breakStartMin < startMin + buffer || breakStartMin > endMin - duration - buffer) {
                     return res.status(400).json({
                         success: false,
                         message: `La hora de descanso no puede estar al inicio ni al final de la franja laboral.`
@@ -3678,10 +3839,36 @@ app.get('/api/admin/payroll', async (req, res) => {
             }
 
             const totalHours = totalNetMinutes / 60;
-            const rateToUse = closed ? parseFloat(closed.hourly_rate) : hourlyRate;
+            let rateToUse = closed ? parseFloat(closed.hourly_rate) : hourlyRate;
             const hoursToUse = closed ? parseFloat(closed.total_hours) : totalHours;
             const bonusesToUse = closed ? parseFloat(closed.total_bonuses) : totalBonuses;
-            const finalPayment = closed ? parseFloat(closed.total_payment) : (hoursToUse * rateToUse + bonusesToUse);
+            let finalPayment;
+
+            if (closed) {
+                finalPayment = parseFloat(closed.total_payment);
+            } else {
+                if (agent.role === 'trial') {
+                    const trialHourlyRate = parseFloat(supportConfig.trial_hourly_rate || 5000);
+                    const [histRows] = await pool.query(
+                        'SELECT SUM(total_hours) as total_hist FROM monthly_payroll WHERE agent_id = ?',
+                        [agent.id]
+                    );
+                    const totalHist = parseFloat(histRows[0].total_hist || 0);
+                    const trialHoursLeft = Math.max(0, 80 - totalHist);
+
+                    if (totalHours <= trialHoursLeft) {
+                        finalPayment = (totalHours * trialHourlyRate) + totalBonuses;
+                        rateToUse = trialHourlyRate;
+                    } else {
+                        const trialHoursPaid = trialHoursLeft;
+                        const normalHoursPaid = totalHours - trialHoursPaid;
+                        finalPayment = (trialHoursPaid * trialHourlyRate) + (normalHoursPaid * hourlyRate) + totalBonuses;
+                        rateToUse = totalHours > 0 ? ((trialHoursPaid * trialHourlyRate + normalHoursPaid * hourlyRate) / totalHours) : hourlyRate;
+                    }
+                } else {
+                    finalPayment = (totalHours * hourlyRate) + totalBonuses;
+                }
+            }
 
             payrollData.push({
                 agent_id: agent.id,
@@ -3698,6 +3885,22 @@ app.get('/api/admin/payroll', async (req, res) => {
         }
 
         res.json({ success: true, payroll: payrollData });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Update Agent Role
+app.post('/api/admin/agents/role', express.json(), async (req, res) => {
+    try {
+        const { agent_id, role, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!agent_id || !role) return res.status(400).json({ success: false, message: 'Falta ID de asesor o rol' });
+        
+        const { pool } = require('./database');
+        await pool.query('UPDATE agents SET role = ? WHERE id = ?', [role, agent_id]);
+        
+        res.json({ success: true, message: 'Rol de asesor actualizado correctamente.' });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
