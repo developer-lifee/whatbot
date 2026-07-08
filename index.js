@@ -7289,6 +7289,14 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             isPivottingPlatform = true;
             console.log(`[Flow Breakout] Pivotando plataforma: ${currentPlatformName} -> ${detection.detectedPlatform}`);
         }
+    } else if (currentState === 'awaiting_payment_method' && currentStateData.items && currentStateData.items.length > 0) {
+        const currentPlatformName = (currentStateData.items[0].Streaming || currentStateData.items[0].platform?.name || "").toLowerCase();
+        if (detection.detectedPlatform && !currentPlatformName.includes(detection.detectedPlatform.toLowerCase()) && detection.intent === 'comprar') {
+            console.log(`[Flow Breakout] Pivotando de renovación a compra de nueva plataforma: ${currentPlatformName} -> ${detection.detectedPlatform}`);
+            userStates.delete(userId);
+            currentState = null;
+            currentStateData = null;
+        }
     }
 
     const isSingleDigit = /^\d+$/.test(inputToUse.trim());
