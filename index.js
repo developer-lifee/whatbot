@@ -3477,6 +3477,47 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             }
         }
 
+        // 1. Validaciones previas antes de tocar la base de datos
+        for (const slot of schedule) {
+            const dayOfWeek = parseInt(slot.day_of_week);
+            const startTime = slot.start_time;
+            const endTime = slot.end_time;
+
+            if (isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) continue;
+            if (!startTime || !endTime) continue;
+
+            const breakType = slot.break_type || 'none';
+            const breakStart = slot.break_start || null;
+
+            const [shVal, smVal] = startTime.split(':').map(Number);
+            const [ehVal, emVal] = endTime.split(':').map(Number);
+            const durationHoursVal = (ehVal * 60 + emVal - (shVal * 60 + smVal)) / 60;
+            if (durationHoursVal >= 5 && breakType === 'none') {
+                return res.status(400).json({
+                    success: false,
+                    message: `Los turnos de 5 horas o más deben incluir obligatoriamente un descanso por salud mental.`
+                });
+            }
+
+            if (breakType !== 'none' && breakStart) {
+                const [sh, sm] = startTime.split(':').map(Number);
+                const [eh, em] = endTime.split(':').map(Number);
+                const [bh, bm] = breakStart.split(':').map(Number);
+                const startMin = sh * 60 + sm;
+                const endMin = eh * 60 + em;
+                const breakStartMin = bh * 60 + bm;
+                const duration = breakType === 'break_30' ? 30 : 60;
+                const buffer = 90; // 90 mins = 1.5 hours buffer
+                if (breakStartMin < startMin + buffer || breakStartMin > endMin - duration - buffer) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `La hora de descanso no puede estar al inicio ni al final de la franja laboral.`
+                    });
+                }
+            }
+        }
+
+        // 2. Ejecutar la transacción de base de datos
         const connection = await pool.getConnection();
         try {
             await connection.beginTransaction();
@@ -3493,33 +3534,6 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
 
                 const breakType = slot.break_type || 'none';
                 const breakStart = slot.break_start || null;
-
-                const [shVal, smVal] = startTime.split(':').map(Number);
-                const [ehVal, emVal] = endTime.split(':').map(Number);
-                const durationHoursVal = (ehVal * 60 + emVal - (shVal * 60 + smVal)) / 60;
-                if (durationHoursVal >= 5 && breakType === 'none') {
-                    return res.status(400).json({
-                        success: false,
-                        message: `Los turnos de 5 horas o más deben incluir obligatoriamente un descanso por salud mental.`
-                    });
-                }
-
-                if (breakType !== 'none' && breakStart) {
-                    const [sh, sm] = startTime.split(':').map(Number);
-                    const [eh, em] = endTime.split(':').map(Number);
-                    const [bh, bm] = breakStart.split(':').map(Number);
-                    const startMin = sh * 60 + sm;
-                    const endMin = eh * 60 + em;
-                    const breakStartMin = bh * 60 + bm;
-                    const duration = breakType === 'break_30' ? 30 : 60;
-                    const buffer = 90; // 90 mins = 1.5 hours buffer
-                    if (breakStartMin < startMin + buffer || breakStartMin > endMin - duration - buffer) {
-                        return res.status(400).json({
-                            success: false,
-                            message: `La hora de descanso no puede estar al inicio ni al final de la franja laboral.`
-                        });
-                    }
-                }
 
                 await connection.query(
                     'INSERT INTO agent_schedules (agent_id, week_start, day_of_week, start_time, end_time, break_type, break_start) VALUES (?, ?, ?, ?, ?, ?, ?)',
