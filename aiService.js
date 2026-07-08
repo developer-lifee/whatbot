@@ -1143,7 +1143,7 @@ Mensaje actual: "{{MESSAGE_CONTENT}}"
 Categorías para "intent":
 - "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene. 
   *IMPORTANTE*: Si el usuario pregunta "¿tienes disponible?", "¿entregas ya?", "¿qué tienes para entrega inmediata?", clasifícalo como "comprar" con frustración 0 y genera un mensaje que invite a la venta con total confianza.
-- "credenciales": El usuario solicita las credenciales (correo/contraseña) de su cuenta actual, reporta explícitamente "la contraseña no corresponde", "clave incorrecta", o pide recordar su pin de acceso.
+- "credenciales": El usuario solicita las credenciales (correo/contraseña) de su cuenta actual, reporta explícitamente "la contraseña no corresponde", "clave incorrecta", pide recordar su pin de acceso, o pregunta cuándo se vence / fecha de vencimiento / fecha de pago de su cuenta actual.
 - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado.
 - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
 - "soporte": Problemas técnicos, fallas de conexión, errores en el cobro, perfiles caídos, o si pide explícitamente hablar con un humano/asesor. (NO usar si es explícitamente un error de clave).
@@ -1228,6 +1228,8 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
 
   if (txt.includes("comprobante") || txt.includes("pagué") || txt.includes("pagado") || txt.includes("captura") || txt.includes("transferencia")) {
     keywordIntent = "pagar";
+  } else if (txt.includes("cuando se vence") || txt.includes("cuándo se vence") || txt.includes("cuando vence") || txt.includes("cuándo vence") || txt.includes("fecha de vencimiento") || txt.includes("fecha de pago")) {
+    keywordIntent = "credenciales";
   } else if (txt.includes("vence") || txt.includes("cuanto") || txt.includes("cuánto") || txt.includes("debo") || txt.includes("valor")) {
     keywordIntent = "pagar"; // En este bot pagar/cobros es la opción 3
   } else if (txt.includes("clave") || txt.includes("correo") || txt.includes("entrar") || txt.includes("funciona") || txt.includes("fallando")) {

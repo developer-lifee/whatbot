@@ -1,15 +1,18 @@
 const { pool } = require('../database');
 
-async function check() {
+async function main() {
     try {
-        const [rows] = await pool.query("DESCRIBE messages");
-        console.log("COLUMNS IN messages TABLE:");
-        console.log(rows);
+        const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "initial_intent_prompt"');
+        if (rows && rows.length > 0) {
+            console.log("DATABASE VALUE FOUND:\n", rows[0].cfg_value);
+        } else {
+            console.log("No config found in database.");
+        }
     } catch (err) {
-        console.error("Error checking DB:", err.message);
+        console.error("Error reading db:", err.message);
     } finally {
-        process.exit(0);
+        await pool.end();
     }
 }
 
-check();
+main();
