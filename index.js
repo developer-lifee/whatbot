@@ -2705,7 +2705,27 @@ app.post('/api/admin/chat-messages/sync', async (req, res) => {
             return res.status(503).json({ error: 'WhatsApp client is not ready' });
         }
 
-        const chat = await client.getChatById(userId);
+        // Intentar resolver LID para targetChatId
+        let targetChatId = userId;
+        const state = userStates.get(userId);
+        if (state && state.chatJid) {
+            targetChatId = state.chatJid;
+        } else {
+            try {
+                const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
+                const [chatRows] = await pool.query(
+                    `SELECT chat_id FROM chats WHERE customer_phone = ? LIMIT 1`,
+                    [cleanPhone]
+                );
+                if (chatRows.length > 0) {
+                    targetChatId = chatRows[0].chat_id;
+                }
+            } catch (chatErr) {
+                console.error("[chat-messages-sync] Error al buscar JID alternativo en chats:", chatErr.message);
+            }
+        }
+
+        const chat = await client.getChatById(targetChatId);
         await chat.syncHistory().catch(() => {});
         const messages = await chat.fetchMessages({ limit: 50 });
 
@@ -2718,10 +2738,10 @@ app.post('/api/admin/chat-messages/sync', async (req, res) => {
             }
         }
 
-        // Recuperar historial actualizado desde la base de datos
+        // Recuperar historial actualizado desde la base de datos usando el ID resuelto
         const [rows] = await pool.query(
             `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 40`,
-            [userId]
+            [targetChatId]
         );
 
         const formatted = rows.map(m => ({
@@ -2848,22 +2868,42 @@ app.post('/api/admin/chat-messages/send-audio', express.json({ limit: '10mb' }),
         const { MessageMedia } = require('whatsapp-web.js');
         const media = new MessageMedia('audio/ogg; codecs=opus', base64Opus, 'voice.ogg');
         
+        // Intentar resolver LID para targetChatId
+        let targetChatId = userId;
+        const state = userStates.get(userId);
+        if (state && state.chatJid) {
+            targetChatId = state.chatJid;
+        } else {
+            try {
+                const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
+                const [chatRows] = await pool.query(
+                    `SELECT chat_id FROM chats WHERE customer_phone = ? LIMIT 1`,
+                    [cleanPhone]
+                );
+                if (chatRows.length > 0) {
+                    targetChatId = chatRows[0].chat_id;
+                }
+            } catch (chatErr) {
+                console.error("[send-audio] Error al buscar JID alternativo en chats:", chatErr.message);
+            }
+        }
+
         // Send audio as voice note
-        const msg = await client.sendMessage(userId, media, { sendAudioAsVoice: true });
+        const msg = await client.sendMessage(targetChatId, media, { sendAudioAsVoice: true });
 
         // Save proper audio file in uploads directory
         const fileName = `${Date.now()}_voice.ogg`;
         const filePath = path.join(uploadDir, fileName);
         fs.writeFileSync(filePath, opusBuffer);
 
-        // Save message to MySQL
+        // Save message to MySQL using targetChatId
         try {
             await pool.query(
                 `INSERT INTO messages (message_id, chat_id, body, is_from_me, created_at, message_type, media_path, media_mime)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     msg.id ? msg.id._serialized : `voice_${Date.now()}`,
-                    userId,
+                    targetChatId,
                     "",
                     1,
                     new Date(),
