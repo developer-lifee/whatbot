@@ -1892,6 +1892,51 @@ app.get('/api/admin/prices', async (req, res) => {
     }
 });
 
+app.get('/api/public/platforms', async (req, res) => {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const localPath = path.join(__dirname, 'platforms.json');
+        const { pool } = require('./database');
+        
+        let platforms = [];
+        if (fs.existsSync(localPath)) {
+            const content = fs.readFileSync(localPath, 'utf8');
+            platforms = JSON.parse(content);
+        } else {
+            const fetch = require('node-fetch');
+            const response = await fetch('https://sheerit.com.co/data/platforms.json');
+            platforms = await response.json();
+        }
+
+        const [dbPrices] = await pool.query('SELECT * FROM streaming_prices');
+        const priceMap = {};
+        dbPrices.forEach(p => {
+            priceMap[p.platform.toLowerCase().replace(/[^a-z0-9]/g, '')] = parseFloat(p.normal_price);
+        });
+
+        platforms = platforms.map(p => {
+            const cleanName = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (priceMap[cleanName] !== undefined) {
+                p.price = priceMap[cleanName];
+                if (p.plans && p.plans.length > 0) {
+                    p.plans = p.plans.map(plan => {
+                        if (p.plans.length === 1) {
+                            plan.price = priceMap[cleanName];
+                        }
+                        return plan;
+                    });
+                }
+            }
+            return p;
+        });
+
+        res.json(platforms);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.post('/api/admin/prices/save', async (req, res) => {
     try {
         const { platform, price, password } = req.body;
