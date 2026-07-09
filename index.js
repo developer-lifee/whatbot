@@ -3578,7 +3578,7 @@ app.get('/api/admin/agents/schedules/all', async (req, res) => {
 // POST Save Agent Schedule
 app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => {
     try {
-        const { email, schedule, week_start, requester_email } = req.body;
+        const { email, schedule, week_start, requester_email, day_of_week } = req.body;
         const weekStartStr = week_start || 'default';
         if (!email) return res.status(400).json({ success: false, message: 'Falta el correo del asesor' });
         if (!Array.isArray(schedule)) return res.status(400).json({ success: false, message: 'El horario debe ser una lista de franjas' });
@@ -3622,10 +3622,13 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
         // 1. Validaciones previas de franja horaria y descanso antes de tocar la base de datos
         for (const slot of schedule) {
             const dayOfWeek = parseInt(slot.day_of_week);
+            if (isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) continue;
+
+            // Restringir validación de la franja horaria 10-22 al día editado en el modal
+            if (day_of_week !== undefined && dayOfWeek !== parseInt(day_of_week)) continue;
+
             const startTime = slot.start_time;
             const endTime = slot.end_time;
-
-            if (isNaN(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) continue;
             if (!startTime || !endTime) continue;
 
             const breakType = slot.break_type || 'none';
@@ -3738,6 +3741,9 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             // 2. Validate total daily sum of hours (configurable max_hours_limit if allow_overtime is false, absolute 12 hours max if allow_overtime is true)
             let dailyTotalNetMinutes = 0;
             for (const slot of mergedSlots) {
+                // Excluir del conteo diario a colaboradores nuevos/en prueba (trial) que están "cangureando"
+                if (slot.role === 'trial') continue;
+
                 const [sh, sm] = slot.start_time.split(':').map(Number);
                 const [eh, em] = slot.end_time.split(':').map(Number);
                 const diff = (eh * 60 + em) - (sh * 60 + sm);
