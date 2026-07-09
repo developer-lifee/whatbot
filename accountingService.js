@@ -32,16 +32,16 @@ async function getCosts() {
  * Guarda o actualiza un costo
  */
 async function saveCost(data) {
-  const { id, platform, email, total_cost, profile_slots, duration_days, expiration_date } = data;
+  const { id, platform, email, total_cost, profile_slots, duration_days, expiration_date, payment_method } = data;
   if (id) {
     await pool.query(
-      'UPDATE streaming_costs SET platform = ?, email = ?, total_cost = ?, profile_slots = ?, duration_days = ?, expiration_date = ? WHERE id = ?',
-      [platform.toUpperCase(), email, total_cost, profile_slots || 1, duration_days || 30, expiration_date || null, id]
+      'UPDATE streaming_costs SET platform = ?, email = ?, total_cost = ?, profile_slots = ?, duration_days = ?, expiration_date = ?, payment_method = ? WHERE id = ?',
+      [platform.toUpperCase(), email, total_cost, profile_slots || 1, duration_days || 30, expiration_date || null, payment_method || null, id]
     );
   } else {
     await pool.query(
-      'INSERT INTO streaming_costs (platform, email, total_cost, profile_slots, duration_days, expiration_date) VALUES (?, ?, ?, ?, ?, ?)',
-      [platform.toUpperCase(), email, total_cost, profile_slots || 1, duration_days || 30, expiration_date || null]
+      'INSERT INTO streaming_costs (platform, email, total_cost, profile_slots, duration_days, expiration_date, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [platform.toUpperCase(), email, total_cost, profile_slots || 1, duration_days || 30, expiration_date || null, payment_method || null]
     );
   }
   return { success: true };
