@@ -2772,33 +2772,69 @@ app.post('/api/admin/policies/save', (req, res) => {
     }
 });
 
+async function resolveJidForPhone(phone) {
+    const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
+    const userId = cleanPhone + '@c.us';
+    
+    // 1. Validar en userStates en memoria
+    const state = userStates.get(userId);
+    if (state && state.chatJid) {
+        return state.chatJid;
+    }
+    
+    // 2. Validar en la base de datos chats
+    try {
+        const [chatRows] = await pool.query(
+            `SELECT chat_id FROM chats WHERE customer_phone = ? LIMIT 1`,
+            [cleanPhone]
+        );
+        if (chatRows.length > 0 && chatRows[0].chat_id) {
+            return chatRows[0].chat_id;
+        }
+    } catch (err) {
+        console.error("[resolveJidForPhone] Error en DB query:", err.message);
+    }
+    
+    // 3. Fallback: Buscar en client.getChats() del navegador de Puppeteer
+    if (client && client.info) {
+        try {
+            const chats = await client.getChats();
+            for (const chat of chats) {
+                if (chat.isGroup) continue;
+                if (chat.id.user.includes(cleanPhone) || cleanPhone.includes(chat.id.user)) {
+                    // Actualizar mapeo en base de datos
+                    await pool.query(
+                        `INSERT INTO chats (chat_id, customer_phone, last_message_time) 
+                         VALUES (?, ?, NOW()) 
+                         ON DUPLICATE KEY UPDATE customer_phone = VALUES(customer_phone)`,
+                        [chat.id._serialized, cleanPhone]
+                    );
+                    
+                    // Actualizar en userStates
+                    const rawState = userStates.get(userId);
+                    if (rawState && typeof rawState === 'object') {
+                        rawState.chatJid = chat.id._serialized;
+                        userStates.set(userId, rawState);
+                    } else if (!rawState) {
+                        userStates.set(userId, { chatJid: chat.id._serialized });
+                    }
+                    return chat.id._serialized;
+                }
+            }
+        } catch (chatsErr) {
+            console.error("[resolveJidForPhone] Error en client.getChats:", chatsErr.message);
+        }
+    }
+    
+    return userId; // Fallback final
+}
+
 app.get('/api/admin/chat-messages', async (req, res) => {
     try {
         const { phone } = req.query;
         if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
 
-        const userId = phone.includes('@') ? phone : phone + '@c.us';
-        let targetChatId = userId;
-
-        // Intentar resolver LID desde el estado en memoria
-        const state = userStates.get(userId);
-        if (state && state.chatJid) {
-            targetChatId = state.chatJid;
-        } else {
-            // Intentar resolver LID desde la base de datos (chats)
-            try {
-                const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
-                const [chatRows] = await pool.query(
-                    `SELECT chat_id FROM chats WHERE customer_phone = ? LIMIT 1`,
-                    [cleanPhone]
-                );
-                if (chatRows.length > 0) {
-                    targetChatId = chatRows[0].chat_id;
-                }
-            } catch (chatErr) {
-                console.error("[chat-messages] Error al buscar JID alternativo en chats:", chatErr.message);
-            }
-        }
+        const targetChatId = await resolveJidForPhone(phone);
 
         // 1. Obtener el historial directamente de la base de datos (ultra rápido: ~5ms)
         const [rows] = await pool.query(
@@ -2829,30 +2865,11 @@ app.post('/api/admin/chat-messages/sync', async (req, res) => {
         const { phone } = req.body;
         if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
 
-        const userId = phone.includes('@') ? phone : phone + '@c.us';
         if (!client || !client.info) {
             return res.status(503).json({ error: 'WhatsApp client is not ready' });
         }
 
-        // Intentar resolver LID para targetChatId
-        let targetChatId = userId;
-        const state = userStates.get(userId);
-        if (state && state.chatJid) {
-            targetChatId = state.chatJid;
-        } else {
-            try {
-                const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
-                const [chatRows] = await pool.query(
-                    `SELECT chat_id FROM chats WHERE customer_phone = ? LIMIT 1`,
-                    [cleanPhone]
-                );
-                if (chatRows.length > 0) {
-                    targetChatId = chatRows[0].chat_id;
-                }
-            } catch (chatErr) {
-                console.error("[chat-messages-sync] Error al buscar JID alternativo en chats:", chatErr.message);
-            }
-        }
+        const targetChatId = await resolveJidForPhone(phone);
 
         const chat = await client.getChatById(targetChatId);
         await chat.syncHistory().catch(() => {});
@@ -2897,16 +2914,11 @@ app.post('/api/admin/chat-messages/send', async (req, res) => {
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!phone || !message) return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
 
-        const userId = phone.includes('@') ? phone : phone + '@c.us';
         if (!client || !client.info) {
             return res.status(503).json({ success: false, message: 'WhatsApp client is not ready' });
         }
 
-        let targetChatId = userId;
-        const state = userStates.get(userId);
-        if (state && state.chatJid) {
-            targetChatId = state.chatJid;
-        }
+        const targetChatId = await resolveJidForPhone(phone);
 
         // Concatenar el emoji del asesor si está presente
         const prefix = emoji ? `${emoji.trim()} ` : "";
@@ -2997,25 +3009,7 @@ app.post('/api/admin/chat-messages/send-audio', express.json({ limit: '10mb' }),
         const { MessageMedia } = require('whatsapp-web.js');
         const media = new MessageMedia('audio/ogg; codecs=opus', base64Opus, 'voice.ogg');
         
-        // Intentar resolver LID para targetChatId
-        let targetChatId = userId;
-        const state = userStates.get(userId);
-        if (state && state.chatJid) {
-            targetChatId = state.chatJid;
-        } else {
-            try {
-                const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
-                const [chatRows] = await pool.query(
-                    `SELECT chat_id FROM chats WHERE customer_phone = ? LIMIT 1`,
-                    [cleanPhone]
-                );
-                if (chatRows.length > 0) {
-                    targetChatId = chatRows[0].chat_id;
-                }
-            } catch (chatErr) {
-                console.error("[send-audio] Error al buscar JID alternativo en chats:", chatErr.message);
-            }
-        }
+        const targetChatId = await resolveJidForPhone(phone);
 
         // Send audio as voice note
         const msg = await client.sendMessage(targetChatId, media, { sendAudioAsVoice: true });
