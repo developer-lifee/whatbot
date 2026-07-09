@@ -1988,6 +1988,15 @@ app.get('/api/admin/accounting/daily', async (req, res) => {
     }
 });
 
+app.get('/api/admin/accounting/real', async (req, res) => {
+    try {
+        const data = await accountingService.calculateRealCashFlow();
+        res.json(data);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.post('/api/admin/accounting/transaction', async (req, res) => {
     try {
         const { type, platform, amount, description, entryDate, password } = req.body;
@@ -3752,6 +3761,33 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                     success: false,
                     message: `La sumatoria total de turnos de todos los asesores para este día supera el límite de 12 horas diarias (actual: ${(dailyTotalNetMinutes / 60).toFixed(1)} horas).`
                 });
+            }
+        }
+
+        // 3. Validate individual advisor's daily hours if allow_overtime is false
+        if (supportConfig.allow_overtime === false) {
+            const maxHoursLimit = parseFloat(supportConfig.max_hours_limit || 10);
+            for (const [dayOfWeek, daySlots] of incomingSlotsByDay.entries()) {
+                let agentDailyNetMinutes = 0;
+                for (const slot of daySlots) {
+                    const [sh, sm] = slot.start_time.split(':').map(Number);
+                    const [eh, em] = slot.end_time.split(':').map(Number);
+                    const diff = (eh * 60 + em) - (sh * 60 + sm);
+                    if (diff <= 0) continue;
+
+                    let breakMin = 0;
+                    if (slot.break_type === 'break_30') breakMin = 30;
+                    else if (slot.break_type === 'lunch_60') breakMin = 60;
+
+                    agentDailyNetMinutes += Math.max(0, diff - breakMin);
+                }
+
+                if (agentDailyNetMinutes > maxHoursLimit * 60) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `No se permiten horas extras individuales (límite de ${maxHoursLimit} horas netas diarias superado).`
+                    });
+                }
             }
         }
 
