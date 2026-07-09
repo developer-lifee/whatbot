@@ -3735,25 +3735,7 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 }
             }
 
-            // 1.5 Validate that only ONE regular advisor is scheduled on this day
-            const regularAgentIds = new Set(
-                mergedSlots
-                    .filter(s => s.role !== 'trial')
-                    .map(s => s.agent_id)
-            );
-            if (regularAgentIds.size > 1) {
-                const uniqueNames = Array.from(new Set(
-                    mergedSlots
-                        .filter(s => s.role !== 'trial')
-                        .map(s => s.fullname)
-                ));
-                return res.status(400).json({
-                    success: false,
-                    message: `Un solo asesor regular puede estar programado por día. Hay un conflicto de asignación entre: ${uniqueNames.join(' y ')}.`
-                });
-            }
-
-            // 2. Validate total daily sum of hours (Max 12 hours)
+            // 2. Validate total daily sum of hours (configurable max_hours_limit if allow_overtime is false, absolute 12 hours max if allow_overtime is true)
             let dailyTotalNetMinutes = 0;
             for (const slot of mergedSlots) {
                 const [sh, sm] = slot.start_time.split(':').map(Number);
@@ -3768,38 +3750,16 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 dailyTotalNetMinutes += Math.max(0, diff - breakMin);
             }
 
-            if (dailyTotalNetMinutes > 12 * 60) {
+            const isOvertimeAllowed = supportConfig.allow_overtime !== false;
+            const currentDailyLimit = isOvertimeAllowed ? 12 : parseFloat(supportConfig.max_hours_limit || 10);
+
+            if (dailyTotalNetMinutes > currentDailyLimit * 60) {
                 return res.status(400).json({
                     success: false,
-                    message: `La sumatoria total de turnos de todos los asesores para este día supera el límite de 12 horas diarias (actual: ${(dailyTotalNetMinutes / 60).toFixed(1)} horas).`
+                    message: isOvertimeAllowed
+                        ? `La sumatoria total de turnos de todos los asesores para este día supera el límite absoluto de 12 horas diarias (actual: ${(dailyTotalNetMinutes / 60).toFixed(1)} horas).`
+                        : `No se permiten horas extras. La sumatoria de turnos de todos los asesores para este día supera el límite diario configurado de ${currentDailyLimit} horas (actual: ${(dailyTotalNetMinutes / 60).toFixed(1)} horas).`
                 });
-            }
-        }
-
-        // 3. Validate individual advisor's daily hours if allow_overtime is false
-        if (supportConfig.allow_overtime === false) {
-            const maxHoursLimit = parseFloat(supportConfig.max_hours_limit || 10);
-            for (const [dayOfWeek, daySlots] of incomingSlotsByDay.entries()) {
-                let agentDailyNetMinutes = 0;
-                for (const slot of daySlots) {
-                    const [sh, sm] = slot.start_time.split(':').map(Number);
-                    const [eh, em] = slot.end_time.split(':').map(Number);
-                    const diff = (eh * 60 + em) - (sh * 60 + sm);
-                    if (diff <= 0) continue;
-
-                    let breakMin = 0;
-                    if (slot.break_type === 'break_30') breakMin = 30;
-                    else if (slot.break_type === 'lunch_60') breakMin = 60;
-
-                    agentDailyNetMinutes += Math.max(0, diff - breakMin);
-                }
-
-                if (agentDailyNetMinutes > maxHoursLimit * 60) {
-                    return res.status(400).json({
-                        success: false,
-                        message: `No se permiten horas extras individuales (límite de ${maxHoursLimit} horas netas diarias superado).`
-                    });
-                }
             }
         }
 
