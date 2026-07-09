@@ -261,6 +261,115 @@ async function calculateDailyAccounting() {
   };
 }
 
+async function calculateRealCashFlow() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const dailyData = {};
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dayStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    dailyData[dayStr] = {
+      date: dayStr,
+      income: 0,
+      expense: 0,
+      profit: 0
+    };
+  }
+
+  const [sales] = await pool.query(`
+    SELECT amount, platformName, DATE_FORMAT(approvedAt, '%Y-%m-%d') as sale_date 
+    FROM web_sales_approved 
+    WHERE MONTH(approvedAt) = ? AND YEAR(approvedAt) = ?
+  `, [month, year]);
+
+  const [entries] = await pool.query(`
+    SELECT type, platform, amount, DATE_FORMAT(entry_date, '%Y-%m-%d') as entry_date 
+    FROM cash_flow_entries 
+    WHERE MONTH(entry_date) = ? AND YEAR(entry_date) = ?
+  `, [month, year]);
+
+  const [costs] = await pool.query(`
+    SELECT platform, total_cost, DATE_FORMAT(expiration_date, '%Y-%m-%d') as exp_date 
+    FROM streaming_costs 
+    WHERE MONTH(expiration_date) = ? AND YEAR(expiration_date) = ?
+  `, [month, year]);
+
+  const platformIncomeBreakdown = {};
+  const platformExpenseBreakdown = {};
+
+  sales.forEach(s => {
+    const dayStr = s.sale_date;
+    const amount = parseFloat(s.amount || 0);
+    if (dailyData[dayStr]) {
+      dailyData[dayStr].income += amount;
+    }
+    const plat = (s.platformName || 'OTROS').toUpperCase().trim();
+    platformIncomeBreakdown[plat] = (platformIncomeBreakdown[plat] || 0) + amount;
+  });
+
+  entries.forEach(e => {
+    const dayStr = e.entry_date;
+    const amount = parseFloat(e.amount || 0);
+    const plat = (e.platform || 'OTROS').toUpperCase().trim();
+    if (dailyData[dayStr]) {
+      if (e.type === 'income') {
+        dailyData[dayStr].income += amount;
+        platformIncomeBreakdown[plat] = (platformIncomeBreakdown[plat] || 0) + amount;
+      } else {
+        dailyData[dayStr].expense += amount;
+        platformExpenseBreakdown[plat] = (platformExpenseBreakdown[plat] || 0) + amount;
+      }
+    }
+  });
+
+  costs.forEach(c => {
+    const dayStr = c.exp_date;
+    const amount = parseFloat(c.total_cost || 0);
+    const plat = (c.platform || 'OTROS').toUpperCase().trim();
+    if (dailyData[dayStr]) {
+      dailyData[dayStr].expense += amount;
+    }
+    platformExpenseBreakdown[plat] = (platformExpenseBreakdown[plat] || 0) + amount;
+  });
+
+  let totalIncome = 0;
+  let totalExpense = 0;
+  const list = [];
+
+  for (const dateStr of Object.keys(dailyData).sort()) {
+    const d = dailyData[dateStr];
+    d.profit = d.income - d.expense;
+    totalIncome += d.income;
+    totalExpense += d.expense;
+    list.push(d);
+  }
+
+  const incomeBreakdownList = Object.keys(platformIncomeBreakdown).map(name => ({
+    name,
+    value: platformIncomeBreakdown[name]
+  })).sort((a, b) => b.value - a.value);
+
+  const expenseBreakdownList = Object.keys(platformExpenseBreakdown).map(name => ({
+    name,
+    value: platformExpenseBreakdown[name]
+  })).sort((a, b) => b.value - a.value);
+
+  return {
+    daily: list,
+    totals: {
+      income: totalIncome,
+      expense: totalExpense,
+      profit: totalIncome - totalExpense
+    },
+    breakdown: {
+      income: incomeBreakdownList,
+      expense: expenseBreakdownList
+    }
+  };
+}
+
 module.exports = {
   getPrices,
   savePrice,
@@ -269,5 +378,6 @@ module.exports = {
   deleteCost,
   addTransaction,
   getTransactions,
-  calculateDailyAccounting
+  calculateDailyAccounting,
+  calculateRealCashFlow
 };
