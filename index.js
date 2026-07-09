@@ -3237,7 +3237,7 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 username VARCHAR(100) UNIQUE NOT NULL,
                 fullname VARCHAR(255) NOT NULL,
                 email VARCHAR(255) UNIQUE NULL,
-                role ENUM('admin', 'agent', 'supervisor') DEFAULT 'agent',
+                role ENUM('admin', 'agent', 'supervisor', 'trial') DEFAULT 'agent',
                 status ENUM('active', 'inactive', 'busy') DEFAULT 'active',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -3249,7 +3249,6 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             ('camilo', 'Camilo', 'camco08@hotmail.com', 'agent'),
             ('carolcubillos03', 'Carol Cubillos', 'carolcubillos03@outlook.es', 'agent')
             ON DUPLICATE KEY UPDATE 
-                role = VALUES(role), 
                 fullname = VALUES(fullname),
                 email = VALUES(email)
         `);
@@ -3637,11 +3636,11 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             const [shVal, smVal] = startTime.split(':').map(Number);
             const [ehVal, emVal] = endTime.split(':').map(Number);
 
-            // Franja de 10 a 10 (10:00 a 22:00)
-            if (shVal < 10 || ehVal > 22 || (ehVal === 22 && emVal > 0)) {
+            // Franja de 8 a 8 (08:00 a 20:00)
+            if (shVal < 8 || ehVal > 20 || (ehVal === 20 && emVal > 0)) {
                 return res.status(400).json({
                     success: false,
-                    message: `Los turnos de soporte deben estar estrictamente dentro de la franja de 10:00 AM a 10:00 PM.`
+                    message: `Los turnos de soporte deben estar estrictamente dentro de la franja de 8:00 AM a 8:00 PM.`
                 });
             }
 
