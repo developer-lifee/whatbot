@@ -3735,6 +3735,24 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 }
             }
 
+            // 1.5 Validate that only ONE regular advisor is scheduled on this day
+            const regularAgentIds = new Set(
+                mergedSlots
+                    .filter(s => s.role !== 'trial')
+                    .map(s => s.agent_id)
+            );
+            if (regularAgentIds.size > 1) {
+                const uniqueNames = Array.from(new Set(
+                    mergedSlots
+                        .filter(s => s.role !== 'trial')
+                        .map(s => s.fullname)
+                ));
+                return res.status(400).json({
+                    success: false,
+                    message: `Un solo asesor regular puede estar programado por día. Hay un conflicto de asignación entre: ${uniqueNames.join(' y ')}.`
+                });
+            }
+
             // 2. Validate total daily sum of hours (Max 12 hours)
             let dailyTotalNetMinutes = 0;
             for (const slot of mergedSlots) {
