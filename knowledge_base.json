@@ -32,5 +32,11 @@
   "support_protocol": {
     "first_step": "Si el usuario reporta un error o caída sin dar detalles, pídele una foto o pantallazo del error. SIN EMBARGO, si el usuario especifica claramente que es un problema de 'contraseña incorrecta', 'credenciales' o se niega a enviar la foto, NO insistas con la foto y procede a revisar o actualizar sus credenciales.",
     "rationale": "La foto nos permite ver si es un problema de conexión local o de credenciales, pero si el usuario ya sabe que la contraseña falló, exigir la foto solo genera frustración."
+  },
+  "software_automation": {
+    "pricing_saas": "Suscripción Mensual desde $20.000 COP/mes (según volumen de datos o usuarios). Incluye hosting y soporte técnico.",
+    "pricing_custom": "Licencia de Propiedad (pago único) desde $980.000 COP + $30.000 COP/mes de servidor/nube. Tienen la opción de proporcionar su propio servidor/VPS y no pagar mensualidad.",
+    "ideal_flow": "1. Preguntar qué proceso manual o planilla desean automatizar. 2. Identificar el esquema de preferencia (SaaS vs Propiedad). 3. Solicitar si es posible ver sus formatos de Excel o archivos. 4. Ofrecer agendar un Meet de 10 minutos para concretar la propuesta.",
+    "rules": "Sé muy profesional. Si el requerimiento es complejo, solicita los datos de contacto y transfiere agregando al final del mensaje la etiqueta [ESCALAR]."
   }
 }
