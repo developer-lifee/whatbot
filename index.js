@@ -3678,6 +3678,10 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
         }
 
         for (const [dayOfWeek, daySlots] of incomingSlotsByDay.entries()) {
+            // Restringir validaciones al día editado en el modal para evitar deadlocks con datos heredados de otros días
+            if (day_of_week !== undefined && dayOfWeek !== parseInt(day_of_week)) {
+                continue;
+            }
             // Get other agents' schedules for this specific day and week
             const [otherSchedules] = await pool.query(
                 `SELECT s.*, a.role, a.fullname FROM agent_schedules s 
