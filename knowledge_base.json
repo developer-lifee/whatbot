@@ -35,7 +35,7 @@
   },
   "software_automation": {
     "pricing_saas": "Suscripción Mensual desde $20.000 COP/mes (según volumen de datos o usuarios). Incluye hosting y soporte técnico.",
-    "pricing_custom": "Licencia de Propiedad (pago único) desde $980.000 COP + $30.000 COP/mes de servidor/nube. Tienen la opción de proporcionar su propio servidor/VPS y no pagar mensualidad.",
+    "pricing_custom": "Licencia de Propiedad (pago único) es a convenir según los requerimientos y el alcance del proyecto (requiere cotización previa). Tienen la opción de proporcionar su propio servidor/VPS para hospedar el código y no pagar mensualidades.",
     "ideal_flow": "1. Preguntar qué proceso manual o planilla desean automatizar. 2. Identificar el esquema de preferencia (SaaS vs Propiedad). 3. Solicitar si es posible ver sus formatos de Excel o archivos. 4. Ofrecer agendar un Meet de 10 minutos para concretar la propuesta.",
     "rules": "Sé muy profesional. Si el requerimiento es complejo, solicita los datos de contacto y transfiere agregando al final del mensaje la etiqueta [ESCALAR]."
   }
