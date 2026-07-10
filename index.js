@@ -3636,11 +3636,21 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             const [shVal, smVal] = startTime.split(':').map(Number);
             const [ehVal, emVal] = endTime.split(':').map(Number);
 
-            // Franja de 8 a 10 (08:00 a 22:00)
-            if (shVal < 8 || ehVal > 22 || (ehVal === 22 && emVal > 0)) {
+            // Franja dinámica configurable
+            const configStartLimit = supportConfig.shift_start_limit || "08:00";
+            const configEndLimit = supportConfig.shift_end_limit || "22:00";
+            const [startLimitH, startLimitM] = configStartLimit.split(':').map(Number);
+            const [endLimitH, endLimitM] = configEndLimit.split(':').map(Number);
+
+            const startMinTotal = shVal * 60 + smVal;
+            const endMinTotal = ehVal * 60 + emVal;
+            const limitStartMinTotal = startLimitH * 60 + startLimitM;
+            const limitEndMinTotal = endLimitH * 60 + endLimitM;
+
+            if (startMinTotal < limitStartMinTotal || endMinTotal > limitEndMinTotal) {
                 return res.status(400).json({
                     success: false,
-                    message: `Los turnos de soporte deben estar estrictamente dentro de la franja de 8:00 AM a 10:00 PM.`
+                    message: `Los turnos de soporte deben estar estrictamente dentro de la franja permitida de ${configStartLimit} a ${configEndLimit}.`
                 });
             }
 
