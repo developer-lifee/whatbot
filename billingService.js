@@ -4,6 +4,23 @@ const { getPlatformKnowledge } = require('./apiService');
 const path = require('path');
 const fs = require('fs');
 
+function extractPlatformFromText(text) {
+    if (!text) return null;
+    const txt = text.toLowerCase().trim();
+    if (txt === "2") return null; // Ignorar si es solo la opción del menú
+    if (txt.includes('netflix')) return 'NETFLIX';
+    if (txt.includes('spotify')) return 'SPOTIFY';
+    if (txt.includes('disney')) return 'DISNEY';
+    if (txt.includes('prime') || txt.includes('amazon')) return 'AMAZON PRIME';
+    if (txt.includes('hbo') || txt.includes('max')) return 'MAX';
+    if (txt.includes('paramount')) return 'PARAMOUNT';
+    if (txt.includes('youtube')) return 'YOUTUBE';
+    if (txt.includes('plex')) return 'PLEX';
+    if (txt.includes('crunchyroll') || txt.includes('crunchy')) return 'CRUNCHYROLL';
+    if (txt.includes('apple') || txt.includes('one')) return 'APPLE ONE';
+    return null;
+}
+
 /**
  * Procesa la solicitud de credenciales de un usuario.
  */
@@ -57,6 +74,41 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
         if (userAccounts.length === 0) {
             await client.sendMessage(userId, "🤖 No encontré servicios activos vinculados a este número. Si compraste desde otro número, por favor dímelo para ayudarte a buscar o contacta a un asesor.");
             return;
+        }
+
+        // --- VALIDACIÓN DE PLATAFORMA ESPECÍFICA ---
+        const requestedPlatform = extractPlatformFromText(triggerMessage);
+        if (requestedPlatform) {
+            const hasPlatform = userAccounts.some(acc => {
+                const streaming = (acc.Streaming || acc.streaming || "").toUpperCase();
+                return streaming.includes(requestedPlatform) || requestedPlatform.includes(streaming);
+            });
+
+            if (!hasPlatform) {
+                await client.sendMessage(userId, `🤖 Veo que actualmente no tienes una suscripción activa de *${requestedPlatform}* con nosotros.\n\n¿Te gustaría adquirir un plan? Escribe *1* para ver nuestro catálogo y comprar. 🛒\n\nSi crees que esto es un error, no te preocupes, en un momento un asesor humano revisará este chat para ayudarte. 🧑‍💻`);
+                // Activar modo humano para que el asesor pueda revisar el error si el cliente responde
+                if (userStates) {
+                    const existing = userStates.get(userId);
+                    userStates.set(userId, {
+                        ...(existing || {}),
+                        state: 'waiting_human',
+                        waiting_human_mode: 'advisor',
+                        advisorReason: `Solicitó credenciales de ${requestedPlatform} pero no la tiene adquirida`,
+                        waitingTimestamp: Date.now()
+                    });
+                }
+                const { applyLabelToChat } = require('./adminService');
+                try {
+                    await applyLabelToChat(userId, client, ['revisión', 'manual']);
+                } catch (e) {}
+                return;
+            } else {
+                // Filtrar las cuentas de usuario para enviar únicamente las de la plataforma solicitada
+                userAccounts = userAccounts.filter(acc => {
+                    const streaming = (acc.Streaming || acc.streaming || "").toUpperCase();
+                    return streaming.includes(requestedPlatform) || requestedPlatform.includes(streaming);
+                });
+            }
         }
 
         // Detectar si alguna de las cuentas no tiene credenciales asignadas aún
