@@ -289,6 +289,63 @@ async function fetchHistoricoData(retries = 3, delay = 2000) {
 }
 
 
+function detectBlockMonth(matriz2D, startCol, endCol) {
+    const filaTitulos = matriz2D[0];
+    for (let c = startCol; c <= endCol; c++) {
+        const header = (filaTitulos[c] || "").toString().trim();
+        if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(header)) {
+            return header;
+        }
+    }
+
+    const headers = filaTitulos.slice(startCol, endCol + 1).map(h => (h || "").toString().trim().toLowerCase());
+    const hoyIndex = headers.indexOf("hoy");
+    const debenIndex = headers.indexOf("deben");
+    const vencIndex = headers.indexOf("vencimiento");
+
+    const searchIndices = [hoyIndex, debenIndex, vencIndex].filter(idx => idx !== -1).map(idx => startCol + idx);
+
+    for (let r = 1; r < Math.min(matriz2D.length, 50); r++) {
+        const row = matriz2D[r];
+        if (!row) continue;
+        for (const colIdx of searchIndices) {
+            const val = (row[colIdx] || "").toString().trim();
+            if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(val)) {
+                return val;
+            }
+        }
+    }
+    return null;
+}
+
+function formatToMonthYear(dateStr) {
+    if (!dateStr) return "";
+    const parts = dateStr.split(/[\/\-]/);
+    if (parts.length < 3) return dateStr;
+    
+    let day = parseInt(parts[0]);
+    let month = parseInt(parts[1]);
+    let year = parseInt(parts[2]);
+    
+    if (year < 100) year += 2000;
+    
+    if (month > 12) {
+        const temp = month;
+        month = day;
+        day = temp;
+    }
+    
+    const months = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+    
+    if (month >= 1 && month <= 12) {
+        return `${months[month - 1]} de ${year}`;
+    }
+    return dateStr;
+}
+
 /**
  * Procesa la matriz 2D del histórico agrupándola por número de WhatsApp.
  * @param {Array<Array>} matriz2D 
@@ -301,7 +358,6 @@ function procesarHistoricoArray(matriz2D) {
     const bloques = [];
     let startIndex = 0;
     
-    // 1. Encontrar dónde empieza y termina cada mes en la Fila 1
     for (let i = 0; i < filaTitulos.length; i++) {
         const valor = filaTitulos[i] ? filaTitulos[i].toString().trim().toLowerCase() : "";
         if (valor === "streaming" && i !== 0) {
@@ -311,19 +367,36 @@ function procesarHistoricoArray(matriz2D) {
     }
     bloques.push({ start: startIndex, end: filaTitulos.length - 1 });
     
+    // Calcular de forma preestablecida el nombre/fecha del corte para cada bloque
+    const blockDates = bloques.map((bloque, idx) => {
+        let detected = detectBlockMonth(matriz2D, bloque.start, bloque.end);
+        if (detected) {
+            return formatToMonthYear(detected);
+        }
+        const bogotaStr = new Date().toLocaleString("en-US", {timeZone: "America/Bogota"});
+        const bog = new Date(bogotaStr);
+        bog.setMonth(bog.getMonth() - idx);
+        const months = [
+            "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+            "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+        ];
+        return `${months[bog.getMonth()]} de ${bog.getFullYear()}`;
+    });
+
     const datosGenerales = {};
 
-    // 2. Iterar por el resto de filas
     for (let rowIndex = 1; rowIndex < matriz2D.length; rowIndex++) {
         const fila = matriz2D[rowIndex];
         if (!fila || fila.length === 0) continue;
 
-        for (const bloque of bloques) {
+        for (let bIdx = 0; bIdx < bloques.length; bIdx++) {
+            const bloque = bloques[bIdx];
+            const itemFechaCorte = blockDates[bIdx];
+
             let itemStreaming = "";
             let itemNumero = "";
             let itemNombre = "";
             let itemApellido = "";
-            let itemFechaCorte = "";
             let itemCorreo = "";
             let itemVencimiento = "";
             let itemMetodoPago = "";
@@ -339,24 +412,11 @@ function procesarHistoricoArray(matriz2D) {
                 else if (titulo.includes("numero") || titulo.includes("tel") || titulo === "número" || titulo.includes("whatsapp")) itemNumero = valor;
                 else if (titulo.includes("nombbre") || titulo === "nombre") itemNombre = valor;
                 else if (titulo === "apellido") itemApellido = valor;
-                else if (titulo === "fecha" || titulo.includes("corte")) itemFechaCorte = valor;
                 else if (titulo.includes("correo")) itemCorreo = valor;
                 else if (titulo.includes("vencimiento")) itemVencimiento = valor;
                 else if (titulo.includes("metodo") || titulo.includes("medio") || titulo.includes("pago")) itemMetodoPago = valor;
                 else if (titulo.includes("deben")) itemDeben = valor;
                 else if (titulo.includes("pin") || titulo.includes("perfil")) itemPinPerfil = valor;
-
-                // If the column header itself is a date or "hoy", use it as the snapshot date
-                if (/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/.test(titulo)) {
-                    itemFechaCorte = rawTitulo;
-                } else if (titulo === "hoy") {
-                    const bogotaStr = new Date().toLocaleString("en-US", {timeZone: "America/Bogota"});
-                    const bog = new Date(bogotaStr);
-                    const d = String(bog.getDate()).padStart(2, '0');
-                    const m = String(bog.getMonth() + 1).padStart(2, '0');
-                    const y = bog.getFullYear();
-                    itemFechaCorte = `${d}/${m}/${y}`;
-                }
             }
             
             if (itemNumero && itemStreaming) {
