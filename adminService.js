@@ -311,11 +311,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                 if (res.status === 'success' && res.correo) {
                     hasAnyCredentials = true;
                     // res contiene la fila/datos de la cuenta en Excel. getMaskedAccessData espera los mismos campos.
-                    const masked = getMaskedAccessData({
-                        Streaming: res.name,
-                        correo: res.correo,
-                        contraseña: res.contraseña
-                    });
+                    const masked = getMaskedAccessData(res);
                     
                     const labelPin = (res.name || "").toLowerCase().includes('spotify') ? "DIRECCIÓN/LINK" : "PIN";
                     const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";
