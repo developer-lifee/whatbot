@@ -165,6 +165,29 @@ erDiagram
         text drive_url
         bigint file_size
     }
+    cash_flow_entries {
+        int id PK
+        enum type "income, expense"
+        string platform
+        decimal amount
+        string description
+        date entry_date
+        boolean is_automated
+    }
+    streaming_costs {
+        int id PK
+        string platform
+        string email
+        decimal total_cost
+        int profile_slots
+        int duration_days
+        date expiration_date
+        string payment_method
+    }
+    streaming_prices {
+        string platform PK
+        decimal normal_price
+    }
 
     agents ||--o{ chats : "assigned"
     agents ||--o{ tickets : "assigned"
