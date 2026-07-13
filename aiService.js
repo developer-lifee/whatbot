@@ -137,12 +137,12 @@ function isFamilyPlan(streamingName) {
  * @returns {object} { streamingName, isFamily, correo, clave, customerMail }
  */
 function getMaskedAccessData(acc) {
-  const streamingName = (acc.Streaming || acc.streaming || "Servicio").toUpperCase();
+  const streamingName = (acc.Streaming || acc.streaming || acc.name || "Servicio").toUpperCase();
   const isFamily = isFamilyPlan(streamingName);
 
   const correoOriginal = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
   let clave = acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"] || "N/A";
-  const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").trim();
+  const customerMail = (acc["customer mail"] || acc["Customer Mail"] || acc.customerMail || "").trim();
 
   let displayCorreo = correoOriginal;
   let displayClave = clave;

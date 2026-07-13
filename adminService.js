@@ -908,11 +908,7 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             const { getMaskedAccessData } = require('./aiService');
             results.forEach(res => {
                 if (res.status === 'success' && res.correo) {
-                    const masked = getMaskedAccessData({
-                        Streaming: res.name,
-                        correo: res.correo,
-                        contraseña: res.contraseña
-                    });
+                    const masked = getMaskedAccessData(res);
                     
                     const labelPin = (res.name || "").toLowerCase().includes('spotify') ? "DIRECCIÓN/LINK" : "PIN";
                     const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";

@@ -1,6 +1,28 @@
 const { updateExcelData, fetchRawData } = require('./apiService');
 const { getAvailabilityConfig, normalizeStreamingName } = require('./availabilityService');
 
+function getLevenshteinDistance(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1, // substitution
+                    matrix[i][j - 1] + 1,     // insertion
+                    matrix[i - 1][j] + 1      // deletion
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
 const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify individual', 'spotify personal', 'spotify familiar', 'familiar', 'family', 'xbox', 'netflix extra', 'extra', 'individual', 'personal', 'correo propio', 'tu correo'];
 
 function isSamePlatformFamily(name1, name2) {
@@ -225,7 +247,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     correo: excelRow.correo || excelRow.Correo || "",
                     contraseña: excelRow.contraseña || excelRow.Contraseña || excelRow.password || "",
                     pin: excelRow["pin perfil"] || excelRow.pin || "",
-                    vencimiento: nextPaymentDate
+                    vencimiento: nextPaymentDate,
+                    "customer mail": excelRow["customer mail"] || excelRow["Customer Mail"] || "",
+                    customerMail: excelRow["customer mail"] || excelRow["Customer Mail"] || ""
                 });
                 continue;
             }
@@ -260,6 +284,17 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                             isNameMatch = true;
                         } else if (cleanName && (cleanName.startsWith(cleanWhatsapp) || cleanWhatsapp.startsWith(cleanName)) && Math.abs(cleanName.length - cleanWhatsapp.length) <= 3) {
                             isNameMatch = true;
+                        } else {
+                            // Comparación difusa de primer nombre o palabras individuales
+                            const wFirst = whatsappVal.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
+                            const nFirst = (userState.nombre || "").split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
+                            const pFirst = (userState.pushname || "").split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
+                            
+                            if (wFirst && nFirst && (getLevenshteinDistance(wFirst, nFirst) <= 1 || wFirst.includes(nFirst) || nFirst.includes(wFirst))) {
+                                isNameMatch = true;
+                            } else if (wFirst && pFirst && (getLevenshteinDistance(wFirst, pFirst) <= 1 || wFirst.includes(pFirst) || pFirst.includes(wFirst))) {
+                                isNameMatch = true;
+                            }
                         }
                     }
 
@@ -291,7 +326,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     correo: matchedRow.correo || matchedRow.Correo || "",
                     contraseña: matchedRow.contraseña || matchedRow.Contraseña || matchedRow.password || "",
                     pin: matchedRow["pin perfil"] || matchedRow.pin || "",
-                    vencimiento: nextPaymentDate
+                    vencimiento: nextPaymentDate,
+                    "customer mail": matchedRow["customer mail"] || matchedRow["Customer Mail"] || "",
+                    customerMail: matchedRow["customer mail"] || matchedRow["Customer Mail"] || ""
                 });
                 continue;
             }
@@ -365,7 +402,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     correo: slot.rowData.correo || slot.rowData.Correo || "",
                     contraseña: slot.rowData.contraseña || slot.rowData.Contraseña || slot.rowData.password || "",
                     pin: slot.rowData["pin perfil"] || slot.rowData.pin || "",
-                    vencimiento: nextPaymentDate
+                    vencimiento: nextPaymentDate,
+                    "customer mail": slot.rowData["customer mail"] || slot.rowData["Customer Mail"] || "",
+                    customerMail: slot.rowData["customer mail"] || slot.rowData["Customer Mail"] || ""
                 });
             } else {
                 console.log(`[Sales Registry] NO se encontró cupo disponible para ${platformName}.`);
