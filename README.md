@@ -322,3 +322,25 @@ El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`con
 - **Evitar Spam de Bienvenida**: En el escaneo de mensajes pendientes al iniciar el bot, se implementó un filtro de tiempo de máximo 2 horas. Si el mensaje sin leer tiene más antigüedad, el bot lo ignora, previniendo que se disparen saludos automáticos de forma masiva a clientes con chats viejos tras una desconexión.
 - **Cierre Limpio de Clientes Zombies**: Si la conexión de Puppeteer falla críticamente al inicializar (ej. `Execution context was destroyed`), el bot realiza un cierre limpio forzado (`process.exit(1)`). Esto activa el ciclo de auto-recuperación de PM2 para reintentar la conexión de WhatsApp Web de forma transparente en segundos.
 - **Optimización Gmail en Tiempo Real**: Se eliminó el parámetro de búsqueda indexada `q` de la API de Gmail (el cual sufría retrasos de indexación de hasta 3 minutos). Ahora el bot recupera los últimos correos del Inbox directamente y los filtra en memoria, permitiendo que los códigos OTP de Amazon/Prime Video, Netflix y demás plataformas se extraigan e informen al instante.
+
+---
+
+## 🛠️ Actualizaciones Recientes (13 de Julio de 2026)
+
+### 1. 📂 Bandeja de Entrada Unificada con Filtros de Pestañas
+- **Pestañas de Navegación**: Se rediseñó la barra lateral izquierda del panel administrativo agregando pestañas de acceso rápido:
+  *   **Mis Tickets**: Muestra una lista limpia con los chats asignados al asesor en sesión.
+  *   **Tickets Activos**: Muestra la vista categorizada clásica de acordeones (Mis Tickets, Libres, Otros, Probablemente Terminados, Archivados y agrupados).
+  *   **Todos los Chats**: Permite acceder al histórico de las últimas 150 conversaciones en la base de datos de manera cronológica plana, permitiendo a los asesores monitorear qué responde el bot o reclamar cualquier chat en cualquier momento.
+
+### 2. 🛡️ Filtro Estricto de Credenciales por Plataforma (Prevención de Alucinaciones)
+- **Extracción de Plataforma**: Se implementó una lógica de parseo en `billingService.js` (`processCheckCredentials`) para identificar la plataforma exacta solicitada por el usuario en lenguaje natural.
+- **Aislamiento de Cuentas**: Si el usuario tiene la plataforma activa, el bot le expone a Gemini únicamente los datos de ese servicio, evitando alucinaciones de claves cruzadas (ej: entregar datos de Prime Video haciéndolos pasar por Netflix). Si el usuario no la tiene activa, el bot le ofrece comprarla, pasa el chat a `waiting_human` y lo etiqueta para revisión humana.
+
+### 3. 👥 Auto-Asociación y Confirmación Interactiva Multi-Cuenta (Laura Mejía Fallback)
+- **Fallback Multi-Cuenta**: Al interceptar un pago genérico (`"Sheerit"`) de un usuario que posee múltiples servicios activos, el bot ahora autollena de manera implícita su carrito de transacciones con **todas sus cuentas activas** en lugar de crear un servicio genérico `"Sheerit"`.
+- **Confirmación Interactiva**: El bot preguntará de forma interactiva al usuario si desea renovar todos sus servicios activos. Si el usuario responde "1" (Sí), renovará todos sus servicios en el Excel simultáneamente al procesar la validación. Si responde "2" (No), se pausará el proceso automático y se notificará al grupo de soporte.
+
+### 4. 📊 Agrupación del Historial de Cortes de Excel
+- **Corte por Mes Legible**: Se optimizó la función `procesarHistoricoArray` para agrupar los bloques del Excel Histórico por su nombre de mes general (ej: `"Julio de 2026"`, `"Junio de 2026"`), evitando que se muestren fechas arbitrarias o de celdas vacías (`"hoy"`) como títulos de corte.
+- **Mapeo Seguro**: Mantiene el mapeo de la fecha de renovación del servicio desde la columna `"deben"` y su vencimiento real.
