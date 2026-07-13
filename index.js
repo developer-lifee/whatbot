@@ -1038,6 +1038,28 @@ app.get('/api/admin/client-history', async (req, res) => {
     }
 });
 
+// Endpoint to retrieve specific account history by email
+app.get('/api/admin/account-history', async (req, res) => {
+    const { email } = req.query;
+    if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+    }
+    try {
+        const [rows] = await pool.query(
+            `SELECT h.fecha_corte, h.vencimiento, h.payment_method, h.amount_paid AS deben, h.profile_name, h.profile_pin, h.customer_phone, c.fullname AS customer_name
+             FROM excel_historical_records h
+             LEFT JOIN customers c ON h.customer_phone = c.phone
+             WHERE h.account_email = ?
+             ORDER BY h.id DESC`,
+            [email.toString().trim().toLowerCase()]
+        );
+        res.json(rows);
+    } catch (e) {
+        console.error("Error retrieving account history:", e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Endpoint to save/update customer notes (conocimientos)
 app.post('/api/admin/client-history/save-notes', express.json(), async (req, res) => {
     try {
