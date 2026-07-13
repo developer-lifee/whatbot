@@ -166,10 +166,10 @@ function getSpecificAccountsIncidentsText(userAccounts) {
     const config = getAvailabilityConfig();
     const clientEmails = [];
     userAccounts.forEach(acc => {
-        const email = acc.correo || acc.Correo || acc["E-mail"] || "";
-        if (email) clientEmails.push(email.toLowerCase().trim());
-        const customerMail = acc["customer mail"] || acc["Customer Mail"] || "";
-        if (customerMail) clientEmails.push(customerMail.toLowerCase().trim());
+        const email = String(acc.correo || acc.Correo || acc["E-mail"] || "");
+        if (email.trim()) clientEmails.push(email.toLowerCase().trim());
+        const customerMail = String(acc["customer mail"] || acc["Customer Mail"] || "");
+        if (customerMail.trim()) clientEmails.push(customerMail.toLowerCase().trim());
     });
 
     const matchAlerts = [];
