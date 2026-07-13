@@ -1325,12 +1325,39 @@ app.get('/api/admin/tickets', async (req, res) => {
         // Run classification asynchronously in background
         updateAiTicketsClassification().catch(err => console.error("[AI Classification Async]", err));
 
-        const ticketsPromises = Array.from(userStates.entries()).map(async ([userId, state]) => {
-            if (!state) return null;
-            const stateStr = typeof state === 'object' ? state.state : state;
-            const pendingStates = ['waiting_human', 'awaiting_payment_confirmation', 'waiting_admin_confirmation', 'resolved'];
-            if (!pendingStates.includes(stateStr)) return null;
+        const showAllChats = req.query.allChats === 'true';
+        let targetEntries = [];
 
+        if (showAllChats) {
+            let dbChats = [];
+            try {
+                const [rows] = await pool.query(`
+                    SELECT chat_id, customer_phone, last_message_text, last_message_time 
+                    FROM chats 
+                    ORDER BY last_message_time DESC 
+                    LIMIT 150
+                `);
+                dbChats = rows;
+            } catch (dbErr) {
+                console.error("Error querying db chats:", dbErr.message);
+            }
+
+            targetEntries = dbChats.map(row => {
+                const userId = row.chat_id;
+                const state = userStates.get(userId) || { state: 'bot_active', lastMessage: row.last_message_text, lastMessageTime: row.last_message_time ? new Date(row.last_message_time).getTime() : null };
+                return [userId, state];
+            });
+        } else {
+            targetEntries = Array.from(userStates.entries()).map(([userId, state]) => {
+                if (!state) return null;
+                const stateStr = typeof state === 'object' ? state.state : state;
+                const pendingStates = ['waiting_human', 'awaiting_payment_confirmation', 'waiting_admin_confirmation', 'resolved'];
+                if (!pendingStates.includes(stateStr)) return null;
+                return [userId, state];
+            }).filter(Boolean);
+        }
+
+        const ticketsPromises = targetEntries.map(async ([userId, state]) => {
             const phone = userId.replace('@c.us', '');
             let lastMessage = typeof state === 'object' ? (state.lastMessage || "") : "";
             let lastMessageTime = typeof state === 'object' ? (state.lastMessageTime || null) : null;
@@ -7123,7 +7150,14 @@ async function baseProcessIncomingMessage(messages) {
                             catalogPrice = Math.max(0, catalogPrice - 1000);
                         }
 
-                        stateData.items = matchedItems.length > 0 ? matchedItems : [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
+                        if (matchedItems.length > 0) {
+                            stateData.items = matchedItems;
+                        } else if (userAccounts.length > 0) {
+                            stateData.items = userAccounts;
+                            stateData.isRenewal = true;
+                        } else {
+                            stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
+                        }
                         stateData.total = catalogPrice || check.amount;
                         stateData.isAutoFilled = true;
                         userStates.set(userId, stateData); // Persistir el auto-llenado
