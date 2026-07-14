@@ -2865,13 +2865,23 @@ async function resolveJidForPhone(phone) {
             for (const chat of chats) {
                 if (chat.isGroup) continue;
                 if (chat.id.user.includes(cleanPhone) || cleanPhone.includes(chat.id.user)) {
-                    // Actualizar mapeo en base de datos
-                    await pool.query(
-                        `INSERT INTO chats (chat_id, customer_phone, last_message_time) 
-                          VALUES (?, ?, NOW()) 
-                          ON DUPLICATE KEY UPDATE customer_phone = VALUES(customer_phone)`,
-                        [chat.id._serialized, cleanPhone]
-                    );
+                    // Actualizar mapeo en base de datos previniendo violación de FK
+                    const [custExists] = await pool.query('SELECT phone FROM customers WHERE phone = ?', [cleanPhone]);
+                    if (custExists.length > 0) {
+                        await pool.query(
+                            `INSERT INTO chats (chat_id, customer_phone, last_message_time) 
+                              VALUES (?, ?, NOW()) 
+                              ON DUPLICATE KEY UPDATE customer_phone = VALUES(customer_phone)`,
+                            [chat.id._serialized, cleanPhone]
+                        );
+                    } else {
+                        await pool.query(
+                            `INSERT INTO chats (chat_id, last_message_time) 
+                              VALUES (?, NOW()) 
+                              ON DUPLICATE KEY UPDATE last_message_time = NOW()`,
+                            [chat.id._serialized]
+                        );
+                    }
                     
                     // Actualizar en userStates
                     const rawState = userStates.get(userId) || userStates.get(chat.id._serialized);
