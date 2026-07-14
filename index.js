@@ -2829,11 +2829,18 @@ app.post('/api/admin/policies/save', (req, res) => {
 });
 
 async function resolveJidForPhone(phone) {
-    const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
+    if (phone.includes('@lid')) {
+        return phone.trim().toLowerCase();
+    }
+    if (phone.includes('@c.us')) {
+        return phone.trim().toLowerCase();
+    }
+
+    const cleanPhone = phone.replace(/\D/g, '');
     const userId = cleanPhone + '@c.us';
     
     // 1. Validar en userStates en memoria
-    const state = userStates.get(userId);
+    const state = userStates.get(userId) || userStates.get(cleanPhone + '@lid');
     if (state && state.chatJid) {
         return state.chatJid;
     }
@@ -2841,8 +2848,8 @@ async function resolveJidForPhone(phone) {
     // 2. Validar en la base de datos chats
     try {
         const [chatRows] = await pool.query(
-            `SELECT chat_id FROM chats WHERE customer_phone = ? LIMIT 1`,
-            [cleanPhone]
+            `SELECT chat_id FROM chats WHERE customer_phone = ? OR chat_id LIKE ? LIMIT 1`,
+            [cleanPhone, `%${cleanPhone}%`]
         );
         if (chatRows.length > 0 && chatRows[0].chat_id) {
             return chatRows[0].chat_id;
@@ -2861,18 +2868,18 @@ async function resolveJidForPhone(phone) {
                     // Actualizar mapeo en base de datos
                     await pool.query(
                         `INSERT INTO chats (chat_id, customer_phone, last_message_time) 
-                         VALUES (?, ?, NOW()) 
-                         ON DUPLICATE KEY UPDATE customer_phone = VALUES(customer_phone)`,
+                          VALUES (?, ?, NOW()) 
+                          ON DUPLICATE KEY UPDATE customer_phone = VALUES(customer_phone)`,
                         [chat.id._serialized, cleanPhone]
                     );
                     
                     // Actualizar en userStates
-                    const rawState = userStates.get(userId);
+                    const rawState = userStates.get(userId) || userStates.get(chat.id._serialized);
                     if (rawState && typeof rawState === 'object') {
                         rawState.chatJid = chat.id._serialized;
-                        userStates.set(userId, rawState);
-                    } else if (!rawState) {
-                        userStates.set(userId, { chatJid: chat.id._serialized });
+                        userStates.set(chat.id._serialized, rawState);
+                    } else {
+                        userStates.set(chat.id._serialized, { chatJid: chat.id._serialized });
                     }
                     return chat.id._serialized;
                 }
