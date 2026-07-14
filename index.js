@@ -3877,6 +3877,24 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
         if (targetAgentName.toLowerCase().includes('esclepiades')) targetAgentName = 'Katherine';
 
         const daysMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const parseWeekStartDate = (weekStartStr) => {
+            if (!weekStartStr || weekStartStr === 'default') return null;
+            const [y, m, d] = weekStartStr.split('-').map(Number);
+            return new Date(y, m - 1, d);
+        };
+        const weekStartDate = parseWeekStartDate(weekStartStr);
+
+        const getDayDateLabel = (d, weekStartDate) => {
+            const dayName = daysMap[d];
+            if (!weekStartDate) return dayName;
+            const targetDate = new Date(weekStartDate);
+            const offset = d === 0 ? 6 : d - 1;
+            targetDate.setDate(targetDate.getDate() + offset);
+            const dayNum = String(targetDate.getDate()).padStart(2, '0');
+            const monthNum = String(targetDate.getMonth() + 1).padStart(2, '0');
+            return `${dayName} ${dayNum}/${monthNum}`;
+        };
+
         let changeMessages = [];
 
         const existByDay = {};
@@ -3893,23 +3911,23 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
         });
 
         for (let d = 0; d <= 6; d++) {
-            const dayName = daysMap[d];
+            const dayLabel = getDayDateLabel(d, weekStartDate);
             const existing = existByDay[d] || [];
             const incoming = incomingByDay[d] || [];
 
             if (existing.length === 0 && incoming.length > 0) {
                 incoming.forEach(s => {
-                    changeMessages.push(`ha agregado un turno el día ${dayName} (${s.start_time} - ${s.end_time})`);
+                    changeMessages.push(`ha agregado un turno el ${dayLabel} (${s.start_time} - ${s.end_time})`);
                 });
             } else if (existing.length > 0 && incoming.length === 0) {
                 existing.forEach(s => {
-                    changeMessages.push(`ha eliminado el turno del día ${dayName} (${s.start_time.substring(0, 5)} - ${s.end_time.substring(0, 5)})`);
+                    changeMessages.push(`ha eliminado el turno del ${dayLabel} (${s.start_time.substring(0, 5)} - ${s.end_time.substring(0, 5)})`);
                 });
             } else if (existing.length > 0 && incoming.length > 0) {
                 const extStr = existing.map(s => `${s.start_time.substring(0, 5)}-${s.end_time.substring(0, 5)}`).sort().join(',');
                 const incStr = incoming.map(s => `${s.start_time.substring(0, 5)}-${s.end_time.substring(0, 5)}`).sort().join(',');
                 if (extStr !== incStr) {
-                    changeMessages.push(`ha modificado el turno del día ${dayName} (antes: ${extStr.replace(/,/g, ', ')}, ahora: ${incStr.replace(/,/g, ', ')})`);
+                    changeMessages.push(`ha modificado el turno del ${dayLabel} (antes: ${extStr.replace(/,/g, ', ')}, ahora: ${incStr.replace(/,/g, ', ')})`);
                 }
             }
         }
