@@ -1381,6 +1381,7 @@ app.get('/api/admin/tickets', async (req, res) => {
 
         const ticketsPromises = targetEntries.map(async ([userId, state]) => {
             const phone = userId.replace('@c.us', '');
+            const stateStr = typeof state === 'object' ? state?.state : state;
             let lastMessage = typeof state === 'object' ? (state.lastMessage || "") : "";
             let lastMessageTime = typeof state === 'object' ? (state.lastMessageTime || null) : null;
             let lastMessageFromMe = false;
