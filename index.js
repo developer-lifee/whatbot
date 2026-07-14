@@ -1874,11 +1874,12 @@ app.get('/api/admin/tickets/metrics', async (req, res) => {
         const [weeklyFlow] = await pool.query(`
             SELECT 
                 DATE_FORMAT(DATE_SUB(resolvedAt, INTERVAL 5 HOUR), '%d/%m') as day_label, 
+                agent,
                 COUNT(*) as count 
             FROM resolved_tickets_log 
             WHERE resolvedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
-            GROUP BY DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)), day_label
-            ORDER BY DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)) ASC
+            GROUP BY DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)), day_label, agent
+            ORDER BY DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)) ASC, count DESC
         `);
         
         const [recent] = await pool.query(`
