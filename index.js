@@ -7498,6 +7498,55 @@ async function baseProcessIncomingMessage(messages) {
                         stateData.isImplicitFallback = true; // Flag para confirmación de precisión
                         stateData.isRenewal = true; // Indicar que es renovación
                         userStates.set(userId, stateData); // Persistir el auto-llenado
+                    } else if (userAccounts.length > 1) {
+                        stateData.items = userAccounts.map(acc => ({
+                            ...acc,
+                            Streaming: acc.Streaming || acc.Plataforma
+                        }));
+                        stateData.isRenewal = true;
+                        stateData.isAutoFilled = true;
+                        
+                        try {
+                            const { getPlatforms } = require('./salesService');
+                            const platforms = await getPlatforms();
+                            let totalComboPrice = 0;
+                            
+                            userAccounts.forEach(acc => {
+                                const accStreaming = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                                const matchedPlat = platforms.find(p => {
+                                    const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                    return accStreaming.includes(cleanPlat) || cleanPlat.includes(accStreaming);
+                                });
+                                
+                                if (matchedPlat) {
+                                    let platPrice = matchedPlat.price || 0;
+                                    if (matchedPlat.plans && matchedPlat.plans.length > 0) {
+                                        const cleanAccStreaming = acc.Streaming.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                        let matchedPlan = matchedPlat.plans.find(plan => {
+                                            const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                            return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
+                                        });
+                                        if (!matchedPlan && check.amount) {
+                                            matchedPlan = matchedPlat.plans.find(plan => plan.price === check.amount);
+                                        }
+                                        if (matchedPlan) {
+                                            platPrice = matchedPlan.price;
+                                        } else {
+                                            platPrice = matchedPlat.plans[0].price;
+                                        }
+                                    }
+                                    totalComboPrice += platPrice;
+                                }
+                            });
+                            
+                            if (userAccounts.length > 1) {
+                                totalComboPrice = Math.max(0, totalComboPrice - (1000 * (userAccounts.length - 1)));
+                            }
+                            stateData.total = totalComboPrice;
+                        } catch (e) {
+                            stateData.total = check.amount;
+                        }
+                        userStates.set(userId, stateData);
                     }
                 }
 
