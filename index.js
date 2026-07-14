@@ -746,6 +746,9 @@ app.post('/api/bold/webhook', async (req, res) => {
 app.get('/api/admin/stats', async (req, res) => {
     try {
         const { fetchCustomersData, getJsDateFromExcel, fetchHistoricoData } = require('./apiService');
+        const { pool } = require('./database');
+        const { timeframe } = req.query; // 'last_30_days', 'last_6_months', 'this_month', 'all_time'
+
         const clients = await fetchCustomersData();
         const now = new Date();
         now.setHours(0, 0, 0, 0);
@@ -759,7 +762,9 @@ app.get('/api/admin/stats', async (req, res) => {
             historyTrend: [],
             newsCount: 0,
             renewalsCount: 0,
-            churnedCount: 0
+            churnedCount: 0,
+            financials: { totalIncome: 0, totalExpense: 0, netProfit: 0, trend: [] },
+            loyalty: { topPurchasers: [], topRenewals: [], topSpenders: [] }
         };
 
         let historico = {};
@@ -849,7 +854,7 @@ app.get('/api/admin/stats', async (req, res) => {
             }
         }
 
-        // Cargar tendencia histórica
+        // Cargar tendencia histórica de ventas
         try {
             const monthCounts = {};
 
@@ -889,6 +894,126 @@ app.get('/api/admin/stats', async (req, res) => {
             stats.historyTrend = trend;
         } catch (histErr) {
             console.error("[Stats API] Error computing history trend:", histErr.message);
+        }
+
+        // ---- NUEVOS CÁLCULOS FINANCIEROS Y FIDELIZACIÓN ----
+        let dateFilterCashFlow = "";
+        let dateFilterExcel = "";
+
+        if (timeframe === 'last_30_days') {
+            dateFilterCashFlow = "WHERE entry_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+            dateFilterExcel = "WHERE vencimiento >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+        } else if (timeframe === 'last_6_months') {
+            dateFilterCashFlow = "WHERE entry_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)";
+            dateFilterExcel = "WHERE vencimiento >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)";
+        } else if (timeframe === 'this_month') {
+            dateFilterCashFlow = "WHERE entry_date >= DATE_FORMAT(CURDATE(), '%Y-%m-01')";
+            dateFilterExcel = "WHERE vencimiento >= DATE_FORMAT(CURDATE(), '%Y-%m-01')";
+        }
+
+        // Finanzas
+        try {
+            const [flowSummary] = await pool.query(`
+                SELECT 
+                    SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as total_income,
+                    SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expense
+                FROM cash_flow_entries
+                ${dateFilterCashFlow}
+            `);
+            if (flowSummary.length > 0) {
+                stats.financials.totalIncome = Math.round(flowSummary[0].total_income || 0);
+                stats.financials.totalExpense = Math.round(flowSummary[0].total_expense || 0);
+                stats.financials.netProfit = stats.financials.totalIncome - stats.financials.totalExpense;
+            }
+
+            const [flowTrend] = await pool.query(`
+                SELECT 
+                    DATE_FORMAT(entry_date, '%b %Y') as month_year,
+                    SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as income,
+                    SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as expense,
+                    YEAR(entry_date) as y, MONTH(entry_date) as m
+                FROM cash_flow_entries
+                ${dateFilterCashFlow}
+                GROUP BY month_year, y, m
+                ORDER BY y ASC, m ASC
+                LIMIT 12
+            `);
+            stats.financials.trend = flowTrend.map(f => ({
+                name: f.month_year,
+                ingresos: Math.round(f.income || 0),
+                egresos: Math.round(f.expense || 0),
+                ganancias: Math.round((f.income || 0) - (f.expense || 0))
+            }));
+        } catch (fErr) {
+            console.error("[Stats API] Error calculating financials:", fErr.message);
+        }
+
+        // Fidelización / Mejores Clientes
+        const getCustomerNameMap = async () => {
+            const [rows] = await pool.query('SELECT phone, fullname FROM customers');
+            const map = {};
+            rows.forEach(r => { map[r.phone] = r.fullname; });
+            return map;
+        };
+
+        try {
+            const nameMap = await getCustomerNameMap();
+
+            // 1. Clientes con más plataformas
+            const [purchRows] = await pool.query(`
+                SELECT customer_phone, COUNT(DISTINCT streaming_platform) as count 
+                FROM excel_historical_records 
+                ${dateFilterExcel}
+                GROUP BY customer_phone 
+                ORDER BY count DESC 
+                LIMIT 5
+            `);
+            stats.loyalty.topPurchasers = await Promise.all(purchRows.map(async r => {
+                let name = nameMap[r.customer_phone];
+                if (!name) {
+                    const [profRows] = await pool.query('SELECT profile_name FROM excel_historical_records WHERE customer_phone = ? AND profile_name IS NOT NULL LIMIT 1', [r.customer_phone]);
+                    name = profRows.length > 0 ? profRows[0].profile_name : `Cliente (${r.customer_phone.slice(-4)})`;
+                }
+                return { phone: r.customer_phone, name, count: r.count };
+            }));
+
+            // 2. Clientes con más renovaciones
+            const [renewRows] = await pool.query(`
+                SELECT customer_phone, COUNT(*) as count 
+                FROM excel_historical_records 
+                ${dateFilterExcel}
+                GROUP BY customer_phone 
+                ORDER BY count DESC 
+                LIMIT 5
+            `);
+            stats.loyalty.topRenewals = await Promise.all(renewRows.map(async r => {
+                let name = nameMap[r.customer_phone];
+                if (!name) {
+                    const [profRows] = await pool.query('SELECT profile_name FROM excel_historical_records WHERE customer_phone = ? AND profile_name IS NOT NULL LIMIT 1', [r.customer_phone]);
+                    name = profRows.length > 0 ? profRows[0].profile_name : `Cliente (${r.customer_phone.slice(-4)})`;
+                }
+                return { phone: r.customer_phone, name, count: r.count };
+            }));
+
+            // 3. Clientes con mayor inversión
+            const [spentRows] = await pool.query(`
+                SELECT customer_phone, SUM(amount_paid) as count 
+                FROM excel_historical_records 
+                ${dateFilterExcel}
+                GROUP BY customer_phone 
+                ORDER BY count DESC 
+                LIMIT 5
+            `);
+            stats.loyalty.topSpenders = await Promise.all(spentRows.map(async r => {
+                let name = nameMap[r.customer_phone];
+                if (!name) {
+                    const [profRows] = await pool.query('SELECT profile_name FROM excel_historical_records WHERE customer_phone = ? AND profile_name IS NOT NULL LIMIT 1', [r.customer_phone]);
+                    name = profRows.length > 0 ? profRows[0].profile_name : `Cliente (${r.customer_phone.slice(-4)})`;
+                }
+                return { phone: r.customer_phone, name, count: Math.round(r.count || 0) };
+            }));
+        } catch (lErr) {
+            console.error("[Stats API] Error calculating loyalty stats:", lErr.message);
         }
 
         res.json(stats);
