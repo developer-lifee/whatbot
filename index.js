@@ -1866,9 +1866,19 @@ app.get('/api/admin/tickets/metrics', async (req, res) => {
         const [summaryToday] = await pool.query(`
             SELECT agent, COUNT(*) as count 
             FROM resolved_tickets_log 
-            WHERE DATE(resolvedAt) = CURDATE()
+            WHERE DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)) = DATE(DATE_SUB(NOW(), INTERVAL 5 HOUR))
             GROUP BY agent 
             ORDER BY count DESC
+        `);
+        
+        const [weeklyFlow] = await pool.query(`
+            SELECT 
+                DATE_FORMAT(DATE_SUB(resolvedAt, INTERVAL 5 HOUR), '%d/%m') as day_label, 
+                COUNT(*) as count 
+            FROM resolved_tickets_log 
+            WHERE resolvedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            GROUP BY DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)), day_label
+            ORDER BY DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)) ASC
         `);
         
         const [recent] = await pool.query(`
@@ -1878,7 +1888,7 @@ app.get('/api/admin/tickets/metrics', async (req, res) => {
             LIMIT 100
         `);
 
-        res.json({ success: true, summary, summaryToday, recent });
+        res.json({ success: true, summary, summaryToday, recent, weeklyFlow });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
