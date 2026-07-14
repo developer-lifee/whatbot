@@ -7605,6 +7605,51 @@ async function baseProcessIncomingMessage(messages) {
                             if (match) {
                                 console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
 
+                                // INTELIGENCIA DE COMBOS: Si tiene múltiples cuentas pero el pago recibido coincide exactamente con el precio de una sola de ellas, renovamos solo esa automáticamente.
+                                if (stateData.isRenewal && stateData.items && stateData.items.length > 1 && check.amount) {
+                                    try {
+                                        const { getPlatforms } = require('./salesService');
+                                        const platforms = await getPlatforms();
+                                        const matchingPriceItems = [];
+                                        
+                                        for (const item of stateData.items) {
+                                            const itemStreaming = (item.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                                            const matchedPlat = platforms.find(p => {
+                                                const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                                return itemStreaming.includes(cleanPlat) || cleanPlat.includes(itemStreaming);
+                                            });
+                                            
+                                            let itemPrice = 0;
+                                            if (matchedPlat) {
+                                                itemPrice = matchedPlat.price || 0;
+                                                if (matchedPlat.plans && matchedPlat.plans.length > 0) {
+                                                    const cleanAccStreaming = (item.Streaming || "").toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                                    const matchedPlan = matchedPlat.plans.find(plan => {
+                                                        const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                                        return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
+                                                    });
+                                                    if (matchedPlan) {
+                                                        itemPrice = matchedPlan.price;
+                                                    } else {
+                                                        const pricePlan = matchedPlat.plans.find(plan => plan.price === check.amount);
+                                                        if (pricePlan) itemPrice = pricePlan.price;
+                                                    }
+                                                }
+                                            }
+                                            if (itemPrice === check.amount) {
+                                                matchingPriceItems.push(item);
+                                            }
+                                        }
+                                        if (matchingPriceItems.length === 1) {
+                                            console.log(`[Smart Combo Filter] Reduciendo items a renovación única de: ${matchingPriceItems[0].Streaming} porque el pago de $${check.amount} coincide únicamente con su precio.`);
+                                            stateData.items = matchingPriceItems;
+                                            stateData.total = check.amount;
+                                        }
+                                    } catch (err) {
+                                        console.error("Error en Smart Combo Filter:", err.message);
+                                    }
+                                }
+
                                 // EN CASO DE MÚLTIPLES CUENTAS (COMO LAURA MEJÍA), PREGUNTAR AL USUARIO SI DESEA RENOVAR SUS SERVICIOS ACTIVOS
                                 if (stateData.isRenewal && stateData.items && stateData.items.length > 1) {
                                     const platformsList = stateData.items.map(item => (item.Streaming || item.name || "Servicio").toUpperCase());
