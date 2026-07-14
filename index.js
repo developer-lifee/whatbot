@@ -1505,7 +1505,62 @@ app.get('/api/admin/tickets', async (req, res) => {
         }
 
         const ticketsPromises = targetEntries.map(async ([userId, state]) => {
-            const phone = userId.replace('@c.us', '');
+            // === Resolver LID a teléfono real ===
+            let phone = userId.replace('@c.us', '').replace('@lid', '');
+            const isLid = userId.includes('@lid');
+            let resolvedPhoneFromLid = null;
+
+            if (isLid) {
+                // 1. Buscar en userStates por si tiene un teléfono mapeado
+                const stObj = typeof state === 'object' ? state : null;
+                if (stObj && stObj.realPhone) {
+                    resolvedPhoneFromLid = stObj.realPhone;
+                }
+                // 2. Buscar en la tabla chats
+                if (!resolvedPhoneFromLid) {
+                    try {
+                        const [chatMapRows] = await pool.query(
+                            'SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1',
+                            [userId]
+                        );
+                        if (chatMapRows.length > 0 && chatMapRows[0].customer_phone) {
+                            resolvedPhoneFromLid = chatMapRows[0].customer_phone;
+                        }
+                    } catch (e) { }
+                }
+                // 3. Buscar via whatsapp-web.js getContactById
+                if (!resolvedPhoneFromLid && client && client.info) {
+                    try {
+                        const contact = await Promise.race([
+                            client.getContactById(userId),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500))
+                        ]);
+                        if (contact && contact.number) {
+                            resolvedPhoneFromLid = contact.number;
+                            // Guardar en DB para futuras consultas
+                            try {
+                                const [custCheck] = await pool.query('SELECT phone FROM customers WHERE phone = ?', [contact.number]);
+                                if (custCheck.length > 0) {
+                                    await pool.query(
+                                        'UPDATE chats SET customer_phone = ? WHERE chat_id = ?',
+                                        [contact.number, userId]
+                                    );
+                                }
+                            } catch (e) {}
+                        }
+                    } catch (e) { }
+                }
+
+                if (resolvedPhoneFromLid) {
+                    phone = String(resolvedPhoneFromLid).replace(/\D/g, '');
+                    // Guardar en estado para futuras consultas
+                    if (typeof state === 'object') {
+                        state.realPhone = phone;
+                    }
+                }
+            }
+
+            const displayPhone = phone; // Este es el número limpio para mostrar
             const stateStr = typeof state === 'object' ? state?.state : state;
             let lastMessage = typeof state === 'object' ? (state.lastMessage || "") : "";
             let lastMessageTime = typeof state === 'object' ? (state.lastMessageTime || null) : null;
@@ -1537,7 +1592,7 @@ app.get('/api/admin/tickets', async (req, res) => {
 
             try {
                 const { getAccountsByPhone } = require('./apiService');
-                accounts = await getAccountsByPhone(phone);
+                accounts = await getAccountsByPhone(displayPhone);
                 if ((!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") && accounts && accounts.length > 0) {
                     const firstAcc = accounts[0];
                     const first = (typeof (firstAcc.Nombre || firstAcc.nombre) === 'string') ? (firstAcc.Nombre || firstAcc.nombre) : "";
@@ -1550,9 +1605,13 @@ app.get('/api/admin/tickets', async (req, res) => {
 
             if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
                 try {
-                    const [custRows] = await pool.query("SELECT fullname FROM customers WHERE phone = ?", [phone]);
+                    const [custRows] = await pool.query("SELECT fullname FROM customers WHERE phone = ?", [displayPhone]);
                     if (custRows.length > 0 && custRows[0].fullname) {
-                        resolvedName = custRows[0].fullname;
+                        // Solo usar si es un nombre real (no un número de teléfono)
+                        const fn = custRows[0].fullname;
+                        if (fn && !/^\+?\d[\d\s\-]+$/.test(fn.trim())) {
+                            resolvedName = fn;
+                        }
                     }
                 } catch (err) { }
             }
@@ -1560,7 +1619,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
                 try {
                     const { searchContactByPhone } = require('./googleContactsService');
-                    const contactName = await searchContactByPhone(phone);
+                    const contactName = await searchContactByPhone(displayPhone);
                     if (contactName) {
                         resolvedName = contactName;
                     }
@@ -1598,18 +1657,18 @@ app.get('/api/admin/tickets', async (req, res) => {
             }
 
             // Fallback: If no manual summary exists, use the dynamic AI summary generated by Gemini
-            if (!summary && aiTicketsSummaries.has(phone)) {
-                summary = `🤖 AI: ${aiTicketsSummaries.get(phone)}`;
+            if (!summary && aiTicketsSummaries.has(displayPhone)) {
+                summary = `🤖 AI: ${aiTicketsSummaries.get(displayPhone)}`;
             }
 
             const { getQueuePosition } = require('./supportScheduleService');
             const queuePosition = getQueuePosition(userId, userStates);
 
-            const isProbablyFinished = probablyFinishedTickets.has(phone);
+            const isProbablyFinished = probablyFinishedTickets.has(displayPhone);
 
             return {
                 userId,
-                phone,
+                phone: displayPhone,
                 nombre: resolvedName,
                 state: stateStr,
                 total: typeof state === 'object' ? state.total : null,
