@@ -7426,11 +7426,11 @@ async function baseProcessIncomingMessage(messages) {
 
                                 if (userAccForPlat && plat.plans && plat.plans.length > 0) {
                                     const cleanAccStreaming = userAccForPlat.Streaming.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                    const matchedPlan = plat.plans.find(plan => {
-                                        const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                        return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
-                                    });
-                                    if (matchedPlan) {
+                                    let matchedPlan = plat.plans.find(plan => {
+                                         const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                         return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
+                                     }) || (check.amount ? plat.plans.find(plan => plan.price === check.amount) : null);
+                                     if (matchedPlan) {
                                         price = matchedPlan.price;
                                         planName = `${plat.name} - ${matchedPlan.name}`;
                                     }

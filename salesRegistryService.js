@@ -275,26 +275,18 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
                     // Match by name
                     let isNameMatch = false;
-                    const cleanWhatsapp = whatsappVal.toLowerCase().replace(/[^a-z0-9]/g, '');
-                    if (cleanWhatsapp && !whatsappDigits) { // Es un nombre de texto, no un número
-                        const cleanName = (userState.nombre || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                        const cleanPush = (userState.pushname || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                        
+                    const cleanWhatsapp = whatsappVal.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+                    const cleanName = (userState.nombre || "").toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+                    const cleanPush = (userState.pushname || "").toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+
+                    if (!isPhoneMatch && cleanWhatsapp && !whatsappDigits) {
+                        // Solo si no coincidió por teléfono y hay un nombre válido en la celda
                         if (cleanName === cleanWhatsapp || cleanPush === cleanWhatsapp) {
                             isNameMatch = true;
-                        } else if (cleanName && (cleanName.startsWith(cleanWhatsapp) || cleanWhatsapp.startsWith(cleanName)) && Math.abs(cleanName.length - cleanWhatsapp.length) <= 3) {
+                        } else if (cleanName && getLevenshteinDistance(cleanName, cleanWhatsapp) <= 2) {
                             isNameMatch = true;
-                        } else {
-                            // Comparación difusa de primer nombre o palabras individuales
-                            const wFirst = whatsappVal.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
-                            const nFirst = (userState.nombre || "").split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
-                            const pFirst = (userState.pushname || "").split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
-                            
-                            if (wFirst && nFirst && (getLevenshteinDistance(wFirst, nFirst) <= 1 || wFirst.includes(nFirst) || nFirst.includes(wFirst))) {
-                                isNameMatch = true;
-                            } else if (wFirst && pFirst && (getLevenshteinDistance(wFirst, pFirst) <= 1 || wFirst.includes(pFirst) || pFirst.includes(wFirst))) {
-                                isNameMatch = true;
-                            }
+                        } else if (cleanPush && getLevenshteinDistance(cleanPush, cleanWhatsapp) <= 2) {
+                            isNameMatch = true;
                         }
                     }
 
