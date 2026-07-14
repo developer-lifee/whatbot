@@ -3856,6 +3856,64 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             }
         }
 
+        // Obtener franjas horarias existentes para auditoría
+        const [existingSlots] = await pool.query(
+            'SELECT day_of_week, start_time, end_time FROM agent_schedules WHERE agent_id = ? AND week_start = ?',
+            [agentId, weekStartStr]
+        );
+
+        // Obtener nombres reales
+        let requesterName = requester_email || 'Un asesor';
+        if (requester_email) {
+            const [reqRows] = await pool.query('SELECT fullname FROM agents WHERE email = ?', [requester_email.trim().toLowerCase()]);
+            if (reqRows.length > 0 && reqRows[0].fullname) requesterName = reqRows[0].fullname;
+        }
+        let targetAgentName = email;
+        const [targetAgentRows] = await pool.query('SELECT fullname FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
+        if (targetAgentRows.length > 0 && targetAgentRows[0].fullname) targetAgentName = targetAgentRows[0].fullname;
+
+        // Corrección de nombre Esclepiades -> Katherine
+        if (requesterName.toLowerCase().includes('esclepiades')) requesterName = 'Katherine';
+        if (targetAgentName.toLowerCase().includes('esclepiades')) targetAgentName = 'Katherine';
+
+        const daysMap = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        let changeMessages = [];
+
+        const existByDay = {};
+        existingSlots.forEach(s => {
+            if (!existByDay[s.day_of_week]) existByDay[s.day_of_week] = [];
+            existByDay[s.day_of_week].push(s);
+        });
+
+        const incomingByDay = {};
+        schedule.forEach(s => {
+            const day = parseInt(s.day_of_week);
+            if (!incomingByDay[day]) incomingByDay[day] = [];
+            incomingByDay[day].push(s);
+        });
+
+        for (let d = 0; d <= 6; d++) {
+            const dayName = daysMap[d];
+            const existing = existByDay[d] || [];
+            const incoming = incomingByDay[d] || [];
+
+            if (existing.length === 0 && incoming.length > 0) {
+                incoming.forEach(s => {
+                    changeMessages.push(`ha agregado un turno el día ${dayName} (${s.start_time} - ${s.end_time})`);
+                });
+            } else if (existing.length > 0 && incoming.length === 0) {
+                existing.forEach(s => {
+                    changeMessages.push(`ha eliminado el turno del día ${dayName} (${s.start_time.substring(0, 5)} - ${s.end_time.substring(0, 5)})`);
+                });
+            } else if (existing.length > 0 && incoming.length > 0) {
+                const extStr = existing.map(s => `${s.start_time.substring(0, 5)}-${s.end_time.substring(0, 5)}`).sort().join(',');
+                const incStr = incoming.map(s => `${s.start_time.substring(0, 5)}-${s.end_time.substring(0, 5)}`).sort().join(',');
+                if (extStr !== incStr) {
+                    changeMessages.push(`ha modificado el turno del día ${dayName} (antes: ${extStr.replace(/,/g, ', ')}, ahora: ${incStr.replace(/,/g, ', ')})`);
+                }
+            }
+        }
+
         // 2. Ejecutar la transacción de base de datos
         const connection = await pool.getConnection();
         try {
@@ -3881,6 +3939,24 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             }
 
             await connection.commit();
+
+            // Enviar notificación al grupo de WhatsApp tras éxito en DB
+            if (changeMessages.length > 0 && client && client.info) {
+                try {
+                    const groupChat = await client.getChatById(GROUP_ID);
+                    if (groupChat) {
+                        const targetNameSuffix = (requester_email && requester_email.trim().toLowerCase() !== email.trim().toLowerCase())
+                            ? ` para *${targetAgentName}*`
+                            : '';
+                        const msgLines = changeMessages.map(msg => `• *${requesterName}* ${msg}${targetNameSuffix}`);
+                        const notificationText = `📅 *Notificación de Horarios*:\n\n${msgLines.join('\n')}`;
+                        await groupChat.sendMessage(notificationText);
+                    }
+                } catch (sendErr) {
+                    console.error('[Schedule Notification] Error en envío de whatsapp:', sendErr.message);
+                }
+            }
+
             res.json({ success: true, message: 'Horario del asesor guardado correctamente' });
         } catch (err) {
             await connection.rollback();
