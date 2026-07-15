@@ -185,21 +185,33 @@ async function getAccountsByPhone(phoneNumber, contactName = null) {
           }
           const nameVal = (c.Nombre || c.nombre || "").toString().trim().toLowerCase();
           const lastNameVal = (c.Apellido || c.apellido || "").toString().trim().toLowerCase();
-          const fullName = `${nameVal} ${lastNameVal}`.replace(/[^a-z0-9]/g, '');
+          const fullName = `${nameVal} ${lastNameVal}`.replace(/[^a-z0-9]/g, '').trim();
           
-          if (fullName && (fullName === cleanContactName || cleanContactName.includes(fullName) || fullName.includes(cleanContactName))) {
-            return true;
+          if (!fullName) return false;
+          
+          // Descartar si es una fila marcada como libre o disponible
+          if (fullName.includes('libre') || fullName.includes('vacio') || fullName.includes('disponible')) {
+            return false;
           }
 
-          // Fuzzy match on first word
-          const wFirst = whatsappVal.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
-          const cFirst = contactName.split(' ')[0].toLowerCase().replace(/[^a-z]/g, '');
-          const nFirst = nameVal.split(' ')[0].replace(/[^a-z]/g, '');
+          const getLevenshteinDistance = (a, b) => {
+            if (a.length === 0) return b.length;
+            if (b.length === 0) return a.length;
+            const matrix = [];
+            for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+            for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+            for (let i = 1; i <= b.length; i++) {
+              for (let j = 1; j <= a.length; j++) {
+                if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
+                else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
+              }
+            }
+            return matrix[b.length][a.length];
+          };
 
-          if (wFirst && cFirst && (getLevenshtein(wFirst, cFirst) <= 1 || wFirst.includes(cFirst) || cFirst.includes(wFirst))) {
-            return true;
-          }
-          if (nFirst && cFirst && (getLevenshtein(nFirst, cFirst) <= 1 || nFirst.includes(cFirst) || cFirst.includes(nFirst))) {
+          // Coincidencia estricta de nombre completo (distancia Levenshtein <= 2)
+          const dist = getLevenshteinDistance(fullName, cleanContactName);
+          if (dist <= 2 || fullName.includes(cleanContactName) || cleanContactName.includes(fullName)) {
             return true;
           }
 
