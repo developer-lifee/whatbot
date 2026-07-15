@@ -7574,7 +7574,24 @@ async function baseProcessIncomingMessage(messages) {
                     try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
                     if (check.inferredPlatform) {
-                        console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}`);
+                        const historyLower = (history || "").toLowerCase();
+                        const lastMsgLower = (batchText || "").toLowerCase();
+                        const isNewRequested = historyLower.includes('otro') || 
+                                               historyLower.includes('otra') || 
+                                               historyLower.includes('nueva') || 
+                                               historyLower.includes('nuevo') || 
+                                               historyLower.includes('adquirir') || 
+                                               historyLower.includes('adicional') ||
+                                               lastMsgLower.includes('otro') ||
+                                               lastMsgLower.includes('otra') ||
+                                               lastMsgLower.includes('nueva') ||
+                                               lastMsgLower.includes('nuevo') ||
+                                               lastMsgLower.includes('adquirir') ||
+                                               lastMsgLower.includes('adicional') ||
+                                               stateData.intent === 'comprar' ||
+                                               stateData.state === 'awaiting_purchase_platforms';
+
+                        console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}. isNewRequested=${isNewRequested}`);
 
                         // Intentar obtener el precio real de la plataforma en el catálogo
                         let catalogPrice = 0;
@@ -7594,8 +7611,8 @@ async function baseProcessIncomingMessage(messages) {
                                 let price = plat.price || 0;
                                 let planName = plat.name;
 
-                                // 1. Primero intentar encontrar coincidencia con las cuentas activas del usuario
-                                const userAccForPlat = userAccounts.find(acc => {
+                                // 1. Primero intentar encontrar coincidencia con las cuentas activas del usuario (si no solicita servicio nuevo)
+                                const userAccForPlat = isNewRequested ? null : userAccounts.find(acc => {
                                     const accStreaming = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
                                     const platName = plat.name.toLowerCase().replace(/[^a-z0-9]/g, '');
                                     return accStreaming.includes(platName) || platName.includes(accStreaming);
@@ -7658,7 +7675,7 @@ async function baseProcessIncomingMessage(messages) {
 
                         if (matchedItems.length > 0) {
                             stateData.items = matchedItems;
-                        } else if (userAccounts.length > 0) {
+                        } else if (userAccounts.length > 0 && !isNewRequested) {
                             stateData.items = userAccounts;
                             stateData.isRenewal = true;
                         } else {
@@ -7667,7 +7684,7 @@ async function baseProcessIncomingMessage(messages) {
                         stateData.total = catalogPrice || check.amount;
                         stateData.isAutoFilled = true;
                         userStates.set(userId, stateData); // Persistir el auto-llenado
-                    } else if (userAccounts.length === 1) {
+                    } else if (userAccounts.length === 1 && !isNewRequested) {
                         const singleAcc = userAccounts[0];
                         stateData.items = [singleAcc];
                         stateData.total = check.amount;
@@ -7675,7 +7692,7 @@ async function baseProcessIncomingMessage(messages) {
                         stateData.isImplicitFallback = true; // Flag para confirmación de precisión
                         stateData.isRenewal = true; // Indicar que es renovación
                         userStates.set(userId, stateData); // Persistir el auto-llenado
-                    } else if (userAccounts.length > 1) {
+                    } else if (userAccounts.length > 1 && !isNewRequested) {
                         stateData.items = userAccounts.map(acc => ({
                             ...acc,
                             Streaming: acc.Streaming || acc.Plataforma
