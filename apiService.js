@@ -179,7 +179,7 @@ async function getAccountsByPhone(phoneNumber, contactName = null) {
           const whatsappDigits = whatsappVal.replace(/\D/g, '');
           if (whatsappVal && !whatsappDigits) {
             const cleanWhatsapp = whatsappVal.toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (cleanWhatsapp === cleanContactName || cleanContactName.includes(cleanContactName) || cleanContactName.includes(cleanWhatsapp)) {
+            if (cleanWhatsapp === cleanContactName || cleanWhatsapp.includes(cleanContactName) || cleanContactName.includes(cleanWhatsapp)) {
               return true;
             }
           }

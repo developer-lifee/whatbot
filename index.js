@@ -5943,7 +5943,12 @@ async function processIncomingMessage(messages) {
 async function baseProcessIncomingMessage(messages) {
     if (messages.length === 0) return;
 
-    const batchId = messages.map(m => m.id ? m.id._serialized : '').join(',');
+    const batchId = messages.map(m => {
+        if (!m.id) return '';
+        if (m.id._serialized) return m.id._serialized;
+        const remoteStr = (typeof m.id.remote === 'object' && m.id.remote) ? m.id.remote._serialized : m.id.remote;
+        return `${m.id.fromMe ? 'true' : 'false'}_${remoteStr}_${m.id.id}`;
+    }).join(',');
     if (processedMessageIds.has(batchId)) {
         console.log(`[Deduplicator] Ignorando lote ya procesado simultáneamente: ${batchId}`);
         return;

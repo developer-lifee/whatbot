@@ -4,7 +4,9 @@ const sharp = require('sharp');
 const { pool } = require('./database');
 
 async function saveMessage(message, botIntent = null) {
-    const messageId = message.id ? message.id._serialized : null;
+    const messageId = message.id 
+        ? (message.id._serialized || `${message.id.fromMe ? 'true' : 'false'}_${(typeof message.id.remote === 'object' && message.id.remote) ? message.id.remote._serialized : message.id.remote}_${message.id.id}`) 
+        : null;
     const chatId = message.fromMe ? message.to : message.from;
     const senderId = message.fromMe ? (message.from || 'me') : (message.author || message.from);
     const isFromMe = message.fromMe ? 1 : 0;

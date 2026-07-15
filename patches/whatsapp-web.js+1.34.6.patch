@@ -375,10 +375,27 @@ index 93d9a0c..2aa247b 100644
  
              return msgs.map(m => window.WWebJS.getMessageModel(m));
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-index 4fdc45d..3d82c5d 100644
+index 4fdc45d..4dc640f 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
 +++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-@@ -620,14 +620,62 @@ exports.LoadUtils = () => {
+@@ -556,8 +556,14 @@ exports.LoadUtils = () => {
+             msg.replyButtons = JSON.parse(JSON.stringify(msg.replyButtons));
+         }
+ 
+-        if (typeof msg.id.remote === 'object') {
+-            msg.id = Object.assign({}, msg.id, { remote: msg.id.remote._serialized });
++        if (msg.id) {
++            const remoteStr = (typeof msg.id.remote === 'object' && msg.id.remote) ? msg.id.remote._serialized : msg.id.remote;
++            if (typeof msg.id.remote === 'object') {
++                msg.id = Object.assign({}, msg.id, { remote: remoteStr });
++            }
++            if (!msg.id._serialized) {
++                msg.id._serialized = `${msg.id.fromMe}_${remoteStr}_${msg.id.id}`;
++            }
+         }
+ 
+         delete msg.pendingAckUpdate;
+@@ -620,14 +626,62 @@ exports.LoadUtils = () => {
  
      window.WWebJS.getChats = async () => {
          const chats = window.Store.Chat.getModelsArray();
@@ -445,7 +462,7 @@ index 4fdc45d..3d82c5d 100644
      };
  
      window.WWebJS.getChatModel = async (chat, { isChannel = false } = {}) => {
-@@ -637,36 +685,69 @@ exports.LoadUtils = () => {
+@@ -637,36 +691,69 @@ exports.LoadUtils = () => {
          model.isGroup = false;
          model.isMuted = chat.mute?.expiration !== 0;
          if (isChannel) {
