@@ -5411,6 +5411,10 @@ client.on('ready', () => {
             console.log(`✅ Escaneo inicial completado. Se procesaron/ignoraron ${count} chats pendientes adecuadamente.`);
         } catch (err) {
             console.error('Error en escaneo inicial de chats pendientes:', err);
+            if (isCriticalBrowserError(err)) {
+                console.error('🔥 [ANTI-ZOMBIE] Error crítico detectado en escaneo inicial. Forzando reinicio para PM2...');
+                process.exit(1);
+            }
         }
     }, 5000); // Pequeño delay de gracia
 });
