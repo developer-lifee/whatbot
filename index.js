@@ -7544,11 +7544,10 @@ async function baseProcessIncomingMessage(messages) {
 
         try {
             for (const m of messages) {
-                    const media = await downloadMediaWithRetry(m);
-                    if (media && media.data && media.mimetype) {
-                        const cleanMime = media.mimetype.split(';')[0];
-                        mediaData.push({ data: media.data, mimeType: cleanMime });
-                    }
+                const media = await downloadMediaWithRetry(m);
+                if (media && media.data && media.mimetype) {
+                    const cleanMime = media.mimetype.split(';')[0];
+                    mediaData.push({ data: media.data, mimeType: cleanMime });
                 }
             }
         } catch (err) {
