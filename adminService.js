@@ -43,8 +43,34 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
             console.log('[BATCH] Escaneo omitido: El cliente de WhatsApp no está listo.');
             return count;
         }
-        const chats = await client.getChats();
-        console.log(`[BATCH] Escaneo iniciado. Total chats recuperados: ${chats.length}`);
+        let chats = null;
+        let attempts = 0;
+        const maxAttempts = 2;
+
+        while (attempts < maxAttempts) {
+            try {
+                if (client.pupPage) {
+                    const isReady = await client.pupPage.evaluate(() => {
+                        return typeof window.Store !== 'undefined' && typeof window.WWebJS !== 'undefined';
+                    }).catch(() => false);
+
+                    if (!isReady) {
+                        console.warn('[BATCH] ⚠️ Inyección WWebJS ausente en la página de WhatsApp Web. Esperando calentamiento...');
+                        await new Promise(r => setTimeout(r, 3000));
+                    }
+                }
+                chats = await client.getChats();
+                break;
+            } catch (evalErr) {
+                attempts++;
+                console.warn(`[BATCH] ⚠️ Fallo en intento ${attempts} de obtener chats: ${evalErr.message}`);
+                if (attempts >= maxAttempts) {
+                    throw evalErr;
+                }
+                await new Promise(r => setTimeout(r, 4000));
+            }
+        }
+        console.log(`[BATCH] Escaneo iniciado. Total chats recuperados: ${chats ? chats.length : 0}`);
 
         const pendingChats = chats.filter(chat => {
             if (!chat || !chat.id || !chat.id._serialized) return false;
