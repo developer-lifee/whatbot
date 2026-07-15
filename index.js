@@ -41,16 +41,16 @@ function writeLog(filePath, text) {
 console.log = function (...args) {
     const now = new Date();
     const timestamp = `[${now.toLocaleString('es-CO')}]`;
-    
+
     // Log to console (stdout) for PM2 compatibility
     originalLog.apply(console, [timestamp, ...args]);
-    
+
     // Format text representation
     const textRepresentation = args.map(arg => typeof arg === 'object' ? util.inspect(arg, { depth: null }) : String(arg)).join(' ');
     const logLine = `${timestamp} ${textRepresentation}`;
-    
+
     const lowerText = textRepresentation.toLowerCase();
-    
+
     // Routing logic
     if (
         lowerText.includes('[bot') ||
@@ -76,13 +76,13 @@ console.log = function (...args) {
 console.error = function (...args) {
     const now = new Date();
     const timestamp = `[${now.toLocaleString('es-CO')}]`;
-    
+
     // Log to console (stderr) for PM2 compatibility
     originalError.apply(console, [timestamp, ...args]);
-    
+
     const textRepresentation = args.map(arg => arg instanceof Error ? arg.stack : (typeof arg === 'object' ? util.inspect(arg, { depth: null }) : String(arg))).join(' ');
     const logLine = `${timestamp} ${textRepresentation}`;
-    
+
     writeLog(errorLogPath, logLine);
 };
 const qrcode = require('qrcode-terminal');
@@ -139,7 +139,7 @@ const USER_STATES_FILE = path.join(__dirname, 'user_states.json');
 
 function decorateMap(mapInstance) {
     const originalSet = mapInstance.set;
-    mapInstance.set = function(key, value) {
+    mapInstance.set = function (key, value) {
         if (value && typeof value === 'object') {
             const stateStr = value.state;
             if (stateStr === 'waiting_human') {
@@ -329,11 +329,11 @@ app.post('/api/netflix/verify', async (req, res) => {
             for (let attempt = 0; attempt < 3; attempt++) {
                 console.log(`[NETFLIX API] Checking recent codes for ${netflixAcct.correo} (Attempt ${attempt + 1})...`);
                 const recentCodes = await findRecentCodes(netflixAcct.correo, 15);
-                const netflixMail = recentCodes.find(item => 
-                    (item.subject || "").toLowerCase().includes('netflix') || 
+                const netflixMail = recentCodes.find(item =>
+                    (item.subject || "").toLowerCase().includes('netflix') ||
                     (item.snippet || "").toLowerCase().includes('netflix')
                 );
-                
+
                 if (netflixMail && (netflixMail.code || netflixMail.link)) {
                     code = netflixMail.code;
                     link = netflixMail.link;
@@ -365,12 +365,12 @@ app.post('/api/netflix/verify', async (req, res) => {
             }
         }
 
-        res.json({ 
-            success: true, 
-            message: link 
+        res.json({
+            success: true,
+            message: link
                 ? `¡Conexión verificada! Haz clic en el botón rojo de abajo para autorizar este dispositivo.`
-                : `¡Conexión verificada! Ingresa el código mostrado a continuación en tu pantalla de Netflix.`, 
-            account: netflixAcct.correo, 
+                : `¡Conexión verificada! Ingresa el código mostrado a continuación en tu pantalla de Netflix.`,
+            account: netflixAcct.correo,
             code,
             link
         });
@@ -618,17 +618,17 @@ app.post('/api/bold/webhook', async (req, res) => {
                 let hasAnyCredentials = false;
                 const { getMaskedAccessData } = require('./aiService');
                 const { getDynamicSupportExpectationMessage } = require('./adminService');
-                
+
                 results.forEach(res => {
                     if (res.status === 'success' && res.correo) {
                         hasAnyCredentials = true;
                         const masked = getMaskedAccessData(res);
-                        
+
                         const labelPin = (res.name || "").toLowerCase().includes('spotify') ? "DIRECCIÓN/LINK" : "PIN";
                         const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";
                         const vencStr = res.vencimiento || "";
                         const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
-                        
+
                         credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}\n`;
                     }
                 });
@@ -669,7 +669,7 @@ app.post('/api/bold/webhook', async (req, res) => {
                         } else {
                             userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
                         }
-                        await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => {});
+                        await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
                     } else {
                         userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
                     }
@@ -704,7 +704,7 @@ app.post('/api/bold/webhook', async (req, res) => {
 
                             userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
                         }
-                        await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => {});
+                        await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
                     } else {
                         const successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema. En breve te enviaremos tus credenciales.`;
                         await client.sendMessage(phoneId, successMsg);
@@ -848,7 +848,7 @@ app.get('/api/admin/stats', async (req, res) => {
                             }
                         }
                     });
-                    
+
                     if (latestDate && latestDate >= fortyFiveDaysAgo && latestDate <= now) {
                         stats.churnedCount++;
                     }
@@ -1070,7 +1070,7 @@ app.get('/api/admin/client-history', async (req, res) => {
             try {
                 const { fetchHistoricoData } = require('./apiService');
                 const historicoData = await fetchHistoricoData();
-                
+
                 let matchedPhoneInExcel = null;
                 let excelRowsToSync = [];
                 let excelProfileName = "";
@@ -1090,7 +1090,7 @@ app.get('/api/admin/client-history', async (req, res) => {
                         const streaming = (hist.streaming || "").toString().trim();
                         const emailAcct = (hist.correo || "").toString().toLowerCase().trim();
                         const cutDate = (hist.fecha_corte || "").toString().trim();
-                        
+
                         if (!streaming || !emailAcct || !cutDate) continue;
 
                         // Parse amount_paid (deben)
@@ -1236,7 +1236,7 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
                     const day = String(date.getUTCDate()).padStart(2, '0');
                     return `${year}-${month}-${day}`;
                 }
-            } catch (e) {}
+            } catch (e) { }
             return str;
         };
 
@@ -1255,10 +1255,10 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
                     const pass = clientData['pin perfil'] || clientData.contraseña || clientData.Clave || clientData.clave || clientData.password || 'N/A';
                     const venc = formatExcelDate(clientData['Fecha Vencimiento'] || clientData.deben || clientData.vencimiento);
                     message += `🍿 *Servicio:* ${clientData.Streaming || 'N/A'}\n` +
-                               `📧 *Usuario:* ${clientData.correo || 'N/A'}\n` +
-                               `🔑 *Contraseña:* ${pass}\n` +
-                               `👤 *Perfil:* ${clientData.Nombre || 'N/A'}\n` +
-                               `📅 *Vence:* ${venc}\n\n`;
+                        `📧 *Usuario:* ${clientData.correo || 'N/A'}\n` +
+                        `🔑 *Contraseña:* ${pass}\n` +
+                        `👤 *Perfil:* ${clientData.Nombre || 'N/A'}\n` +
+                        `📅 *Vence:* ${venc}\n\n`;
                 });
                 message += `¡Disfruta tu servicio!`;
             } else if (type === 'payment') {
@@ -1278,7 +1278,7 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
         }
 
         const chatId = cleanPhone.includes('@') ? cleanPhone : `${cleanPhone}@c.us`;
-        
+
         if (req.body.scheduledTime) {
             const { scheduleNewMessage } = require('./scheduledMessageService');
             const result = await scheduleNewMessage(client, chatId, message, req.body.scheduledTime);
@@ -1548,7 +1548,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                                         [contact.number, userId]
                                     );
                                 }
-                            } catch (e) {}
+                            } catch (e) { }
                         }
                     } catch (e) { }
                 }
@@ -1592,43 +1592,53 @@ app.get('/api/admin/tickets', async (req, res) => {
             let accounts = [];
             let resolvedName = typeof state === 'object' ? state.nombre : "Cliente";
 
-            try {
-                const { getAccountsByPhone } = require('./apiService');
-                accounts = await getAccountsByPhone(displayPhone);
-                if ((!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") && accounts && accounts.length > 0) {
-                    const firstAcc = accounts[0];
-                    const first = (typeof (firstAcc.Nombre || firstAcc.nombre) === 'string') ? (firstAcc.Nombre || firstAcc.nombre) : "";
-                    const last = (typeof (firstAcc.apellido || firstAcc.Apellido) === 'string') ? (firstAcc.apellido || firstAcc.Apellido) : "";
-                    if (first && first.trim()) {
-                        resolvedName = `${first} ${last}`.trim();
-                    }
-                }
-            } catch (err) { }
+            const isInvalidName = (name) => {
+                if (!name) return true;
+                const clean = name.trim();
+                if (clean === "Cliente" || clean === "Cliente WhatsApp") return true;
+                if (clean.startsWith("Cliente ") && /^\d+$/.test(clean.substring(8).trim())) return true;
+                if (/^\+?\d[\d\s\-]+$/.test(clean)) return true;
+                return false;
+            };
 
-            if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
+            if (isInvalidName(resolvedName)) {
+                try {
+                    const { getAccountsByPhone } = require('./apiService');
+                    accounts = await getAccountsByPhone(displayPhone);
+                    if (accounts && accounts.length > 0) {
+                        const firstAcc = accounts[0];
+                        const first = (typeof (firstAcc.Nombre || firstAcc.nombre) === 'string') ? (firstAcc.Nombre || firstAcc.nombre) : "";
+                        const last = (typeof (firstAcc.apellido || firstAcc.Apellido) === 'string') ? (firstAcc.apellido || firstAcc.Apellido) : "";
+                        if (first && first.trim()) {
+                            resolvedName = `${first} ${last}`.trim();
+                        }
+                    }
+                } catch (err) { }
+            }
+
+            if (isInvalidName(resolvedName)) {
                 try {
                     const [custRows] = await pool.query("SELECT fullname FROM customers WHERE phone = ?", [displayPhone]);
                     if (custRows.length > 0 && custRows[0].fullname) {
-                        // Solo usar si es un nombre real (no un número de teléfono)
                         const fn = custRows[0].fullname;
-                        if (fn && !/^\+?\d[\d\s\-]+$/.test(fn.trim())) {
+                        if (!isInvalidName(fn)) {
                             resolvedName = fn;
                         }
                     }
                 } catch (err) { }
             }
 
-            if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
+            if (isInvalidName(resolvedName)) {
                 try {
                     const { searchContactByPhone } = require('./googleContactsService');
                     const contactName = await searchContactByPhone(displayPhone);
-                    if (contactName) {
+                    if (contactName && !isInvalidName(contactName)) {
                         resolvedName = contactName;
                     }
                 } catch (e) { }
             }
 
-            if (!resolvedName || resolvedName === "Cliente" || resolvedName === "Cliente WhatsApp") {
+            if (isInvalidName(resolvedName)) {
                 try {
                     if (client && client.info) {
                         const contact = await Promise.race([
@@ -1636,10 +1646,20 @@ app.get('/api/admin/tickets', async (req, res) => {
                             new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1000))
                         ]);
                         if (contact) {
-                            resolvedName = contact.pushname || contact.name || "Cliente WhatsApp";
+                            const nameCandidate = contact.name || contact.pushname;
+                            if (nameCandidate && !isInvalidName(nameCandidate)) {
+                                resolvedName = nameCandidate;
+                            } else if (contact.pushname && !isInvalidName(contact.pushname)) {
+                                resolvedName = contact.pushname;
+                            }
                         }
                     }
                 } catch (e) { }
+            }
+
+            if (!isInvalidName(resolvedName) && typeof state === 'object') {
+                state.nombre = resolvedName;
+                userStates.set(userId, state);
             }
 
             let summary = "";
@@ -1808,7 +1828,7 @@ app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
         const chat = await client.getChatById(userId);
         if (!chat) return res.status(404).json({ success: false, message: 'Chat no encontrado' });
 
-        await chat.syncHistory().catch(() => {});
+        await chat.syncHistory().catch(() => { });
         const messages = await chat.fetchMessages({ limit: 10 });
         if (!messages || messages.length === 0) {
             return res.status(400).json({ success: false, message: 'No hay mensajes en el chat' });
@@ -1925,7 +1945,7 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                                     'INSERT INTO resolved_tickets_log (phone, customerName, agent) VALUES (?, ?, ?)',
                                     [otherPhone, otherCustomerName, otherAgentName]
                                 );
-                            } catch (logErr) {}
+                            } catch (logErr) { }
 
                             userStates.set(otherUserId, {
                                 ...otherStateData,
@@ -1978,7 +1998,7 @@ app.post('/api/admin/tickets/create', express.json(), async (req, res) => {
 
         // Check if there is already a state, or create one
         const existingState = userStates.get(jid) || {};
-        
+
         // Try to resolve name from accounts or contacts if not provided
         let resolvedName = name || existingState.nombre;
         if (!resolvedName || resolvedName === 'Cliente' || resolvedName === 'Cliente WhatsApp') {
@@ -1990,12 +2010,12 @@ app.post('/api/admin/tickets/create', express.json(), async (req, res) => {
                     const last = accounts[0].apellido || accounts[0].Apellido || "";
                     resolvedName = `${first} ${last}`.trim();
                 }
-            } catch (err) {}
+            } catch (err) { }
             if (!resolvedName) {
                 try {
                     const { searchContactByPhone } = require('./googleContactsService');
                     resolvedName = await searchContactByPhone(cleanPhone);
-                } catch (e) {}
+                } catch (e) { }
             }
         }
         if (!resolvedName) {
@@ -2017,7 +2037,7 @@ app.post('/api/admin/tickets/create', express.json(), async (req, res) => {
         // Intenta silenciar las respuestas del bot
         try {
             await pool.query('INSERT INTO user_modes (phone, mode) VALUES (?, ?) ON DUPLICATE KEY UPDATE mode = ?', [cleanPhone, 'human', 'human']);
-        } catch (e) {}
+        } catch (e) { }
 
         res.json({
             success: true,
@@ -2056,7 +2076,7 @@ app.get('/api/admin/tickets/metrics', async (req, res) => {
             GROUP BY agent 
             ORDER BY count DESC
         `);
-        
+
         const [weeklyFlow] = await pool.query(`
             SELECT 
                 DATE_FORMAT(DATE_SUB(resolvedAt, INTERVAL 5 HOUR), '%d/%m') as day_label, 
@@ -2067,7 +2087,7 @@ app.get('/api/admin/tickets/metrics', async (req, res) => {
             GROUP BY DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)), day_label, agent
             ORDER BY DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)) ASC, count DESC
         `);
-        
+
         const [recent] = await pool.query(`
             SELECT phone, customerName, agent, resolvedAt 
             FROM resolved_tickets_log 
@@ -2107,6 +2127,108 @@ app.post('/api/admin/availability/save', (req, res) => {
     }
 });
 
+// --- HEAVY TICKETS / INTERNAL TASKS ENDPOINTS ---
+app.get('/api/admin/heavy-tickets', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT ht.*, 
+                   (SELECT COUNT(*) FROM heavy_ticket_comments WHERE ticket_id = ht.id) as comments_count
+            FROM heavy_tickets ht
+            ORDER BY ht.created_at DESC
+        `);
+        res.json({ success: true, tickets: rows });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/heavy-tickets', express.json(), async (req, res) => {
+    try {
+        const { title, description, priority, assigned_agent, password, initial_comment } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!title) return res.status(400).json({ success: false, message: 'Title is required' });
+
+        const [result] = await pool.query(
+            'INSERT INTO heavy_tickets (title, description, priority, assigned_agent) VALUES (?, ?, ?, ?)',
+            [title, description || '', priority || 'medium', assigned_agent || null]
+        );
+
+        const ticketId = result.insertId;
+
+        if (initial_comment && initial_comment.trim()) {
+            await pool.query(
+                'INSERT INTO heavy_ticket_comments (ticket_id, agent_name, comment) VALUES (?, ?, ?)',
+                [ticketId, assigned_agent || 'Sistema', initial_comment.trim()]
+            );
+        }
+
+        res.json({ success: true, ticketId });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.put('/api/admin/heavy-tickets/:id', express.json(), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { title, description, priority, status, assigned_agent, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        await pool.query(
+            'UPDATE heavy_tickets SET title = ?, description = ?, priority = ?, status = ?, assigned_agent = ? WHERE id = ?',
+            [title, description || '', priority || 'medium', status || 'pending', assigned_agent || null, id]
+        );
+
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete('/api/admin/heavy-tickets/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const password = req.query.password || req.body?.password;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        await pool.query('DELETE FROM heavy_tickets WHERE id = ?', [id]);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/heavy-tickets/:id/comments', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query(
+            'SELECT * FROM heavy_ticket_comments WHERE ticket_id = ? ORDER BY created_at ASC',
+            [id]
+        );
+        res.json({ success: true, comments: rows });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/heavy-tickets/:id/comments', express.json(), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { agent_name, comment, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!comment || !comment.trim()) return res.status(400).json({ success: false, message: 'Comment is required' });
+
+        await pool.query(
+            'INSERT INTO heavy_ticket_comments (ticket_id, agent_name, comment) VALUES (?, ?, ?)',
+            [id, agent_name || 'Sistema', comment.trim()]
+        );
+
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Endpoint to read human support schedule configuration
 app.get('/api/admin/support-schedule', async (req, res) => {
     try {
@@ -2141,7 +2263,7 @@ app.get('/api/public/platforms', async (req, res) => {
         const path = require('path');
         const localPath = path.join(__dirname, 'platforms.json');
         const { pool } = require('./database');
-        
+
         let platforms = [];
         if (fs.existsSync(localPath)) {
             const content = fs.readFileSync(localPath, 'utf8');
@@ -2504,7 +2626,7 @@ app.get('/api/admin/subscriptions', async (req, res) => {
         }
 
         const whereStr = where.length > 0 ? `WHERE ${where.join(' AND ')}` : '';
-        
+
         // Retornamos las cuentas únicas y les anexamos info del cliente principal o lista de clientes asignados
         const [rows] = await pool.query(
             `SELECT 
@@ -2539,7 +2661,7 @@ app.get('/api/admin/subscriptions', async (req, res) => {
 app.post('/api/admin/subscriptions/save', express.json(), async (req, res) => {
     try {
         const { id, account_email, streaming_platform, is_provider, provider_name,
-                rpa_recipe_id, notes, password } = req.body;
+            rpa_recipe_id, notes, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!streaming_platform || !account_email) {
             return res.status(400).json({ success: false, error: 'Faltan campos obligatorios' });
@@ -2550,14 +2672,14 @@ app.post('/api/admin/subscriptions/save', express.json(), async (req, res) => {
                 `UPDATE stream_accounts SET account_email=?, streaming_platform=?,
                   is_provider=?, provider_name=?, rpa_recipe_id=?, notes=? WHERE id=?`,
                 [account_email, streaming_platform, is_provider ? 1 : 0, provider_name || null,
-                 rpa_recipe_id || null, notes || null, id]
+                    rpa_recipe_id || null, notes || null, id]
             );
         } else {
             await pool.query(
                 `INSERT INTO stream_accounts (account_email, streaming_platform, is_provider,
                   provider_name, rpa_recipe_id, notes) VALUES (?, ?, ?, ?, ?, ?)`,
                 [account_email, streaming_platform, is_provider ? 1 : 0, provider_name || null,
-                 rpa_recipe_id || null, notes || null]
+                    rpa_recipe_id || null, notes || null]
             );
         }
         res.json({ success: true, message: 'Cuenta guardada correctamente' });
@@ -2630,17 +2752,17 @@ app.post('/api/admin/subscriptions/sync-excel', express.json(), async (req, res)
         const { password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         const { syncExcelToDb, syncHistoricoToDb } = require('./scripts/sync_excel_to_db');
-        
+
         console.log('[Sync API] Sincronizando suscripciones actuales...');
         const result = await syncExcelToDb();
-        
+
         console.log('[Sync API] Sincronizando cortes históricos...');
         const historicoResult = await syncHistoricoToDb();
 
-        res.json({ 
-            success: true, 
-            current: result, 
-            historico: historicoResult 
+        res.json({
+            success: true,
+            current: result,
+            historico: historicoResult
         });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -2767,7 +2889,7 @@ app.post('/api/admin/gmail-inboxes/confirm-code', async (req, res) => {
             const safeEmail = email.toLowerCase().trim();
             const tokenPath = path.join(__dirname, 'tokens', `token_${safeEmail}.json`);
             fs.writeFileSync(tokenPath, JSON.stringify(token));
-            
+
             const { clearCachedClient } = require('./googleAuthService');
             clearCachedClient('gmail', safeEmail);
 
@@ -2836,7 +2958,7 @@ app.post('/api/admin/streaming/tokens/add', async (req, res) => {
                 tokens = [];
             }
         }
-        
+
         const cleanToken = token.trim().toLowerCase().replace(/\s+/g, '_');
         if (!tokens.includes(cleanToken)) {
             tokens.push(cleanToken);
@@ -2880,7 +3002,7 @@ app.get('/api/admin/streaming/sessions', async (req, res) => {
             resp.on('end', () => {
                 try {
                     res.json(JSON.parse(data));
-                } catch(e) {
+                } catch (e) {
                     res.json({});
                 }
             });
@@ -2947,7 +3069,7 @@ app.post('/api/admin/audit-log', express.json(), (req, res) => {
         const { agentEmail, agentName, action, details } = req.body;
         const timestamp = new Date().toISOString();
         const logLine = `[${timestamp}] [${agentEmail || 'Unknown'}] [${agentName || 'Unknown'}] Action: ${action || 'None'} - Details: ${JSON.stringify(details || {})}\n`;
-        
+
         fs.appendFileSync(path.join(__dirname, 'frontend_audit.log'), logLine, 'utf8');
         res.json({ success: true });
     } catch (e) {
@@ -3025,13 +3147,13 @@ async function resolveJidForPhone(phone) {
 
     const cleanPhone = phone.replace(/\D/g, '');
     const userId = cleanPhone + '@c.us';
-    
+
     // 1. Validar en userStates en memoria
     const state = userStates.get(userId) || userStates.get(cleanPhone + '@lid');
     if (state && state.chatJid) {
         return state.chatJid;
     }
-    
+
     // 2. Validar en la base de datos chats
     try {
         const [chatRows] = await pool.query(
@@ -3044,7 +3166,7 @@ async function resolveJidForPhone(phone) {
     } catch (err) {
         console.error("[resolveJidForPhone] Error en DB query:", err.message);
     }
-    
+
     // 3. Fallback: Buscar en client.getChats() del navegador de Puppeteer
     if (client && client.info) {
         try {
@@ -3069,7 +3191,7 @@ async function resolveJidForPhone(phone) {
                             [chat.id._serialized]
                         );
                     }
-                    
+
                     // Actualizar en userStates
                     const rawState = userStates.get(userId) || userStates.get(chat.id._serialized);
                     if (rawState && typeof rawState === 'object') {
@@ -3085,7 +3207,7 @@ async function resolveJidForPhone(phone) {
             console.error("[resolveJidForPhone] Error en client.getChats:", chatsErr.message);
         }
     }
-    
+
     return userId; // Fallback final
 }
 
@@ -3132,7 +3254,7 @@ app.post('/api/admin/chat-messages/sync', async (req, res) => {
         const targetChatId = await resolveJidForPhone(phone);
 
         const chat = await client.getChatById(targetChatId);
-        await chat.syncHistory().catch(() => {});
+        await chat.syncHistory().catch(() => { });
         const messages = await chat.fetchMessages({ limit: 50 });
 
         // Guardar/actualizar en base de datos de manera secuencial para no saturar
@@ -3269,7 +3391,7 @@ app.post('/api/admin/chat-messages/send-audio', express.json({ limit: '10mb' }),
 
         const { MessageMedia } = require('whatsapp-web.js');
         const media = new MessageMedia('audio/ogg; codecs=opus', base64Opus, 'voice.ogg');
-        
+
         const targetChatId = await resolveJidForPhone(phone);
 
         // Send audio as voice note
@@ -3463,7 +3585,7 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
 
         console.log('🔄 Reinicio del bot solicitado desde la interfaz web...');
         res.json({ success: true, message: 'Reiniciando el bot para regenerar el código QR...' });
-        
+
         setTimeout(() => {
             process.exit(1);
         }, 1000);
@@ -3572,6 +3694,30 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             )
         `);
 
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS heavy_tickets (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                description TEXT NULL,
+                status ENUM('pending', 'in_progress', 'completed', 'cancelled') DEFAULT 'pending',
+                priority ENUM('low', 'medium', 'high', 'critical') DEFAULT 'medium',
+                assigned_agent VARCHAR(100) NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            )
+        `);
+
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS heavy_ticket_comments (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                ticket_id INT NOT NULL,
+                agent_name VARCHAR(100) NOT NULL,
+                comment TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (ticket_id) REFERENCES heavy_tickets(id) ON DELETE CASCADE
+            )
+        `);
+
         // Check and add phone column to provider_credentials if it doesn't exist
         try {
             const [cols] = await pool.query("SHOW COLUMNS FROM provider_credentials");
@@ -3604,14 +3750,14 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             if (!hasWeekStart) {
                 console.log("[Migration] Adding week_start column to agent_schedules...");
                 await pool.query("ALTER TABLE agent_schedules ADD COLUMN week_start VARCHAR(20) NOT NULL DEFAULT 'default'");
-                
+
                 // Drop unique key unique_agent_day_slot if exists
                 try {
                     await pool.query("ALTER TABLE agent_schedules DROP INDEX unique_agent_day_slot");
                 } catch (e) {
                     console.log("[Migration] Old index unique_agent_day_slot not found or couldn't drop:", e.message);
                 }
-                
+
                 // Add unique key unique_agent_week_day_slot
                 await pool.query("ALTER TABLE agent_schedules ADD UNIQUE KEY unique_agent_week_day_slot (agent_id, week_start, day_of_week, start_time, end_time)");
             }
@@ -3735,7 +3881,7 @@ app.get('/api/admin/agent-role', async (req, res) => {
 
         const { pool } = require('./database');
         const [rows] = await pool.query('SELECT role FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
-        
+
         if (rows && rows.length > 0) {
             return res.json({ success: true, role: rows[0].role });
         }
@@ -3801,10 +3947,10 @@ app.get('/api/admin/agents/schedules/all', async (req, res) => {
     try {
         const week_start = req.query.week_start || 'default';
         const { pool } = require('./database');
-        
+
         const [agents] = await pool.query('SELECT id, username, fullname, email, role FROM agents WHERE status = "active"');
         const allSchedules = [];
-        
+
         for (const agent of agents) {
             let [scheduleRows] = await pool.query(
                 'SELECT id, day_of_week, start_time, end_time, break_type, break_start FROM agent_schedules WHERE agent_id = ? AND week_start = ? ORDER BY day_of_week ASC, start_time ASC',
@@ -3845,7 +3991,7 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
         if (!Array.isArray(schedule)) return res.status(400).json({ success: false, message: 'El horario debe ser una lista de franjas' });
 
         const { pool } = require('./database');
-        
+
         // Authorization check to ensure advisors cannot edit each other
         if (requester_email) {
             const [reqRows] = await pool.query('SELECT role FROM agents WHERE email = ?', [requester_email.trim().toLowerCase()]);
@@ -4194,7 +4340,7 @@ app.get('/api/admin/payroll', async (req, res) => {
         const [yr, mo] = month.split('-').map(Number);
         const daysInMonth = new Date(yr, mo, 0).getDate();
         const weekStarts = new Set();
-        
+
         const getBogotaMondayStr = (date) => {
             const d = new Date(date);
             const day = d.getDay();
@@ -4209,13 +4355,13 @@ app.get('/api/admin/payroll', async (req, res) => {
             const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const dayOfWeek = dateObj.getDay();
             const mondayStr = getBogotaMondayStr(dateObj);
-            
+
             weekStarts.add(mondayStr);
             daysMapping.push({ dateStr, dayOfWeek, mondayStr });
         }
 
         const weekStartsList = Array.from(weekStarts);
-        
+
         let schedules = [];
         if (weekStartsList.length > 0) {
             const [rows] = await pool.query(
@@ -4316,10 +4462,10 @@ app.post('/api/admin/agents/role', express.json(), async (req, res) => {
         const { agent_id, role, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!agent_id || !role) return res.status(400).json({ success: false, message: 'Falta ID de asesor o rol' });
-        
+
         const { pool } = require('./database');
         await pool.query('UPDATE agents SET role = ? WHERE id = ?', [role, agent_id]);
-        
+
         res.json({ success: true, message: 'Rol de asesor actualizado correctamente.' });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -4644,7 +4790,7 @@ app.post('/api/config/prompts/save', express.json(), async (req, res) => {
         try {
             const { clearCachedSystemPrompt } = require('./aiService');
             clearCachedSystemPrompt();
-        } catch (err) {}
+        } catch (err) { }
 
         res.json({ success: true, message: 'Plantilla de prompt guardada con éxito en la base de datos' });
     } catch (e) {
@@ -4741,20 +4887,20 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                         }, step.selector);
                     } catch (selectorErr) {
                         console.log(`[RPA Runner] Selector ${step.selector} no hallado. Aplicando fallback de escaneo inteligente en pantalla...`);
-                        
+
                         // 2. Fallback: Loop up to 7 times (35 seconds max) if page shows a loading message
                         for (let attempt = 0; attempt < 7; attempt++) {
                             const loadingState = await page.evaluate(() => {
                                 const bodyText = document.body ? document.body.innerText : '';
-                                return bodyText.includes('trayendo el código') || 
-                                       bodyText.includes('espera unos segundos') || 
-                                       bodyText.toLowerCase().includes('cargando');
+                                return bodyText.includes('trayendo el código') ||
+                                    bodyText.includes('espera unos segundos') ||
+                                    bodyText.toLowerCase().includes('cargando');
                             });
 
                             if (loadingState) {
                                 console.log(`[RPA Runner] Cargando código de Spotinet... Reintento ${attempt + 1}/7 (espera 5s)`);
                                 await new Promise(r => setTimeout(r, 5000)); // Wait 5s for Spotinet to fetch code
-                                
+
                                 // Take progress screenshot for user peace of mind
                                 try {
                                     const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 40 });
@@ -4769,7 +4915,7 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                                         const job = rpaJobs.get(jobId);
                                         if (job) job.screenshots = [...screenshots];
                                     }
-                                } catch (e) {}
+                                } catch (e) { }
                                 continue;
                             }
                             break;
@@ -4778,7 +4924,7 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                         // Extract text using keywords and regex
                         extracted = await page.evaluate(() => {
                             const bodyText = document.body ? document.body.innerText : '';
-                            
+
                             // Check if the 20 minutes warning alert is present in page text
                             if (bodyText.includes('últimos 20 min') || bodyText.toLowerCase().includes('no pediste el código')) {
                                 return '⚠️ El cliente no ha solicitado el código en su dispositivo en los últimos 20 minutos.';
@@ -4790,11 +4936,11 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                                 const text = el.innerText || '';
                                 return (text.toLowerCase().includes('código') || text.toLowerCase().includes('sesión') || text.toLowerCase().includes('codigo')) && /\b\d{6}\b/.test(text);
                             });
-                            
+
                             if (matches.length > 0) {
                                 return matches[0].innerText.trim();
                             }
-                            
+
                             // Last resort: scan the entire body text
                             const bodyMatch = bodyText.match(/\b\d{6}\b/);
                             return bodyMatch ? `Código: ${bodyMatch[0]}` : null;
@@ -4818,7 +4964,7 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                     img: `data:image/jpeg;base64,${screenshotBase64}`
                 };
                 screenshots.push(item);
-                
+
                 // Stream updates live to the job status if jobId exists
                 if (jobId) {
                     const job = rpaJobs.get(jobId);
@@ -4834,12 +4980,12 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
         return { success: true, data: results, screenshots };
     } catch (err) {
         console.error(`[RPA Runner Error] Falla en la receta '${recipe.name}':`, err.message);
-        
+
         let failureScreenshot = null;
         try {
             const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 60 });
             failureScreenshot = `data:image/jpeg;base64,${screenshotBase64}`;
-            
+
             const item = {
                 step: recipe.steps.length + 1,
                 action: 'failure_capture',
@@ -4847,7 +4993,7 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                 img: failureScreenshot
             };
             screenshots.push(item);
-            
+
             if (jobId) {
                 const job = rpaJobs.get(jobId);
                 if (job) {
@@ -4858,11 +5004,11 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
             console.warn('[RPA Runner] Error al tomar captura de pantalla del fallo:', screenshotErr.message);
         }
 
-        return { 
-            success: false, 
-            error: err.message, 
+        return {
+            success: false,
+            error: err.message,
             screenshots,
-            failureScreenshot 
+            failureScreenshot
         };
     } finally {
         await browser.close();
@@ -5002,7 +5148,7 @@ app.post('/api/admin/rpa/run', express.json(), async (req, res) => {
         }
 
         const jobId = `job_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-        
+
         // Initial job state
         rpaJobs.set(jobId, {
             id: jobId,
@@ -5212,7 +5358,7 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
         const formattedAccounts = userAccounts.map(acc => {
             const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
             const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
-            
+
             return {
                 id: acc.id || acc._rowNumber,
                 platform: (acc.Streaming || "").toUpperCase(),
@@ -5452,16 +5598,16 @@ client.on('call', async (call) => {
         } catch (rejectErr) {
             console.error(`[CALL] ⚠️ No se pudo rechazar la llamada activamente (error de wwebjs):`, rejectErr.message);
         }
-        
+
         // Determinar el JID de destino correcto (debe incluir @c.us)
         let destJid = call.from;
         if (destJid && !destJid.includes('@')) {
             destJid = destJid.replace(/\D/g, '') + '@c.us';
         }
-        
+
         // Pausa de 1.5s para permitir que Puppeteer se desature tras colgar
         await new Promise(res => setTimeout(res, 1500));
-        
+
         await client.sendMessage(destJid, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
         console.log(`[CALL] ✉️ Aviso de chat enviado a ${destJid}`);
     } catch (e) {
@@ -5479,15 +5625,15 @@ client.on('incoming_call', async (call) => {
         } catch (rejectErr) {
             console.error(`[INCOMING_CALL] ⚠️ No se pudo rechazar la llamada activamente (error de wwebjs):`, rejectErr.message);
         }
-        
+
         let destJid = call.from;
         if (destJid && !destJid.includes('@')) {
             destJid = destJid.replace(/\D/g, '') + '@c.us';
         }
-        
+
         // Pausa de 1.5s para permitir que Puppeteer se desature tras colgar
         await new Promise(res => setTimeout(res, 1500));
-        
+
         await client.sendMessage(destJid, "🤖 *AVISO DE SOPORTE*: Hola, gracias por contactar a Sheerit. Te informamos que nuestro soporte y atención es **exclusivamente por CHAT**.\n\nPor favor, deja tu mensaje aquí y un asesor te atenderá lo antes posible. ¡Gracias por tu comprensión! 😊");
         console.log(`[INCOMING_CALL] ✉️ Aviso de chat enviado a ${destJid}`);
     } catch (e) {
@@ -5696,7 +5842,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
     if (fallbackResult.needsEscalation) {
         const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
         const supportStatus = await isSupportOpen();
-        
+
         // Registrar primero la espera humana para que el usuario sea contado en la cola
         userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 
@@ -6010,7 +6156,7 @@ async function baseProcessIncomingMessage(messages) {
 
     // Filtrar stickers, reacciones y estados del lote
     const validMessages = messages.filter(m => m.type !== 'sticker' && m.type !== 'reaction' && !m.isStatus);
-    
+
     if (validMessages.length === 0) {
         console.log(`[Batch Processor] Ignorando lote porque solo contiene stickers, reacciones o estados para @${userId.replace('@c.us', '')}`);
         return;
@@ -6131,14 +6277,14 @@ async function baseProcessIncomingMessage(messages) {
                 console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
             }
             const existingData = typeof currentStateData === 'object' ? currentStateData : {};
-            userStates.set(userId, { 
-                ...existingData, 
-                state: 'waiting_human', 
-                nombre: foundName, 
-                waitingCount: 0, 
-                lastHumanInteraction: Date.now(), 
+            userStates.set(userId, {
+                ...existingData,
+                state: 'waiting_human',
+                nombre: foundName,
+                waitingCount: 0,
+                lastHumanInteraction: Date.now(),
                 waiting_human_mode: 'advisor',
-                clientWaitingSince: null 
+                clientWaitingSince: null
             });
             return;
         }
@@ -6236,28 +6382,28 @@ async function baseProcessIncomingMessage(messages) {
             const cleanBody = (message.body || "").trim();
             const solvableIntents = ["comprar", "pagar", "credenciales", "catalogo", "renovar"];
             const isMenuSelection = ['1', '2', '3', '4', '5'].includes(cleanBody);
-            
+
             const wantsCodeKeywords = [
                 'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código',
                 'enviar código', 'enviar codigo', 'el código', 'el codigo',
                 'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
             ];
-            
+
             // Check if the message contains code request keywords
             let isCodeRequest = (wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) && !cleanBody.toLowerCase().includes('qr') && !cleanBody.toLowerCase().includes('barras') && !cleanBody.toLowerCase().includes('pago')) || cleanBody === '?';
 
             // Also check if Gemini's media description detects a Netflix/Disney code or home screen
             if (mediaData && detection) {
                 const imgDesc = ((detection.explanation || "") + " " + (detection.mediaDescription || "")).toLowerCase();
-                
-                const isWrongPassword = imgDesc.includes('contraseña incorrecta') || 
-                                        imgDesc.includes('contraseña no es correcta') || 
-                                        imgDesc.includes('clave incorrecta') || 
-                                        imgDesc.includes('incorrect password') || 
-                                        imgDesc.includes('wrong password') || 
-                                        imgDesc.includes('password incorrect') ||
-                                        imgDesc.includes('contraseña no coincide') ||
-                                        imgDesc.includes('clave no coincide');
+
+                const isWrongPassword = imgDesc.includes('contraseña incorrecta') ||
+                    imgDesc.includes('contraseña no es correcta') ||
+                    imgDesc.includes('clave incorrecta') ||
+                    imgDesc.includes('incorrect password') ||
+                    imgDesc.includes('wrong password') ||
+                    imgDesc.includes('password incorrect') ||
+                    imgDesc.includes('contraseña no coincide') ||
+                    imgDesc.includes('clave no coincide');
 
                 const wantsImgCode = [
                     'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor',
@@ -6313,7 +6459,7 @@ async function baseProcessIncomingMessage(messages) {
                     const lastWarning = (currentStateData && currentStateData.lastWarningTime) || 0;
                     if (Date.now() - lastWarning > 15 * 60 * 1000) {
                         await message.reply(`🤖 Hola, lamentamos la demora. Nuestro equipo de soporte ha estado muy ocupado, pero sigues en nuestra lista de espera.\n\n📍 *Tu turno actual es el #${turnNumber}*.\n\nUn asesor se comunicará contigo lo antes posible. ¡Agradecemos mucho tu paciencia! ⏳`);
-                        
+
                         try {
                             const groupChat = await client.getChatById(GROUP_ID);
                             if (groupChat) {
@@ -6323,9 +6469,9 @@ async function baseProcessIncomingMessage(messages) {
                             console.error("Error notificando al grupo sobre inactividad del asesor:", err.message);
                         }
 
-                        userStates.set(userId, { 
-                            ...currentStateData, 
-                            lastWarningTime: Date.now() 
+                        userStates.set(userId, {
+                            ...currentStateData,
+                            lastWarningTime: Date.now()
                         });
                     }
                     return; // Mantener silencio absoluto del bot de cara a resolver intenciones
@@ -6356,9 +6502,9 @@ async function baseProcessIncomingMessage(messages) {
                     } else {
                         await message.reply(`🤖 Sigues en nuestra lista de espera para atención humana. Un asesor te atenderá lo antes posible. ¡Gracias por tu paciencia! 😊`);
                     }
-                    userStates.set(userId, { 
-                        ...currentStateData, 
-                        lastWarningTime: Date.now() 
+                    userStates.set(userId, {
+                        ...currentStateData,
+                        lastWarningTime: Date.now()
                     });
                 }
 
@@ -6876,7 +7022,7 @@ async function baseProcessIncomingMessage(messages) {
                 let isEmailOrAccountTarget = false;
                 let targetUserStr = (adminAI.target_user || '').toLowerCase().trim();
                 let targetAccounts = targetUserStr.replace(/\by\b/g, ',').split(',').map(t => t.trim()).filter(t => t.length > 0);
-                
+
                 const { fetchRawData } = require('./apiService');
                 let rawData = [];
                 try {
@@ -7421,7 +7567,7 @@ async function baseProcessIncomingMessage(messages) {
                             const { getPlatforms } = require('./salesService');
                             const platforms = await getPlatforms();
                             const lowerInferred = check.inferredPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
-                            
+
                             // Encontrar todas las plataformas mencionadas en inferredPlatform
                             const matchedPlats = platforms.filter(p => {
                                 const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -7442,10 +7588,10 @@ async function baseProcessIncomingMessage(messages) {
                                 if (userAccForPlat && plat.plans && plat.plans.length > 0) {
                                     const cleanAccStreaming = userAccForPlat.Streaming.toUpperCase().replace(/[^A-Z0-9]/g, '');
                                     let matchedPlan = plat.plans.find(plan => {
-                                         const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                         return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
-                                     }) || (check.amount ? plat.plans.find(plan => plan.price === check.amount) : null);
-                                     if (matchedPlan) {
+                                        const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                        return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
+                                    }) || (check.amount ? plat.plans.find(plan => plan.price === check.amount) : null);
+                                    if (matchedPlan) {
                                         price = matchedPlan.price;
                                         planName = `${plat.name} - ${matchedPlan.name}`;
                                     }
@@ -7520,19 +7666,19 @@ async function baseProcessIncomingMessage(messages) {
                         }));
                         stateData.isRenewal = true;
                         stateData.isAutoFilled = true;
-                        
+
                         try {
                             const { getPlatforms } = require('./salesService');
                             const platforms = await getPlatforms();
                             let totalComboPrice = 0;
-                            
+
                             userAccounts.forEach(acc => {
                                 const accStreaming = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
                                 const matchedPlat = platforms.find(p => {
                                     const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
                                     return accStreaming.includes(cleanPlat) || cleanPlat.includes(accStreaming);
                                 });
-                                
+
                                 if (matchedPlat) {
                                     let platPrice = matchedPlat.price || 0;
                                     if (matchedPlat.plans && matchedPlat.plans.length > 0) {
@@ -7553,7 +7699,7 @@ async function baseProcessIncomingMessage(messages) {
                                     totalComboPrice += platPrice;
                                 }
                             });
-                            
+
                             if (userAccounts.length > 1) {
                                 totalComboPrice = Math.max(0, totalComboPrice - (1000 * (userAccounts.length - 1)));
                             }
@@ -7579,7 +7725,7 @@ async function baseProcessIncomingMessage(messages) {
 
                         if (isShortPayment) {
                             console.log(`[PAYMENT AUTO-VALIDATE] ❌ Monto del comprobante ($${check.amount}) + anterior ($${stateData.checkAmount || 0}) es menor al total esperado ($${expectedTotal}) para @${userId}. No se auto-validará.`);
-                            
+
                             userStates.set(userId, {
                                 ...stateData,
                                 state: 'awaiting_payment_confirmation',
@@ -7587,15 +7733,15 @@ async function baseProcessIncomingMessage(messages) {
                                 checkAmount: totalPaidSoFar
                             });
                             globalLastPaymentUserId = userId;
-                            
+
                             const diff = expectedTotal - totalPaidSoFar;
                             const replyText = `🤖 ¡Hola! He recibido tu comprobante por valor de *$${check.amount.toLocaleString('es-CO')}*.\n\n` +
                                 `Con esto, has pagado un total acumulado de *$${totalPaidSoFar.toLocaleString('es-CO')}* COP. Sin embargo, el total de tu pedido es de *$${expectedTotal.toLocaleString('es-CO')}* COP. Aún hace falta un pago por el valor restante de *$${diff.toLocaleString('es-CO')}* COP. ⚠️\n\n` +
                                 `Por favor realiza la transferencia del monto restante y envía el nuevo comprobante para poder completar tu pedido y entregar/activar tu servicio. ¡Muchas gracias! 😊`;
-                            
+
                             await message.reply(replyText);
                             await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
-                            
+
                             try {
                                 const groupChat = await client.getChatById(GROUP_ID);
                                 if (groupChat) {
@@ -7626,14 +7772,14 @@ async function baseProcessIncomingMessage(messages) {
                                         const { getPlatforms } = require('./salesService');
                                         const platforms = await getPlatforms();
                                         const matchingPriceItems = [];
-                                        
+
                                         for (const item of stateData.items) {
                                             const itemStreaming = (item.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
                                             const matchedPlat = platforms.find(p => {
                                                 const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
                                                 return itemStreaming.includes(cleanPlat) || cleanPlat.includes(itemStreaming);
                                             });
-                                            
+
                                             let itemPrice = 0;
                                             if (matchedPlat) {
                                                 itemPrice = matchedPlat.price || 0;
@@ -7738,11 +7884,11 @@ async function baseProcessIncomingMessage(messages) {
 
                                 // Ejecutar validación automática directa si todo coincide perfectamente
                                 const validationResult = await executePaymentValidation(
-                                    userId, 
-                                    { ...stateData, total: check.amount, leftoverAmount: leftoverAmount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` }, 
-                                    client, 
-                                    userStates, 
-                                    null, 
+                                    userId,
+                                    { ...stateData, total: check.amount, leftoverAmount: leftoverAmount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` },
+                                    client,
+                                    userStates,
+                                    null,
                                     match.id
                                 );
 
@@ -7754,12 +7900,12 @@ async function baseProcessIncomingMessage(messages) {
                                             let successMsg = `✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
                                                 `Monto: $${check.amount}\n` +
                                                 `Banco: ${check.bank || 'Bre-B'}\n`;
-                                            
+
                                             if (leftoverAmount > 0) {
                                                 const originalPrice = check.amount - leftoverAmount;
                                                 successMsg += `💰 *EXCEDENTE DETECTADO:* Se cobraron $${check.amount} pero el total era $${originalPrice}. Quedó un saldo a favor de *$${leftoverAmount}* COP.\n`;
                                             }
-                                            
+
                                             successMsg += `Asunto: ${match.subject}\n` +
                                                 `ID Gmail: ${match.id}\n\n` +
                                                 `El bot ya entregó el servicio automáticamente.`;
@@ -7819,7 +7965,7 @@ async function baseProcessIncomingMessage(messages) {
                 const isAutoKey = rawKey && AUTO_KEYS.some(vk => rawKey.includes(vk) || vk.includes(rawKey));
 
                 const isAutoMethod = isAutoKey || isQrMatch || (check.bank && ['bancolombia', 'bre-b', 'breb'].includes(check.bank.toLowerCase()));
-                
+
                 let methodUsedName = 'el medio de pago';
                 if (isAutoKey) methodUsedName = 'el pago mediante Llave Bre-V';
                 else if (isQrMatch) methodUsedName = 'el pago mediante QR Negocios';
@@ -7848,11 +7994,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
                             `Banco: ${check.bank || 'No identificado'}\n` +
                             `Monto: ${check.amount || 'No legible'}\n\n`;
-                        
+
                         if (leftoverAmount > 0) {
                             adminMsg += `💰 *EXCEDENTE DETECTADO:* Sobran *$${leftoverAmount.toLocaleString('es-CO')}* COP.\n\n`;
                         }
-                        
+
                         adminMsg += `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
 
                         await groupChat.sendMessage(adminMsg);
@@ -7982,7 +8128,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         ].some(kw => explanationLower.includes(kw));
 
         const wantsImgCode = [
-            'hogar', 'dispositivo', 'código', 'codigo', '2fa', 'authenticator', 'autenticación', 
+            'hogar', 'dispositivo', 'código', 'codigo', '2fa', 'authenticator', 'autenticación',
             'televisor', 'tv', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating'
         ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
 
@@ -8001,7 +8147,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 // 1. Intentar buscar coincidencia por plataforma analizando el texto del usuario o la explicación de la imagen
                 const textForPlatform = (inputToUse + " " + detection.explanation).toLowerCase();
                 const matchedPlatform = platformsSupported.find(p => textForPlatform.includes(p));
-                
+
                 if (matchedPlatform) {
                     targetAccount = userAccounts.find(c => {
                         const streamingName = (c.Streaming || "").toLowerCase();
@@ -8108,9 +8254,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         isForcedMenuBreakout = true;
     }
 
-    const isChangingTopic = detection.intent && 
-                            !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar', 'duda_contexto'].includes(detection.intent) &&
-                            !(isSingleDigit && statesExpectingNumbers.includes(currentState));
+    const isChangingTopic = detection.intent &&
+        !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar', 'duda_contexto'].includes(detection.intent) &&
+        !(isSingleDigit && statesExpectingNumbers.includes(currentState));
     const isVeryFrustrated = detection.frustrationLevel >= 7;
 
     // NUEVO breakout específico para awaiting_churn_reason cuando el usuario no quiere cancelar
@@ -8446,7 +8592,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 if (wasAwaitingDetails || isExplicitHumanRequest) {
                     const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
                     const supportStatus = await isSupportOpen();
-                    
+
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 
                     if (!supportStatus.open) {
@@ -8988,7 +9134,7 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                 } else if (detection.intent === 'soporte') {
                     const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
                     const supportStatus = await isSupportOpen();
-                    
+
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 
                     if (!supportStatus.open) {
@@ -9042,13 +9188,13 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
 
 async function handleRenewalModification(message, userId, textToUse, stateData) {
     if (!stateData.isRenewal || !stateData.items || stateData.items.length === 0) return false;
-    
+
     try {
         const { analyzeRenewalModification } = require('./aiService');
         const modification = await analyzeRenewalModification(textToUse, stateData.items);
         if (modification && modification.shouldModify) {
             console.log(`[Renewal Mod] User requested modification for @${userId}:`, modification);
-            
+
             const originalItems = stateData.items;
             const updatedItems = originalItems.filter(item => {
                 const name = (item.Streaming || (item.platform ? item.platform.name : '') || item.name || '').toLowerCase();
@@ -9082,7 +9228,7 @@ async function handleRenewalModification(message, userId, textToUse, stateData) 
             const platforms = await getPlatformKnowledge();
             const today = getTodayInBogota();
             const duration = stateData.durationMonths || 1;
-            
+
             let total = 0;
             let finalItems = [];
             updatedItems.forEach(item => {
@@ -9127,7 +9273,7 @@ async function handleRenewalModification(message, userId, textToUse, stateData) 
                 const expDate = require('./apiService').getJsDateFromExcel(item.deben || item.vencimiento);
                 if (!expDate) return false;
                 const diffDays = Math.floor((expDate - today) / (1000 * 60 * 60 * 24));
-                return diffDays <= 1; 
+                return diffDays <= 1;
             });
             if (total > 0 && imminentRenewals.length > 1) {
                 const discount = (imminentRenewals.length - 1) * 1000 * duration;
@@ -9143,10 +9289,10 @@ async function handleRenewalModification(message, userId, textToUse, stateData) 
             });
 
             let newMsg = `${modification.reply}\n\n💰 *NUEVO TOTAL A PAGAR: $${total}*\n\n` +
-                         `Puedes transferir por:\n` +
-                         `🔑 *Llave Bre-V:* \`0087387259\` (AUTOMÁTICA ⚡)\n` +
-                         `⭐ *Bancolombia Ahorros:* \`46772753713\` (CC: 1032936324)\n\n` +
-                         `Una vez realizado el pago, envíame la captura del comprobante por aquí. 🤖`;
+                `Puedes transferir por:\n` +
+                `🔑 *Llave Bre-V:* \`0087387259\` (AUTOMÁTICA ⚡)\n` +
+                `⭐ *Bancolombia Ahorros:* \`46772753713\` (CC: 1032936324)\n\n` +
+                `Una vez realizado el pago, envíame la captura del comprobante por aquí. 🤖`;
             await message.reply(newMsg);
             return true;
         }
@@ -9163,16 +9309,16 @@ async function handleAwaitingPaymentMethod(message, userId, isMedia = false, sin
     // Si tenemos plataformas de churn pendientes de razón y el cliente responde con texto (no un comprobante ni método)
     const hasChurnPlatforms = stateData.churnPlatforms && stateData.churnPlatforms.length > 0;
     const isPaymentMethod = ['nequi', 'daviplata', 'bancolombia', 'llave', 'qr', 'efectivo', 'pagar', 'comprobante', 'recibo', 'medio', 'transf', 'banco'].some(k => textToUse.toLowerCase().includes(k));
-    
+
     if (hasChurnPlatforms && !isPaymentMethod && !message.hasMedia && textToUse.trim().length > 3) {
         const { updateExcelData } = require('./apiService');
         const cleanReason = textToUse.trim();
         console.log(`[Churn Auto-Collector] Recibida razón de churn de @${userId}: "${cleanReason}" para filas:`, stateData.churnPlatforms);
         for (const row of stateData.churnPlatforms) {
-            await updateExcelData(row, { observaciones: `cortar - ${cleanReason} (bot)` }).catch(e => {});
+            await updateExcelData(row, { observaciones: `cortar - ${cleanReason} (bot)` }).catch(e => { });
         }
         await message.reply("🤖 Muchas gracias por tu retroalimentación, la tendremos en cuenta para mejorar. 😊 ¿Por cuál de los medios mencionados anteriormente deseas realizar el pago de tu renovación?");
-        
+
         stateData.churnPlatforms = null;
         userStates.set(userId, stateData);
         return;
@@ -9201,7 +9347,7 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
     try {
         const { getPaymentConfig } = require('./paymentConfigService');
         const config = getPaymentConfig();
-        
+
         // Map keys
         const keyMap = {
             'nequi': 'nequi',
@@ -9215,7 +9361,7 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
             const configKey = keyMap[key];
             if (config[configKey] && config[configKey].enabled) {
                 let desc = config[configKey].description || paymentDetails[key];
-                
+
                 if (config[configKey].sub_methods) {
                     const activeSubs = config[configKey].sub_methods.filter(s => s.enabled);
                     if (activeSubs.length > 0) {
