@@ -60,6 +60,15 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     }
                 }
                 chats = await client.getChats();
+                if (chats && Array.isArray(chats)) {
+                    const withErrors = chats.filter(c => c.serializationError);
+                    if (withErrors.length > 0) {
+                        console.warn(`[BATCH] ⚠️ ${withErrors.length} chats fallaron al serializarse por completo (se usará fallback básico):`);
+                        withErrors.forEach(c => {
+                            console.warn(`  - ID: ${c.id?._serialized} | Nombre: ${c.name || 'Sin Nombre'} | Error: ${c.serializationError}`);
+                        });
+                    }
+                }
                 break;
             } catch (evalErr) {
                 attempts++;

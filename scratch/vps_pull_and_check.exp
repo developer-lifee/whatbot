@@ -1,0 +1,38 @@
+#!/usr/bin/expect -f
+set timeout 120
+
+# 1. Pull changes and restart
+spawn ssh -o StrictHostKeyChecking=no root@147.79.75.135 "cd /root/whatbot && git fetch origin && git reset --hard origin/main && npx patch-package && pm2 restart whatbot"
+expect {
+    "password:" {
+        send "Gianmarco0504.\r"
+        exp_continue
+    }
+    "Password:" {
+        send "Gianmarco0504.\r"
+        exp_continue
+    }
+    eof
+}
+catch {close}
+catch {wait}
+
+# 2. Wait and check status & logs to verify the app is running cleanly
+spawn ssh -o StrictHostKeyChecking=no root@147.79.75.135 "sleep 5 && pm2 status whatbot && pm2 logs whatbot --lines 20 --no-daemon"
+expect {
+    "password:" {
+        send "Gianmarco0504.\r"
+        exp_continue
+    }
+    "Password:" {
+        send "Gianmarco0504.\r"
+        exp_continue
+    }
+    timeout {
+        # Timeout is expected since --no-daemon keeps printing logs
+        exit 0
+    }
+    eof
+}
+catch {close}
+catch {wait}

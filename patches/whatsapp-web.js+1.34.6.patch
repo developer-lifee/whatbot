@@ -184,10 +184,18 @@ index f7ed110..454edc2 100644
  
              return msgs.map(m => window.WWebJS.getMessageModel(m));
 diff --git a/node_modules/whatsapp-web.js/src/structures/Chat.js b/node_modules/whatsapp-web.js/src/structures/Chat.js
-index 93d9a0c..0013815 100644
+index 93d9a0c..2aa247b 100644
 --- a/node_modules/whatsapp-web.js/src/structures/Chat.js
 +++ b/node_modules/whatsapp-web.js/src/structures/Chat.js
-@@ -205,16 +205,168 @@ class Chat extends Base {
+@@ -80,6 +80,7 @@ class Chat extends Base {
+          * @type {Message}
+          */
+         this.lastMessage = data.lastMessage ? new Message(this.client, data.lastMessage) : undefined;
++        this.serializationError = data.serializationError;
+         
+         return super._patch(data);
+     }
+@@ -205,16 +206,168 @@ class Chat extends Base {
              let msgs = chat.msgs.getModelsArray().filter(msgFilter);
  
              if (searchOptions && searchOptions.limit > 0) {
@@ -366,3 +374,162 @@ index 93d9a0c..0013815 100644
              }
  
              return msgs.map(m => window.WWebJS.getMessageModel(m));
+diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+index 4fdc45d..3d82c5d 100644
+--- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
++++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
+@@ -620,14 +620,62 @@ exports.LoadUtils = () => {
+ 
+     window.WWebJS.getChats = async () => {
+         const chats = window.Store.Chat.getModelsArray();
+-        const chatPromises = chats.map(chat => window.WWebJS.getChatModel(chat));
+-        return await Promise.all(chatPromises);
++        const chatPromises = chats.map(async chat => {
++            try {
++                return await window.WWebJS.getChatModel(chat);
++            } catch (err) {
++                try {
++                    let fallback = {};
++                    try {
++                        fallback = chat.serialize() || {};
++                    } catch (serErr) {
++                        // ignore serialize error
++                    }
++                    fallback.id = chat.id || fallback.id;
++                    fallback.formattedTitle = chat.name || chat.formattedTitle || fallback.formattedTitle || '';
++                    fallback.isGroup = chat.isGroup || fallback.isGroup || false;
++                    fallback.isReadOnly = chat.isReadOnly || fallback.isReadOnly || false;
++                    fallback.unreadCount = chat.unreadCount || fallback.unreadCount || 0;
++                    fallback.t = chat.t || fallback.t || 0;
++                    fallback.isMuted = chat.mute?.expiration !== 0;
++                    fallback.muteExpiration = chat.mute?.expiration;
++                    fallback.serializationError = err.message || String(err);
++                    return fallback;
++                } catch (e) {
++                    return null;
++                }
++            }
++        });
++        const results = await Promise.all(chatPromises);
++        return results.filter(Boolean);
+     };
+ 
+     window.WWebJS.getChannels = async () => {
+         const channels = window.Store.WAWebNewsletterMetadataCollection.getModelsArray();
+-        const channelPromises = channels?.map((channel) => window.WWebJS.getChatModel(channel, { isChannel: true }));
+-        return await Promise.all(channelPromises);
++        const channelPromises = channels?.map(async (channel) => {
++            try {
++                return await window.WWebJS.getChatModel(channel, { isChannel: true });
++            } catch (err) {
++                try {
++                    let fallback = {};
++                    try {
++                        fallback = channel.serialize() || {};
++                    } catch (serErr) {
++                        // ignore
++                    }
++                    fallback.id = channel.id || fallback.id;
++                    fallback.name = channel.name || fallback.name || '';
++                    fallback.isChannel = true;
++                    fallback.channelMetadata = channel.newsletterMetadata ? (channel.newsletterMetadata.serialize() || {}) : {};
++                    fallback.serializationError = err.message || String(err);
++                    return fallback;
++                } catch (e) {
++                    return null;
++                }
++            }
++        });
++        const results = await Promise.all(channelPromises);
++        return results.filter(Boolean);
+     };
+ 
+     window.WWebJS.getChatModel = async (chat, { isChannel = false } = {}) => {
+@@ -637,36 +685,69 @@ exports.LoadUtils = () => {
+         model.isGroup = false;
+         model.isMuted = chat.mute?.expiration !== 0;
+         if (isChannel) {
+-            model.isChannel = window.Store.ChatGetters.getIsNewsletter(chat);
++            try {
++                model.isChannel = window.Store.ChatGetters.getIsNewsletter(chat);
++            } catch (err) {
++                model.isChannel = true;
++            }
+         } else {
+             model.formattedTitle = chat.formattedTitle;
+         }
+ 
+         if (chat.groupMetadata) {
+             model.isGroup = true;
+-            const chatWid = window.Store.WidFactory.createWid(chat.id._serialized);
+-            const groupMetadata = window.Store.GroupMetadata || window.Store.WAWebGroupMetadataCollection;
+-            await groupMetadata.update(chatWid);
+-            chat.groupMetadata.participants._models
+-                .filter(x => x.id?._serialized?.endsWith('@lid'))
+-                .forEach(x => x.contact?.phoneNumber && (x.id = x.contact.phoneNumber));
+-            model.groupMetadata = chat.groupMetadata.serialize();
+-            model.isReadOnly = chat.groupMetadata.announce;
++            try {
++                const chatWid = window.Store.WidFactory.createWid(chat.id._serialized);
++                const groupMetadata = window.Store.GroupMetadata || window.Store.WAWebGroupMetadataCollection;
++                if (groupMetadata && typeof groupMetadata.update === 'function') {
++                    await groupMetadata.update(chatWid);
++                }
++            } catch (err) {
++                console.error('Error updating group metadata:', chat.id?._serialized, err);
++            }
++
++            try {
++                if (chat.groupMetadata.participants && chat.groupMetadata.participants._models) {
++                    chat.groupMetadata.participants._models
++                        .filter(x => x.id?._serialized?.endsWith('@lid'))
++                        .forEach(x => x.contact?.phoneNumber && (x.id = x.contact.phoneNumber));
++                }
++                model.groupMetadata = chat.groupMetadata.serialize();
++                model.isReadOnly = chat.groupMetadata.announce;
++            } catch (err) {
++                console.error('Error serializing group metadata:', chat.id?._serialized, err);
++            }
+         }
+ 
+         if (chat.newsletterMetadata) {
+-            const newsletterMetadata = window.Store.NewsletterMetadataCollection || window.Store.WAWebNewsletterMetadataCollection;
+-            await newsletterMetadata.update(chat.id);
+-            model.channelMetadata = chat.newsletterMetadata.serialize();
+-            model.channelMetadata.createdAtTs = chat.newsletterMetadata.creationTime;
++            try {
++                const newsletterMetadata = window.Store.NewsletterMetadataCollection || window.Store.WAWebNewsletterMetadataCollection;
++                if (newsletterMetadata && typeof newsletterMetadata.update === 'function') {
++                    await newsletterMetadata.update(chat.id);
++                }
++            } catch (err) {
++                console.error('Error updating newsletter metadata:', chat.id?._serialized, err);
++            }
++
++            try {
++                model.channelMetadata = chat.newsletterMetadata.serialize();
++                model.channelMetadata.createdAtTs = chat.newsletterMetadata.creationTime;
++            } catch (err) {
++                console.error('Error serializing newsletter metadata:', chat.id?._serialized, err);
++                model.channelMetadata = model.channelMetadata || {};
++            }
+         }
+ 
+         model.lastMessage = null;
+-        if (model.msgs && model.msgs.length) {
+-            const lastMessage = chat.lastReceivedKey
+-                ? window.Store.Msg.get(chat.lastReceivedKey._serialized) || (await window.Store.Msg.getMessagesById([chat.lastReceivedKey._serialized]))?.messages?.[0]
+-                : null;
+-            lastMessage && (model.lastMessage = window.WWebJS.getMessageModel(lastMessage));
++        try {
++            if (model.msgs && model.msgs.length) {
++                const lastMessage = chat.lastReceivedKey
++                    ? window.Store.Msg.get(chat.lastReceivedKey._serialized) || (await window.Store.Msg.getMessagesById([chat.lastReceivedKey._serialized]))?.messages?.[0]
++                    : null;
++                lastMessage && (model.lastMessage = window.WWebJS.getMessageModel(lastMessage));
++            }
++        } catch (err) {
++            console.error('Error getting last message:', chat.id?._serialized, err);
+         }
+ 
+         delete model.msgs;
