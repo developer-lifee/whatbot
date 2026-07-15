@@ -5411,12 +5411,15 @@ client.on('ready', () => {
             console.log(`✅ Escaneo inicial completado. Se procesaron/ignoraron ${count} chats pendientes adecuadamente.`);
         } catch (err) {
             console.error('Error en escaneo inicial de chats pendientes:', err);
-            if (isCriticalBrowserError(err)) {
+            const uptimeSeconds = Math.floor(Date.now() / 1000) - BOT_START_TIME;
+            if (isCriticalBrowserError(err) && uptimeSeconds > 120) {
                 console.error('🔥 [ANTI-ZOMBIE] Error crítico detectado en escaneo inicial. Forzando reinicio para PM2...');
                 process.exit(1);
+            } else if (isCriticalBrowserError(err)) {
+                console.warn('⚠️ [ANTI-ZOMBIE] Ignorando error de escaneo durante el período de calentamiento inicial (primeros 2 min). El bot seguirá corriendo.');
             }
         }
-    }, 5000); // Pequeño delay de gracia
+    }, 30000); // 30 segundos de gracia inicial
 });
 
 client.on('disconnected', (reason) => {
