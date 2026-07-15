@@ -1232,7 +1232,7 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
     keywordIntent = "credenciales";
   } else if (txt.includes("vence") || txt.includes("cuanto") || txt.includes("cuánto") || txt.includes("debo") || txt.includes("valor")) {
     keywordIntent = "pagar"; // En este bot pagar/cobros es la opción 3
-  } else if (txt.includes("clave") || txt.includes("correo") || txt.includes("entrar") || txt.includes("funciona") || txt.includes("fallando")) {
+  } else if (txt.includes("clave") || txt.includes("correo") || txt.includes("entrar") || txt.includes("funciona") || txt.includes("fallando") || txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación") || txt.includes("digitos") || txt.includes("dígitos")) {
     keywordIntent = "credenciales";
   } else if (txt.includes("precio") || txt.includes("catalogo") || txt.includes("catálogo") || txt.includes("planes")) {
     keywordIntent = "catalogo";
@@ -1240,6 +1240,9 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
   else if (txt === "2") keywordIntent = "credenciales";
   else if (txt === "3") keywordIntent = "pagar";
   else if (txt === "4" || txt === "5") keywordIntent = "soporte";
+
+  // Prioridad absoluta a palabras clave muy específicas ante la clasificación de la IA
+  const isCodeRequest = txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación");
 
   try {
     const jsonString = await callDeepSeek(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true);
@@ -1256,6 +1259,11 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
     // Si la IA devuelve desconocido pero tenemos un keywordIntent, lo usamos
     if (parsed.intent === "desconocido" && keywordIntent) {
       parsed.intent = keywordIntent;
+    }
+
+    // Prioridad absoluta para códigos de verificación
+    if (isCodeRequest) {
+      parsed.intent = "credenciales";
     }
 
     // Log debug explícito para afinar el prompt:
