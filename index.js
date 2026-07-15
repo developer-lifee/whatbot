@@ -6377,6 +6377,7 @@ async function baseProcessIncomingMessage(messages) {
         let isSolvable = false;
         let mediaData = null;
         if (message.hasMedia) {
+            try {
                 const media = await downloadMediaWithRetry(message);
                 if (media && media.data && media.mimetype) {
                     mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
