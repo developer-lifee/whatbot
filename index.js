@@ -3137,6 +3137,24 @@ app.post('/api/admin/policies/save', (req, res) => {
     }
 });
 
+async function downloadMediaWithRetry(msg, retries = 3, delay = 1500) {
+    if (!msg || !msg.hasMedia) return null;
+    for (let i = 0; i < retries; i++) {
+        try {
+            const media = await msg.downloadMedia();
+            if (media && media.data) {
+                return media;
+            }
+        } catch (err) {
+            console.warn(`[Media Download] Intento ${i + 1}/${retries} fallido: ${err.message}`);
+        }
+        if (i < retries - 1) {
+            await new Promise(res => setTimeout(res, delay));
+        }
+    }
+    return null;
+}
+
 async function resolveJidForPhone(phone) {
     if (phone.includes('@lid')) {
         return phone.trim().toLowerCase();
@@ -6359,8 +6377,7 @@ async function baseProcessIncomingMessage(messages) {
         let isSolvable = false;
         let mediaData = null;
         if (message.hasMedia) {
-            try {
-                const media = await message.downloadMedia();
+                const media = await downloadMediaWithRetry(message);
                 if (media && media.data && media.mimetype) {
                     mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
                 }
@@ -7526,8 +7543,7 @@ async function baseProcessIncomingMessage(messages) {
 
         try {
             for (const m of messages) {
-                if (m.hasMedia) {
-                    const media = await m.downloadMedia();
+                    const media = await downloadMediaWithRetry(m);
                     if (media && media.data && media.mimetype) {
                         const cleanMime = media.mimetype.split(';')[0];
                         mediaData.push({ data: media.data, mimeType: cleanMime });

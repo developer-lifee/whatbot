@@ -1141,7 +1141,8 @@ Contexto previo: {{CHAT_HISTORY}}
 Mensaje actual: "{{MESSAGE_CONTENT}}"
 
 Categorías para "intent":
-- "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene. 
+- "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene.
+  *IMPORTANTE*: Si el usuario solicita, pide o pregunta por una plataforma que YA TIENE contratada (según la INFORMACIÓN DEL CLIENTE), clasifícalo SIEMPRE como "renovar", incluso si usa palabras como "adquirir", "comprar", "quiero", "necesito", etc. Solo usa "comprar" si es para una plataforma que no tiene en su resumen de servicios.
   *IMPORTANTE*: Si el usuario pregunta "¿tienes disponible?", "¿entregas ya?", "¿qué tienes para entrega inmediata?", clasifícalo como "comprar" con frustración 0 y genera un mensaje que invite a la venta con total confianza.
 - "credenciales": El usuario solicita las credenciales (correo/contraseña) de su cuenta actual, reporta explícitamente "la contraseña no corresponde", "clave incorrecta", pide recordar su pin de acceso, o pregunta cuándo se vence / fecha de vencimiento / fecha de pago de su cuenta actual.
 - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado.
