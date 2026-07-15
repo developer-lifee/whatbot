@@ -98,7 +98,9 @@ function isCriticalBrowserError(err) {
         msg.includes('navigation failed') ||
         msg.includes('connection closed') ||
         msg.includes('cannot read properties of undefined') ||
-        msg.includes('getchats');
+        msg.includes('getchats') ||
+        msg.trim() === 'r' ||
+        msg.includes('evaluate');
 }
 const { pool } = require('./database');
 const { initDailyAutomation } = require('./scheduledTasks');
