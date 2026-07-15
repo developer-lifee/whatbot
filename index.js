@@ -3185,8 +3185,9 @@ app.post('/api/admin/chat-messages/send', async (req, res) => {
         await client.sendMessage(targetChatId, finalMessage);
 
         // Silenciar el bot para este usuario (modo advisor) ya que hay interacción manual
-        const currentState = userStates.get(userId) || {};
-        userStates.set(userId, {
+        const currentState = userStates.get(targetChatId) || {};
+        userStates.set(targetChatId, {
+            ...currentState,
             state: 'waiting_human',
             waitingCount: 0,
             lastHumanInteraction: Date.now(),
@@ -3198,7 +3199,7 @@ app.post('/api/admin/chat-messages/send', async (req, res) => {
 
         // Remover de la cola de soporte activo si está en ella
         if (global.supportQueue) {
-            const qIdx = global.supportQueue.indexOf(userId);
+            const qIdx = global.supportQueue.indexOf(targetChatId);
             if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
         }
 
