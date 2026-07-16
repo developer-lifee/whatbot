@@ -5458,7 +5458,7 @@ server.listen(port, () => {
                 // Intentamos obtener info básica del cliente para verificar que el canal IPC con Puppeteer sigue vivo
                 const info = await Promise.race([
                     client.getContactById(client.info.wid._serialized),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 10000))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 30000))
                 ]);
                 if (!info) throw new Error("Browser unresponsive (Deep check failed)");
             }
@@ -5505,6 +5505,12 @@ const client = new Client({
         protocolTimeout: 120000, // Prevenir timeouts en descargas de multimedia
     },
     authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+    // Fijar versión web para evitar desconexiones por actualizaciones de WhatsApp
+    webVersionCache: {
+        type: 'local',
+        path: './.wwebjs_cache',
+        strict: false // Si la versión cacheada falla, descarga una nueva
+    },
     markOnlineAvailable: false,
     takeoverOnConflict: true,
     takeoverTimeoutMs: 15000
@@ -5586,23 +5592,26 @@ client.on('ready', () => {
     }, 30000); // 30 segundos de gracia inicial
 });
 
-client.on('disconnected', (reason) => {
+client.on('disconnected', async (reason) => {
     console.error('❌ El cliente se desconectó. Razón:', reason);
     currentWhatsappStatus = 'DISCONNECTED';
     latestQrCode = null;
     latestPairingCode = null;
     broadcastSseEvent('status', { status: currentWhatsappStatus, reason: reason });
-    // Si usas PM2, esto forzará un reinicio
-    console.log('⚠️ Intentando forzar reinicio del proceso...');
+    // Cierre limpio de Puppeteer antes de reiniciar para evitar corrupción de sesión
+    console.log('⚠️ Cerrando Puppeteer limpiamente antes de reiniciar...');
+    try { await client.destroy(); } catch (e) { console.error('Error al cerrar cliente:', e.message); }
     process.exit(1);
 });
 
-client.on('auth_failure', (msg) => {
+client.on('auth_failure', async (msg) => {
     console.error('❌ FALLO DE AUTENTICACIÓN:', msg);
     currentWhatsappStatus = 'DISCONNECTED';
     latestQrCode = null;
     latestPairingCode = null;
     broadcastSseEvent('status', { status: currentWhatsappStatus, reason: 'auth_failure', message: msg });
+    // Cierre limpio antes de reiniciar
+    try { await client.destroy(); } catch (e) { console.error('Error al cerrar cliente:', e.message); }
     process.exit(1);
 });
 
@@ -5671,14 +5680,8 @@ client.on('authenticated', () => {
     console.log('AUTENTICADO');
 });
 
-client.on('auth_failure', msg => {
-    // Fails if the session is not restored successfully
-    console.error('FALLO DE AUTENTICACION', msg);
-});
-
-client.on('disconnected', (reason) => {
-    console.log('Cliente desconectado', reason);
-});
+// [REMOVIDO] Handlers duplicados de auth_failure y disconnected eliminados
+// para evitar conflictos con los handlers principales (líneas ~5589-5607)
 
 // DETECTAR INTERVENCIÓN HUMANA
 
