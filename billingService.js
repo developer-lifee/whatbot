@@ -438,17 +438,19 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             return;
         }
 
-        // Lógica de descuento por combo: solo aplica si se renuevan varios servicios que vencen pronto (imminent)
-        // Multiplicamos el descuento base de 1000 por la cantidad de meses para que sea proporcional
-        const imminentRenewals = itemsForRenewal.filter(item => {
-            const expDate = getJsDateFromExcel(item.deben || item.vencimiento);
-            if (!expDate) return false;
-            // Consideramos inminente si vence hoy, mañana o ya venció
-            const diffDays = Math.floor((expDate - today) / (1000 * 60 * 60 * 24));
-            return diffDays <= 1; 
-        });
+        // Lógica de descuento por combo: solo aplica si las plataformas a renovar tienen la misma fecha de vencimiento (fecha idéntica)
+        const vencimientoStrings = itemsForRenewal.map(item => {
+            const rawDate = item.deben || item.vencimiento;
+            if (!rawDate) return null;
+            const jsDate = getJsDateFromExcel(rawDate);
+            if (!jsDate || isNaN(jsDate.getTime())) return null;
+            return jsDate.toISOString().split('T')[0];
+        }).filter(Boolean);
 
-        if (total > 0 && itemsForRenewal.length > 1) {
+        const uniqueDates = [...new Set(vencimientoStrings)];
+        const allDatesIdentical = uniqueDates.length === 1 && vencimientoStrings.length === itemsForRenewal.length;
+
+        if (total > 0 && itemsForRenewal.length > 1 && allDatesIdentical) {
             const discount = (itemsForRenewal.length - 1) * 1000 * durationMonths;
             total -= discount;
             response += `✨ *Descuento por combo:* -$${discount.toLocaleString('es-CO')}\n`;
