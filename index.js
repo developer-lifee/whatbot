@@ -6529,6 +6529,18 @@ async function baseProcessIncomingMessage(messages) {
                     });
                 }
 
+                // BYPASS INTELIGENTE: Si el usuario pide un código de verificación/2FA, lo asistimos automáticamente
+                // incluso si está en espera humana (waiting_human), para que no dependa de un asesor para un simple código.
+                const txt = (message.body || "").toLowerCase();
+                const isCodeRequest = txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación") || txt.includes("2fa") || (detection && detection.intent === 'credenciales');
+
+                if (isCodeRequest) {
+                    console.log(`[Bypass Waiting Human] 🔑 El usuario @${userId.replace('@c.us', '')} pidió un código. Procesando de forma automática.`);
+                    const { processCheckCredentials } = require('./billingService');
+                    await processCheckCredentials(userId, client, message.body, "", userStates);
+                    return;
+                }
+
                 // Silencio absoluto para consultas no resolubles en modo advisor / bot
                 console.log(`[DEBUG] Usuario @${userId.replace('@c.us', '')} está en waiting_human (modo ${mode}). Manteniendo silencio absoluto.`);
                 return;

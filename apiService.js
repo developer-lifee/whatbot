@@ -149,7 +149,7 @@ async function getAccountsByPhone(phoneNumber, contactName = null) {
     const cleanInputPhone = phoneNumber.toString().replace(/\D/g, '');
     const clientes = await fetchCustomersData();
     let userAccounts = clientes.filter(c => {
-      const rowNumber = c.numero || c.Numero;
+      const rowNumber = c.numero || c.Numero || c.whatsapp || c.WhatsApp || c.celular || c.Celular;
       if (!rowNumber) return false;
       const normalizedJsonNumber = rowNumber.toString().replace(/\D/g, '');
       return normalizedJsonNumber === cleanInputPhone || (normalizedJsonNumber.length >= 10 && cleanInputPhone.endsWith(normalizedJsonNumber.slice(-10)));
