@@ -119,9 +119,9 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     // Si no hay no leídos (pero estaba en waiting_human), procesar al menos el último
                     const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
 
-                    // Procesar solo mensajes que NO sean del bot y que no sean extremadamente antiguos (máximo 2 horas de antigüedad)
-                    const twoHoursAgo = Math.floor(Date.now() / 1000) - (2 * 60 * 60);
-                    const filteredMessages = toProcess.filter(m => !m.fromMe && m.timestamp > twoHoursAgo);
+                    // Procesar solo mensajes que NO sean del bot y que no sean antiguos (máximo 30 minutos de antigüedad para evitar spam)
+                    const maxAge = Math.floor(Date.now() / 1000) - (30 * 60);
+                    const filteredMessages = toProcess.filter(m => !m.fromMe && m.timestamp > maxAge);
 
                     if (filteredMessages.length > 0) {
                         await processIncomingMessage(filteredMessages);
@@ -135,7 +135,9 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     console.error(`Error procesando chat ${chatId} en batch:`, err.message);
                 }
             }
-            await new Promise(r => setTimeout(r, 2000)); // Delay sutil
+            // Delay dinámico aleatorio de comportamiento humano (entre 4 a 8 segundos) para proteger la cuenta contra baneos
+            const humanDelay = Math.floor(Math.random() * 4000) + 4000;
+            await new Promise(r => setTimeout(r, humanDelay));
         }
     } catch (err) {
         if (isCriticalBrowserError(err)) {
