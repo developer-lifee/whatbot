@@ -448,10 +448,10 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             return diffDays <= 1; 
         });
 
-        if (total > 0 && imminentRenewals.length > 1) {
-            const discount = (imminentRenewals.length - 1) * 1000 * durationMonths;
+        if (total > 0 && itemsForRenewal.length > 1) {
+            const discount = (itemsForRenewal.length - 1) * 1000 * durationMonths;
             total -= discount;
-            response += `✨ *Descuento por combo:* -$${discount}\n`;
+            response += `✨ *Descuento por combo:* -$${discount.toLocaleString('es-CO')}\n`;
         }
 
         // Detección automática de Churn (si renueva una plataforma pero deja vencer otras)
