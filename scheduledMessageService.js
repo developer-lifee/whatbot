@@ -99,33 +99,53 @@ function parseScheduledTime(timeStr) {
 /**
  * Inicializa y programa todos los mensajes pendientes al arrancar el servidor.
  */
-function initScheduledMessages(client) {
+async function initScheduledMessages(client) {
     console.log('⏰ [SCHEDULED MSGS] Inicializando gestor de mensajes programados...');
     const messages = loadScheduledMessages();
     const now = new Date();
     let scheduledCount = 0;
     let missedCount = 0;
 
+    const pendingMissed = [];
+    const pendingActive = [];
+
     messages.forEach(msg => {
         if (msg.sent) return;
-
         const targetDate = new Date(msg.scheduledTime);
-
         if (targetDate <= now) {
-            // Si el mensaje debió enviarse mientras el bot estaba apagado
-            // Solo lo enviamos si la diferencia es menor a 2 horas (para evitar spam retrasado)
+            pendingMissed.push(msg);
+        } else {
+            pendingActive.push(msg);
+        }
+    });
+
+    // 1. Process active future messages
+    pendingActive.forEach(msg => {
+        scheduleJob(client, msg);
+        scheduledCount++;
+    });
+
+    // 2. Process missed messages sequentially with safe delays
+    if (pendingMissed.length > 0) {
+        console.log(`[SCHEDULED MSGS] Detectados ${pendingMissed.length} mensajes retrasados. Procesando secuencialmente con retraso de seguridad...`);
+        for (const msg of pendingMissed) {
+            const targetDate = new Date(msg.scheduledTime);
             const diffMs = now - targetDate;
             const diffHours = diffMs / (1000 * 60 * 60);
 
             if (diffHours < 2) {
-                console.log(`[SCHEDULED MSGS] Enviando mensaje pendiente retrasado a ${msg.chatId}...`);
-                client.sendMessage(msg.chatId, msg.message)
-                    .then(() => {
-                        msg.sent = true;
-                        msg.sentAt = new Date().toISOString();
-                        saveScheduledMessages(messages);
-                    })
-                    .catch(err => console.error(`Error enviando mensaje retrasado a ${msg.chatId}:`, err.message));
+                console.log(`[SCHEDULED MSGS] Enviando mensaje pendiente retrasado a ${msg.chatId} con retraso de seguridad...`);
+                try {
+                    await client.sendMessage(msg.chatId, msg.message);
+                    msg.sent = true;
+                    msg.sentAt = new Date().toISOString();
+                    saveScheduledMessages(messages);
+                } catch (err) {
+                    console.error(`Error enviando mensaje retrasado a ${msg.chatId}:`, err.message);
+                }
+                // Random safe delay between 5 to 10 seconds
+                const delay = Math.floor(Math.random() * 5000) + 5000;
+                await new Promise(resolve => setTimeout(resolve, delay));
             } else {
                 console.log(`[SCHEDULED MSGS] Mensaje expirado (más de 2 hs de retraso) para ${msg.chatId}. Marcado como expirado.`);
                 msg.sent = true;
@@ -133,12 +153,8 @@ function initScheduledMessages(client) {
                 saveScheduledMessages(messages);
                 missedCount++;
             }
-        } else {
-            // Programar tarea activa
-            scheduleJob(client, msg);
-            scheduledCount++;
         }
-    });
+    }
 
     console.log(`✅ [SCHEDULED MSGS] Carga completa. Mensajes programados activos: ${scheduledCount}. Expirados omitidos: ${missedCount}`);
 }

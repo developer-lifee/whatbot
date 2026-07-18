@@ -36,7 +36,7 @@ function formatVencimientoDate(vencimiento) {
  * Función central para procesar chats con mensajes sin leer.
  * Puede ser llamada por un comando o por un proceso automático.
  */
-async function processPendingChats(client, userStates, processIncomingMessage) {
+async function processPendingChats(client, userStates, processIncomingMessage, isStartup = false) {
     let count = 0;
     try {
         if (!client || !client.info) {
@@ -119,8 +119,10 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     // Si no hay no leídos (pero estaba en waiting_human), procesar al menos el último
                     const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
 
-                    // Procesar solo mensajes que NO sean del bot y que no sean antiguos (máximo 30 minutos de antigüedad para evitar spam)
-                    const maxAge = Math.floor(Date.now() / 1000) - (30 * 60);
+                    // Procesar solo mensajes que NO sean del bot y que no sean antiguos
+                    // En arranque (isStartup=true) limitamos a 10 min de antigüedad para evitar procesar flujos masivos viejos
+                    const limitMin = isStartup ? 10 : 30;
+                    const maxAge = Math.floor(Date.now() / 1000) - (limitMin * 60);
                     const filteredMessages = toProcess.filter(m => !m.fromMe && m.timestamp > maxAge);
 
                     if (filteredMessages.length > 0) {
@@ -135,8 +137,11 @@ async function processPendingChats(client, userStates, processIncomingMessage) {
                     console.error(`Error procesando chat ${chatId} en batch:`, err.message);
                 }
             }
-            // Delay dinámico aleatorio de comportamiento humano (entre 4 a 8 segundos) para proteger la cuenta contra baneos
-            const humanDelay = Math.floor(Math.random() * 4000) + 4000;
+            // Delay dinámico aleatorio. Si es arranque inicial, usamos un delay mayor (12-22 segundos)
+            const minDelay = isStartup ? 12000 : 4000;
+            const extraRange = isStartup ? 10000 : 4000;
+            const humanDelay = Math.floor(Math.random() * extraRange) + minDelay;
+            console.log(`[BATCH] Esperando delay de seguridad anti-spam de ${(humanDelay/1000).toFixed(1)} segundos...`);
             await new Promise(r => setTimeout(r, humanDelay));
         }
     } catch (err) {

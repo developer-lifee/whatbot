@@ -5690,7 +5690,7 @@ client.on('ready', () => {
         console.log('⏳ Escaneando chats con mensajes no leídos desde el arranque inicial...');
         try {
             const { processPendingChats } = require('./adminService');
-            const count = await processPendingChats(client, userStates, processIncomingMessage);
+            const count = await processPendingChats(client, userStates, processIncomingMessage, true);
             console.log(`✅ Escaneo inicial completado. Se procesaron/ignoraron ${count} chats pendientes adecuadamente.`);
         } catch (err) {
             console.error('Error en escaneo inicial de chats pendientes:', err);
