@@ -367,3 +367,27 @@ El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`con
 ### 4. 📊 Agrupación del Historial de Cortes de Excel
 - **Corte por Mes Legible**: Se optimizó la función `procesarHistoricoArray` para agrupar los bloques del Excel Histórico por su nombre de mes general (ej: `"Julio de 2026"`, `"Junio de 2026"`), evitando que se muestren fechas arbitrarias o de celdas vacías (`"hoy"`) como títulos de corte.
 - **Mapeo Seguro**: Mantiene el mapeo de la fecha de renovación del servicio desde la columna `"deben"` y su vencimiento real.
+
+---
+
+## 🛡️ Medidas de Estabilidad y Anti-Detección (WhatsApp Web / Puppeteer)
+
+Para evitar bloqueos por parte de los sistemas automatizados de WhatsApp y asegurar que el bot no entre en bucle infinito de reinicios, el constructor de `Client` en [index.js](file:///Users/estebanavila/desarrollo/whatbot/index.js) debe configurarse estrictamente bajo las siguientes pautas de seguridad:
+
+### 1. Camuflaje Anti-Detección (Anti-Bot)
+* **User-Agent de Escritorio Real:** Siempre se debe pasar una cabecera de navegador real en el constructor para evitar el User-Agent headless por defecto de Chromium:
+  `userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'`
+* **Bandera de Evasión de webdriver:** Se debe inyectar la bandera `--disable-blink-features=AutomationControlled` dentro de la sección `args` de `puppeteer`. Esto deshabilita la propiedad `navigator.webdriver` en la página, haciendo que el navegador de Puppeteer sea indistinguible de un Chrome humano ante los scripts de telemetría de WhatsApp Web.
+
+### 2. Control de Versiones Web de WhatsApp (webVersionCache)
+* **Uso de Versión Remota Validada:** No utilizar versiones locales o Alfa no probadas que puedan causar el rechazo de WebSocket de WhatsApp Web. Utilizar una versión compatible y pre-validada desde la caché remota:
+  ```javascript
+  webVersionCache: {
+      type: 'remote',
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2413.51-pre.html',
+      strict: false
+  }
+  ```
+
+### 3. Protección contra Bucles de Reinicio Rápido
+* **Desconexiones en Frío:** En el handler `disconnected`, el bot detecta el estado actual a través de `currentWhatsappStatus`. Si el bot se desconecta antes de estar logueado (`CONNECTED`), el bot esperará **15 segundos** antes de ejecutar `process.exit(1)`. Esto previene bucles de reinicio rápidos y protege la dirección IP del servidor contra el rate-limiting de WhatsApp.
