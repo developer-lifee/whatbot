@@ -9941,10 +9941,24 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
 });
 
-client.initialize().catch(err => {
-    console.error('❌ Error al inicializar cliente:', err);
-    process.exit(1);
-});
+// Inicializar cliente con reintentos para evitar caídas por recargas de la página de WhatsApp Web
+async function startClientWithRetries(retriesLeft = 4) {
+    try {
+        console.log(`🤖 Inicializando cliente de WhatsApp Web (Intentos restantes: ${retriesLeft})...`);
+        await client.initialize();
+    } catch (err) {
+        console.error('❌ Error al inicializar cliente:', err.message);
+        if (retriesLeft > 0 && (err.message.includes('destroyed') || err.message.includes('detached') || err.message.includes('Protocol error') || err.message.includes('context'))) {
+            console.log('⏳ Detectada recarga de página o destrucción de contexto. Reintentando inicialización en 6 segundos...');
+            await new Promise(resolve => setTimeout(resolve, 6000));
+            return startClientWithRetries(retriesLeft - 1);
+        }
+        console.error('🔥 Se agotaron los intentos de inicialización. Forzando salida para PM2...');
+        process.exit(1);
+    }
+}
+
+startClientWithRetries();
 
 // Escáner Atiende Pendientes (cada 5 minutos)
 setInterval(async () => {
