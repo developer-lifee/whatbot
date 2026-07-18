@@ -405,11 +405,18 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   throw new Error("No se pudo obtener respuesta de Gemini tras intentar con todos los modelos y claves disponibles.");
 }
 
-/**
- * Realiza una llamada a la API de DeepSeek para razonamiento y respuestas de texto.
- * Compatible con el formato de la API de OpenAI Chat Completions.
- */
+let isDeepSeekDisabled = false;
+let deepSeekDisableUntil = 0;
+
 async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true) {
+  const now = Date.now();
+  if (isDeepSeekDisabled && now < deepSeekDisableUntil) {
+    // Redirigir de inmediato a Gemini para evitar latencia de API caída
+    return await callGemini(prompt, systemInstruction, isJson);
+  } else if (isDeepSeekDisabled) {
+    isDeepSeekDisabled = false;
+  }
+
   if (!DEEPSEEK_API_KEY) {
     console.error("DEEPSEEK_API_KEY is missing in .env");
     throw new Error("DEEPSEEK_API_KEY not configured");
@@ -457,6 +464,14 @@ async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de so
     return text;
   } catch (error) {
     console.error("Error in callDeepSeek:", error.message);
+    
+    // Si es error de saldo o similar, silenciamos la API por 30 mins
+    if (error.message.includes("402") || error.message.includes("Insufficient Balance") || error.message.includes("Payment Required")) {
+      console.warn("🚫 [DeepSeek Bypass] Detectado error de saldo insuficiente (402). Desactivando DeepSeek por 30 minutos...");
+      isDeepSeekDisabled = true;
+      deepSeekDisableUntil = Date.now() + 30 * 60 * 1000;
+    }
+
     console.warn("⚠️ DeepSeek failed. Falling back to Gemini as backup...");
     try {
       return await callGemini(prompt, systemInstruction, isJson);

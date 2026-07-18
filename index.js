@@ -1380,6 +1380,10 @@ const AI_CLASSIFICATION_INTERVAL = 45 * 1000; // run classification every 45 sec
 
 async function updateAiTicketsClassification() {
     try {
+        if (!client || currentWhatsappStatus !== 'CONNECTED') {
+            // Omitir clasificacion por IA si el bot no esta activo en WhatsApp
+            return;
+        }
         const now = Date.now();
         if (now - lastAiClassificationTime < AI_CLASSIFICATION_INTERVAL) return;
         lastAiClassificationTime = now;
