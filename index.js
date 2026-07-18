@@ -5627,6 +5627,11 @@ const client = new Client({
     },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36', // User-Agent real
     authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
+    webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1017.0-alpha.html',
+        strict: false
+    },
     markOnlineAvailable: false,
     takeoverOnConflict: true,
     takeoverTimeoutMs: 15000
