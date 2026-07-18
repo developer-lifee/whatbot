@@ -5563,6 +5563,10 @@ server.listen(port, () => {
     setInterval(async () => {
         try {
             if (!client) return;
+            if (currentWhatsappStatus !== 'CONNECTED') {
+                console.log(`💓 Heartbeat: Esperando conexión. Estado actual: ${currentWhatsappStatus}`);
+                return;
+            }
             const state = await client.getState();
             console.log(`💓 Heartbeat: Proceso vivo. Estado del cliente: ${state}`);
 
@@ -5619,11 +5623,6 @@ const client = new Client({
     },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36', // User-Agent real
     authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
-    webVersionCache: {
-        type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2413.51-pre.html', // Versión estable pre-validada
-        strict: false
-    },
     markOnlineAvailable: false,
     takeoverOnConflict: true,
     takeoverTimeoutMs: 15000
