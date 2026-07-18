@@ -103,6 +103,39 @@ function isCriticalBrowserError(err) {
         msg.includes('evaluate');
 }
 const { pool } = require('./database');
+
+async function initTrackingTables() {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS page_visits (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                page_path VARCHAR(255) NOT NULL,
+                referrer VARCHAR(512) NULL,
+                user_agent TEXT NULL,
+                device_type VARCHAR(50) NULL,
+                ip_address VARCHAR(45) NULL,
+                visited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS page_clicks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                page_path VARCHAR(255) NOT NULL,
+                x_pct DECIMAL(5, 2) NOT NULL,
+                y_pct DECIMAL(5, 2) NOT NULL,
+                element_selector VARCHAR(255) NULL,
+                screen_width INT NULL,
+                screen_height INT NULL,
+                clicked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+        console.log("✅ Tracking tables initialized successfully");
+    } catch (err) {
+        console.error("❌ Failed to initialize tracking tables:", err.message);
+    }
+}
+initTrackingTables();
+
 const { initDailyAutomation } = require('./scheduledTasks');
 const { detectPaymentMethod, generateCredentialsResponse, generateEmpatheticFallback, detectInitialIntent, isPaymentReceipt } = require('./aiService');
 const { getAccountsByPhone } = require('./apiService');
@@ -2298,6 +2331,86 @@ app.get('/api/public/platforms', async (req, res) => {
 
         res.json(platforms);
     } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- TRACKING & HEATMAP ENDPOINTS ---
+
+app.post('/api/public/track-visit', async (req, res) => {
+    try {
+        const { pagePath, referrer, userAgent, deviceType } = req.body;
+        let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
+        if (clientIp.includes('::ffff:')) {
+            clientIp = clientIp.replace('::ffff:', '');
+        }
+
+        await pool.query(
+            'INSERT INTO page_visits (page_path, referrer, user_agent, device_type, ip_address) VALUES (?, ?, ?, ?, ?)',
+            [pagePath || '/', referrer || null, userAgent || null, deviceType || 'unknown', clientIp]
+        );
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Error tracking page visit:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/public/track-click', async (req, res) => {
+    try {
+        const { pagePath, xPct, yPct, elementSelector, screenWidth, screenHeight } = req.body;
+        await pool.query(
+            'INSERT INTO page_clicks (page_path, x_pct, y_pct, element_selector, screen_width, screen_height) VALUES (?, ?, ?, ?, ?, ?)',
+            [pagePath || '/', xPct, yPct, elementSelector || null, screenWidth || null, screenHeight || null]
+        );
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Error tracking page click:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/visit-stats', async (req, res) => {
+    try {
+        const [totalVisitsRows] = await pool.query('SELECT COUNT(*) as count FROM page_visits');
+        const [uniqueVisitsRows] = await pool.query('SELECT COUNT(DISTINCT ip_address) as count FROM page_visits');
+        const [totalClicksRows] = await pool.query('SELECT COUNT(*) as count FROM page_clicks');
+        
+        const [deviceBreakdown] = await pool.query('SELECT device_type as name, COUNT(*) as value FROM page_visits GROUP BY device_type');
+        const [topPages] = await pool.query('SELECT page_path as page, COUNT(*) as visits FROM page_visits GROUP BY page_path ORDER BY visits DESC LIMIT 10');
+        const [clicksByPage] = await pool.query('SELECT page_path as page, COUNT(*) as clicks FROM page_clicks GROUP BY page_path');
+        const [visitsHistory] = await pool.query('SELECT DATE_FORMAT(visited_at, "%Y-%m-%d") as date, COUNT(*) as count FROM page_visits GROUP BY DATE(visited_at) ORDER BY date DESC LIMIT 15');
+        const [topReferrers] = await pool.query('SELECT referrer as name, COUNT(*) as value FROM page_visits WHERE referrer IS NOT NULL AND referrer != "" GROUP BY referrer ORDER BY value DESC LIMIT 8');
+
+        res.json({
+            summary: {
+                totalVisits: totalVisitsRows[0]?.count || 0,
+                uniqueVisits: uniqueVisitsRows[0]?.count || 0,
+                totalClicks: totalClicksRows[0]?.count || 0
+            },
+            deviceBreakdown,
+            topPages,
+            clicksByPage,
+            visitsHistory: visitsHistory.reverse(), // chronologically ordered
+            topReferrers
+        });
+    } catch (e) {
+        console.error('Error fetching admin visit stats:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/click-heatmap', async (req, res) => {
+    try {
+        const { page } = req.query;
+        const pagePath = page || '/';
+        const [clicks] = await pool.query(
+            'SELECT x_pct, y_pct, element_selector, screen_width, screen_height, clicked_at FROM page_clicks WHERE page_path = ? ORDER BY clicked_at DESC LIMIT 2000',
+            [pagePath]
+        );
+        res.json({ clicks });
+    } catch (e) {
+        console.error('Error fetching admin click heatmap:', e.message);
         res.status(500).json({ error: e.message });
     }
 });
