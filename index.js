@@ -5601,7 +5601,6 @@ const isMac = process.platform === 'darwin';
 
 const client = new Client({
     puppeteer: {
-        // executablePath: isMac ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined,
         headless: true,
         args: [
             '--no-sandbox',
@@ -5612,15 +5611,17 @@ const client = new Client({
             '--no-zygote',
             '--disable-gpu',
             '--disable-extensions',
-            '--disable-software-rasterizer'
+            '--disable-software-rasterizer',
+            '--disable-blink-features=AutomationControlled' // Oculta navigator.webdriver
         ],
-        timeout: 60000, // Aumentar a 60 segundos
-        protocolTimeout: 120000, // Prevenir timeouts en descargas de multimedia
+        timeout: 60000,
+        protocolTimeout: 120000,
     },
+    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36', // User-Agent real
     authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
     webVersionCache: {
         type: 'remote',
-        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1018260655-alpha.html',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2413.51-pre.html', // Versión estable pre-validada
         strict: false
     },
     markOnlineAvailable: false,
@@ -5706,14 +5707,24 @@ client.on('ready', () => {
 
 client.on('disconnected', async (reason) => {
     console.error('❌ El cliente se desconectó. Razón:', reason);
+    const wasConnected = currentWhatsappStatus === 'CONNECTED';
     currentWhatsappStatus = 'DISCONNECTED';
     latestQrCode = null;
     latestPairingCode = null;
     broadcastSseEvent('status', { status: currentWhatsappStatus, reason: reason });
     // Cierre limpio de Puppeteer antes de reiniciar para evitar corrupción de sesión
-    console.log('⚠️ Cerrando Puppeteer limpiamente antes de reiniciar...');
+    console.log('⚠️ Cerrando Puppeteer limpiamente...');
     try { await client.destroy(); } catch (e) { console.error('Error al cerrar cliente:', e.message); }
-    process.exit(1);
+    
+    if (wasConnected) {
+        console.log('🔄 El bot estaba conectado previamente. Forzando reinicio inmediato para PM2...');
+        process.exit(1);
+    } else {
+        console.log('⏳ El bot se desconectó durante la fase de inicio. Esperando 15 segundos antes de reiniciar para evitar bucles rápidos de PM2...');
+        setTimeout(() => {
+            process.exit(1);
+        }, 15000);
+    }
 });
 
 client.on('auth_failure', async (msg) => {
