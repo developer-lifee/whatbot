@@ -6446,6 +6446,13 @@ async function baseProcessIncomingMessage(messages) {
         }
     }
 
+    // Ignorar mensajes vacíos (sin texto ni archivos multimedia) para evitar clasificar intenciones inexistentes y responder spam
+    const hasText = message.body && message.body.trim() !== "";
+    if (!hasText && !message.hasMedia) {
+        console.log(`[Ignorado] Mensaje vacío (sin texto ni multimedia) de ${userId}.`);
+        return;
+    }
+
     console.log(`[DEBUG] Procesando mensaje de: ${userId} Contenido: ${message.body || "[Sin texto]"}`);
 
     // Ignorar stickers, reacciones, y estados
@@ -8808,15 +8815,20 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
             const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
 
-            // Si la respuesta es genérica o es un saludo, ahí sí mandamos el menú
-            const currentData = userStates.get(userId) || {};
-            if (foundName) {
-                userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
-                await safeReply(message, `🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*'}! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`, userId);
+            if (fallback && fallback.trim() !== "") {
+                console.log(`[Fallback Conversacional] Enviando respuesta empática de Gemini a @${userId}`);
+                await safeReply(message, fallback, userId);
             } else {
-                const welcomeMsg = "🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nPara poder ayudarte mejor, ¿cómo te llamas? O si lo prefieres, escoge una opción del menú:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)";
-                await safeReply(message, welcomeMsg, userId);
-                userStates.set(userId, { ...currentData, state: 'main_menu' });
+                console.log(`[Fallback Menú] Enviando menú de bienvenida estándar a @${userId}`);
+                const currentData = userStates.get(userId) || {};
+                if (foundName) {
+                    userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
+                    await safeReply(message, `🤖 ¡Hola de nuevo${!nameIsComplete ? '' : ', *' + foundName + '*'}! Qué gusto saludarte.\n\nEscoge una opción:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)`, userId);
+                } else {
+                    const welcomeMsg = "🤖 ¡Hola! Soy el asistente virtual de *Sheerit*.\n\nPara poder ayudarte mejor, ¿cómo te llamas? O si lo prefieres, escoge una opción del menú:\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)";
+                    await safeReply(message, welcomeMsg, userId);
+                    userStates.set(userId, { ...currentData, state: 'main_menu' });
+                }
             }
             break;
         case 'awaiting_payment_renewal_confirmation':
