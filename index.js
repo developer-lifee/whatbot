@@ -1664,7 +1664,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             if (isInvalidName(resolvedName)) {
                 try {
                     const { searchContactByPhone } = require('./googleContactsService');
-                    const contactName = await searchContactByPhone(displayPhone);
+                    const contactName = await searchContactByPhone(displayPhone).catch(() => null);
                     if (contactName && !isInvalidName(contactName)) {
                         resolvedName = contactName;
                     }
@@ -1916,7 +1916,7 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
             if (defaultName && defaultName !== 'Cliente WhatsApp') return defaultName;
             try {
                 const { searchContactByPhone } = require('./googleContactsService');
-                const matchedContactName = await searchContactByPhone(tgtPhone);
+                const matchedContactName = await searchContactByPhone(tgtPhone).catch(() => null);
                 if (matchedContactName) return matchedContactName;
 
                 const { getAccountsByPhone } = require('./apiService');
@@ -2047,7 +2047,7 @@ app.post('/api/admin/tickets/create', express.json(), async (req, res) => {
             if (!resolvedName) {
                 try {
                     const { searchContactByPhone } = require('./googleContactsService');
-                    resolvedName = await searchContactByPhone(cleanPhone);
+                    resolvedName = await searchContactByPhone(cleanPhone).catch(() => null);
                 } catch (e) { }
             }
         }
@@ -5618,11 +5618,10 @@ const client = new Client({
         protocolTimeout: 120000, // Prevenir timeouts en descargas de multimedia
     },
     authStrategy: new LocalAuth({ dataPath: './.wwebjs_auth' }),
-    // Fijar versión web para evitar desconexiones por actualizaciones de WhatsApp
     webVersionCache: {
-        type: 'local',
-        path: './.wwebjs_cache',
-        strict: false // Si la versión cacheada falla, descarga una nueva
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1018260655-alpha.html',
+        strict: false
     },
     markOnlineAvailable: false,
     takeoverOnConflict: true,
@@ -6361,8 +6360,12 @@ async function baseProcessIncomingMessage(messages) {
 
     let foundName = contact ? (contact.name || contact.pushname) : null;
     if (!foundName) {
-        const { searchContactByPhone } = require('./googleContactsService');
-        foundName = await searchContactByPhone(userId);
+        try {
+            const { searchContactByPhone } = require('./googleContactsService');
+            foundName = await searchContactByPhone(userId).catch(() => null);
+        } catch (err) {
+            console.warn('[Google Contacts Bypass] Error al buscar contacto:', err.message);
+        }
 
         // Si aún no hay nombre, buscar en la base de datos de Excel por el número
         if (!foundName) {
@@ -6453,9 +6456,12 @@ async function baseProcessIncomingMessage(messages) {
 
     // Sincronizar con Google Contacts si tenemos un nombre válido y es un chat individual
     if (!message.fromMe && foundName && !realPhone.includes(ADMIN_RAW_PHONE) && !userId.includes('@g.us')) {
-        const { addNewContact } = require('./googleContactsService');
-        // addNewContact ya tiene validación interna y caché local para evitar duplicados
-        await addNewContact(foundName, realPhone);
+        try {
+            const { addNewContact } = require('./googleContactsService');
+            await addNewContact(foundName, realPhone).catch(() => null);
+        } catch (e) {
+            console.warn('[Google Contacts Bypass] Error agregando contacto, omitiendo:', e.message);
+        }
 
         try {
             const { pool } = require('./database');
@@ -9105,7 +9111,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             try {
                 const { addNewContact } = require('./googleContactsService');
                 // addNewContact ya tiene validación interna y caché local
-                await addNewContact(name, userId.replace('@c.us', ''));
+                await addNewContact(name, userId.replace('@c.us', '')).catch(() => null);
             } catch (e) { }
             userStates.set(userId, { state: 'main_menu', nombre: name });
             await message.reply("🤖 ¡Un placer conocerte, *" + name + "*! Ya quedaste agendado. Ahora sí, ¿en qué te puedo ayudar hoy?\n\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
