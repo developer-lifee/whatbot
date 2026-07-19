@@ -9183,6 +9183,39 @@ async function safeReply(message, content, userId) {
     return await message.reply(content);
 }
 
+// Cola global secuencial para procesar mensajes con delays anti-spam entre usuarios
+const globalMessageQueue = [];
+let isProcessingGlobalQueue = false;
+
+async function addToGlobalProcessingQueue(userId, batch) {
+    globalMessageQueue.push({ userId, batch });
+    triggerGlobalQueueProcessing();
+}
+
+async function triggerGlobalQueueProcessing() {
+    if (isProcessingGlobalQueue) return;
+    isProcessingGlobalQueue = true;
+
+    while (globalMessageQueue.length > 0) {
+        const item = globalMessageQueue.shift();
+        try {
+            console.log(`[Global Queue] Procesando lote para @${item.userId.replace('@c.us', '')}. Quedan en cola: ${globalMessageQueue.length}`);
+            await processIncomingMessage(item.batch);
+            
+            // Si quedan elementos en la cola, esperamos un delay humano de seguridad (5 a 10 segundos) antes del siguiente
+            if (globalMessageQueue.length > 0) {
+                const delay = Math.floor(Math.random() * 5000) + 5000;
+                console.log(`[Global Queue] Esperando delay de seguridad de ${(delay/1000).toFixed(1)}s antes de procesar el siguiente usuario...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        } catch (err) {
+            console.error(`[Global Queue] Error procesando lote para @${item.userId}:`, err.message);
+        }
+    }
+
+    isProcessingGlobalQueue = false;
+}
+
 /**
  * Event Listener principal
  */
@@ -9270,8 +9303,8 @@ client.on('message', async (message) => {
     queue.timer = setTimeout(async () => {
         const batch = [...queue.messages];
         messageQueues.delete(userId);
-        console.log(`[Batch Processor] Procesando lote de ${batch.length} mensajes para @${userId.replace('@c.us', '')}`);
-        await processIncomingMessage(batch);
+        console.log(`[Batch Processor] Encolando lote de ${batch.length} mensajes para @${userId.replace('@c.us', '')}`);
+        await addToGlobalProcessingQueue(userId, batch);
     }, BATCH_INTERVAL);
 });
 
