@@ -26,6 +26,7 @@ function extractPlatformFromText(text) {
  */
 async function processCheckCredentials(userId, client, triggerMessage = "", history = "", userStates = null) {
     try {
+        if (!userId || userId.endsWith('@newsletter')) return;
         let phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
         let contactName = null;
         if (userId.includes('@lid')) {
