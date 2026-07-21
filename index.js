@@ -2379,7 +2379,7 @@ app.get('/api/admin/visit-stats', async (req, res) => {
         const [totalVisitsRows] = await pool.query('SELECT COUNT(*) as count FROM page_visits');
         const [uniqueVisitsRows] = await pool.query('SELECT COUNT(DISTINCT ip_address) as count FROM page_visits');
         const [totalClicksRows] = await pool.query('SELECT COUNT(*) as count FROM page_clicks');
-        
+
         const [deviceBreakdown] = await pool.query('SELECT device_type as name, COUNT(*) as value FROM page_visits GROUP BY device_type');
         const [topPages] = await pool.query('SELECT page_path as page, COUNT(*) as visits FROM page_visits GROUP BY page_path ORDER BY visits DESC LIMIT 10');
         const [clicksByPage] = await pool.query('SELECT page_path as page, COUNT(*) as clicks FROM page_clicks GROUP BY page_path');
@@ -3918,18 +3918,35 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     agent_id INT NOT NULL,
                     payroll_month VARCHAR(7) NOT NULL,
+                    start_date DATE NULL,
+                    end_date DATE NULL,
                     total_hours DECIMAL(10,2) NOT NULL,
+                    trial_hours DECIMAL(10,2) DEFAULT 0,
+                    normal_hours DECIMAL(10,2) DEFAULT 0,
                     hourly_rate DECIMAL(10,2) NOT NULL,
                     total_bonuses DECIMAL(10,2) NOT NULL,
                     total_payment DECIMAL(10,2) NOT NULL,
+                    period_label VARCHAR(100) NULL,
                     status VARCHAR(20) NOT NULL DEFAULT 'draft',
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
-                    UNIQUE KEY unique_agent_month (agent_id, payroll_month)
+                    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
                 )
             `);
+            const [mpCols] = await pool.query("SHOW COLUMNS FROM monthly_payroll");
+            const hasStartDate = mpCols.some(c => c.Field === 'start_date');
+            if (!hasStartDate) {
+                console.log("[Migration] Adding start_date, end_date, trial_hours, normal_hours, period_label to monthly_payroll...");
+                await pool.query("ALTER TABLE monthly_payroll ADD COLUMN start_date DATE NULL");
+                await pool.query("ALTER TABLE monthly_payroll ADD COLUMN end_date DATE NULL");
+                await pool.query("ALTER TABLE monthly_payroll ADD COLUMN trial_hours DECIMAL(10,2) DEFAULT 0");
+                await pool.query("ALTER TABLE monthly_payroll ADD COLUMN normal_hours DECIMAL(10,2) DEFAULT 0");
+                await pool.query("ALTER TABLE monthly_payroll ADD COLUMN period_label VARCHAR(100) NULL");
+                try {
+                    await pool.query("ALTER TABLE monthly_payroll DROP INDEX unique_agent_month");
+                } catch (e) {}
+            }
         } catch (err) {
-            console.error("[Migration] Error creating payroll and bonuses tables:", err.message);
+            console.error("[Migration] Error creating/altering payroll and bonuses tables:", err.message);
         }
 
         // Check and add max_weekly_hours column to agents table if it doesn't exist
@@ -4236,7 +4253,7 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 continue;
             }
             // Get other agents' schedules for this specific day and week
-            const [otherSchedules] = await pool.query(
+            const [otherSchedulesRaw] = await pool.query(
                 `SELECT s.*, a.role, a.fullname FROM agent_schedules s 
                  JOIN agents a ON s.agent_id = a.id 
                  WHERE (s.week_start = ? OR s.week_start = "default") 
@@ -4244,6 +4261,29 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                    AND s.day_of_week = ?`,
                 [weekStartStr, agentId, dayOfWeek]
             );
+
+            // Filter otherSchedules per agent: if weekStartStr !== 'default' and custom slots exist for that week, override 'default'
+            const customByAgent = new Map();
+            const defaultByAgent = new Map();
+
+            for (const s of otherSchedulesRaw) {
+                if (s.week_start === weekStartStr) {
+                    if (!customByAgent.has(s.agent_id)) customByAgent.set(s.agent_id, []);
+                    customByAgent.get(s.agent_id).push(s);
+                } else {
+                    if (!defaultByAgent.has(s.agent_id)) defaultByAgent.set(s.agent_id, []);
+                    defaultByAgent.get(s.agent_id).push(s);
+                }
+            }
+
+            const otherSchedules = [];
+            const otherAgentIds = new Set([...customByAgent.keys(), ...defaultByAgent.keys()]);
+            for (const otherId of otherAgentIds) {
+                const slots = (weekStartStr !== 'default' && customByAgent.has(otherId))
+                    ? customByAgent.get(otherId)
+                    : (defaultByAgent.has(otherId) ? defaultByAgent.get(otherId) : customByAgent.get(otherId));
+                if (slots) otherSchedules.push(...slots);
+            }
 
             // Merge current agent's new slots and other agents' slots to check validation
             const mergedSlots = [
@@ -4271,6 +4311,11 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                     const slotA = mergedSlots[i];
                     const slotB = mergedSlots[j];
 
+                    // Only validate overlaps involving at least one slot of the target agent being updated
+                    if (slotA.agent_id !== agentId && slotB.agent_id !== agentId) {
+                        continue;
+                    }
+
                     const [shA, smA] = slotA.start_time.split(':').map(Number);
                     const [ehA, emA] = slotA.end_time.split(':').map(Number);
                     const [shB, smB] = slotB.start_time.split(':').map(Number);
@@ -4283,7 +4328,15 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
 
                     // Check overlap
                     if (startA < endB && endA > startB) {
-                        // Exception: Overlap is allowed only if at least one agent is 'trial' (cangureando)
+                        // If both slots belong to the exact same agent, overlap is never allowed
+                        if (slotA.agent_id === slotB.agent_id) {
+                            return res.status(400).json({
+                                success: false,
+                                message: `Conflicto de horario: Tus turnos (${slotA.start_time}-${slotA.end_time} y ${slotB.start_time}-${slotB.end_time}) se solapan entre sí.`
+                            });
+                        }
+
+                        // Exception: Overlap between DIFFERENT agents is allowed only if at least one agent is 'trial' (cangureando)
                         if (slotA.role !== 'trial' && slotB.role !== 'trial') {
                             return res.status(400).json({
                                 success: false,
@@ -4457,24 +4510,42 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
     }
 });
 
-// GET Monthly Payroll and Bonuses
+// GET Monthly/Period Payroll and Bonuses
 app.get('/api/admin/payroll', async (req, res) => {
     try {
-        const { month } = req.query; // Format: "YYYY-MM"
-        if (!month || !/^\d{4}-\d{2}$/.test(month)) {
-            return res.status(400).json({ success: false, message: 'Formato de mes inválido (debe ser YYYY-MM)' });
+        const { month, start_date, end_date } = req.query;
+        
+        let startDateStr = start_date;
+        let endDateStr = end_date;
+        let payrollMonth = month;
+
+        if (!startDateStr || !endDateStr) {
+            if (!payrollMonth || !/^\d{4}-\d{2}$/.test(payrollMonth)) {
+                const now = new Date();
+                payrollMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            }
+            const [yr, mo] = payrollMonth.split('-').map(Number);
+            const daysInMonth = new Date(yr, mo, 0).getDate();
+            startDateStr = `${yr}-${String(mo).padStart(2, '0')}-01`;
+            endDateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`;
+        } else {
+            payrollMonth = startDateStr.substring(0, 7);
         }
 
         const { pool } = require('./database');
         const { getSupportScheduleConfig } = require('./supportScheduleService');
         const supportConfig = getSupportScheduleConfig();
         const hourlyRate = parseFloat(supportConfig.hourly_rate || 8333);
+        const trialHourlyRate = parseFloat(supportConfig.trial_hourly_rate || 5000);
+        const trialHoursTarget = parseFloat(supportConfig.trial_hours_target || 80);
 
         const [agents] = await pool.query('SELECT id, fullname, email, role FROM agents WHERE status = "active"');
 
-        const [yr, mo] = month.split('-').map(Number);
-        const daysInMonth = new Date(yr, mo, 0).getDate();
+        const startObj = new Date(startDateStr + 'T00:00:00');
+        const endObj = new Date(endDateStr + 'T00:00:00');
+        
         const weekStarts = new Set();
+        const daysMapping = [];
 
         const getBogotaMondayStr = (date) => {
             const d = new Date(date);
@@ -4484,15 +4555,19 @@ app.get('/api/admin/payroll', async (req, res) => {
             return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
         };
 
-        const daysMapping = [];
-        for (let day = 1; day <= daysInMonth; day++) {
-            const dateObj = new Date(yr, mo - 1, day);
-            const dateStr = `${yr}-${String(mo).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            const dayOfWeek = dateObj.getDay();
-            const mondayStr = getBogotaMondayStr(dateObj);
+        let curr = new Date(startObj);
+        while (curr <= endObj) {
+            const y = curr.getFullYear();
+            const m = String(curr.getMonth() + 1).padStart(2, '0');
+            const d = String(curr.getDate()).padStart(2, '0');
+            const dateStr = `${y}-${m}-${d}`;
+            const dayOfWeek = curr.getDay();
+            const mondayStr = getBogotaMondayStr(curr);
 
             weekStarts.add(mondayStr);
             daysMapping.push({ dateStr, dayOfWeek, mondayStr });
+
+            curr.setDate(curr.getDate() + 1);
         }
 
         const weekStartsList = Array.from(weekStarts);
@@ -4506,8 +4581,11 @@ app.get('/api/admin/payroll', async (req, res) => {
             schedules = rows;
         }
 
-        const [bonuses] = await pool.query('SELECT * FROM agent_bonuses WHERE bonus_month = ?', [month]);
-        const [closedRecords] = await pool.query('SELECT * FROM monthly_payroll WHERE payroll_month = ?', [month]);
+        const [bonuses] = await pool.query('SELECT * FROM agent_bonuses WHERE bonus_month = ? OR (created_at >= ? AND created_at <= ?)', [payrollMonth, startDateStr + ' 00:00:00', endDateStr + ' 23:59:59']);
+        const [closedRecords] = await pool.query(
+            'SELECT * FROM monthly_payroll WHERE (payroll_month = ? OR (start_date = ? AND end_date = ?))',
+            [payrollMonth, startDateStr, endDateStr]
+        );
 
         const payrollData = [];
 
@@ -4540,6 +4618,17 @@ app.get('/api/admin/payroll', async (req, res) => {
             }
 
             const totalHours = totalNetMinutes / 60;
+
+            // Compute historical trial hours
+            const [histRows] = await pool.query(
+                'SELECT SUM(COALESCE(trial_hours, total_hours)) as total_hist FROM monthly_payroll WHERE agent_id = ?',
+                [agent.id]
+            );
+            const totalHistTrial = parseFloat(histRows[0].total_hist || 0);
+            const trialHoursLeft = Math.max(0, trialHoursTarget - totalHistTrial);
+
+            let trialHoursInPeriod = 0;
+            let normalHoursInPeriod = 0;
             let rateToUse = closed ? parseFloat(closed.hourly_rate) : hourlyRate;
             const hoursToUse = closed ? parseFloat(closed.total_hours) : totalHours;
             const bonusesToUse = closed ? parseFloat(closed.total_bonuses) : totalBonuses;
@@ -4547,26 +4636,24 @@ app.get('/api/admin/payroll', async (req, res) => {
 
             if (closed) {
                 finalPayment = parseFloat(closed.total_payment);
+                trialHoursInPeriod = parseFloat(closed.trial_hours || 0);
+                normalHoursInPeriod = parseFloat(closed.normal_hours || closed.total_hours);
             } else {
                 if (agent.role === 'trial') {
-                    const trialHourlyRate = parseFloat(supportConfig.trial_hourly_rate || 5000);
-                    const [histRows] = await pool.query(
-                        'SELECT SUM(total_hours) as total_hist FROM monthly_payroll WHERE agent_id = ?',
-                        [agent.id]
-                    );
-                    const totalHist = parseFloat(histRows[0].total_hist || 0);
-                    const trialHoursLeft = Math.max(0, 80 - totalHist);
-
                     if (totalHours <= trialHoursLeft) {
+                        trialHoursInPeriod = totalHours;
+                        normalHoursInPeriod = 0;
                         finalPayment = (totalHours * trialHourlyRate) + totalBonuses;
                         rateToUse = trialHourlyRate;
                     } else {
-                        const trialHoursPaid = trialHoursLeft;
-                        const normalHoursPaid = totalHours - trialHoursPaid;
-                        finalPayment = (trialHoursPaid * trialHourlyRate) + (normalHoursPaid * hourlyRate) + totalBonuses;
-                        rateToUse = totalHours > 0 ? ((trialHoursPaid * trialHourlyRate + normalHoursPaid * hourlyRate) / totalHours) : hourlyRate;
+                        trialHoursInPeriod = trialHoursLeft;
+                        normalHoursInPeriod = totalHours - trialHoursInPeriod;
+                        finalPayment = (trialHoursInPeriod * trialHourlyRate) + (normalHoursInPeriod * hourlyRate) + totalBonuses;
+                        rateToUse = totalHours > 0 ? ((trialHoursInPeriod * trialHourlyRate + normalHoursInPeriod * hourlyRate) / totalHours) : hourlyRate;
                     }
                 } else {
+                    trialHoursInPeriod = 0;
+                    normalHoursInPeriod = totalHours;
                     finalPayment = (totalHours * hourlyRate) + totalBonuses;
                 }
             }
@@ -4576,8 +4663,16 @@ app.get('/api/admin/payroll', async (req, res) => {
                 fullname: agent.fullname,
                 email: agent.email,
                 role: agent.role,
+                start_date: startDateStr,
+                end_date: endDateStr,
                 total_hours: hoursToUse,
+                trial_hours: trialHoursInPeriod,
+                normal_hours: normalHoursInPeriod,
+                trial_hours_target: trialHoursTarget,
+                trial_hours_left: trialHoursLeft,
+                total_hist_trial: totalHistTrial,
                 hourly_rate: rateToUse,
+                trial_hourly_rate: trialHourlyRate,
                 bonuses: agentBonuses,
                 total_bonuses: bonusesToUse,
                 total_payment: finalPayment,
@@ -4585,7 +4680,20 @@ app.get('/api/admin/payroll', async (req, res) => {
             });
         }
 
-        res.json({ success: true, payroll: payrollData });
+        res.json({
+            success: true,
+            payroll: payrollData,
+            config: {
+                hourly_rate: hourlyRate,
+                trial_hourly_rate: trialHourlyRate,
+                trial_hours_target: trialHoursTarget
+            },
+            period: {
+                start_date: startDateStr,
+                end_date: endDateStr,
+                payroll_month: payrollMonth
+            }
+        });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -4648,35 +4756,75 @@ app.post('/api/admin/bonuses/delete', express.json(), async (req, res) => {
     }
 });
 
-// POST Close Monthly Payroll
+// POST Close Monthly / Cutoff Period Payroll
 app.post('/api/admin/payroll/close', express.json(), async (req, res) => {
     try {
-        const { email, payroll_month, total_hours, hourly_rate, total_bonuses, total_payment, status } = req.body;
-        if (!email || !payroll_month) {
+        const { email, payroll_month, start_date, end_date, total_hours, trial_hours, normal_hours, hourly_rate, total_bonuses, total_payment, status, period_label } = req.body;
+        if (!email || (!payroll_month && !start_date)) {
             return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
         }
 
         const { pool } = require('./database');
-        const [agentRows] = await pool.query('SELECT id FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
+        const { getSupportScheduleConfig } = require('./supportScheduleService');
+        const supportConfig = getSupportScheduleConfig();
+        const trialHoursTarget = parseFloat(supportConfig.trial_hours_target || 80);
+
+        const [agentRows] = await pool.query('SELECT id, role, fullname FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
         if (!agentRows || agentRows.length === 0) {
             return res.status(404).json({ success: false, message: 'Asesor no encontrado' });
         }
-        const agentId = agentRows[0].id;
-
+        const agent = agentRows[0];
+        const agentId = agent.id;
         const stat = status || 'paid';
+        const pMonth = payroll_month || (start_date ? start_date.substring(0, 7) : '2026-07');
+        const sDate = start_date || `${pMonth}-01`;
+        const eDate = end_date || `${pMonth}-31`;
+        const trHours = parseFloat(trial_hours || 0);
+        const normHours = parseFloat(normal_hours || (parseFloat(total_hours) - trHours));
+        const pLabel = period_label || `${sDate} al ${eDate}`;
 
         await pool.query(`
-            INSERT INTO monthly_payroll (agent_id, payroll_month, total_hours, hourly_rate, total_bonuses, total_payment, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON DUPLICATE KEY UPDATE 
-                total_hours = VALUES(total_hours),
-                hourly_rate = VALUES(hourly_rate),
-                total_bonuses = VALUES(total_bonuses),
-                total_payment = VALUES(total_payment),
-                status = VALUES(status)
-        `, [agentId, payroll_month, parseFloat(total_hours), parseFloat(hourly_rate), parseFloat(total_bonuses), parseFloat(total_payment), stat]);
+            INSERT INTO monthly_payroll (agent_id, payroll_month, start_date, end_date, total_hours, trial_hours, normal_hours, hourly_rate, total_bonuses, total_payment, period_label, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [agentId, pMonth, sDate, eDate, parseFloat(total_hours), trHours, normHours, parseFloat(hourly_rate), parseFloat(total_bonuses), parseFloat(total_payment), pLabel, stat]);
 
-        res.json({ success: true, message: 'Nómina cerrada correctamente' });
+        // Auto-promote trial agents if target trial hours completed
+        let promoted = false;
+        if (agent.role === 'trial') {
+            const [histRows] = await pool.query(
+                'SELECT SUM(COALESCE(trial_hours, total_hours)) as total_hist FROM monthly_payroll WHERE agent_id = ?',
+                [agentId]
+            );
+            const totalHistTrial = parseFloat(histRows[0].total_hist || 0);
+            if (totalHistTrial >= trialHoursTarget) {
+                await pool.query('UPDATE agents SET role = "agent" WHERE id = ?', [agentId]);
+                promoted = true;
+            }
+        }
+
+        res.json({
+            success: true,
+            promoted,
+            message: promoted
+                ? `Nómina cerrada correctamente. ¡${agent.fullname} completó ${trialHoursTarget}h de prueba y fue promovido automáticamente a AGENT!`
+                : 'Nómina archivada y cerrada correctamente.'
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET Payroll History / Archived Pay Stubs
+app.get('/api/admin/payroll/history', async (req, res) => {
+    try {
+        const { pool } = require('./database');
+        const [records] = await pool.query(`
+            SELECT mp.*, a.fullname, a.email, a.role as current_role 
+            FROM monthly_payroll mp 
+            JOIN agents a ON mp.agent_id = a.id 
+            ORDER BY mp.id DESC
+        `);
+        res.json({ success: true, history: records });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -5723,7 +5871,7 @@ client.on('disconnected', async (reason) => {
     // Cierre limpio de Puppeteer antes de reiniciar para evitar corrupción de sesión
     console.log('⚠️ Cerrando Puppeteer limpiamente...');
     try { await client.destroy(); } catch (e) { console.error('Error al cerrar cliente:', e.message); }
-    
+
     if (wasConnected) {
         console.log('🔄 El bot estaba conectado previamente. Forzando reinicio inmediato para PM2...');
         process.exit(1);
@@ -7736,20 +7884,20 @@ async function baseProcessIncomingMessage(messages) {
                     if (check.inferredPlatform) {
                         const historyLower = (history || "").toLowerCase();
                         const lastMsgLower = (batchText || "").toLowerCase();
-                        const isNewRequested = historyLower.includes('otro') || 
-                                               historyLower.includes('otra') || 
-                                               historyLower.includes('nueva') || 
-                                               historyLower.includes('nuevo') || 
-                                               historyLower.includes('adquirir') || 
-                                               historyLower.includes('adicional') ||
-                                               lastMsgLower.includes('otro') ||
-                                               lastMsgLower.includes('otra') ||
-                                               lastMsgLower.includes('nueva') ||
-                                               lastMsgLower.includes('nuevo') ||
-                                               lastMsgLower.includes('adquirir') ||
-                                               lastMsgLower.includes('adicional') ||
-                                               stateData.intent === 'comprar' ||
-                                               stateData.state === 'awaiting_purchase_platforms';
+                        const isNewRequested = historyLower.includes('otro') ||
+                            historyLower.includes('otra') ||
+                            historyLower.includes('nueva') ||
+                            historyLower.includes('nuevo') ||
+                            historyLower.includes('adquirir') ||
+                            historyLower.includes('adicional') ||
+                            lastMsgLower.includes('otro') ||
+                            lastMsgLower.includes('otra') ||
+                            lastMsgLower.includes('nueva') ||
+                            lastMsgLower.includes('nuevo') ||
+                            lastMsgLower.includes('adquirir') ||
+                            lastMsgLower.includes('adicional') ||
+                            stateData.intent === 'comprar' ||
+                            stateData.state === 'awaiting_purchase_platforms';
 
                         console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}. isNewRequested=${isNewRequested}`);
 
@@ -9201,11 +9349,11 @@ async function triggerGlobalQueueProcessing() {
         try {
             console.log(`[Global Queue] Procesando lote para @${item.userId.replace('@c.us', '')}. Quedan en cola: ${globalMessageQueue.length}`);
             await processIncomingMessage(item.batch);
-            
+
             // Si quedan elementos en la cola, esperamos un delay humano de seguridad (5 a 10 segundos) antes del siguiente
             if (globalMessageQueue.length > 0) {
                 const delay = Math.floor(Math.random() * 5000) + 5000;
-                console.log(`[Global Queue] Esperando delay de seguridad de ${(delay/1000).toFixed(1)}s antes de procesar el siguiente usuario...`);
+                console.log(`[Global Queue] Esperando delay de seguridad de ${(delay / 1000).toFixed(1)}s antes de procesar el siguiente usuario...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
         } catch (err) {
