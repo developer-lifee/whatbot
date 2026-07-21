@@ -4583,8 +4583,8 @@ app.get('/api/admin/payroll', async (req, res) => {
 
         const [bonuses] = await pool.query('SELECT * FROM agent_bonuses WHERE bonus_month = ? OR (created_at >= ? AND created_at <= ?)', [payrollMonth, startDateStr + ' 00:00:00', endDateStr + ' 23:59:59']);
         const [closedRecords] = await pool.query(
-            'SELECT * FROM monthly_payroll WHERE (payroll_month = ? OR (start_date = ? AND end_date = ?))',
-            [payrollMonth, startDateStr, endDateStr]
+            'SELECT * FROM monthly_payroll WHERE status = "paid" AND ((start_date = ? AND end_date = ?) OR (payroll_month = ? AND start_date IS NULL))',
+            [startDateStr, endDateStr, payrollMonth]
         );
 
         const payrollData = [];
@@ -4619,9 +4619,9 @@ app.get('/api/admin/payroll', async (req, res) => {
 
             const totalHours = totalNetMinutes / 60;
 
-            // Compute historical trial hours
+            // Compute historical trial hours from closed periods
             const [histRows] = await pool.query(
-                'SELECT SUM(COALESCE(trial_hours, total_hours)) as total_hist FROM monthly_payroll WHERE agent_id = ?',
+                'SELECT SUM(COALESCE(trial_hours, total_hours)) as total_hist FROM monthly_payroll WHERE agent_id = ? AND status = "paid"',
                 [agent.id]
             );
             const totalHistTrial = parseFloat(histRows[0].total_hist || 0);
