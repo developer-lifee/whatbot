@@ -4594,8 +4594,8 @@ app.get('/api/admin/payroll', async (req, res) => {
 
         const [bonuses] = await pool.query('SELECT * FROM agent_bonuses WHERE bonus_month = ? OR (created_at >= ? AND created_at <= ?)', [payrollMonth, startDateStr + ' 00:00:00', endDateStr + ' 23:59:59']);
         const [closedRecords] = await pool.query(
-            'SELECT * FROM monthly_payroll WHERE status = "paid" AND ((start_date = ? AND end_date = ?) OR (payroll_month = ? AND start_date IS NULL))',
-            [startDateStr, endDateStr, payrollMonth]
+            'SELECT * FROM monthly_payroll WHERE status = "paid" AND (payroll_month = ? OR (start_date <= ? AND end_date >= ?) OR (start_date >= ? AND end_date <= ?))',
+            [payrollMonth, endDateStr, startDateStr, startDateStr, endDateStr]
         );
 
         const payrollData = [];
@@ -4804,6 +4804,8 @@ app.post('/api/admin/payroll/close', express.json(), async (req, res) => {
         const { getSupportScheduleConfig } = require('./supportScheduleService');
         const supportConfig = getSupportScheduleConfig();
         const trialHoursTarget = parseFloat(supportConfig.trial_hours_target || 80);
+        const trialHourlyRate = parseFloat(supportConfig.trial_hourly_rate || 5000);
+        const hourlyRateConfig = parseFloat(supportConfig.hourly_rate || 8333);
 
         const [agentRows] = await pool.query('SELECT id, role, fullname FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
         if (!agentRows || agentRows.length === 0) {
@@ -4815,41 +4817,68 @@ app.post('/api/admin/payroll/close', express.json(), async (req, res) => {
         const pMonth = payroll_month || (start_date ? start_date.substring(0, 7) : '2026-07');
         const sDate = start_date || `${pMonth}-01`;
         const eDate = end_date || `${pMonth}-31`;
-        const trHours = parseFloat(trial_hours || 0);
-        const normHours = parseFloat(normal_hours || (parseFloat(total_hours) - trHours));
-        const pLabel = period_label || `${sDate} al ${eDate}`;
+        const totHours = parseFloat(total_hours || 0);
+        const totBonuses = parseFloat(total_bonuses || 0);
 
-        // Delete previous closed/draft entry for this agent in this exact period before inserting
+        // Delete previous closed/draft entry for this agent in this month / date range before inserting
         await pool.query(
-            'DELETE FROM monthly_payroll WHERE agent_id = ? AND ((start_date = ? AND end_date = ?) OR (payroll_month = ? AND start_date IS NULL))',
-            [agentId, sDate, eDate, pMonth]
+            'DELETE FROM monthly_payroll WHERE agent_id = ? AND (payroll_month = ? OR (start_date = ? AND end_date = ?))',
+            [agentId, pMonth, sDate, eDate]
         );
 
-        await pool.query(`
-            INSERT INTO monthly_payroll (agent_id, payroll_month, start_date, end_date, total_hours, trial_hours, normal_hours, hourly_rate, total_bonuses, total_payment, period_label, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [agentId, pMonth, sDate, eDate, parseFloat(total_hours || 0), trHours, normHours, parseFloat(hourly_rate || 0), parseFloat(total_bonuses || 0), parseFloat(total_payment || 0), pLabel, stat]);
+        // Compute historical trial hours completed BEFORE this closing (excluding current month)
+        const [histRows] = await pool.query(
+            'SELECT SUM(COALESCE(trial_hours, total_hours)) as total_hist FROM monthly_payroll WHERE agent_id = ? AND status = "paid" AND (payroll_month != ? OR payroll_month IS NULL)',
+            [agentId, pMonth]
+        );
+        const totalHistTrial = parseFloat(histRows[0].total_hist || 0);
+        const trialHoursLeft = Math.max(0, trialHoursTarget - totalHistTrial);
 
-        // Auto-promote trial agents if target trial hours completed
+        let trHours = parseFloat(trial_hours || 0);
+        let normHours = parseFloat(normal_hours || (totHours - trHours));
+        let rateToUse = parseFloat(hourly_rate || hourlyRateConfig);
+        let finalPayment = parseFloat(total_payment || 0);
+
         let promoted = false;
+
+        // If agent is currently trial (or trial_hours were computed for this period):
         if (agent.role === 'trial') {
-            const [histRows] = await pool.query(
-                'SELECT SUM(COALESCE(trial_hours, total_hours)) as total_hist FROM monthly_payroll WHERE agent_id = ?',
-                [agentId]
-            );
-            const totalHistTrial = parseFloat(histRows[0].total_hist || 0);
-            if (totalHistTrial >= trialHoursTarget) {
+            if (totHours <= trialHoursLeft) {
+                trHours = totHours;
+                normHours = 0;
+                rateToUse = trialHourlyRate;
+                finalPayment = (trHours * trialHourlyRate) + totBonuses;
+            } else {
+                trHours = trialHoursLeft;
+                normHours = totHours - trHours;
+                finalPayment = (trHours * trialHourlyRate) + (normHours * hourlyRateConfig) + totBonuses;
+                rateToUse = totHours > 0 ? ((trHours * trialHourlyRate + normHours * hourlyRateConfig) / totHours) : hourlyRateConfig;
+            }
+
+            // Auto-promote trial agent if target trial hours completed
+            if (totalHistTrial + trHours >= trialHoursTarget) {
                 await pool.query('UPDATE agents SET role = "agent" WHERE id = ?', [agentId]);
                 promoted = true;
             }
         }
 
+        const pLabel = period_label || `Período ${sDate} al ${eDate}`;
+
+        await pool.query(`
+            INSERT INTO monthly_payroll (agent_id, payroll_month, start_date, end_date, total_hours, trial_hours, normal_hours, hourly_rate, total_bonuses, total_payment, period_label, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [agentId, pMonth, sDate, eDate, totHours, trHours, normHours, rateToUse, totBonuses, finalPayment, pLabel, stat]);
+
         res.json({
             success: true,
             promoted,
+            total_hours: totHours,
+            trial_hours: trHours,
+            normal_hours: normHours,
+            total_payment: finalPayment,
             message: promoted
-                ? `Nómina cerrada correctamente. ¡${agent.fullname} completó ${trialHoursTarget}h de prueba y fue promovido automáticamente a AGENT!`
-                : 'Nómina archivada y cerrada correctamente.'
+                ? `Nómina cerrada correctamente (${trHours.toFixed(1)}h a tarifa prueba de $${trialHourlyRate.toLocaleString('es-CO')} + ${normHours.toFixed(1)}h a tarifa agente). ¡${agent.fullname} completó las ${trialHoursTarget}h de prueba y fue promovido automáticamente a AGENT!`
+                : `Nómina archivada y cerrada correctamente (${trHours.toFixed(1)}h prueba + ${normHours.toFixed(1)}h agente). Total a pagar: $${Math.round(finalPayment).toLocaleString('es-CO')}.`
         });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
