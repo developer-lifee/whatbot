@@ -4686,7 +4686,7 @@ app.get('/api/admin/payroll', async (req, res) => {
                 normal_hours: normalHoursInPeriod,
                 trial_hours_target: trialHoursTarget,
                 trial_hours_left: trialHoursLeft,
-                total_hist_trial: totalHistTrial,
+                total_hist_trial: totalHistTrial + trialHoursInPeriod,
                 hourly_rate: rateToUse,
                 trial_hourly_rate: trialHourlyRate,
                 bonuses: agentBonuses,
