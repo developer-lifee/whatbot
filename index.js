@@ -4646,9 +4646,14 @@ app.get('/api/admin/payroll', async (req, res) => {
             let finalPayment;
 
             if (closed) {
-                finalPayment = parseFloat(closed.total_payment);
                 trialHoursInPeriod = parseFloat(closed.trial_hours || 0);
                 normalHoursInPeriod = parseFloat(closed.normal_hours || closed.total_hours);
+                if (isExcludedFromPayroll) {
+                    finalPayment = 0;
+                } else {
+                    const closedPay = parseFloat(closed.total_payment || 0);
+                    finalPayment = closedPay > 0 ? closedPay : ((hoursToUse * rateToUse) + bonusesToUse);
+                }
             } else {
                 if (isExcludedFromPayroll) {
                     trialHoursInPeriod = 0;
