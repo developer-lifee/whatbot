@@ -4347,33 +4347,32 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 }
             }
 
-            // 2. Validate total daily sum of hours (configurable max_hours_limit if allow_overtime is false, absolute 12 hours max if allow_overtime is true)
-            let dailyTotalNetMinutes = 0;
-            for (const slot of mergedSlots) {
-                // Excluir del conteo diario a colaboradores nuevos/en prueba (trial) que están "cangureando"
-                if (slot.role === 'trial') continue;
+            // 2. Validate total daily net hours PER AGENT (configurable max_hours_limit if allow_overtime is false, absolute 12 hours max if allow_overtime is true)
+            let targetAgentDailyNetMinutes = 0;
+            if (currentAgentRole !== 'trial') {
+                for (const slot of daySlots) {
+                    const [sh, sm] = slot.start_time.split(':').map(Number);
+                    const [eh, em] = slot.end_time.split(':').map(Number);
+                    const diff = (eh * 60 + em) - (sh * 60 + sm);
+                    if (diff <= 0) continue;
 
-                const [sh, sm] = slot.start_time.split(':').map(Number);
-                const [eh, em] = slot.end_time.split(':').map(Number);
-                const diff = (eh * 60 + em) - (sh * 60 + sm);
-                if (diff <= 0) continue;
+                    let breakMin = 0;
+                    if (slot.break_type === 'break_30') breakMin = 30;
+                    else if (slot.break_type === 'lunch_60') breakMin = 60;
 
-                let breakMin = 0;
-                if (slot.break_type === 'break_30') breakMin = 30;
-                else if (slot.break_type === 'lunch_60') breakMin = 60;
-
-                dailyTotalNetMinutes += Math.max(0, diff - breakMin);
+                    targetAgentDailyNetMinutes += Math.max(0, diff - breakMin);
+                }
             }
 
             const isOvertimeAllowed = supportConfig.allow_overtime !== false;
-            const currentDailyLimit = isOvertimeAllowed ? 12 : parseFloat(supportConfig.max_hours_limit || 10);
+            const currentDailyLimit = isOvertimeAllowed ? 12 : parseFloat(supportConfig.max_hours_limit || 8);
 
-            if (dailyTotalNetMinutes > currentDailyLimit * 60) {
+            if (targetAgentDailyNetMinutes > currentDailyLimit * 60) {
                 return res.status(400).json({
                     success: false,
                     message: isOvertimeAllowed
-                        ? `La sumatoria total de turnos de todos los asesores para este día supera el límite absoluto de 12 horas diarias (actual: ${(dailyTotalNetMinutes / 60).toFixed(1)} horas).`
-                        : `No se permiten horas extras. La sumatoria de turnos de todos los asesores para este día supera el límite diario configurado de ${currentDailyLimit} horas (actual: ${(dailyTotalNetMinutes / 60).toFixed(1)} horas).`
+                        ? `La jornada diaria para ${agentMap[agentId]?.fullname || 'este asesor'} supera el límite absoluto de 12 horas diarias (actual: ${(targetAgentDailyNetMinutes / 60).toFixed(1)} horas).`
+                        : `No se permiten horas extras. La jornada diaria para ${agentMap[agentId]?.fullname || 'este asesor'} supera el límite diario configurado de ${currentDailyLimit} horas netas.`
                 });
             }
         }
@@ -4597,10 +4596,9 @@ app.get('/api/admin/payroll', async (req, res) => {
             let totalNetMinutes = 0;
 
             for (const day of daysMapping) {
-                let daySlots = schedules.filter(s => s.agent_id === agent.id && s.week_start === day.mondayStr && s.day_of_week === day.dayOfWeek);
-                if (daySlots.length === 0) {
-                    daySlots = schedules.filter(s => s.agent_id === agent.id && s.week_start === 'default' && s.day_of_week === day.dayOfWeek);
-                }
+                const hasCustomWeek = schedules.some(s => s.agent_id === agent.id && s.week_start === day.mondayStr);
+                const targetWeekStart = hasCustomWeek ? day.mondayStr : 'default';
+                const daySlots = schedules.filter(s => s.agent_id === agent.id && s.week_start === targetWeekStart && s.day_of_week === day.dayOfWeek);
 
                 for (const slot of daySlots) {
                     if (!slot.start_time || !slot.end_time) continue;

@@ -94,35 +94,24 @@ async function isSupportOpen() {
     );
 
     if (allSchedules.length > 0) {
-      // Find slots for today
-      const todaySlots = allSchedules.filter(s => s.day_of_week === day);
-      
-      if (todaySlots.length > 0) {
-        // Group by agent to prefer custom slots over default
-        const customSlotsByAgent = new Map();
-        const defaultSlotsByAgent = new Map();
-        
-        for (const slot of todaySlots) {
-          if (slot.week_start === currentWeekStart) {
-            if (!customSlotsByAgent.has(slot.agent_id)) customSlotsByAgent.set(slot.agent_id, []);
-            customSlotsByAgent.get(slot.agent_id).push(slot);
-          } else {
-            if (!defaultSlotsByAgent.has(slot.agent_id)) defaultSlotsByAgent.set(slot.agent_id, []);
-            defaultSlotsByAgent.get(slot.agent_id).push(slot);
-          }
-        }
-        
-        const activeAgents = [];
-        const agentsToEvaluate = new Set([...customSlotsByAgent.keys(), ...defaultSlotsByAgent.keys()]);
-        
-        for (const agentId of agentsToEvaluate) {
-          const slots = customSlotsByAgent.has(agentId) 
-            ? customSlotsByAgent.get(agentId) 
-            : defaultSlotsByAgent.get(agentId);
+      const agentsWithCustomWeek = new Set(
+        allSchedules.filter(s => s.week_start === currentWeekStart).map(s => s.agent_id)
+      );
 
-          for (const slot of slots) {
-            const [sh, sm] = slot.start_time.split(':').map(Number);
-            const [eh, em] = slot.end_time.split(':').map(Number);
+      const resolvedSchedules = allSchedules.filter(s => {
+        if (agentsWithCustomWeek.has(s.agent_id)) {
+          return s.week_start === currentWeekStart;
+        }
+        return s.week_start === 'default';
+      });
+
+      const todaySlots = resolvedSchedules.filter(s => s.day_of_week === day);
+
+      if (todaySlots.length > 0) {
+        const activeAgents = [];
+        for (const slot of todaySlots) {
+          const [sh, sm] = slot.start_time.split(':').map(Number);
+          const [eh, em] = slot.end_time.split(':').map(Number);
             const slotStartMin = sh * 60 + sm;
             const slotEndMin = eh * 60 + em;
 
@@ -228,28 +217,18 @@ async function checkUpcomingDayCoverage(client, groupId) {
       [currentWeekStart]
     );
 
-    const todaySlots = allSchedules.filter(s => s.day_of_week === tomorrowDay);
-    const customSlotsByAgent = new Map();
-    const defaultSlotsByAgent = new Map();
-    
-    for (const slot of todaySlots) {
-      if (slot.week_start === currentWeekStart) {
-        if (!customSlotsByAgent.has(slot.agent_id)) customSlotsByAgent.set(slot.agent_id, []);
-        customSlotsByAgent.get(slot.agent_id).push(slot);
-      } else {
-        if (!defaultSlotsByAgent.has(slot.agent_id)) defaultSlotsByAgent.set(slot.agent_id, []);
-        defaultSlotsByAgent.get(slot.agent_id).push(slot);
-      }
-    }
+    const agentsWithCustomWeek = new Set(
+      allSchedules.filter(s => s.week_start === currentWeekStart).map(s => s.agent_id)
+    );
 
-    const agentsToEvaluate = new Set([...customSlotsByAgent.keys(), ...defaultSlotsByAgent.keys()]);
-    const activeSlots = [];
-    for (const agentId of agentsToEvaluate) {
-      const slots = customSlotsByAgent.has(agentId) 
-        ? customSlotsByAgent.get(agentId) 
-        : defaultSlotsByAgent.get(agentId);
-      activeSlots.push(...slots);
-    }
+    const resolvedSchedules = allSchedules.filter(s => {
+      if (agentsWithCustomWeek.has(s.agent_id)) {
+        return s.week_start === currentWeekStart;
+      }
+      return s.week_start === 'default';
+    });
+
+    const activeSlots = resolvedSchedules.filter(s => s.day_of_week === tomorrowDay);
 
     // Check every 5 minutes
     const uncoveredSegments = [];
@@ -335,33 +314,23 @@ async function getTodayScheduledShifts() {
     monday.setDate(today.getDate() + dayOffset);
     const currentWeekStart = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
 
-    const [rows] = await pool.query(
-      "SELECT s.*, a.fullname FROM agent_schedules s JOIN agents a ON s.agent_id = a.id WHERE (s.week_start = ? OR s.week_start = 'default') AND s.day_of_week = ? ORDER BY s.start_time ASC",
-      [currentWeekStart, day]
+    const [allSchedules] = await pool.query(
+      "SELECT s.*, a.fullname FROM agent_schedules s JOIN agents a ON s.agent_id = a.id WHERE s.week_start = ? OR s.week_start = 'default' ORDER BY s.start_time ASC",
+      [currentWeekStart]
     );
-    
-    if (rows.length === 0) return "";
-    
-    const customSlotsByAgent = new Map();
-    const defaultSlotsByAgent = new Map();
-    for (const row of rows) {
-      if (row.week_start === currentWeekStart) {
-        if (!customSlotsByAgent.has(row.agent_id)) customSlotsByAgent.set(row.agent_id, []);
-        customSlotsByAgent.get(row.agent_id).push(row);
-      } else {
-        if (!defaultSlotsByAgent.has(row.agent_id)) defaultSlotsByAgent.set(row.agent_id, []);
-        defaultSlotsByAgent.get(row.agent_id).push(row);
+
+    if (allSchedules.length === 0) return "";
+
+    const agentsWithCustomWeek = new Set(
+      allSchedules.filter(s => s.week_start === currentWeekStart).map(s => s.agent_id)
+    );
+
+    const activeSlots = allSchedules.filter(s => {
+      if (agentsWithCustomWeek.has(s.agent_id)) {
+        return s.week_start === currentWeekStart && s.day_of_week === day;
       }
-    }
-    
-    const activeSlots = [];
-    const agentsToEvaluate = new Set([...customSlotsByAgent.keys(), ...defaultSlotsByAgent.keys()]);
-    for (const agentId of agentsToEvaluate) {
-      const slots = customSlotsByAgent.has(agentId) 
-        ? customSlotsByAgent.get(agentId) 
-        : defaultSlotsByAgent.get(agentId);
-      activeSlots.push(...slots);
-    }
+      return s.week_start === 'default' && s.day_of_week === day;
+    });
     
     if (activeSlots.length === 0) return "";
     
