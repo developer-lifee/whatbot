@@ -3900,6 +3900,18 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             console.error("[Migration] Error checking/altering agent_schedules table for week_start:", err.message);
         }
 
+        // Check and add exclude_from_payroll column to agents if it doesn't exist
+        try {
+            const [cols] = await pool.query("SHOW COLUMNS FROM agents");
+            const hasExcludePayroll = cols.some(c => c.Field === 'exclude_from_payroll');
+            if (!hasExcludePayroll) {
+                console.log("[Migration] Adding exclude_from_payroll column to agents...");
+                await pool.query("ALTER TABLE agents ADD COLUMN exclude_from_payroll TINYINT(1) NOT NULL DEFAULT 0");
+            }
+        } catch (err) {
+            console.error("[Migration] Error adding exclude_from_payroll column to agents:", err.message);
+        }
+
         // Create agent_bonuses and monthly_payroll tables
         try {
             await pool.query(`
@@ -4054,7 +4066,7 @@ app.get('/api/admin/agent-role', async (req, res) => {
 app.get('/api/admin/agents', async (req, res) => {
     try {
         const { pool } = require('./database');
-        const [rows] = await pool.query('SELECT id, username, fullname, email, role, status FROM agents ORDER BY fullname ASC');
+        const [rows] = await pool.query('SELECT id, username, fullname, email, role, status, exclude_from_payroll FROM agents ORDER BY fullname ASC');
         res.json({ success: true, agents: rows });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -4538,7 +4550,7 @@ app.get('/api/admin/payroll', async (req, res) => {
         const trialHourlyRate = parseFloat(supportConfig.trial_hourly_rate || 5000);
         const trialHoursTarget = parseFloat(supportConfig.trial_hours_target || 80);
 
-        const [agents] = await pool.query('SELECT id, fullname, email, role FROM agents WHERE status = "active"');
+        const [agents] = await pool.query('SELECT id, fullname, email, role, exclude_from_payroll FROM agents WHERE status = "active"');
 
         const startObj = new Date(startDateStr + 'T00:00:00');
         const endObj = new Date(endDateStr + 'T00:00:00');
@@ -4592,6 +4604,7 @@ app.get('/api/admin/payroll', async (req, res) => {
             const closed = closedRecords.find(r => r.agent_id === agent.id);
             const agentBonuses = bonuses.filter(b => b.agent_id === agent.id);
             const totalBonuses = agentBonuses.reduce((sum, b) => sum + parseFloat(b.amount), 0);
+            const isExcludedFromPayroll = agent.exclude_from_payroll === 1 || agent.exclude_from_payroll === true;
 
             let totalNetMinutes = 0;
 
@@ -4637,7 +4650,11 @@ app.get('/api/admin/payroll', async (req, res) => {
                 trialHoursInPeriod = parseFloat(closed.trial_hours || 0);
                 normalHoursInPeriod = parseFloat(closed.normal_hours || closed.total_hours);
             } else {
-                if (agent.role === 'trial') {
+                if (isExcludedFromPayroll) {
+                    trialHoursInPeriod = 0;
+                    normalHoursInPeriod = totalHours;
+                    finalPayment = 0;
+                } else if (agent.role === 'trial') {
                     if (totalHours <= trialHoursLeft) {
                         trialHoursInPeriod = totalHours;
                         normalHoursInPeriod = 0;
@@ -4661,6 +4678,7 @@ app.get('/api/admin/payroll', async (req, res) => {
                 fullname: agent.fullname,
                 email: agent.email,
                 role: agent.role,
+                exclude_from_payroll: isExcludedFromPayroll,
                 start_date: startDateStr,
                 end_date: endDateStr,
                 total_hours: hoursToUse,
@@ -4691,6 +4709,26 @@ app.get('/api/admin/payroll', async (req, res) => {
                 end_date: endDateStr,
                 payroll_month: payrollMonth
             }
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Toggle Exclude from Payroll
+app.post('/api/admin/agents/toggle-payroll', express.json(), async (req, res) => {
+    try {
+        const { agent_id, exclude_from_payroll } = req.body;
+        if (agent_id === undefined) return res.status(400).json({ success: false, message: 'Falta ID de asesor' });
+
+        const { pool } = require('./database');
+        const excludeVal = exclude_from_payroll ? 1 : 0;
+        await pool.query('UPDATE agents SET exclude_from_payroll = ? WHERE id = ?', [excludeVal, agent_id]);
+
+        res.json({
+            success: true,
+            exclude_from_payroll: excludeVal === 1,
+            message: excludeVal === 1 ? 'Asesor excluido de la nómina ($0 a pagar).' : 'Asesor incluido en la nómina.'
         });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
