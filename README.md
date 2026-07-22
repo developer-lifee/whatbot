@@ -93,8 +93,10 @@ erDiagram
         string username
         string fullname
         string email
-        enum role
-        enum status
+        enum role "admin, agent, supervisor, trial"
+        enum status "active, inactive, busy"
+        decimal max_weekly_hours
+        boolean exclude_from_payroll
     }
     customers {
         string phone PK
@@ -110,12 +112,15 @@ erDiagram
         string account_password
         string profile_pin
         date expiration_date
-        enum status
+        enum status "active, expired, cancelled"
+        boolean is_provider
+        string provider_name
+        string payment_method
     }
     chats {
         string chat_id PK
         string customer_phone FK
-        enum status
+        enum status "bot, waiting_human, advisor, closed"
         int assigned_agent_id FK
         int unread_count
         text last_message_text
@@ -127,13 +132,10 @@ erDiagram
         string chat_id FK
         string sender_id
         string sender_name
-        enum direction
-        enum message_type
         text body
         text media_path
         string media_mime
-        text drive_url
-        string quoted_msg_id
+        boolean is_from_me
         string bot_intent
     }
     tickets {
@@ -141,8 +143,8 @@ erDiagram
         string chat_id FK
         string title
         text description
-        enum status
-        enum priority
+        enum status "open, assigned, resolved, pending_customer"
+        enum priority "low, medium, high, critical"
         int assigned_agent_id FK
         timestamp resolved_at
     }
@@ -152,52 +154,107 @@ erDiagram
         string chat_id FK
         string title
         text description
-        enum status
+        enum status "pending, in_progress, completed, cancelled"
         int assigned_agent_id FK
         timestamp due_date
         timestamp completed_at
     }
+    heavy_tickets {
+        int id PK
+        string title
+        text description
+        enum status "pending, in_progress, completed, cancelled"
+        enum priority "low, medium, high, critical"
+        string assigned_agent
+    }
+    heavy_ticket_comments {
+        int id PK
+        int ticket_id FK
+        string agent_name
+        text comment
+    }
+    monthly_payroll {
+        int id PK
+        int agent_id FK
+        string payroll_month
+        date start_date
+        date end_date
+        decimal total_hours
+        decimal trial_hours
+        decimal normal_hours
+        decimal hourly_rate
+        decimal total_bonuses
+        decimal total_payment
+        string status "draft, paid"
+    }
+    agent_bonuses {
+        int id PK
+        int agent_id FK
+        string payroll_month
+        decimal amount
+        string reason
+        string created_by
+    }
+    agent_schedules {
+        int id PK
+        int agent_id FK
+        string week_start
+        int day_of_week
+        time start_time
+        time end_time
+        enum break_type
+        time break_start
+    }
+    system_configs {
+        string cfg_key PK
+        text cfg_value
+    }
+    rpa_recipes {
+        int id PK
+        string name
+        string platform
+        longtext recipe_json
+    }
     drive_backups {
         int id PK
         string file_name
-        text original_path
+        text file_path
         string drive_file_id
         text drive_url
-        bigint file_size
+        int file_size
     }
-    cash_flow_entries {
-        int id PK
-        enum type "income, expense"
-        string platform
-        decimal amount
-        string description
-        date entry_date
-        boolean is_automated
-    }
-    streaming_costs {
-        int id PK
-        string platform
+    web_sales_pending {
+        string order_id PK
+        string firstName
+        string lastName
         string email
-        decimal total_cost
-        int profile_slots
-        int duration_days
-        date expiration_date
-        string payment_method
+        string whatsapp
+        string platformName
+        int amount
     }
-    streaming_prices {
-        string platform PK
-        decimal normal_price
+    web_sales_approved {
+        string order_id PK
+        string firstName
+        string lastName
+        string email
+        string whatsapp
+        string platformName
+        int amount
+        timestamp approvedAt
     }
 
     agents ||--o{ chats : "assigned"
     agents ||--o{ tickets : "assigned"
     agents ||--o{ tasks : "assigned"
+    agents ||--o{ monthly_payroll : "has"
+    agents ||--o{ agent_bonuses : "has"
+    agents ||--o{ agent_schedules : "has"
     customers ||--o{ subscriptions : "has"
     customers ||--o{ chats : "has"
     chats ||--o{ messages : "contains"
     chats ||--o{ tickets : "has"
     chats ||--o{ tasks : "has"
-    tickets ||--o{ tasks : "has"
+    heavy_tickets ||--o{ heavy_ticket_comments : "has_comments"
 ```
 
 ---
