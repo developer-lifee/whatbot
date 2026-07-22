@@ -4901,6 +4901,29 @@ app.get('/api/admin/payroll/history', async (req, res) => {
     }
 });
 
+// POST Re-open / Cancel Closed Payroll Period (Admin Only)
+app.post('/api/admin/payroll/reopen', express.json(), async (req, res) => {
+    try {
+        const { agent_id, id, payroll_month, start_date, end_date } = req.body;
+        const { pool } = require('./database');
+
+        if (id) {
+            await pool.query('DELETE FROM monthly_payroll WHERE id = ?', [id]);
+        } else if (agent_id) {
+            await pool.query(
+                'DELETE FROM monthly_payroll WHERE agent_id = ? AND (payroll_month = ? OR (start_date = ? AND end_date = ?))',
+                [agent_id, payroll_month, start_date, end_date]
+            );
+        } else {
+            return res.status(400).json({ success: false, message: 'Se requiere ID de nómina o ID de asesor' });
+        }
+
+        res.json({ success: true, message: 'Nómina reabierta correctamente. Ahora puedes corregir horas, bonos o estatus y volver a cerrar.' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Default Prompts Templates
 const DEFAULT_PAYMENT_PROMPT = `Analiza la siguiente descripción textual de una imagen/comprobante y determina si corresponde a un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
 Contexto de la charla: {{CHAT_HISTORY}}
