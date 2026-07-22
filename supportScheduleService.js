@@ -14,7 +14,10 @@ const DEFAULT_CONFIG = {
   allow_overtime: true,
   hourly_rate: 8333,
   trial_hourly_rate: 5000,
-  trial_hours_target: 80
+  trial_hours_target: 80,
+  max_hours_limit: 10,
+  shift_start_limit: "08:00",
+  shift_end_limit: "22:00"
 };
 
 function getNowInBogota() {
