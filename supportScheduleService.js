@@ -13,7 +13,7 @@ const DEFAULT_CONFIG = {
   offline_message: "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos. Te responderemos tan pronto regresemos.",
   allow_overtime: true,
   hourly_rate: 8333,
-  trial_hourly_rate: 5000,
+  trial_hourly_rate: 4000,
   trial_hours_target: 80,
   max_hours_limit: 10,
   shift_start_limit: "08:00",
