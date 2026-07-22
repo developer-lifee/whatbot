@@ -18,7 +18,7 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
     }
     automationInitialized = true;
     
-    console.log('⏰ [AUTOMATION] Inicializando tareas diarias (9:00 AM y 2:00 PM)...');
+    console.log('⏰ [AUTOMATION] Inicializando tareas diarias (10:00 AM y 12:00 PM)...');
 
     // Inicializar el gestor de mensajes programados
     try {
@@ -28,10 +28,10 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
         console.error('❌ Error inicializando gestor de mensajes programados:', e.message);
     }
 
-    // 1. COBROS AUTOMÁTICOS (9:00 AM)
-    // Se ejecuta de Lunes a Domingo a las 9:00
-    schedule.scheduleJob('0 9 * * *', async () => {
-        console.log('🚀 [9:00 AM] Iniciando proceso automático de cobros...');
+    // 1. COBROS AUTOMÁTICOS (10:00 AM)
+    // Se ejecuta de Lunes a Domingo a las 10:00 AM
+    schedule.scheduleJob('0 10 * * *', async () => {
+        console.log('🚀 [10:00 AM] Iniciando proceso automático de cobros...');
         try {
             // Simulamos un mensaje del admin al bot para disparar el flujo de cobros
             // El bot analizará el Excel y mandará el resumen al grupo
@@ -47,26 +47,26 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
             await handleAutoCobros(fakeMessage, groupId, userStates, pendingConfirmations, client);
             
         } catch (err) {
-            console.error('❌ Error en tarea automática de las 9:00 AM:', err);
+            console.error('❌ Error en tarea automática de las 10:00 AM:', err);
         }
     });
 
-    // 2. REPORTE DE VENCIMIENTOS (2:00 PM)
-    // Se ejecuta de Lunes a Domingo a las 14:00
-    schedule.scheduleJob('0 14 * * *', async () => {
-        console.log('🚀 [2:00 PM] Generando reporte de vecimientos próximos...');
+    // 2. REPORTE DE VENCIMIENTOS (12:00 PM)
+    // Se ejecuta de Lunes a Domingo a las 12:00 PM (Mediodía)
+    schedule.scheduleJob('0 12 * * *', async () => {
+        console.log('🚀 [12:00 PM] Generando reporte de vencimientos próximos...');
         try {
             const report = await getUpcomingExpirationsReport();
             const chat = await client.getChatById(groupId);
             if (chat) {
-                await chat.sendMessage(`🤖 *REPORTE AUTOMÁTICO DE LAS 2:00 PM*\n\n${report}`);
+                await chat.sendMessage(`🤖 *REPORTE AUTOMÁTICO DE LAS 12:00 PM (MEDIODÍA)*\n\n${report}`);
             }
             
             // Notificamos al proveedor de forma automática
             await notifyProviderExpiringAccounts(client);
             
         } catch (err) {
-            console.error('❌ Error en tarea automática de las 2:00 PM:', err);
+            console.error('❌ Error en tarea automática de las 12:00 PM:', err);
         }
     });
 
