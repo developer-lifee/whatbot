@@ -4819,10 +4819,16 @@ app.post('/api/admin/payroll/close', express.json(), async (req, res) => {
         const normHours = parseFloat(normal_hours || (parseFloat(total_hours) - trHours));
         const pLabel = period_label || `${sDate} al ${eDate}`;
 
+        // Delete previous closed/draft entry for this agent in this exact period before inserting
+        await pool.query(
+            'DELETE FROM monthly_payroll WHERE agent_id = ? AND ((start_date = ? AND end_date = ?) OR (payroll_month = ? AND start_date IS NULL))',
+            [agentId, sDate, eDate, pMonth]
+        );
+
         await pool.query(`
             INSERT INTO monthly_payroll (agent_id, payroll_month, start_date, end_date, total_hours, trial_hours, normal_hours, hourly_rate, total_bonuses, total_payment, period_label, status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [agentId, pMonth, sDate, eDate, parseFloat(total_hours), trHours, normHours, parseFloat(hourly_rate), parseFloat(total_bonuses), parseFloat(total_payment), pLabel, stat]);
+        `, [agentId, pMonth, sDate, eDate, parseFloat(total_hours || 0), trHours, normHours, parseFloat(hourly_rate || 0), parseFloat(total_bonuses || 0), parseFloat(total_payment || 0), pLabel, stat]);
 
         // Auto-promote trial agents if target trial hours completed
         let promoted = false;
