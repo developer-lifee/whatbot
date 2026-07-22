@@ -112,26 +112,25 @@ async function isSupportOpen() {
         for (const slot of todaySlots) {
           const [sh, sm] = slot.start_time.split(':').map(Number);
           const [eh, em] = slot.end_time.split(':').map(Number);
-            const slotStartMin = sh * 60 + sm;
-            const slotEndMin = eh * 60 + em;
+          const slotStartMin = sh * 60 + sm;
+          const slotEndMin = eh * 60 + em;
 
-            // Check if current time is within this slot
-            if (currentMinutes >= slotStartMin && currentMinutes <= slotEndMin) {
-              // Check if agent is on break right now
-              let onBreak = false;
-              if (slot.break_type && slot.break_type !== 'none' && slot.break_start) {
-                const [bh, bm] = slot.break_start.split(':').map(Number);
-                const breakStartMin = bh * 60 + bm;
-                const breakDuration = slot.break_type === 'break_30' ? 30 : 60;
-                const breakEndMin = breakStartMin + breakDuration;
+          // Check if current time is within this slot
+          if (currentMinutes >= slotStartMin && currentMinutes <= slotEndMin) {
+            // Check if agent is on break right now
+            let onBreak = false;
+            if (slot.break_type && slot.break_type !== 'none' && slot.break_start) {
+              const [bh, bm] = slot.break_start.split(':').map(Number);
+              const breakStartMin = bh * 60 + bm;
+              const breakDuration = slot.break_type === 'break_30' ? 30 : 60;
+              const breakEndMin = breakStartMin + breakDuration;
 
-                if (currentMinutes >= breakStartMin && currentMinutes <= breakEndMin) {
-                  onBreak = true;
-                }
+              if (currentMinutes >= breakStartMin && currentMinutes <= breakEndMin) {
+                onBreak = true;
               }
-              if (!onBreak) {
-                activeAgents.push(slot.agent_id);
-              }
+            }
+            if (!onBreak) {
+              activeAgents.push(slot.agent_id);
             }
           }
         }
