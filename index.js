@@ -4659,7 +4659,7 @@ app.get('/api/admin/payroll', async (req, res) => {
                     trialHoursInPeriod = 0;
                     normalHoursInPeriod = totalHours;
                     finalPayment = 0;
-                } else if (agent.role === 'trial') {
+                } else if (trialHoursLeft > 0 && agent.role !== 'admin') {
                     if (totalHours <= trialHoursLeft) {
                         trialHoursInPeriod = totalHours;
                         normalHoursInPeriod = 0;
@@ -4846,8 +4846,8 @@ app.post('/api/admin/payroll/close', express.json(), async (req, res) => {
 
         let promoted = false;
 
-        // If agent is currently trial (or trial_hours were computed for this period):
-        if (agent.role === 'trial') {
+        // If trial hours are still remaining to reach trialHoursTarget:
+        if (trialHoursLeft > 0 && agent.role !== 'admin') {
             if (totHours <= trialHoursLeft) {
                 trHours = totHours;
                 normHours = 0;
