@@ -17,7 +17,8 @@ const DEFAULT_CONFIG = {
   trial_hours_target: 80,
   max_hours_limit: 10,
   shift_start_limit: "08:00",
-  shift_end_limit: "22:00"
+  shift_end_limit: "22:00",
+  whatsapp_contact_number: "573118587974"
 };
 
 function getNowInBogota() {

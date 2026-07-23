@@ -2282,6 +2282,26 @@ app.get('/api/admin/support-schedule', async (req, res) => {
     }
 });
 
+// GET Public Support & Contact Configuration for Frontend Website
+app.get('/api/public/support-config', async (req, res) => {
+    try {
+        const { getSupportScheduleConfig, isSupportOpen } = require('./supportScheduleService');
+        const config = getSupportScheduleConfig();
+        const supportStatus = await isSupportOpen();
+        res.json({
+            whatsapp_contact_number: config.whatsapp_contact_number || "573118587974",
+            is_open: supportStatus.open,
+            reason: supportStatus.reason,
+            weekday_start: config.weekday_start,
+            weekday_end: config.weekday_end,
+            weekend_start: config.weekend_start,
+            weekend_end: config.weekend_end
+        });
+    } catch (e) {
+        res.status(500).json({ whatsapp_contact_number: "573118587974", is_open: true, error: e.message });
+    }
+});
+
 // --- CONTABILIDAD Y PRECIOS ENDPOINTS ---
 const accountingService = require('./accountingService');
 
