@@ -8139,7 +8139,14 @@ async function baseProcessIncomingMessage(messages) {
 
                         if (matchedItems.length > 0) {
                             stateData.items = matchedItems;
-                            if (userAccounts.length > 0 && !isNewRequested) {
+                            const matchesUserAccount = userAccounts.length > 0 && userAccounts.some(acc => {
+                                const accStr = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                                return matchedItems.some(item => {
+                                    const itemStr = (item.Streaming || (item.platform ? item.platform.name : "") || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                                    return accStr.includes(itemStr) || itemStr.includes(accStr);
+                                });
+                            });
+                            if (matchesUserAccount || (userAccounts.length > 0 && !isNewRequested)) {
                                 stateData.isRenewal = true;
                             }
                         } else if (userAccounts.length > 0 && !isNewRequested) {
@@ -8357,6 +8364,15 @@ async function baseProcessIncomingMessage(messages) {
                                         leftoverAmount: leftoverAmount
                                     });
                                     return;
+                                }
+
+                                // Si el usuario ya tiene una cuenta activa de Netflix en Excel para este teléfono, es una RENOVACIÓN
+                                const userHasActiveNetflix = userAccounts && userAccounts.some(acc => {
+                                    const s = (acc.Streaming || "").toLowerCase();
+                                    return s.includes('netflix') && !s.includes('extra');
+                                });
+                                if (userHasActiveNetflix) {
+                                    stateData.isRenewal = true;
                                 }
 
                                 let hasNetflix = false;
