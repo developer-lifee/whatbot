@@ -8609,6 +8609,16 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
 
         if (wantsImgCode && !isIncorrectPassword) {
+            const isOptionsScreen = [
+                'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'estoy de viaje'
+            ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
+
+            if (isOptionsScreen) {
+                console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones de Netflix/TV en @${userId}. Guiando al usuario.`);
+                await message.reply(`🤖 ¡Veo la pantalla de opciones de Netflix en tu TV! 📺\n\nPor favor selecciona con el control remoto de tu televisor la opción **"Actualizar Hogar con Netflix"** (o **"Estoy de viaje"**).\n\nUna vez la selecciones en tu pantalla, escríbeme la palabra *código* aquí para consultarlo y enviártelo de inmediato. 🚀`);
+                return;
+            }
+
             isCodeRequestFromImage = true;
             console.log(`[BOT MEDIA OCR DETECTED IN FLOW] Gemini detected code request in image/explanation. Routing to code generator.`);
         }
