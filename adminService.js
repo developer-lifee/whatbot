@@ -391,7 +391,8 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                 await client.sendMessage(targetJid, credentialsMsg);
 
                 if (manualItems.length > 0) {
-                    const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
+                    const newManualItems = manualItems.filter(item => item.type !== 'renewal');
+                    const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
                     if (hasAppleOne) {
                         const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
                             `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
@@ -400,7 +401,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                             `*(Ejemplo: 3101234567, miusuario@gmail.com)*`;
                         await client.sendMessage(targetJid, appleMsg);
 
-                        const otherManuals = manualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
+                        const otherManuals = newManualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
                         if (otherManuals.length > 0) {
                             const otherPlats = otherManuals.map(item => item.name.toUpperCase()).join(', ');
                             const expectation = getDynamicSupportExpectationMessage();
@@ -408,7 +409,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                         }
 
                         userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: targetJid, lastPaymentValidated: Date.now() });
-                    } else {
+                    } else if (newManualItems.length > 0) {
                         userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     }
                     await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
@@ -416,7 +417,8 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                 }
             } else {
                 if (manualItems.length > 0) {
-                    const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
+                    const newManualItems = manualItems.filter(item => item.type !== 'renewal');
+                    const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
                     if (hasAppleOne) {
                         const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
                             `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
@@ -425,7 +427,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                             `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
                         await client.sendMessage(targetJid, appleMsg);
 
-                        const otherManuals = manualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
+                        const otherManuals = newManualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
                         if (otherManuals.length > 0) {
                             const otherPlats = otherManuals.map(item => item.name.toUpperCase()).join(', ');
                             const expectation = getDynamicSupportExpectationMessage();

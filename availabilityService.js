@@ -57,6 +57,9 @@ function normalizeStreamingName(name) {
     if (normalized.includes('claude')) {
         return 'claude';
     }
+    if (normalized.includes('apple')) {
+        return 'apple';
+    }
     return normalized;
 }
 

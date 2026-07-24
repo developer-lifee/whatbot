@@ -34,7 +34,8 @@ function isSamePlatformFamily(name1, name2) {
         ['hbo', 'hbo_platino'],
         ['netflix', 'netflix_extra'],
         ['spotify', 'spotify_familiar', 'spotify_personal', 'spotify_individual'],
-        ['disney', 'disney_premium', 'disney_standard']
+        ['disney', 'disney_premium', 'disney_standard'],
+        ['apple', 'apple_one', 'apple_tv', 'appletv']
     ];
     
     for (const fam of families) {
