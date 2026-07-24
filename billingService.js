@@ -167,32 +167,95 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
 }
 
 /**
- * Intenta ajustar la duración y el total de la renovación en stateData si el monto pagado coincide con múltiples meses.
+ * Intenta ajustar la duración y el total de la renovación en stateData si el monto pagado coincide con múltiples meses o cuentas.
  */
 async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
-    if (!stateData || !stateData.isRenewal || !paidAmount) return;
+    if (!stateData || !paidAmount) return;
     try {
         const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
         const userAccounts = await getAccountsByPhone(phoneNumber);
-        if (userAccounts.length === 0) return;
+        if (!userAccounts || userAccounts.length === 0) return;
+
+        // Marcar implícitamente como renovación si el usuario ya posee servicios registrados
+        stateData.isRenewal = true;
 
         const platforms = await getPlatformKnowledge();
-        const today = getTodayInBogota();
 
-        // Probar duraciones de 1 a 12 meses
+        const aliasMap = {
+            'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE TV+',
+            'HBO': 'HBOMAX', 'MAX': 'HBOMAX', 'DISNEY': 'DISNEY+ PREMIUM',
+            'STAR': 'DISNEY+ PREMIUM', 'YOUTUBE': 'YOUTUBE PREMIUM', 'MICROSOFT': 'MICROSOFT 365',
+            'NETFLIX EXTRA': 'NETFLIX EXTRA', 'EXTRA': 'NETFLIX EXTRA'
+        };
+
+        // 1. Probar si paidAmount coincide con la suma de todas las cuentas del usuario (para 1 a 12 meses)
         for (let m = 1; m <= 12; m++) {
-            let total = 0;
-            let hasZeroPrice = false;
+            let totalWithDiscount = 0;
+            let totalWithoutDiscount = 0;
 
             userAccounts.forEach(acc => {
                 const streaming = (acc.Streaming || "").toUpperCase();
                 let price = 0;
+
+                if (streaming.includes('EXTRA')) {
+                    price = 17000;
+                } else {
+                    let mappedStreaming = streaming;
+                    for (const [alias, real] of Object.entries(aliasMap)) {
+                        if (mappedStreaming.includes(alias)) {
+                            mappedStreaming = mappedStreaming.replace(alias, real);
+                            break;
+                        }
+                    }
+                    const cleanExcel = mappedStreaming.replace(/[^A-Z0-9]/g, '');
+                    const platInfo = platforms.find(p => {
+                        const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                        return cleanExcel.includes(cleanPlat) || cleanPlat.includes(cleanExcel);
+                    });
+                    if (platInfo) {
+                        price = platInfo.price || 0;
+                        if (platInfo.name.toUpperCase() === 'SPOTIFY' && !cleanExcel.includes('PROPORCIONADO') && !cleanExcel.includes('OWNER')) {
+                            const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL'));
+                            if (personalPlan) price = personalPlan.price;
+                        } else if (platInfo.plans && platInfo.plans.length > 0) {
+                            const specificPlan = platInfo.plans.find(plan => {
+                                const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
+                            });
+                            if (specificPlan) price = specificPlan.price;
+                        }
+                    }
+                }
+
+                if (price === 0) price = 17000; // precio predeterminado estimado si no figura en catálogo
+
+                totalWithDiscount += price * m;
+                totalWithoutDiscount += price * m;
+            });
+
+            if (userAccounts.length > 1) {
+                totalWithDiscount = Math.max(0, totalWithDiscount - ((userAccounts.length - 1) * 1000 * m));
+            }
+
+            if (Math.abs(totalWithDiscount - paidAmount) < 500 || Math.abs(totalWithoutDiscount - paidAmount) < 500) {
+                console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con renovación de ${m} mes(es) para ${userAccounts.length} cuenta(s).`);
+                stateData.durationMonths = m;
+                stateData.total = paidAmount;
+                stateData.items = userAccounts;
+                stateData.isRenewal = true;
+                stateData.leftoverAmount = 0;
+                return;
+            }
+        }
+
+        // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta del usuario por M meses
+        for (const acc of userAccounts) {
+            const streaming = (acc.Streaming || "").toUpperCase();
+            let price = 0;
+            if (streaming.includes('EXTRA')) {
+                price = 17000;
+            } else {
                 let mappedStreaming = streaming;
-                const aliasMap = {
-                    'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE TV+',
-                    'HBO': 'HBOMAX', 'MAX': 'HBOMAX', 'DISNEY': 'DISNEY+ PREMIUM',
-                    'STAR': 'DISNEY+ PREMIUM', 'YOUTUBE': 'YOUTUBE PREMIUM', 'MICROSOFT': 'MICROSOFT 365'
-                };
                 for (const [alias, real] of Object.entries(aliasMap)) {
                     if (mappedStreaming.includes(alias)) {
                         mappedStreaming = mappedStreaming.replace(alias, real);
@@ -206,10 +269,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
                 });
                 if (platInfo) {
                     price = platInfo.price || 0;
-                    if (platInfo.name.toUpperCase() === 'SPOTIFY' && !cleanExcel.includes('PROPORCIONADO') && !cleanExcel.includes('OWNER')) {
-                        const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL'));
-                        if (personalPlan) price = personalPlan.price;
-                    } else if (platInfo.plans && platInfo.plans.length > 0) {
+                    if (platInfo.plans && platInfo.plans.length > 0) {
                         const specificPlan = platInfo.plans.find(plan => {
                             const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
                             return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
@@ -217,33 +277,30 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
                         if (specificPlan) price = specificPlan.price;
                     }
                 }
-                if (price === 0) hasZeroPrice = true;
-                total += price * m;
-            });
-
-            if (hasZeroPrice) continue;
-
-            // Descuento combo
-            const imminentRenewals = userAccounts.filter(acc => {
-                const expDate = getJsDateFromExcel(acc.deben || acc.vencimiento);
-                if (!expDate) return false;
-                const diffDays = Math.floor((expDate - today) / (1000 * 60 * 60 * 24));
-                return diffDays <= 1;
-            });
-            if (total > 0 && imminentRenewals.length > 1) {
-                const discount = (imminentRenewals.length - 1) * 1000 * m;
-                total -= discount;
             }
 
-            if (Math.abs(total - paidAmount) < 500) {
-                console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} detectado para ${m} meses de renovación.`);
-                stateData.durationMonths = m;
-                stateData.total = total;
-                return;
+            if (price === 0) price = 17000;
+
+            for (let m = 1; m <= 12; m++) {
+                if (Math.abs((price * m) - paidAmount) < 500) {
+                    console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con renovación individual de ${acc.Streaming} por ${m} mes(es).`);
+                    stateData.durationMonths = m;
+                    stateData.total = paidAmount;
+                    stateData.items = [acc];
+                    stateData.isRenewal = true;
+                    stateData.leftoverAmount = 0;
+                    return;
+                }
             }
         }
+
+        // 3. Fallback: Si el usuario es cliente existente y paga un monto arbitrario de renovación
+        if (stateData.isRenewal && paidAmount > 0) {
+            stateData.total = paidAmount;
+            stateData.leftoverAmount = 0;
+        }
     } catch (e) {
-        console.error('[Duration Adjuster] Error:', e.message);
+        console.error('[Duration Adjuster] Error en ajuste de duración:', e.message);
     }
 }
 

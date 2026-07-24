@@ -8114,6 +8114,9 @@ async function baseProcessIncomingMessage(messages) {
 
                         if (matchedItems.length > 0) {
                             stateData.items = matchedItems;
+                            if (userAccounts.length > 0 && !isNewRequested) {
+                                stateData.isRenewal = true;
+                            }
                         } else if (userAccounts.length > 0 && !isNewRequested) {
                             stateData.items = userAccounts;
                             stateData.isRenewal = true;
