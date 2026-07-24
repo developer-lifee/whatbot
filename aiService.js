@@ -1082,6 +1082,23 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
             needsEscalation: false
           };
         }
+
+        // DETECCIÓN DE PANTALLA DE ERROR/FALLA DE PAGO DEL PROVEEDOR EN NETFLIX/STREAMING
+        const isPaymentErrorScreen = [
+          'no pudimos procesar tu pago', 'reintentar pago', 'actualizar info de pago', 'actualiza tu información de pago',
+          'tarjeta no pudo procesar', 'cuenta suspendida', 'actualizar método de pago', 'error de pago', 'fallo de pago',
+          'no pudimos procesar', 'reintentar con tu'
+        ].some(kw => descLower.includes(kw));
+
+        if (isPaymentErrorScreen) {
+          console.log("[AI Fallback Media] Detectada pantalla de error de pago prematuro del proveedor. Informando y escalando.");
+          return {
+            replyMessage: `🤖 ¡Hola! Veo en tu pantalla que la cuenta presenta un aviso de pago o tarjeta del proveedor. ⚠️\n\n` +
+              `No te preocupes, tu suscripción con Sheerit está activa y vigente. *Por favor NO ingreses ninguna tarjeta personal ni presiones "Actualizar info de pago".*\n\n` +
+              `Un asesor de soporte revisará tu caso en un momento para reasignarte una cuenta totalmente activa y sin fallas. ¡Gracias por tu paciencia! 😊`,
+            needsEscalation: true
+          };
+        }
       }
     } catch (e) {
       console.error("Error generating media description in fallback:", e);
