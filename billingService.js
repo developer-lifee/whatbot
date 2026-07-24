@@ -199,6 +199,8 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
 
                 if (streaming.includes('EXTRA')) {
                     price = 17000;
+                } else if (streaming.includes('PLATINO') || streaming.includes('PLATINUM')) {
+                    price = 11000;
                 } else {
                     let mappedStreaming = streaming;
                     for (const [alias, real] of Object.entries(aliasMap)) {
@@ -254,6 +256,8 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
             let price = 0;
             if (streaming.includes('EXTRA')) {
                 price = 17000;
+            } else if (streaming.includes('PLATINO') || streaming.includes('PLATINUM')) {
+                price = 11000;
             } else {
                 let mappedStreaming = streaming;
                 for (const [alias, real] of Object.entries(aliasMap)) {
