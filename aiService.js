@@ -938,14 +938,15 @@ Debes responder en formato JSON:
   "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, o destino al que se envió el dinero. Ej: "0087387259", "300 123 4567", "esteban@nequi.com". Extráelo aunque aparezca parcial. MUY IMPORTANTE.
   "destinationName": string | null, // Nombre del destinatario/negocio si aparece en lugar de la llave. Ej: "SHEERIT ESTEBAN AVILA", "TIENDA EJEMPLO". Aparece frecuentemente en pagos por QR de Negocios.
   "extractedDetails": string | null, // Detalles extra como ID de transacción o fecha/hora.
-  "inferredPlatform": string | null // ¿Qué plataforma está pagando según el historial? null si no es evidente.
+  "inferredPlatform": string | null // ¿Qué plataforma está pagando según el historial? Extrae la plataforma exacta discutida en el historial (ej: "HBO", "Netflix", "Disney"). null si no es evidente.
 }
 
 Reglas:
 - Solo marca isReceipt: true si indica una confirmación de envío/transferencia exitosa.
 - Si indica ERROR, CUENTA SUSPENDIDA o fallo, marca isReceipt: false.
 - Sé muy riguroso con 'amount'. Busca el valor de la transferencia, no montos secundarios.
-- Para 'destinationKey': busca cualquier número que sea la cuenta, llave, Llave Bre-V, número de celular destino o alias al que se envió. Puede aparecer como "A la llave", "Cuenta destino", "Para", "Número", etc.`;
+- Para 'destinationKey': busca cualquier número que sea la cuenta, llave, Llave Bre-V, número de celular destino o alias al que se envió. Puede aparecer como "A la llave", "Cuenta destino", "Para", "Número", etc.
+- Para 'inferredPlatform': Examina el [Historial reciente]. Si el cliente estuvo consultando o comprando una plataforma específica (ej: 'HBO', 'Max', 'Netflix', 'Disney', 'Spotify'), coloca esa plataforma EXACTA. Queda estrictamente PROHIBIDO inferir 'Apple One' o plataformas no discutidas cuando el cliente hablaba de HBO, Netflix o Disney. Si no hay mención en el historial, pon null.`;
 
     try {
       const { pool } = require('./database');
