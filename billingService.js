@@ -735,13 +735,22 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
         const customMessage = `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${servicesToPrint}${totalText}\n\nEscribe *3* en este chat para conocer el desglose detallado (precios, combos y correos) o ver otros medios. ¡Gracias por preferirnos!`;
         await client.sendMessage(dest, customMessage);
         
-        if (userStates && userStates.has(dest)) {
+        if (userStates) {
             const st = userStates.get(dest);
             const stateStr = (typeof st === 'object') ? st.state : st;
             if (stateStr === 'waiting_human') {
                 userStates.delete(dest);
                 console.log(`[Auto-Billing] Cleared waiting_human state for ${dest} to allow automated interactions.`);
             }
+
+            userStates.set(dest, {
+                state: 'awaiting_payment_confirmation',
+                total: totalSum || 0,
+                isRenewal: true,
+                items: targetAccounts || [],
+                timestamp: Date.now()
+            });
+            console.log(`[Auto-Billing] Persisted cobro total $${totalSum} for ${dest} in userStates.`);
         }
         exitosos++;
     } catch(e) {
