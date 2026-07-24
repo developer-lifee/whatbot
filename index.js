@@ -10339,6 +10339,16 @@ process.on('unhandledRejection', (reason, promise) => {
 async function startClientWithRetries(retriesLeft = 4) {
     try {
         console.log(`🤖 Inicializando cliente de WhatsApp Web (Intentos restantes: ${retriesLeft})...`);
+        const fs = require('fs');
+        const path = require('path');
+        const lockPath = path.join(__dirname, '.wwebjs_auth', 'session', 'SingletonLock');
+        if (fs.existsSync(lockPath)) {
+            try {
+                fs.unlinkSync(lockPath);
+                console.log('🧹 [Startup Clean] SingletonLock obsoleto eliminado antes de iniciar cliente.');
+            } catch (e) { }
+        }
+
         await client.initialize();
     } catch (err) {
         console.error('❌ Error al inicializar cliente:', err.message);

@@ -428,7 +428,7 @@ async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de so
   ];
 
   const payload = {
-    model: "deepseek-chat",
+    model: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
     messages: messages,
     temperature: 0.1
   };
