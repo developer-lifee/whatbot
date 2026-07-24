@@ -6836,7 +6836,11 @@ async function baseProcessIncomingMessage(messages) {
                     imgDesc.includes('wrong password') ||
                     imgDesc.includes('password incorrect') ||
                     imgDesc.includes('contraseña no coincide') ||
-                    imgDesc.includes('clave no coincide');
+                    imgDesc.includes('clave no coincide') ||
+                    imgDesc.includes('datos de acceso') ||
+                    imgDesc.includes('datos anteriores') ||
+                    imgDesc.includes('no me permite el ingreso') ||
+                    imgDesc.includes('no permite el ingreso');
 
                 const wantsImgCode = [
                     'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor',
@@ -6941,10 +6945,18 @@ async function baseProcessIncomingMessage(messages) {
                     });
                 }
 
-                // BYPASS INTELIGENTE: Si el usuario pide un código de verificación/2FA, lo asistimos automáticamente
-                // incluso si está en espera humana (waiting_human), para que no dependa de un asesor para un simple código.
+                // BYPASS INTELIGENTE: Si el usuario pide un código de verificación/2FA o sus credenciales, lo asistimos automáticamente
+                // incluso si está en espera humana (waiting_human), para que no dependa de un asesor para algo automatizable.
                 const txt = (message.body || "").toLowerCase();
-                const isCodeRequest = txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación") || txt.includes("2fa") || (detection && detection.intent === 'credenciales');
+                const isCodeRequest = txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación") || txt.includes("2fa");
+                const isCredentialsRequest = (detection && detection.intent === 'credenciales') || cleanInput === '2' || txt.includes('credenciales') || txt.includes('datos de acceso') || txt.includes('mis datos');
+
+                if (isCredentialsRequest) {
+                    console.log(`[Bypass Waiting Human] 🔐 El usuario @${userId.replace('@c.us', '')} pidió sus credenciales/datos de acceso. Entregando credenciales de forma automática.`);
+                    const { processCheckCredentials } = require('./billingService');
+                    await processCheckCredentials(userId, client, message.body, "", userStates);
+                    return;
+                }
 
                 if (isCodeRequest) {
                     console.log(`[Bypass Waiting Human] 🔑 El usuario @${userId.replace('@c.us', '')} pidió un código. Procesando de forma automática.`);
@@ -8584,8 +8596,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         const explanationLower = (detection.explanation || "").toLowerCase();
         const bodyLower = inputToUse.toLowerCase();
         const isIncorrectPassword = [
-            'incorrecta', 'incorrecto', 'no son correctos', 'contraseña incorrecta', 'clave incorrecta', 'credenciales incorrectas'
-        ].some(kw => explanationLower.includes(kw));
+            'incorrecta', 'incorrecto', 'no son correctos', 'contraseña incorrecta', 'clave incorrecta', 'credenciales incorrectas',
+            'datos de acceso', 'datos anteriores', 'clave antigua', 'contraseña antigua', 'no me permite el ingreso', 'no permite el ingreso'
+        ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
 
         const wantsImgCode = [
             'hogar', 'dispositivo', 'código', 'codigo', '2fa', 'authenticator', 'autenticación',
