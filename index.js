@@ -8768,15 +8768,28 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         !(isSingleDigit && statesExpectingNumbers.includes(currentState));
     const isVeryFrustrated = detection.frustrationLevel >= 7;
 
-    // NUEVO breakout específico para awaiting_churn_reason cuando el usuario no quiere cancelar
+    // NUEVO breakout específico para awaiting_churn_reason cuando el usuario explícitamente NO quiere cancelar
     let isChurnRefusal = false;
     if (currentState === 'awaiting_churn_reason') {
         const lowerBody = inputToUse.toLowerCase();
-        const hasRefusalText = lowerBody.includes('no quiero cancelar') || lowerBody.includes('no cancel') || lowerBody.includes('no voy a cancelar') || lowerBody.includes('error') || lowerBody.includes('solo preguntaba') || lowerBody.includes('solo estoy preguntando') || lowerBody.includes('cuanto me saldria') || lowerBody.includes('cuánto me saldría');
-        const isRefusalIntent = ['renovar', 'pagar', 'comprar'].includes(detection.intent);
-        if (hasRefusalText || isRefusalIntent) {
+        const hasRefusalText = lowerBody.includes('no quiero cancelar') ||
+            lowerBody.includes('no cancel') ||
+            lowerBody.includes('no voy a cancelar') ||
+            lowerBody.includes('me arrepenti') ||
+            lowerBody.includes('me arrepentí') ||
+            lowerBody.includes('error') ||
+            lowerBody.includes('solo preguntaba') ||
+            lowerBody.includes('solo estoy preguntando') ||
+            lowerBody.includes('cuanto me saldria') ||
+            lowerBody.includes('cuánto me saldría');
+        const isExplicitOtherAction = lowerBody.startsWith('quiero comprar') ||
+            lowerBody.startsWith('quiero renovar') ||
+            lowerBody.startsWith('comprar ') ||
+            lowerBody.startsWith('renovar ');
+
+        if (hasRefusalText || isExplicitOtherAction) {
             isChurnRefusal = true;
-            console.log(`[Churn Breakout] El cliente rechaza la cancelación. Intent: ${detection.intent}, Texto: "${inputToUse}"`);
+            console.log(`[Churn Breakout] El cliente rechaza la cancelación o solicita otra acción explícita. Intent: ${detection.intent}, Texto: "${inputToUse}"`);
         }
     }
 
@@ -9498,7 +9511,36 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             break;
         case 'awaiting_churn_reason':
             const reason = (message.body || "").trim();
+            const lowerReason = reason.toLowerCase();
             const cState = userStates.get(userId) || {};
+
+            // Si la razón de cancelación es almacenamiento/espacio en Outlook/Microsoft/correo
+            const isStorageIssue = lowerReason.includes('almacenamiento') ||
+                lowerReason.includes('espacio') ||
+                lowerReason.includes('15gb') ||
+                lowerReason.includes('15 gb') ||
+                lowerReason.includes('correo lleno') ||
+                lowerReason.includes('capacidad') ||
+                lowerReason.includes('disco') ||
+                lowerReason.includes('memoria') ||
+                lowerReason.includes('onedrive');
+
+            if (isStorageIssue) {
+                let storageMsg = `🤖 ¡Espera! Las cuentas de *Microsoft 365 / Outlook* que ofrecemos incluyen *1 TB (1.000 GB)* de almacenamiento. 💾\n\n` +
+                    `¿Te aparece el aviso de límite de *15 GB* en tu correo? Por favor envíame un *pantallazo* (captura de pantalla) del aviso o error que ves para guiarte y ayudarte a solucionar el problema de inmediato. 😊`;
+                await message.reply(storageMsg);
+                userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                try {
+                    const groupChat = await client.getChatById(GROUP_ID);
+                    if (groupChat) {
+                        await groupChat.sendMessage(`🚨 *SOPORTE ALMACENAMIENTO OUTLOOK/M365* de @${userId.replace('@c.us', '')}\n` +
+                            `El cliente solicitó cancelar por almacenamiento: "${reason}".\n` +
+                            `Se le ofreció soporte y pidió pantallazo del aviso de 15GB/espacio.`);
+                    }
+                } catch (e) { }
+                break;
+            }
+
             if (cState.rowNumber) {
                 const { updateExcelData } = require('./apiService');
                 try {
