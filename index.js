@@ -8631,6 +8631,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'televisor', 'tv', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating'
         ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
 
+        const isGetHelpScreen = [
+            'obtener ayuda', 'enviamos a tu email', 'código vence en 15', 'codigo vence en 15', 'solicita el reenvio', 'solicita el reenvío'
+        ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
+
+        const isPasswordFocus = isIncorrectPassword || (detection && detection.intent === 'credenciales') ||
+            ['clave', 'contraseña', 'password', 'datos', 'ingresar', 'ingreso', 'acceso'].some(kw => bodyLower.includes(kw) || explanationLower.includes(kw));
+
+        if (isGetHelpScreen && isPasswordFocus) {
+            console.log(`[BOT MEDIA OCR GET HELP SCREEN] Se detectó pantalla 'Obtener ayuda' / 'Enviamos a tu email' en @${userId}. Guiando para ingresar con contraseña.`);
+            await message.reply(`🤖 ¡Veo la pantalla de inicio de sesión de Netflix en tu TV! 📺\n\n` +
+                `Como deseas ingresar con tu correo y contraseña:\n` +
+                `1. En esa misma pantalla, presiona la opción **"Obtener ayuda ∨"** en la parte inferior.\n` +
+                `2. Selecciona **"Iniciar sesión con contraseña"** (o **"Usar contraseña"**).\n\n` +
+                `¡Ahí podrás ingresar la clave directamente de tu cuenta sin depender de códigos! 🔑`);
+            return;
+        }
+
         if (wantsImgCode && !isIncorrectPassword) {
             const isOptionsScreen = [
                 'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'estoy de viaje'
