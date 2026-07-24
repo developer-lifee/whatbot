@@ -8357,6 +8357,29 @@ async function baseProcessIncomingMessage(messages) {
                                     return;
                                 }
 
+                                // SI EL CARRITO FUE AUTO-RELLENADO DESDE LA IA / HISTORIAL (CARRITO VACÍO PREVIO), CONFIRMAR CON EL USUARIO ANTES DE ENTREGAR
+                                if (stateData.isAutoFilled && !stateData.isRenewal && stateData.items && stateData.items.length > 0) {
+                                    const item = stateData.items[0];
+                                    const targetPlat = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "Servicio").toUpperCase();
+                                    let msg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
+                                        `Veo que deseas activar tu servicio de *${targetPlat}*, ¿es correcto para proceder con la entrega de tus credenciales? 😊\n\n` +
+                                        `1 - Sí, activar ${targetPlat} ✅\n` +
+                                        `2 - No, es para otra plataforma u otro motivo ❌`;
+                                    await message.reply(msg);
+
+                                    userStates.set(userId, {
+                                        state: 'awaiting_payment_autofill_confirmation',
+                                        pendingStateData: { ...stateData, total: check.amount, leftoverAmount: leftoverAmount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` },
+                                        amount: check.amount,
+                                        bank: check.bank,
+                                        matchId: match.id,
+                                        chatJid: originalChatJid,
+                                        nombre: foundName,
+                                        targetPlat: targetPlat
+                                    });
+                                    return;
+                                }
+
                                 // Ejecutar validación automática directa si todo coincide perfectamente
                                 const validationResult = await executePaymentValidation(
                                     userId,
@@ -8733,7 +8756,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     }
 
     const isSingleDigit = /^\d+$/.test(inputToUse.trim());
-    const statesExpectingNumbers = ['selecting_plans', 'adding_platform', 'awaiting_code_account_selection', 'awaiting_payment_renewal_confirmation', 'awaiting_payment_multi_renewal_confirmation'];
+    const statesExpectingNumbers = ['selecting_plans', 'adding_platform', 'awaiting_code_account_selection', 'awaiting_payment_renewal_confirmation', 'awaiting_payment_multi_renewal_confirmation', 'awaiting_payment_autofill_confirmation'];
     const isMenuDigit = ['1', '2', '3', '4', '5'].includes(inputToUse.trim());
     let isForcedMenuBreakout = false;
     if (isMenuDigit && currentState && !statesExpectingNumbers.includes(currentState)) {
@@ -9191,6 +9214,39 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 } catch (e) { }
             } else {
                 await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, renovar) o *2* (No, servicio nuevo).");
+            }
+            break;
+        case 'awaiting_payment_autofill_confirmation':
+            const autofillOption = (message.body || "").trim().toLowerCase();
+            if (autofillOption === '1' || autofillOption === 'si' || autofillOption === 'sí') {
+                const stateInfo = currentStateData;
+                await message.reply("🤖 ¡Excelente! Procediendo a la asignación y entrega de tu servicio... ⏳");
+                const valResult = await executePaymentValidation(
+                    userId,
+                    stateInfo.pendingStateData,
+                    client,
+                    userStates,
+                    null,
+                    stateInfo.matchId
+                );
+                if (!valResult.success) {
+                    await message.reply("🤖 Hubo un inconveniente al asignar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                }
+            } else if (autofillOption === '2' || autofillOption === 'no') {
+                await message.reply("🤖 Entendido. He pausado la asignación automática para que un asesor te colabore. Por favor, escríbeme cuál plataforma deseas activar. 😊");
+                userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                try {
+                    const groupChat = await client.getChatById(GROUP_ID);
+                    if (groupChat) {
+                        await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (PLATAFORMA ERRÓNEA)* de @${userId.replace('@c.us', '')}\n` +
+                            `Monto: $${currentStateData.amount}\n` +
+                            `Banco: ${currentStateData.bank || 'Nequi'}\n` +
+                            `El cliente indicó que el pago NO era para ${currentStateData.targetPlat || 'la plataforma inferida'}.`);
+                    }
+                } catch (e) { }
+            } else {
+                await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, activar) o *2* (No, otra plataforma).");
             }
             break;
         case 'awaiting_code_account_selection':
