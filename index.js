@@ -1246,7 +1246,7 @@ app.post('/api/admin/client-history/save-notes', express.json(), async (req, res
 
 app.post('/api/admin/actions/send-info', async (req, res) => {
     try {
-        const { phone, type, password, message: customMessage } = req.body;
+        const { phone, type, password, message: customMessage, platform } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const cleanPhone = phone ? phone.toString().replace(/\D/g, '') : '';
@@ -1279,33 +1279,58 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
             message = customMessage || "";
         } else {
             const { getAccountsByPhone } = require('./apiService');
-            const accounts = await getAccountsByPhone(cleanPhone);
+            let accounts = await getAccountsByPhone(cleanPhone);
             if (!accounts || accounts.length === 0) return res.status(404).json({ success: false, message: 'Client not found', error: 'Client not found' });
 
-            if (type === 'credentials') {
-                message = `*Tus Credenciales de Sheer IT*\n\n`;
-                accounts.forEach((clientData) => {
-                    const pass = clientData['pin perfil'] || clientData.contraseña || clientData.Clave || clientData.clave || clientData.password || 'N/A';
-                    const venc = formatExcelDate(clientData['Fecha Vencimiento'] || clientData.deben || clientData.vencimiento);
-                    message += `🍿 *Servicio:* ${clientData.Streaming || 'N/A'}\n` +
-                        `📧 *Usuario:* ${clientData.correo || 'N/A'}\n` +
-                        `🔑 *Contraseña:* ${pass}\n` +
-                        `👤 *Perfil:* ${clientData.Nombre || 'N/A'}\n` +
-                        `📅 *Vence:* ${venc}\n\n`;
+            if (platform && platform.toString().trim() !== "") {
+                const targetPlat = platform.toString().toLowerCase().trim();
+                const filteredAccounts = accounts.filter(acc => {
+                    const streaming = (acc.Streaming || acc.Plataforma || '').toString().toLowerCase();
+                    return streaming.includes(targetPlat) || targetPlat.includes(streaming);
                 });
-                message += `¡Disfruta tu servicio!`;
+                if (filteredAccounts.length > 0) {
+                    accounts = filteredAccounts;
+                }
+            }
+
+            if (type === 'credentials') {
+                message = `*Tus Credenciales de Sheer IT* 🔑\n\n`;
+                accounts.forEach((clientData) => {
+                    const streaming = (clientData.Streaming || 'N/A').toString().trim();
+                    const streamingLower = streaming.toLowerCase();
+                    const pass = clientData['pin perfil'] || clientData.contraseña || clientData.Clave || clientData.clave || clientData.password || '';
+                    const pin = clientData['pin perfil'] || clientData.pin || clientData.pin_perfil || '';
+                    const venc = formatExcelDate(clientData['Fecha Vencimiento'] || clientData.deben || clientData.vencimiento);
+                    const customerMail = clientData['customer mail'] || clientData.customerMail || clientData['Customer Mail'] || '';
+
+                    const isFamilyOrInvitation = streamingLower.includes('youtube') ||
+                        streamingLower.includes('apple') ||
+                        streamingLower.includes('spotify familiar') ||
+                        streamingLower.includes('extra');
+
+                    message += `🍿 *Servicio:* ${streaming.toUpperCase()}\n`;
+                    if (isFamilyOrInvitation && customerMail) {
+                        message += `📧 *Correo registrado:* ${customerMail}\n` +
+                            `📌 *Estado:* Acceso por invitación / perfil propio\n`;
+                    } else {
+                        message += `📧 *Usuario:* ${clientData.correo || 'N/A'}\n`;
+                        if (pass && pass !== 'N/A') message += `🔑 *Contraseña:* ${pass}\n`;
+                        if (pin && pin !== pass) message += `📍 *Pin Perfil:* ${pin}\n`;
+                    }
+                    message += `📅 *Vence:* ${venc}\n\n`;
+                });
+                message += `¡Disfruta tu servicio! 🤖`;
             } else if (type === 'payment') {
                 const clientName = accounts[0].Nombre || 'Cliente';
                 message = `¡Hola ${clientName}! 👋\n\n` +
                     `Te recordamos que tus siguientes servicios están próximos a vencer:\n\n`;
                 accounts.forEach((clientData) => {
                     const venc = formatExcelDate(clientData['Fecha Vencimiento'] || clientData.deben || clientData.vencimiento);
-                    message += `• *${clientData.Streaming || 'N/A'}* - Vence: ${venc}\n`;
+                    message += `• *${(clientData.Streaming || 'N/A').toUpperCase()}* - Vence: ${venc}\n`;
                 });
                 message += `\n` +
                     `Puedes renovar realizando tu transferencia aquí:\n` +
-                    `*Nequi:* 3118587974\n` +
-                    `*Daviplata:* 3107946794\n\n` +
+                    `*Nequi / Daviplata / Bre-B (Llave):* 0087387259 ⚡\n\n` +
                     `Una vez realizado, envíanos el comprobante por este medio. ¡Gracias!`;
             }
         }
