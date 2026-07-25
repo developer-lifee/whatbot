@@ -6,8 +6,9 @@ const fs = require('fs');
 const path = require('path');
 
 function findPlatformByName(platformName, platforms) {
-  if (!platformName) return null;
-  let targetPlatform = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!platformName || !platforms) return null;
+  const rawLower = platformName.toLowerCase().trim();
+  let targetPlatform = rawLower.replace(/[^a-z0-9]/g, '');
   
   const PLATFORM_ALIASES = {
     'amazon': 'prime video',
@@ -16,19 +17,51 @@ function findPlatformByName(platformName, platforms) {
     'amazonprime': 'prime video',
     'hbo': 'max',
     'hbomax': 'max',
-    'disney': 'disney+',
-    'disney premium': 'disney+',
-    'star': 'disney+',
+    'disney': 'disney',
+    'disney+': 'disney',
+    'disney +': 'disney',
+    'disneyplus': 'disney',
+    'disney plus': 'disney',
+    'disney premium': 'disney',
+    'disney standard': 'disney',
+    'star': 'disney',
+    'starplus': 'disney',
+    'star plus': 'disney',
     'm365': 'microsoft 365',
-    'office': 'microsoft 365'
+    'office': 'microsoft 365',
+    'office 365': 'microsoft 365',
+    'apple': 'apple one',
+    'appletv': 'apple one',
+    'apple tv': 'apple one',
+    'appleone': 'apple one'
   };
 
-  if (PLATFORM_ALIASES[targetPlatform]) {
-    targetPlatform = PLATFORM_ALIASES[targetPlatform].toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const aliasKey in PLATFORM_ALIASES) {
+    const cleanKey = aliasKey.replace(/[^a-z0-9]/g, '');
+    if (targetPlatform === cleanKey || targetPlatform.includes(cleanKey) || cleanKey.includes(targetPlatform)) {
+      targetPlatform = PLATFORM_ALIASES[aliasKey].toLowerCase().replace(/[^a-z0-9]/g, '');
+      break;
+    }
   }
 
-  return platforms.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlatform)) ||
-    platforms.find(p => targetPlatform.includes(p.name.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  // 1. Coincidencia limpia directa o inclusión
+  let match = platforms.find(p => {
+    const pClean = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return pClean === targetPlatform || pClean.includes(targetPlatform) || targetPlatform.includes(pClean);
+  });
+
+  if (match) return match;
+
+  // 2. Coincidencia por raíz principal
+  const roots = ['disney', 'netflix', 'max', 'hbo', 'spotify', 'youtube', 'apple', 'prime', 'vix', 'microsoft', 'office', 'chatgpt', 'crunchyroll', 'claude', 'capcut', 'canva', 'duolingo', 'paramount'];
+  for (const r of roots) {
+    if (rawLower.includes(r)) {
+      match = platforms.find(p => p.name.toLowerCase().includes(r));
+      if (match) return match;
+    }
+  }
+
+  return null;
 }
 
 async function getPlatforms() {
