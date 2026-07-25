@@ -60,6 +60,9 @@ function normalizeStreamingName(name) {
     if (normalized.includes('apple')) {
         return 'apple';
     }
+    if (normalized.includes('gemini')) {
+        return 'gemini';
+    }
     return normalized;
 }
 

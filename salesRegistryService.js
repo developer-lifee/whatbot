@@ -26,16 +26,22 @@ function getLevenshteinDistance(a, b) {
 const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify individual', 'spotify personal', 'spotify familiar', 'familiar', 'family', 'xbox', 'netflix extra', 'extra', 'individual', 'personal', 'correo propio', 'tu correo'];
 
 function isSamePlatformFamily(name1, name2) {
+    if (!name1 || !name2) return false;
     const n1 = normalizeStreamingName(name1);
     const n2 = normalizeStreamingName(name2);
     if (n1 === n2) return true;
     
     const families = [
-        ['hbo', 'hbo_platino'],
+        ['hbo', 'hbo_platino', 'max'],
         ['netflix', 'netflix_extra'],
         ['spotify', 'spotify_familiar', 'spotify_personal', 'spotify_individual'],
         ['disney', 'disney_premium', 'disney_standard'],
-        ['apple', 'apple_one', 'apple_tv', 'appletv']
+        ['apple', 'apple_one', 'apple_tv', 'appletv'],
+        ['gemini', 'gemini_pro', 'gemini_pro_compartida'],
+        ['youtube', 'youtube_premium', 'youtube_familiar', 'youtube_individual'],
+        ['microsoft', 'microsoft_365', 'office', 'office_365', 'outlook'],
+        ['prime', 'amazon_prime', 'prime_video'],
+        ['vix', 'vix_premium']
     ];
     
     for (const fam of families) {
@@ -43,6 +49,14 @@ function isSamePlatformFamily(name1, name2) {
             return true;
         }
     }
+
+    const mainRoots = ['gemini', 'apple', 'youtube', 'spotify', 'disney', 'hbo', 'netflix', 'microsoft', 'office', 'prime', 'vix', 'crunchyroll', 'claude', 'chatgpt'];
+    for (const root of mainRoots) {
+        if (n1.includes(root) && n2.includes(root)) {
+            return true;
+        }
+    }
+
     return false;
 }
 

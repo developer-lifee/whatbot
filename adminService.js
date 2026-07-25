@@ -416,8 +416,10 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     return { success: true };
                 }
             } else {
-                if (manualItems.length > 0) {
-                    const newManualItems = manualItems.filter(item => item.type !== 'renewal');
+                const newManualItems = manualItems.filter(item => item.type !== 'renewal');
+                const renewalItems = results.filter(item => item.type === 'renewal' || item.status === 'success');
+
+                if (newManualItems.length > 0) {
                     const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
                     if (hasAppleOne) {
                         const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
@@ -437,7 +439,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                         userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: targetJid, lastPaymentValidated: Date.now() });
                     } else {
                         let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
-                        const platformsStr = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                        const platformsStr = newManualItems.map(item => item.name.toUpperCase()).join(', ');
                         const expectation = getDynamicSupportExpectationMessage();
                         manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
                             `${expectation}`;
@@ -457,6 +459,15 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                         userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     }
                     await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
+                    return { success: true };
+                } else if (renewalItems.length > 0) {
+                    const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
+                    const venc = renewalItems[0].vencimiento || "";
+                    const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
+                    const successMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\n¡Gracias por renovar con Sheerit! 😊`;
+                    await client.sendMessage(targetJid, successMsg);
+                    await removeLabelFromChat(userId, client, ['pago', 'revisión', 'manual']);
+                    userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: userState.chatJid, lastPaymentValidated: Date.now() });
                     return { success: true };
                 }
 

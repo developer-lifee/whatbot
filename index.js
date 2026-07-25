@@ -707,8 +707,11 @@ app.post('/api/bold/webhook', async (req, res) => {
                         userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
                     }
                 } else {
-                    if (manualItems.length > 0) {
-                        const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
+                    const newManualItems = manualItems.filter(item => item.type !== 'renewal');
+                    const renewalItems = results.filter(item => item.type === 'renewal' || item.status === 'success');
+
+                    if (newManualItems.length > 0) {
+                        const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
                         if (hasAppleOne) {
                             const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
                                 `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
@@ -719,7 +722,7 @@ app.post('/api/bold/webhook', async (req, res) => {
                             userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
                         } else {
                             let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
-                            const platformsStr = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                            const platformsStr = newManualItems.map(item => item.name.toUpperCase()).join(', ');
                             const expectation = getDynamicSupportExpectationMessage();
                             manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
                                 `${expectation}`;
@@ -738,6 +741,13 @@ app.post('/api/bold/webhook', async (req, res) => {
                             userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
                         }
                         await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
+                    } else if (renewalItems.length > 0) {
+                        const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
+                        const venc = renewalItems[0].vencimiento || "";
+                        const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
+                        const successMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\n¡Gracias por renovar con Sheerit! 😊`;
+                        await client.sendMessage(phoneId, successMsg);
+                        userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
                     } else {
                         const successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema. En breve te enviaremos tus credenciales.`;
                         await client.sendMessage(phoneId, successMsg);
