@@ -625,166 +625,8 @@ app.post('/api/bold/webhook', async (req, res) => {
         const isApproved = eventType === 'SALE_APPROVED' || eventType === 'SALE.APPROVED' || eventType === 'PAYMENT_SUCCESS' || status === 'APPROVED' || status === 'SUCCESS' || status === 'PAID';
 
         if (isApproved && orderId) {
-            const { pool } = require('./database');
-            const [rows] = await pool.query('SELECT * FROM web_sales_pending WHERE order_id = ?', [orderId]);
-            const customerData = rows[0];
-
-            if (customerData) {
-                console.log(`Venta aprobada vía Webhook para orden ${orderId} (${customerData.firstName} ${customerData.lastName})`);
-
-                // Usando recordNewSale de whatbot
-                const { recordNewSale } = require('./salesRegistryService');
-
-                let formattedPhone = customerData.whatsapp.replace(/\D/g, '');
-                if (formattedPhone.length === 10 && !formattedPhone.startsWith('57') && !formattedPhone.startsWith('52')) {
-                    formattedPhone = '57' + formattedPhone;
-                }
-                const numericPhone = parseInt(formattedPhone) || 0;
-
-                const userState = {
-                    items: [{ platform: { name: customerData.platformName } }],
-                    subscriptionType: 'mensual',
-                    nombre: `${customerData.firstName} ${customerData.lastName}`,
-                    phoneData: {
-                        raw: formattedPhone,
-                        numeric: numericPhone,
-                        excelFormatted: `'${formattedPhone}`
-                    }
-                };
-
-                const phoneId = `${formattedPhone}@c.us`;
-
-                const results = await recordNewSale(phoneId, userState, "Bold Pagos");
-                console.log("Resultados guardado en Excel via Bold:", results);
-
-                // --- ALINEACIÓN DE ENTREGA AUTOMÁTICA Y ESTADOS ---
-                let credentialsMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente. 🎉\n\n`;
-                let hasAnyCredentials = false;
-                const { getMaskedAccessData } = require('./aiService');
-                const { getDynamicSupportExpectationMessage } = require('./adminService');
-
-                results.forEach(res => {
-                    if (res.status === 'success' && res.correo) {
-                        hasAnyCredentials = true;
-                        const masked = getMaskedAccessData(res);
-
-                        const labelPin = (res.name || "").toLowerCase().includes('spotify') ? "DIRECCIÓN/LINK" : "PIN";
-                        const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";
-                        const vencStr = res.vencimiento || "";
-                        const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
-
-                        credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}\n`;
-                    }
-                });
-
-                const manualItems = results.filter(res => res.status !== 'success');
-
-                if (hasAnyCredentials) {
-                    const customerName = customerData.firstName || "";
-                    const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
-                    credentialsMsg += profileTip;
-
-                    if (manualItems.length > 0) {
-                        const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
-                        const expectation = getDynamicSupportExpectationMessage();
-                        credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. ${expectation}`;
-                        try {
-                            const groupChat = await client.getChatById(GROUP_ID);
-                            if (groupChat) {
-                                await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL PARCIAL REQUERIDA* (@${phoneId.replace('@c.us', '')})\n` +
-                                    `Servicios manuales: ${manualPlats}\n` +
-                                    `Por favor, envíale la invitación manualmente.`);
-                            }
-                        } catch (e) { }
-                    }
-
-                    await client.sendMessage(phoneId, credentialsMsg);
-
-                    if (manualItems.length > 0) {
-                        const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
-                        if (hasAppleOne) {
-                            const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
-                                `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
-                                `1. Tu número de teléfono celular\n` +
-                                `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
-                                `*(Ejemplo: 3101234567, miusuario@gmail.com)*`;
-                            await client.sendMessage(phoneId, appleMsg);
-                            userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
-                        } else {
-                            userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
-                        }
-                        await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
-                    } else {
-                        userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
-                    }
-                } else {
-                    const newManualItems = manualItems.filter(item => item.type !== 'renewal');
-                    const renewalItems = results.filter(item => item.type === 'renewal' || item.status === 'success');
-
-                    if (newManualItems.length > 0) {
-                        const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
-                        if (hasAppleOne) {
-                            const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
-                                `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
-                                `1. Tu número de teléfono celular\n` +
-                                `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
-                                `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
-                            await client.sendMessage(phoneId, appleMsg);
-                            userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
-                        } else {
-                            let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
-                            const platformsStr = newManualItems.map(item => item.name.toUpperCase()).join(', ');
-                            const expectation = getDynamicSupportExpectationMessage();
-                            manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
-                                `${expectation}`;
-                            await client.sendMessage(phoneId, manualMsg);
-
-                            try {
-                                const groupChat = await client.getChatById(GROUP_ID);
-                                if (groupChat) {
-                                    await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA* (@${phoneId.replace('@c.us', '')})\n` +
-                                        `Servicios: ${platformsStr}\n` +
-                                        `Monto: $${customerData.amount || ''}\n` +
-                                        `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
-                                }
-                            } catch (e) { }
-
-                            userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
-                        }
-                        await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
-                    } else if (renewalItems.length > 0) {
-                        const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
-                        const venc = renewalItems[0].vencimiento || "";
-                        const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
-                        const successMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\n¡Gracias por renovar con Sheerit! 😊`;
-                        await client.sendMessage(phoneId, successMsg);
-                        userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
-                    } else {
-                        const successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema. En breve te enviaremos tus credenciales.`;
-                        await client.sendMessage(phoneId, successMsg);
-                        userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
-                    }
-                }
-
-                try {
-                    await pool.query(
-                        'INSERT INTO web_sales_approved (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        [
-                            orderId,
-                            customerData.firstName || '',
-                            customerData.lastName || '',
-                            customerData.email || '',
-                            customerData.whatsapp || '',
-                            customerData.platformName || '',
-                            customerData.amount || 0,
-                            customerData.numbersStr || '',
-                            customerData.createdAt ? new Date(customerData.createdAt) : null
-                        ]
-                    );
-                    await pool.query('DELETE FROM web_sales_pending WHERE order_id = ?', [orderId]);
-                } catch (dbErr) {
-                    console.error("Error inserting approved web sale into DB:", dbErr.message);
-                }
+            const result = await approveBoldOrder(orderId);
+            if (result.status === 'APPROVED') {
                 return res.json({ message: 'Compra aprobada y proceso iniciado' });
             } else {
                 return res.status(404).json({ message: 'No hay datos en cache para esta orden' });
@@ -796,6 +638,244 @@ app.post('/api/bold/webhook', async (req, res) => {
     } catch (e) {
         console.error("Webhook Error:", e);
         res.status(500).json({ error: e.message });
+    }
+});
+
+async function approveBoldOrder(orderId) {
+    const { pool } = require('./database');
+    const [approvedRows] = await pool.query('SELECT * FROM web_sales_approved WHERE order_id = ?', [orderId]);
+    if (approvedRows.length > 0) {
+        return { status: 'APPROVED', sale: approvedRows[0] };
+    }
+
+    const [rows] = await pool.query('SELECT * FROM web_sales_pending WHERE order_id = ?', [orderId]);
+    const customerData = rows[0];
+    if (!customerData) {
+        return { status: 'NOT_FOUND' };
+    }
+
+    console.log(`[Bold Approve] Procesando venta aprobada para orden ${orderId} (${customerData.firstName} ${customerData.lastName})`);
+
+    const { recordNewSale } = require('./salesRegistryService');
+
+    let formattedPhone = (customerData.whatsapp || '').replace(/\D/g, '');
+    if (formattedPhone.length === 10 && !formattedPhone.startsWith('57') && !formattedPhone.startsWith('52')) {
+        formattedPhone = '57' + formattedPhone;
+    }
+    const numericPhone = parseInt(formattedPhone) || 0;
+
+    const userState = {
+        items: [{ platform: { name: customerData.platformName } }],
+        subscriptionType: 'mensual',
+        nombre: `${customerData.firstName} ${customerData.lastName}`,
+        phoneData: {
+            raw: formattedPhone,
+            numeric: numericPhone,
+            excelFormatted: `'${formattedPhone}`
+        }
+    };
+
+    const phoneId = `${formattedPhone}@c.us`;
+    const results = await recordNewSale(phoneId, userState, "Bold Pagos");
+    console.log("[Bold Approve] Resultados guardado en Excel via Bold:", results);
+
+    let credentialsMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente. 🎉\n\n`;
+    let hasAnyCredentials = false;
+    const { getMaskedAccessData } = require('./aiService');
+    const { getDynamicSupportExpectationMessage } = require('./adminService');
+
+    results.forEach(res => {
+        if (res.status === 'success' && res.correo) {
+            hasAnyCredentials = true;
+            const masked = getMaskedAccessData(res);
+
+            const labelPin = (res.name || "").toLowerCase().includes('spotify') ? "DIRECCIÓN/LINK" : "PIN";
+            const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";
+            const vencStr = res.vencimiento || "";
+            const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
+
+            credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}\n`;
+        }
+    });
+
+    const manualItems = results.filter(res => res.status !== 'success');
+
+    if (hasAnyCredentials) {
+        const customerName = customerData.firstName || "";
+        const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
+        credentialsMsg += profileTip;
+
+        if (manualItems.length > 0) {
+            const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
+            const expectation = getDynamicSupportExpectationMessage();
+            credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. ${expectation}`;
+            try {
+                const groupChat = await client.getChatById(GROUP_ID);
+                if (groupChat) {
+                    await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL PARCIAL REQUERIDA* (@${phoneId.replace('@c.us', '')})\n` +
+                        `Servicios manuales: ${manualPlats}\n` +
+                        `Por favor, envíale la invitación manualmente.`);
+                }
+            } catch (e) { }
+        }
+
+        await client.sendMessage(phoneId, credentialsMsg);
+
+        if (manualItems.length > 0) {
+            const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
+            if (hasAppleOne) {
+                const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
+                    `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
+                    `1. Tu número de teléfono celular\n` +
+                    `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
+                    `*(Ejemplo: 3101234567, miusuario@gmail.com)*`;
+                await client.sendMessage(phoneId, appleMsg);
+                userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+            } else {
+                userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+            }
+            await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
+        } else {
+            userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+        }
+    } else {
+        const newManualItems = manualItems.filter(item => item.type !== 'renewal');
+        const renewalItems = results.filter(item => item.type === 'renewal' || item.status === 'success');
+
+        if (newManualItems.length > 0) {
+            const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
+            if (hasAppleOne) {
+                const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
+                    `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
+                    `1. Tu número de teléfono celular\n` +
+                    `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
+                    `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
+                await client.sendMessage(phoneId, appleMsg);
+                userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+            } else {
+                let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
+                const platformsStr = newManualItems.map(item => item.name.toUpperCase()).join(', ');
+                const expectation = getDynamicSupportExpectationMessage();
+                manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
+                    `${expectation}`;
+                await client.sendMessage(phoneId, manualMsg);
+
+                try {
+                    const groupChat = await client.getChatById(GROUP_ID);
+                    if (groupChat) {
+                        await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA* (@${phoneId.replace('@c.us', '')})\n` +
+                            `Servicios: ${platformsStr}\n` +
+                            `Monto: $${customerData.amount || ''}\n` +
+                            `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
+                    }
+                } catch (e) { }
+
+                userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+            }
+            await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
+        } else if (renewalItems.length > 0) {
+            const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
+            const venc = renewalItems[0].vencimiento || "";
+            const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
+            const successMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\n¡Gracias por renovar con Sheerit! 😊`;
+            await client.sendMessage(phoneId, successMsg);
+            userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+        } else {
+            const successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema. En breve te enviaremos tus credenciales.`;
+            await client.sendMessage(phoneId, successMsg);
+            userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+        }
+    }
+
+    try {
+        await pool.query(
+            'INSERT INTO web_sales_approved (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [
+                orderId,
+                customerData.firstName || '',
+                customerData.lastName || '',
+                customerData.email || '',
+                customerData.whatsapp || '',
+                customerData.platformName || '',
+                customerData.amount || 0,
+                customerData.numbersStr || '',
+                customerData.createdAt ? new Date(customerData.createdAt) : null
+            ]
+        );
+        await pool.query('DELETE FROM web_sales_pending WHERE order_id = ?', [orderId]);
+    } catch (dbErr) {
+        console.error("Error inserting approved web sale into DB:", dbErr.message);
+    }
+    return { status: 'APPROVED', sale: customerData, deliveryResults: results };
+}
+
+app.get('/api/bold/check-status/:orderId', async (req, res) => {
+    try {
+        const { orderId } = req.params;
+        const { pool } = require('./database');
+
+        // 1. Verificar si ya fue aprobada en MariaDB
+        const [approvedRows] = await pool.query('SELECT * FROM web_sales_approved WHERE order_id = ?', [orderId]);
+        if (approvedRows.length > 0) {
+            return res.json({
+                success: true,
+                status: 'APPROVED',
+                sale: approvedRows[0]
+            });
+        }
+
+        // 2. Verificar si está pendiente en MariaDB
+        const [pendingRows] = await pool.query('SELECT * FROM web_sales_pending WHERE order_id = ?', [orderId]);
+        if (pendingRows.length === 0) {
+            return res.status(404).json({ success: false, message: 'Orden no encontrada' });
+        }
+
+        // 3. Consultar estado en tiempo real a la API de Bold
+        const apiKey = process.env.BOLD_IDENTITY_KEY;
+        let boldStatus = 'PENDING';
+
+        if (apiKey) {
+            try {
+                const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+                const boldRes = await fetch(`https://integrations.api.bold.co/online/payment/v1/orders/${orderId}`, {
+                    method: 'GET',
+                    headers: {
+                        'x-api-key': apiKey,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (boldRes.ok) {
+                    const boldData = await boldRes.json();
+                    const bState = (boldData.status || boldData.data?.status || boldData.payment_status || '').toUpperCase();
+                    if (bState === 'APPROVED' || bState === 'SALE_APPROVED' || bState === 'SUCCESS' || bState === 'PAID') {
+                        boldStatus = 'APPROVED';
+                    }
+                }
+            } catch (boldApiErr) {
+                console.error("[Bold Check Status API Error]:", boldApiErr.message);
+            }
+        }
+
+        // 4. Si el estado en Bold es APROBADO, procesar la orden inmediatamente
+        if (boldStatus === 'APPROVED') {
+            const approveRes = await approveBoldOrder(orderId);
+            return res.json({
+                success: true,
+                status: 'APPROVED',
+                sale: approveRes.sale
+            });
+        }
+
+        return res.json({
+            success: true,
+            status: 'PENDING',
+            message: 'Esperando confirmación del banco o Nequi...'
+        });
+
+    } catch (e) {
+        console.error("Error checking Bold order status:", e);
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
