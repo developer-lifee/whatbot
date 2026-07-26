@@ -8104,11 +8104,12 @@ async function baseProcessIncomingMessage(messages) {
                 const existing = userStates.get(userId);
                 const stateData = typeof existing === 'object' ? { ...existing } : { nombre: foundName };
 
+                const { getAccountsByPhone } = require('./apiService');
+                let userAccounts = [];
+                try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
+
                 // Si el carrito está vacío, intentar auto-rellenarlo
                 if (!stateData.items || stateData.items.length === 0) {
-                    const { getAccountsByPhone } = require('./apiService');
-                    let userAccounts = [];
-                    try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
                     if (check.inferredPlatform) {
                         const historyLower = (history || "").toLowerCase();
