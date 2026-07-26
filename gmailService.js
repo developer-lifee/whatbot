@@ -100,6 +100,16 @@ async function checkNewPayments() {
     }
 }
 
+function parseAmount(rawValue) {
+    if (!rawValue) return 0;
+    let str = rawValue.trim();
+    // Remove decimal cents like .00 or ,00 at the end
+    str = str.replace(/[\.,]\d{2}$/, '');
+    // Remove dots and commas used as thousands separators
+    const clean = str.replace(/\D/g, '');
+    return parseInt(clean, 10) || 0;
+}
+
 async function findMatchingPaymentInAccount(email, query, targetAmount, toleranceMinutes, isBancolombia = false) {
     const auth = await getOAuth2Client('gmail', null, email);
     if (!auth) return null;
@@ -135,22 +145,23 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
             }
 
             const snippet = fullMsg.data.snippet || '';
-            const bodyData = fullMsg.data.payload.body && fullMsg.data.payload.body.data ? Buffer.from(fullMsg.data.payload.body.data, 'base64').toString() : '';
+            const parts = getMessageParts(fullMsg.data.payload);
+            const bodyData = (parts.text || parts.html || '');
             const body = snippet + ' ' + bodyData;
 
             const subjectHeader = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'subject');
             const subject = subjectHeader ? subjectHeader.value : 'Sin asunto';
 
             if (isBancolombia) {
-                const isTransfer = /transferencia/i.test(body) || /recibida/i.test(body) || /abono/i.test(body) || /transferencia/i.test(subject);
+                const isTransfer = /transferencia/i.test(body) || /recibida/i.test(body) || /abono/i.test(body) || /transferencia/i.test(subject) || /movimientos/i.test(body);
                 if (!isTransfer) continue;
 
-                const amountRegex = /(?:por valor de|por|monto|valor)(?:\s+de)?\s*(?:\$)?\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?)/i;
+                const amountRegex = /(?:por valor de|por|monto|valor)(?:\s+de)?\s*(?:\$)?\s*([0-9]{1,3}(?:[\.,][0-9]{3})*(?:[\.,][0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/i;
                 const amountMatches = body.match(amountRegex);
 
                 if (amountMatches) {
                     const rawValue = amountMatches[1];
-                    const cleanValue = parseInt(rawValue.replace(/\./g, '').split(',')[0]);
+                    const cleanValue = parseAmount(rawValue);
 
                     if (cleanValue === targetAmount) {
                         console.log(`[GMAIL MATCH BANCOLOMBIA] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
@@ -174,7 +185,7 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
 
                 if (amountMatches) {
                     const rawValue = amountMatches[1];
-                    const cleanValue = parseInt(rawValue.replace(/\./g, '').split(',')[0]);
+                    const cleanValue = parseAmount(rawValue);
 
                     if (cleanValue === targetAmount) {
                         console.log(`[GMAIL MATCH BRE-B] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
@@ -307,7 +318,7 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = 
     // 2. Buscar en Esteban (Bancolombia)
     const matchEsteban = await findMatchingPaymentInAccount(
         'estebanavila6324@gmail.com',
-        'subject:("Transferencia recibida" OR "Le informamos" OR "Bancolombia te informa" OR "Lulo Bank te informa") newer_than:1d',
+        'subject:("Alertas y Notificaciones" OR "Transferencia recibida" OR "Le informamos" OR "Bancolombia te informa" OR "Bancolombia" OR "Lulo Bank te informa") newer_than:1d',
         targetAmount,
         toleranceMinutes,
         true
