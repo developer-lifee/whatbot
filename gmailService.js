@@ -333,9 +333,15 @@ function decodeQuotedPrintable(str) {
     if (!str) return '';
     // 1. Eliminar saltos de línea suaves (soft line breaks: '=' seguido de salto de línea)
     let decoded = str.replace(/=\r?\n/g, '').replace(/=\n/g, '');
-    
-    // 2. Mapeos comunes de caracteres utf-8 codificados en QP para evitar fallas
+
+    // 2. Reemplazos directos de la sintaxis Quoted Printable para URLs e Hispanos
     decoded = decoded
+        .replace(/=3D/gi, '=')
+        .replace(/=26/gi, '&')
+        .replace(/=3F/gi, '?')
+        .replace(/=2F/gi, '/')
+        .replace(/=3A/gi, ':')
+        .replace(/=20/gi, ' ')
         .replace(/=C3=B3/gi, 'ó')
         .replace(/=C3=AD/gi, 'í')
         .replace(/=C3=A1/gi, 'á')
@@ -349,15 +355,12 @@ function decodeQuotedPrintable(str) {
         .replace(/=C3=9A/gi, 'Ú')
         .replace(/=C3=91/gi, 'Ñ');
 
-    // 3. Decodificar secuencias =XX convirtiéndolas a %XX para decodeURIComponent (UTF-8)
+    // 3. Decodificar secuencias =XX convirtiéndolas a %XX para decodeURIComponent
     try {
         let pctEncoded = decoded.replace(/%/g, '%25').replace(/=([0-9A-F]{2})/gi, '%$1');
         return decodeURIComponent(pctEncoded);
     } catch (e) {
-        // Fallback en caso de que falle decodeURIComponent (mapeo directo byte a char)
-        return decoded.replace(/=([0-9A-F]{2})/gi, (match, hex) => {
-            return String.fromCharCode(parseInt(hex, 16));
-        });
+        return decoded;
     }
 }
 
@@ -542,29 +545,66 @@ function getMessageBody(payload) {
 
 function extractBestLink(bodyText) {
     if (!bodyText) return null;
-    const regex = /https?:\/\/(?:www\.)?(?:[a-zA-Z0-9-]+\.)*(?:netflix\.com|disneyplus\.com|starplus\.com|max\.com|hbomax\.com|primevideo\.com|amazon\.com|auth\.max\.com|claude\.ai|anthropic\.com|mail\.anthropic\.com|crunchyroll\.com|paramountplus\.com|vix\.com|spotify\.com|canva\.com|plex\.tv)[^\s<>"']+/gi;
-    const matches = bodyText.match(regex);
-    if (!matches) return null;
+    const decoded = bodyText.replace(/&amp;/g, '&');
 
-    // Filter out images, logos, static assets
-    const filteredMatches = matches.filter(url => {
+    // 1. Search specifically for <a ... href="..."> tags to get exact hyperlink targets
+    const hrefRegex = /<a\s+[^>]*href=["']([^"']+)["']/gi;
+    const hrefMatches = [];
+    let m;
+    while ((m = hrefRegex.exec(decoded)) !== null) {
+        if (m[1] && /^https?:\/\//i.test(m[1])) {
+            hrefMatches.push(m[1]);
+        }
+    }
+
+    // 2. Fallback to general URL pattern
+    const allRegex = /https?:\/\/(?:www\.)?(?:[a-zA-Z0-9-]+\.)*(?:netflix\.com|disneyplus\.com|starplus\.com|max\.com|hbomax\.com|primevideo\.com|amazon\.com|auth\.max\.com|claude\.ai|anthropic\.com|mail\.anthropic\.com|crunchyroll\.com|paramountplus\.com|vix\.com|spotify\.com|canva\.com|plex\.tv)[^\s<>"']+/gi;
+    const allMatches = decoded.match(allRegex) || [];
+
+    const candidates = hrefMatches.length > 0 ? hrefMatches : allMatches;
+    if (candidates.length === 0) return null;
+
+    // Filter out images, logos, static assets, and generic help/footer links
+    const filteredMatches = candidates.filter(url => {
         const lower = url.toLowerCase();
         if (/\.(png|jpg|jpeg|gif|svg|webp|ico)(?:\?|$)/.test(lower)) return false;
         if (lower.includes('/images/') || lower.includes('/logos/') || lower.includes('/assets/')) return false;
+        if (lower.includes('lkid=url_logo') || lower.includes('lkid=url_email') || lower.includes('lkid=url_src') || lower.includes('lkid=url_help') || lower.includes('lkid=url_terms') || lower.includes('lkid=url_privacy')) return false;
+        if (lower.includes('help.netflix.com') || lower.includes('termsofuse') || lower.includes('privacypolicy') || lower.includes('corpinfo')) return false;
         return true;
     });
 
     if (filteredMatches.length === 0) {
-        return matches[0];
+        const nonLogo = candidates.find(u => !u.toLowerCase().includes('lkid=url_logo'));
+        return nonLogo || candidates[0];
     }
 
-    // Prioritize links containing keywords like magic-link, click, login, signin, verify, etc.
+    // PRIORITY 1: Direct Netflix Household / Location / Travel action links (containing nftoken or update-primary-location)
+    const hogarMatch = filteredMatches.find(url => {
+        const lower = url.toLowerCase();
+        return lower.includes('update-primary-location') || 
+               lower.includes('update_household') || 
+               lower.includes('update-household') ||
+               lower.includes('travel/verify') ||
+               (lower.includes('nftoken=') && !lower.includes('lkid=url_logo'));
+    });
+    if (hogarMatch) return hogarMatch;
+
+    // PRIORITY 2: Magic links, verification tokens
     const priorityMatch = filteredMatches.find(url => {
         const lower = url.toLowerCase();
-        return lower.includes('magic-link') || lower.includes('click') || lower.includes('login') || lower.includes('signin') || lower.includes('verify') || lower.includes('code');
+        return (lower.includes('magic-link') || lower.includes('verify') || lower.includes('token=') || lower.includes('code=')) && 
+               !lower.includes('/browse') && !lower.includes('/login');
+    });
+    if (priorityMatch) return priorityMatch;
+
+    // Filter out plain /browse or /login links if better ones exist
+    const nonGenericMatch = filteredMatches.find(url => {
+        const lower = url.toLowerCase();
+        return !lower.endsWith('/browse') && !lower.includes('/browse?') && !lower.endsWith('/login') && !lower.includes('/login?');
     });
 
-    return priorityMatch || filteredMatches[0];
+    return nonGenericMatch || filteredMatches[0];
 }
 
 function cleanHtml(html) {
@@ -684,6 +724,8 @@ module.exports = {
     checkNewPayments,
     findMatchingPayment,
     findRecentCodes,
-    getEmailsFromInbox
+    getEmailsFromInbox,
+    extractBestLink,
+    getMessageParts
 };
 
