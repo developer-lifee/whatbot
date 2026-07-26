@@ -387,7 +387,7 @@ function isValidVerificationCode(code, fullText) {
  * @param {string} email El correo donde buscar.
  * @param {number} toleranceMinutes Tiempo máximo hacia atrás.
  */
-async function findRecentCodes(email, toleranceMinutes = 10) {
+async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
     if (!email) {
         console.error("[GMAIL CODES] ❌ No se proporcionó un email para buscar códigos.");
         return [];
@@ -399,20 +399,23 @@ async function findRecentCodes(email, toleranceMinutes = 10) {
     const gmail = google.gmail({ version: 'v1', auth });
 
     try {
-        const res = await gmail.users.messages.list({
-            userId: 'me',
-            maxResults: 10
-        });
+        const listParams = { userId: 'me', maxResults: 5 };
+        if (searchQuery) listParams.q = searchQuery;
+
+        const res = await gmail.users.messages.list(listParams);
 
         const messages = res.data.messages || [];
+        if (messages.length === 0) return [];
+
         const now = Date.now();
+        const fullMsgs = await Promise.all(
+            messages.map(m => gmail.users.messages.get({ userId: 'me', id: m.id }).catch(() => null))
+        );
+
         const codesFound = [];
 
-        for (const msg of messages) {
-            const fullMsg = await gmail.users.messages.get({
-                userId: 'me',
-                id: msg.id
-            });
+        for (const fullMsg of fullMsgs) {
+            if (!fullMsg || !fullMsg.data) continue;
 
             const internalDate = parseInt(fullMsg.data.internalDate);
             const diffMinutes = (now - internalDate) / (1000 * 60);
@@ -579,16 +582,22 @@ function extractBestLink(bodyText) {
         return nonLogo || candidates[0];
     }
 
-    // PRIORITY 1: Direct Netflix Household / Location / Travel action links (containing nftoken or update-primary-location)
-    const hogarMatch = filteredMatches.find(url => {
+    // PRIORITY 1A: Direct Netflix Household / Location / Travel action links
+    const hogarLocationMatch = filteredMatches.find(url => {
         const lower = url.toLowerCase();
         return lower.includes('update-primary-location') || 
                lower.includes('update_household') || 
                lower.includes('update-household') ||
-               lower.includes('travel/verify') ||
-               (lower.includes('nftoken=') && !lower.includes('lkid=url_logo'));
+               lower.includes('travel/verify');
     });
-    if (hogarMatch) return hogarMatch;
+    if (hogarLocationMatch) return hogarLocationMatch;
+
+    // PRIORITY 1B: Generic nftoken links
+    const hogarTokenMatch = filteredMatches.find(url => {
+        const lower = url.toLowerCase();
+        return (lower.includes('nftoken=') || lower.includes('manageaccountaccess')) && !lower.includes('lkid=url_logo');
+    });
+    if (hogarTokenMatch) return hogarTokenMatch;
 
     // PRIORITY 2: Magic links, verification tokens
     const priorityMatch = filteredMatches.find(url => {

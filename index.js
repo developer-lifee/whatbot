@@ -361,7 +361,7 @@ app.post('/api/netflix/verify', async (req, res) => {
             const { findRecentCodes } = require('./gmailService');
             for (let attempt = 0; attempt < 3; attempt++) {
                 console.log(`[NETFLIX API] Checking recent codes for ${netflixAcct.correo} (Attempt ${attempt + 1})...`);
-                const recentCodes = await findRecentCodes(netflixAcct.correo, 15);
+                const recentCodes = await findRecentCodes(netflixAcct.correo, 15, 'netflix');
                 const netflixMail = recentCodes.find(item =>
                     (item.subject || "").toLowerCase().includes('netflix') ||
                     (item.snippet || "").toLowerCase().includes('netflix')
@@ -374,7 +374,7 @@ app.post('/api/netflix/verify', async (req, res) => {
                     break;
                 }
                 if (attempt < 2) {
-                    await new Promise(r => setTimeout(r, 3000));
+                    await new Promise(r => setTimeout(r, 1500));
                 }
             }
         } catch (mailErr) {
