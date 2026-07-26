@@ -156,7 +156,7 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
                 const isTransfer = /transferencia/i.test(body) || /recibida/i.test(body) || /abono/i.test(body) || /transferencia/i.test(subject) || /movimientos/i.test(body);
                 if (!isTransfer) continue;
 
-                const amountRegex = /(?:por valor de|por|monto|valor)(?:\s+de)?\s*(?:\$)?\s*([0-9]{1,3}(?:[\.,][0-9]{3})*(?:[\.,][0-9]{2})?|[0-9]+(?:\.[0-9]{2})?)/i;
+                const amountRegex = /(?:por\s+valor\s+de|por|monto|valor)(?:\s+de)?\s*\$?([0-9]+(?:[\.,][0-9]+)*)/i;
                 const amountMatches = body.match(amountRegex);
 
                 if (amountMatches) {
