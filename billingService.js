@@ -614,10 +614,12 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
     
     // Dynamic total calculator for the initial reminder
     let totalText = "";
+    let totalSum = 0;
+    let targetAccounts = [];
+
     try {
       const userAccounts = await getAccountsByPhone(r.phone);
       if (userAccounts && userAccounts.length > 0) {
-        let totalSum = 0;
         const billedServicesList = [];
         
         // Match only services that are expiring or expired
@@ -634,7 +636,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
             return isExpired || diffDays <= 5;
         });
 
-        const targetAccounts = expiredOrExpiring.length > 0 ? expiredOrExpiring : userAccounts;
+        targetAccounts = expiredOrExpiring.length > 0 ? expiredOrExpiring : userAccounts;
 
         targetAccounts.forEach(acc => {
           const streaming = (acc.Streaming || "").toUpperCase();
