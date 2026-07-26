@@ -1265,6 +1265,58 @@ app.post('/api/admin/client-history/save-notes', express.json(), async (req, res
     }
 });
 
+// Endpoint para editar la fecha de vencimiento (deben) de un cliente a gusto del administrador
+app.post('/api/admin/client/update-expiration', express.json(), async (req, res) => {
+    try {
+        const { rowNumber, phone, streaming, newDate, password } = req.body;
+        if (password !== 'admin123') {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        if (!newDate) {
+            return res.status(400).json({ success: false, message: 'Fecha de vencimiento requerida' });
+        }
+
+        const { updateExcelData, fetchRawData } = require('./apiService');
+        let targetRow = parseInt(rowNumber);
+
+        if (!targetRow || isNaN(targetRow)) {
+            const allRows = await fetchRawData();
+            const cleanPhone = (phone || '').toString().replace(/\D/g, '');
+            const target = allRows.find(r => {
+                const rPhone = (r.numero || r.Numero || r.whatsapp || '').toString().replace(/\D/g, '');
+                const rStreaming = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
+                const matchPhone = cleanPhone && rPhone.includes(cleanPhone.slice(-10));
+                const matchStreaming = !streaming || rStreaming.includes(streaming.toLowerCase());
+                return matchPhone && matchStreaming;
+            });
+            if (target) {
+                targetRow = target._rowNumber || (allRows.indexOf(target) + 2);
+            }
+        }
+
+        if (!targetRow || isNaN(targetRow)) {
+            return res.status(404).json({ success: false, message: 'No se encontró la fila del cliente en Excel' });
+        }
+
+        const formattedDate = newDate.toString().trim();
+        const updates = { "deben": formattedDate, "observaciones": `Vencimiento editado manualmente (${formattedDate})` };
+
+        console.log(`[Admin API] Editando vencimiento en fila ${targetRow} -> ${formattedDate}`);
+        const result = await updateExcelData(targetRow, updates);
+
+        res.json({
+            success: true,
+            message: `Vencimiento actualizado a ${formattedDate} exitosamente.`,
+            rowNumber: targetRow,
+            newDate: formattedDate,
+            result
+        });
+    } catch (e) {
+        console.error("[Admin API] Error actualizando vencimiento:", e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/admin/actions/send-info', async (req, res) => {
     try {
         const { phone, type, password, message: customMessage, platform } = req.body;
