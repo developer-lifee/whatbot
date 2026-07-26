@@ -427,6 +427,38 @@ El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`con
 
 ---
 
+## 🛠️ Actualizaciones Recientes (25-26 de Julio de 2026)
+
+### 1. 🚀 Integración y Aprobación Automática con Pasarela Bold (`webhooks`)
+- **Pasarela de Pago Bold**: Integración del endpoint `/api/bold/webhook` y `/api/bold/generate-token` para cobros automatizados con tarjetas y PSE.
+- **Detección Flexible de Transacciones**: Parseo inteligente de referenciales (`metadata.reference`, `reference`, `orderId`, `subject`) y eventos de aprobación (`SALE_APPROVED`, `SALE.APPROVED`, `PAYMENT_SUCCESS`, `status: APPROVED`, `PAID`).
+- **Persistencia en Base de Datos & Excel**: Las órdenes aprobadas se registran automáticamente en la hoja de Excel en Azure y se trasladan de `web_sales_pending` a la tabla de base de datos `web_sales_approved`.
+
+### 2. 📅 Edición Manual Directa de Vencimientos en Panel Web
+- **Endpoint Administrativo**: Implementación de `POST /api/admin/client/update-expiration` para modificar la fecha de vencimiento (`deben`) de cualquier cliente desde la web.
+- **Date Picker en Tabla de Clientes**: Integración de un selector de fecha interactivo (**Date Picker inline**) en la columna *Vencimiento* de la vista `Base de Datos`, actualizando al instante los días vigentes, insignias de estado y la base de datos de Microsoft Graph / Excel.
+
+### 3. 📺 Verificación de Hogar Netflix Ultra-Rápida y Precisa
+- **Extracción de Enlaces de Acción CTA**: Optimización de `extractBestLink` en `gmailService.js` para priorizar los enlaces de autorización directa (`update-primary-location`, `update-household`, `travel/verify`, `nftoken=`) sobre enlaces de navegación general de logo (`URL_LOGO` / `netflix.com/browse`).
+- **Fix Redirección a Login**: Eliminación del fallo que enviaba a los clientes a la pantalla de inicio de sesión (`netflix.com/login`) al hacer clic en *"Actualizar Hogar en Netflix"*.
+- **Decodificación Limpia Quoted-Printable**: Corrección de sintaxis QP (`=3D`, `=26`, `=3F`, `=2F`, `=3A`) evitando la corrupción de tokens de acceso `nftoken=`.
+- **Carga Veloz (<1s)**: Búsqueda indexada directa en la API de Gmail con el filtro `q: 'netflix'` y lecturas asíncronas paralelas mediante `Promise.all`.
+
+### 4. 🏷️ Difusión Masiva Personalizada por Plataforma
+- **Variables Dinámicas Formateadas**: La etiqueta `{Servicio}` en la vista de masivos expande los datos específicos completos según el tipo de servicio (plataforma, correo, clave y PIN para perfiles estándar, o correo de cliente con estado para invitaciones familiares).
+- **Filtro Estricto de Credenciales por Servicio**: Al realizar envíos masivos filtrados por plataforma (ej. Disney), el backend procesa y entrega únicamente las credenciales de esa plataforma concreta, protegiendo otros datos del usuario.
+
+### 5. 🧾 Manejo de Fallas Prematuras de Pago de Proveedores & Regla 17
+- **OCR de Pantallas de Error**: Detección visual mediante Gemini para capturas con mensajes como *"No pudimos procesar tu pago"* o *"Actualizar info de pago"*.
+- **Regla 17 de Fallback**: Prohíbe estrictamente pedir al cliente tarjetas de crédito/débito personales y escala el caso directamente al canal humano de soporte técnico.
+
+### 6. 🔄 Renovación vs. Compra Nueva y Normalización de Alias
+- **Inteligencia de Renovación Familiar**: Separación de `newManualItems` y `renewalItems` para plataformas familiares (Apple One, Gemini Pro, YouTube, Microsoft 365), renovando membresías sin solicitar nuevamente correos de ID o invitaciones.
+- **Ignorar Filtro de Operador en Renovaciones**: Verificación de suscripciones activas en Excel para forzar `isRenewal = true`, evitando interrumpir auto-validaciones preguntando por el operador de internet (`suba-movistar`).
+- **Normalización de Alias Comerciales**: Mejora de `findPlatformByName` en `salesService.js` mapeando términos como *"Disney Plus"*, *"Disney+"*, *"Star+"*, *"Office 365"*, *"Apple TV"*, etc.
+
+---
+
 ## 🛡️ Medidas de Estabilidad y Anti-Detección (WhatsApp Web / Puppeteer)
 
 Para evitar bloqueos por parte de los sistemas automatizados de WhatsApp y asegurar que el bot no entre en bucle infinito de reinicios, el constructor de `Client` en [index.js](file:///Users/estebanavila/desarrollo/whatbot/index.js) debe configurarse estrictamente bajo las siguientes pautas de seguridad:
