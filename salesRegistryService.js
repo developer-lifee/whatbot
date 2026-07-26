@@ -208,8 +208,25 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
         // Obtener todos los datos crudos para buscar cupos o validar nombres reales en filas de Excel
         const allRows = await fetchRawData();
 
-        const results = [];
+        const expandedItems = [];
         for (const item of items) {
+            let pName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
+            const cleanStr = pName.replace(/^combo\s*\([^)]*\)\s*:\s*/i, '').replace(/^combo\s*:\s*/i, '');
+            if (cleanStr.includes(',') || cleanStr.includes(' + ')) {
+                const parts = cleanStr.split(/,|\s\+\s/);
+                for (const part of parts) {
+                    const trimmed = part.replace(/-\s*suscripci[oó]n/i, '').trim();
+                    if (trimmed) {
+                        expandedItems.push({ ...item, platform: { name: trimmed }, Streaming: trimmed, name: trimmed, chosenPlan: null, plan: null });
+                    }
+                }
+            } else {
+                expandedItems.push(item);
+            }
+        }
+
+        const results = [];
+        for (const item of expandedItems) {
             const planName = (item.chosenPlan ? item.chosenPlan.name : (item.plan ? (item.plan.name || item.plan) : "")) || "";
             let platformName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
             
