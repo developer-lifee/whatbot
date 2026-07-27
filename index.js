@@ -2088,7 +2088,7 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         try {
             const { getAccountsByPhone } = require('./apiService');
             const userAccs = await getAccountsByPhone(cleanPhone);
-            targetEmails = userAccs.map(a => (a.correo || a.Correo || '').toLowerCase().trim()).filter(Boolean);
+            targetEmails = userAccs.map(a => String(a.correo || a.Correo || '').toLowerCase().trim()).filter(Boolean);
         } catch (e) {
             console.error('[Tickets Resolve] Error obteniendo cuentas para:', cleanPhone, e.message);
         }
