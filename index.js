@@ -7891,16 +7891,18 @@ async function baseProcessIncomingMessage(messages) {
         if (command.startsWith('autorizar')) {
             const parts = command.split(' ');
             if (parts.length < 3) {
-                await message.reply('❌ Formato: @bot autorizar [contacts/gmail] [codigo]');
+                await message.reply('❌ Formato: @bot autorizar [contacts/gmail] [codigo] [email_opcional]');
             } else {
                 const service = parts[1].toLowerCase();
                 const code = parts[2];
-                const { getOAuth2Client } = require('./googleAuthService');
-                await message.reply(`⏳ Intentando autorizar servicio ${service} con el código proporcionado...`);
+                const email = parts[3] ? parts[3].toLowerCase().trim() : null;
+                const { getOAuth2Client, clearCachedClient } = require('./googleAuthService');
+                if (email) clearCachedClient(service, email);
+                await message.reply(`⏳ Intentando autorizar servicio ${service}${email ? ' para ' + email : ''} con el código proporcionado...`);
                 try {
-                    const auth = await getOAuth2Client(service, code);
+                    const auth = await getOAuth2Client(service, code, email);
                     if (auth) {
-                        await message.reply(`✅ Servicio ${service} autorizado y token guardado correctamente.`);
+                        await message.reply(`✅ Servicio ${service}${email ? ' (' + email + ')' : ''} autorizado y token guardado correctamente.`);
                     } else {
                         await message.reply(`❌ No se pudo autorizar el servicio ${service}. Revisa los logs.`);
                     }
