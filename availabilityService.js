@@ -43,12 +43,15 @@ function normalizeStreamingName(name) {
         return 'disney';
     }
     if (normalized.includes('netflix')) {
+        if (normalized.includes('extra')) return 'netflix_extra';
         return 'netflix';
     }
     if (normalized.includes('spotify')) {
+        if (normalized.includes('owner')) return 'spotify_owner';
         return 'spotify';
     }
     if (normalized.includes('youtube')) {
+        if (normalized.includes('owner')) return 'youtube_owner';
         return 'youtube';
     }
     if (normalized.includes('microsoft') || normalized.includes('office')) {
@@ -57,11 +60,33 @@ function normalizeStreamingName(name) {
     if (normalized.includes('claude')) {
         return 'claude';
     }
+    if (normalized.includes('chatgpt') || normalized.includes('gpt')) {
+        return 'gpt';
+    }
+    if (normalized.includes('crunchy')) {
+        return 'crunchyroll';
+    }
+    if (normalized.includes('vix')) {
+        return 'vix';
+    }
+    if (normalized.includes('canva')) {
+        return 'canva';
+    }
     if (normalized.includes('apple')) {
-        return 'apple';
+        if (normalized.includes('tv')) return 'appletv';
+        return 'appleone';
     }
     if (normalized.includes('gemini')) {
         return 'gemini';
+    }
+    if (normalized.includes('paramount')) {
+        return 'paramount';
+    }
+    if (normalized.includes('platzi')) {
+        return 'platzi';
+    }
+    if (normalized.includes('iptv')) {
+        return 'iptv';
     }
     return normalized;
 }

@@ -150,7 +150,7 @@ function findAvailableSlot(platformName, allRows) {
         if (!rowStreaming) continue;
 
         // Si la plataforma coincide
-        if (rowStreaming === targetPlatform) {
+        if (rowStreaming === targetPlatform || isSamePlatformFamily(rowStreaming, targetPlatform)) {
             const email = (row.correo || row.Correo || "").toString().toLowerCase().trim();
             if (email && config[email] && config[email].immediate === false) {
                 continue;
