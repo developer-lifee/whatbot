@@ -8075,14 +8075,16 @@ async function baseProcessIncomingMessage(messages) {
     const wantsCodeKeywords = [
         'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código',
         'enviar código', 'enviar codigo', 'el código', 'el codigo',
-        'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
+        'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación',
+        'envia el codigo', 'envía el código', 'mandar codigo', 'mandar código'
     ];
-    const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify'];
-    const hasCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) && !lowerBody.includes('qr') && !lowerBody.includes('barras') && !lowerBody.includes('pago');
+    const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify', 'paramount'];
+    const isPaymentOrReceipt = lowerBody.includes('qr') || lowerBody.includes('barras') || lowerBody.includes('pago') || lowerBody.includes('comprobante') || lowerBody.includes('recibo') || lowerBody.includes('abono');
+    const hasCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) && !isPaymentOrReceipt;
     const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
-    const isQuestionOrCode = lowerBody === '?' || lowerBody.includes('enviar') || wantsCodeKeywords.some(kw => lowerBody === kw);
+    const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw)) && !isPaymentOrReceipt;
 
-    if ((hasCodeKeyword && !lowerBody.includes('qr') && !lowerBody.includes('barras') && !lowerBody.includes('pago')) || (isQuestionOrCode && hasPlatformKeyword) || isQuestionOrCode) {
+    if (hasCodeKeyword || (isQuestionOrCode && hasPlatformKeyword)) {
         try {
             const { getAccountsByPhone } = require('./apiService');
             const userAccounts = await getAccountsByPhone(realPhone, foundName);
