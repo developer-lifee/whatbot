@@ -65,8 +65,31 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             }
         }
 
+async function checkPendingWebSaleForPhone(phone) {
+    if (!phone) return null;
+    const clean = phone.replace(/\D/g, '');
+    if (!clean) return null;
+    const last10 = clean.slice(-10);
+    const { pool } = require('./database');
+    try {
+        const [rows] = await pool.query(
+            "SELECT * FROM web_sales_pending WHERE whatsapp LIKE ? OR whatsapp = ?",
+            [`%${last10}`, clean]
+        );
+        return rows.length > 0 ? rows[0] : null;
+    } catch (e) {
+        return null;
+    }
+}
+
         if (isPendingValidation) {
-            await client.sendMessage(userId, "🤖 Un humano aún no ha validado tu pago, estamos en proceso de validación. Para la próxima vez, te recomendamos usar la Llave de Pago para una activación inmediata sin esperar verificación humana.");
+            const pendingSale = await checkPendingWebSaleForPhone(phoneNumber);
+            if (pendingSale) {
+                const amountFmt = pendingSale.amount ? `$${Number(pendingSale.amount).toLocaleString('es-CO')} COP` : '';
+                await client.sendMessage(userId, `🤖 ¡Hola ${pendingSale.firstName || ''}! 👋 Veo que tu pedido de *${pendingSale.platformName}* (${amountFmt}) está registrado en nuestro sistema (Orden \`${pendingSale.order_id}\`). 🎉\n\nEstamos monitoreando la confirmación de tu banco (Nequi/PSE) en tiempo real. Tan pronto como el banco confirme la transacción, te entregaremos tus claves automáticamente por aquí. 😊`);
+            } else {
+                await client.sendMessage(userId, "🤖 Tu pago está registrado en nuestro sistema y está en proceso de validación. En breve te entregaremos tus accesos automáticamente. ¡Gracias por tu paciencia! 😊");
+            }
             return;
         }
 
@@ -1140,5 +1163,6 @@ module.exports = {
   handleAutoCobros,
   handleCobrosParser,
   handleAwaitingCobrosConfirmation,
-  adjustDurationToMatchAmount
+  adjustDurationToMatchAmount,
+  checkPendingWebSaleForPhone
 };

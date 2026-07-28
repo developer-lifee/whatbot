@@ -9103,6 +9103,46 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     }
                     return;
                 }
+            // --- VERIFICACIÓN INTELIGENTE DE VENTAS WEB PENDIENTES (TEMPORALES) ---
+            try {
+                const { checkPendingWebSaleForPhone } = require('./billingService');
+                const pendingSale = await checkPendingWebSaleForPhone(realPhone);
+                if (pendingSale) {
+                    console.log(`[Web Sale Check] Detectada venta pendiente en BD para ${realPhone}: Orden ${pendingSale.order_id}`);
+                    const apiKey = process.env.BOLD_IDENTITY_KEY;
+                    let isApprovedInBold = false;
+                    if (apiKey) {
+                        try {
+                            const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
+                            const boldRes = await fetch(`https://integrations.api.bold.co/online/payment/v1/orders/${pendingSale.order_id}`, {
+                                method: 'GET',
+                                headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' }
+                            });
+                            if (boldRes.ok) {
+                                const boldData = await boldRes.json();
+                                const bState = (boldData.status || boldData.data?.status || boldData.payment_status || '').toUpperCase();
+                                if (bState === 'APPROVED' || bState === 'SALE_APPROVED' || bState === 'SUCCESS' || bState === 'PAID') {
+                                    isApprovedInBold = true;
+                                }
+                            }
+                        } catch (e) { }
+                    }
+
+                    if (isApprovedInBold) {
+                        console.log(`[Web Sale Check] ✅ ¡Orden ${pendingSale.order_id} aprobada en Bold API! Ejecutando entrega inmediata...`);
+                        await approveBoldOrder(pendingSale.order_id);
+                        return;
+                    } else if (message.hasMedia || ['credenciales', 'pagar', 'soporte'].includes(detection.intent) || (inputToUse && inputToUse.length > 3)) {
+                        const amountFmt = pendingSale.amount ? `$${Number(pendingSale.amount).toLocaleString('es-CO')} COP` : '';
+                        await message.reply(
+                            `🤖 ¡Hola ${pendingSale.firstName || ''}! 👋 Veo que tu pedido de *${pendingSale.platformName}* (${amountFmt}) está registrado en nuestro sistema (Orden \`${pendingSale.order_id}\`). 🎉\n\n` +
+                            `En este momento estamos monitoreando la confirmación de tu banco (Nequi/PSE) en tiempo real. Tan pronto como tu banco confirme la transacción a nuestra pasarela, recibirás tus claves automáticamente por este mismo chat. 😊`
+                        );
+                        return;
+                    }
+                }
+            } catch (pErr) {
+                console.error("[Web Sale Check Error]:", pErr.message);
             }
 
             // 4.5 DETECCIÓN DE FRUSTRACIÓN / INSISTENCIA (Startup/Unread handle)
