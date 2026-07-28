@@ -8430,7 +8430,7 @@ async function baseProcessIncomingMessage(messages) {
                                 console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
 
                                 // INTELIGENCIA DE RENOVACIÓN DE COMBOS Y MÚLTIPLES CUENTAS:
-                                // Priorizar primero la cuenta que VENCE HOY o YA VENCIÓ sobre cuentas con vencimiento lejano.
+                                // Priorizar la cuenta que VENCE HOY/YA VENCIÓ. Si hay ambigüedad o múltiples opciones, PREGUNTAR AL CLIENTE EN VEZ DE ADIVINAR POR PRECIO.
                                 if (stateData.isRenewal && stateData.items && stateData.items.length > 1 && check.amount) {
                                     try {
                                         const { getJsDateFromExcel } = require('./apiService');
@@ -8446,52 +8446,37 @@ async function baseProcessIncomingMessage(messages) {
                                         });
 
                                         if (urgentItems.length === 1) {
-                                            console.log(`[Smart Renewal Filter] Priorizando renovación urgente de: ${urgentItems[0].Streaming} (vence pronto/vencida) sobre otras cuentas lejanas.`);
+                                            console.log(`[Smart Renewal Filter] ✅ Priorizando renovación urgente única de: ${urgentItems[0].Streaming} (vence pronto/vencida) sobre otras cuentas lejanas.`);
                                             stateData.items = urgentItems;
-                                            if (stateData.items[0].price && stateData.items[0].price === check.amount) {
-                                                stateData.total = check.amount;
-                                            }
+                                            stateData.total = check.amount;
                                         } else {
-                                            // Si hay varias urgentes o ninguna, buscar coincidencia por precio entre las urgentes (o todas)
-                                            const targetList = urgentItems.length > 0 ? urgentItems : stateData.items;
-                                            const { getPlatforms } = require('./salesService');
-                                            const platforms = await getPlatforms();
-                                            const matchingPriceItems = [];
+                                            // Si hay varias urgentes o ninguna clara, NO ADIVINAR POR PRECIO.
+                                            // Le mostramos las opciones al cliente para que elija explícitamente.
+                                            const candidateList = urgentItems.length > 1 ? urgentItems : stateData.items;
+                                            let promptMsg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
+                                                `Veo que tienes varias cuentas activas en nuestro sistema. Por favor responde únicamente con el número del servicio que deseas renovar:\n\n`;
+                                            
+                                            candidateList.forEach((acc, idx) => {
+                                                const platName = (acc.Streaming || acc.Plataforma || "Servicio").toUpperCase();
+                                                const vencStr = acc.deben || acc.vencimiento || "Vencimiento N/A";
+                                                promptMsg += `${idx + 1} - Renovar *${platName}* (Vence: ${vencStr}) 🔄\n`;
+                                            });
+                                            promptMsg += `${candidateList.length + 1} - Es para un servicio nuevo u otro motivo ❌`;
 
-                                            for (const item of targetList) {
-                                                const itemStreaming = (item.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                                                const matchedPlat = platforms.find(p => {
-                                                    const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                                                    return itemStreaming.includes(cleanPlat) || cleanPlat.includes(itemStreaming);
-                                                });
+                                            await message.reply(promptMsg);
 
-                                                let itemPrice = 0;
-                                                if (matchedPlat) {
-                                                    itemPrice = matchedPlat.price || 0;
-                                                    if (matchedPlat.plans && matchedPlat.plans.length > 0) {
-                                                        const cleanAccStreaming = (item.Streaming || "").toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                                        const matchedPlan = matchedPlat.plans.find(plan => {
-                                                            const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                                            return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
-                                                        });
-                                                        if (matchedPlan) {
-                                                            itemPrice = matchedPlan.price;
-                                                        } else {
-                                                            const pricePlan = matchedPlat.plans.find(plan => plan.price === check.amount);
-                                                            if (pricePlan) itemPrice = pricePlan.price;
-                                                        }
-                                                    }
-                                                }
-                                                if (itemPrice === check.amount) {
-                                                    matchingPriceItems.push(item);
-                                                }
-                                            }
-
-                                            if (matchingPriceItems.length === 1) {
-                                                console.log(`[Smart Combo Filter] Reduciendo items a renovación única de: ${matchingPriceItems[0].Streaming} por coincidencia de precio ($${check.amount}).`);
-                                                stateData.items = matchingPriceItems;
-                                                stateData.total = check.amount;
-                                            }
+                                            userStates.set(userId, {
+                                                state: 'awaiting_payment_multi_renewal_selection',
+                                                candidateAccounts: candidateList,
+                                                amount: check.amount,
+                                                bank: check.bank,
+                                                matchId: match.id,
+                                                subject: match.subject,
+                                                chatJid: originalChatJid,
+                                                nombre: foundName,
+                                                leftoverAmount: leftoverAmount
+                                            });
+                                            return;
                                         }
                                     } catch (err) {
                                         console.error("Error en Smart Combo Filter:", err.message);
@@ -9509,6 +9494,32 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, renovar) o *2* (No, servicio nuevo).");
             }
             break;
+        case 'awaiting_payment_multi_renewal_selection': {
+            const selChoice = parseInt((message.body || "").trim());
+            const multiCandidates = currentStateData.candidateAccounts || [];
+            if (!isNaN(selChoice) && selChoice >= 1 && selChoice <= multiCandidates.length) {
+                const chosenAccount = multiCandidates[selChoice - 1];
+                const platName = (chosenAccount.Streaming || "Servicio").toUpperCase();
+                await message.reply(`🤖 ¡Entendido! Estoy registrando la renovación de tu cuenta de *${platName}* y preparando tus credenciales. Dame un momento... ⏳`);
+                const tempState = {
+                    nombre: currentStateData.nombre,
+                    items: [chosenAccount],
+                    total: currentStateData.amount,
+                    chatJid: currentStateData.chatJid || userId
+                };
+                const valResult = await executePaymentValidation(userId, tempState, client, userStates, null, currentStateData.matchId);
+                if (!valResult.success) {
+                    await message.reply("🤖 Hubo un problema al renovar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                }
+            } else if (!isNaN(selChoice) && selChoice === multiCandidates.length + 1) {
+                await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
+                userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+            } else {
+                await message.reply(`🤖 Por favor, responde únicamente con el número de la opción que deseas (1 a ${multiCandidates.length + 1}).`);
+            }
+            break;
+        }
         case 'awaiting_payment_autofill_confirmation':
             const autofillOption = (message.body || "").trim().toLowerCase();
             if (autofillOption === '1' || autofillOption === 'si' || autofillOption === 'sí') {
