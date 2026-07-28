@@ -44,15 +44,11 @@ function isSamePlatformFamily(name1, name2) {
         ['vix', 'vix_premium']
     ];
     
-    for (const fam of families) {
-        if (fam.includes(n1) && fam.includes(n2)) {
-            return true;
-        }
-    }
-
-    const mainRoots = ['gemini', 'apple', 'youtube', 'spotify', 'disney', 'hbo', 'netflix', 'microsoft', 'office', 'prime', 'vix', 'crunchyroll', 'claude', 'chatgpt'];
+    const mainRoots = ['gemini', 'apple', 'youtube', 'spotify', 'disney', 'hbo', 'netflix', 'microsoft', 'office', 'prime', 'vix', 'crunchyroll', 'claude', 'chatgpt', 'gpt'];
     for (const root of mainRoots) {
-        if (n1.includes(root) && n2.includes(root)) {
+        let normalizedN1 = n1.replace(/chatgpt|chat gpt/g, 'gpt');
+        let normalizedN2 = n2.replace(/chatgpt|chat gpt/g, 'gpt');
+        if (normalizedN1.includes(root) && normalizedN2.includes(root)) {
             return true;
         }
     }
