@@ -10303,7 +10303,14 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
         return;
     }
 
-    if (message.hasMedia || body.includes("ya pagu") || body.includes("listo") || body.includes("claro que si") || body.includes("enviado") || body.includes("transferencia") || body.includes("comprobante")) {
+    const explicitPaymentPhrases = [
+        "ya pagu", "ya realice el pago", "ya realice pago", "ya hice el pago", "ya hice pago",
+        "ya transferi", "ya deposite", "ya envie el pago", "ya mande el pago", "ya consigne",
+        "comprobante de pago", "comprobante", "pantallazo del pago", "aqui esta el pago"
+    ];
+    const isExplicitPaymentText = explicitPaymentPhrases.some(phrase => body.includes(phrase));
+
+    if (message.hasMedia || isExplicitPaymentText) {
 
         // --- INTENTO DE VALIDACIÓN AUTOMÁTICA POR IMAGEN ---
         if (message.hasMedia && singleMediaData) {
