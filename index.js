@@ -9105,6 +9105,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     }
                     return;
                 }
+            }
+
             // --- VERIFICACIÓN INTELIGENTE DE VENTAS WEB PENDIENTES (TEMPORALES) ---
             try {
                 const { checkPendingWebSaleForPhone } = require('./billingService');
