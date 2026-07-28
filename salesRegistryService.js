@@ -287,7 +287,10 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             let matchedRow = null;
             let isAutoRenewal = false;
 
-            if (true) {
+            const lastMsgText = userState.lastMessage || "";
+            const isExplicitNewAccount = (userState.isNewSale || userState.forceNewSale || /nueva|otra|adicional|segunda|comprar otra/i.test(lastMsgText));
+
+            if (!isExplicitNewAccount) {
                 const existingAccount = allRows.find(r => {
                     const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
                     const whatsappVal = (r.whatsapp || "").toString().trim();
@@ -318,14 +321,28 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                         }
                     }
 
-                    return (isPhoneMatch || isNameMatch) && isSamePlatformFamily(r.Streaming, platformName);
+                    if ((isPhoneMatch || isNameMatch) && isSamePlatformFamily(r.Streaming, platformName)) {
+                        // Solo consideramos renovable si la cuenta está VENCIDA o VENCE PRONTO (<= 15 días)
+                        // Si la cuenta vence en más de 15 días en el futuro, se asume que la compra actual es para una SEGUNDA CUENTA NUEVA
+                        const { getJsDateFromExcel } = require('./apiService');
+                        const dueDate = getJsDateFromExcel(r.deben || r.vencimiento);
+                        if (dueDate) {
+                            const diffDays = (dueDate - new Date()) / (1000 * 60 * 60 * 24);
+                            if (diffDays > 15) {
+                                console.log(`[Sales Registry] La cuenta existente de ${r.Streaming} para ${phone} vence en ${Math.round(diffDays)} días (>15 días). No se tratará como renovación, sino como VENTA NUEVA.`);
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                    return false;
                 });
 
                 if (existingAccount) {
                     finalRow = existingAccount._rowNumber || allRows.indexOf(existingAccount) + 2;
                     matchedRow = existingAccount;
                     isAutoRenewal = true;
-                    console.log(`[Sales Registry] Auto-detección: El cliente ya tiene ${platformName}. Procesando como RENOVACIÓN en fila ${finalRow}`);
+                    console.log(`[Sales Registry] Auto-detección: El cliente ya tiene ${platformName} (vencida/por vencer). Procesando como RENOVACIÓN en fila ${finalRow}`);
                 }
             }
 
