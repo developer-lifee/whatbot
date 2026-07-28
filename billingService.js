@@ -21,6 +21,23 @@ function extractPlatformFromText(text) {
     return null;
 }
 
+async function checkPendingWebSaleForPhone(phone) {
+    if (!phone) return null;
+    const clean = phone.replace(/\D/g, '');
+    if (!clean) return null;
+    const last10 = clean.slice(-10);
+    const { pool } = require('./database');
+    try {
+        const [rows] = await pool.query(
+            "SELECT * FROM web_sales_pending WHERE whatsapp LIKE ? OR whatsapp = ?",
+            [`%${last10}`, clean]
+        );
+        return rows.length > 0 ? rows[0] : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 /**
  * Procesa la solicitud de credenciales de un usuario.
  */
@@ -64,23 +81,6 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
                 console.error('[Billing Service] Error buscando ventas pendientes:', dbErr.message);
             }
         }
-
-async function checkPendingWebSaleForPhone(phone) {
-    if (!phone) return null;
-    const clean = phone.replace(/\D/g, '');
-    if (!clean) return null;
-    const last10 = clean.slice(-10);
-    const { pool } = require('./database');
-    try {
-        const [rows] = await pool.query(
-            "SELECT * FROM web_sales_pending WHERE whatsapp LIKE ? OR whatsapp = ?",
-            [`%${last10}`, clean]
-        );
-        return rows.length > 0 ? rows[0] : null;
-    } catch (e) {
-        return null;
-    }
-}
 
         if (isPendingValidation) {
             const pendingSale = await checkPendingWebSaleForPhone(phoneNumber);
