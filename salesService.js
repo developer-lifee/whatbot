@@ -236,7 +236,18 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   const { items, statedPrice, subscriptionType, empathyGreeting } = intent;
 
   if (!items || items.length === 0) {
-    await message.reply("🤖 No pude entender qué servicios deseas. Por favor, intenta de nuevo especificando el nombre de la plataforma y el plan.");
+    let replyMsg = "";
+    if (empathyGreeting && empathyGreeting.trim().length > 0) {
+      replyMsg = `${empathyGreeting.trim()}\n\n¿En qué plataforma o servicio estás interesad@ hoy? (Tenemos Netflix, YouTube Premium, Disney+, Spotify, HBO Max, Prime Video, etc.) 😊`;
+    } else {
+      const cleanText = (mensaje || "").toLowerCase().trim();
+      if (/hola|buenas|buenos d[ií]as|buenas tardes|buenas noches/i.test(cleanText)) {
+        replyMsg = "🤖 ¡Hola! Buenas tardes. 😊 Bienvenid@ a Sheerit. ¿En qué plataforma o servicio estás interesad@ hoy? (Tenemos Netflix, YouTube Premium, Disney+, Spotify, HBO Max, Prime Video, etc.)";
+      } else {
+        replyMsg = "🤖 ¡Hola! 😊 ¿En qué plataforma estás interesad@ hoy? Por favor indícame cuál deseas adquirir o renovar (Netflix, YouTube, Disney+, Spotify, etc.) para darte todos los detalles.";
+      }
+    }
+    await message.reply(replyMsg);
     return;
   }
 
