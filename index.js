@@ -8429,45 +8429,69 @@ async function baseProcessIncomingMessage(messages) {
                             if (match) {
                                 console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
 
-                                // INTELIGENCIA DE COMBOS: Si tiene múltiples cuentas pero el pago recibido coincide exactamente con el precio de una sola de ellas, renovamos solo esa automáticamente.
+                                // INTELIGENCIA DE RENOVACIÓN DE COMBOS Y MÚLTIPLES CUENTAS:
+                                // Priorizar primero la cuenta que VENCE HOY o YA VENCIÓ sobre cuentas con vencimiento lejano.
                                 if (stateData.isRenewal && stateData.items && stateData.items.length > 1 && check.amount) {
                                     try {
-                                        const { getPlatforms } = require('./salesService');
-                                        const platforms = await getPlatforms();
-                                        const matchingPriceItems = [];
+                                        const { getJsDateFromExcel } = require('./apiService');
+                                        const now = new Date();
+                                        now.setHours(0, 0, 0, 0);
 
-                                        for (const item of stateData.items) {
-                                            const itemStreaming = (item.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                                            const matchedPlat = platforms.find(p => {
-                                                const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                                                return itemStreaming.includes(cleanPlat) || cleanPlat.includes(itemStreaming);
-                                            });
+                                        // Filtrar cuentas vencidas o que vencen en los próximos 7 días
+                                        const urgentItems = stateData.items.filter(item => {
+                                            const d = getJsDateFromExcel(item.deben || item.vencimiento);
+                                            if (!d) return true;
+                                            const diffDays = (d - now) / (1000 * 60 * 60 * 24);
+                                            return diffDays <= 7; // Vencida, hoy, o vence en <= 7 días
+                                        });
 
-                                            let itemPrice = 0;
-                                            if (matchedPlat) {
-                                                itemPrice = matchedPlat.price || 0;
-                                                if (matchedPlat.plans && matchedPlat.plans.length > 0) {
-                                                    const cleanAccStreaming = (item.Streaming || "").toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                                    const matchedPlan = matchedPlat.plans.find(plan => {
-                                                        const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                                        return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
-                                                    });
-                                                    if (matchedPlan) {
-                                                        itemPrice = matchedPlan.price;
-                                                    } else {
-                                                        const pricePlan = matchedPlat.plans.find(plan => plan.price === check.amount);
-                                                        if (pricePlan) itemPrice = pricePlan.price;
+                                        if (urgentItems.length === 1) {
+                                            console.log(`[Smart Renewal Filter] Priorizando renovación urgente de: ${urgentItems[0].Streaming} (vence pronto/vencida) sobre otras cuentas lejanas.`);
+                                            stateData.items = urgentItems;
+                                            if (stateData.items[0].price && stateData.items[0].price === check.amount) {
+                                                stateData.total = check.amount;
+                                            }
+                                        } else {
+                                            // Si hay varias urgentes o ninguna, buscar coincidencia por precio entre las urgentes (o todas)
+                                            const targetList = urgentItems.length > 0 ? urgentItems : stateData.items;
+                                            const { getPlatforms } = require('./salesService');
+                                            const platforms = await getPlatforms();
+                                            const matchingPriceItems = [];
+
+                                            for (const item of targetList) {
+                                                const itemStreaming = (item.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                                                const matchedPlat = platforms.find(p => {
+                                                    const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                                    return itemStreaming.includes(cleanPlat) || cleanPlat.includes(itemStreaming);
+                                                });
+
+                                                let itemPrice = 0;
+                                                if (matchedPlat) {
+                                                    itemPrice = matchedPlat.price || 0;
+                                                    if (matchedPlat.plans && matchedPlat.plans.length > 0) {
+                                                        const cleanAccStreaming = (item.Streaming || "").toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                                        const matchedPlan = matchedPlat.plans.find(plan => {
+                                                            const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                                            return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
+                                                        });
+                                                        if (matchedPlan) {
+                                                            itemPrice = matchedPlan.price;
+                                                        } else {
+                                                            const pricePlan = matchedPlat.plans.find(plan => plan.price === check.amount);
+                                                            if (pricePlan) itemPrice = pricePlan.price;
+                                                        }
                                                     }
                                                 }
+                                                if (itemPrice === check.amount) {
+                                                    matchingPriceItems.push(item);
+                                                }
                                             }
-                                            if (itemPrice === check.amount) {
-                                                matchingPriceItems.push(item);
+
+                                            if (matchingPriceItems.length === 1) {
+                                                console.log(`[Smart Combo Filter] Reduciendo items a renovación única de: ${matchingPriceItems[0].Streaming} por coincidencia de precio ($${check.amount}).`);
+                                                stateData.items = matchingPriceItems;
+                                                stateData.total = check.amount;
                                             }
-                                        }
-                                        if (matchingPriceItems.length === 1) {
-                                            console.log(`[Smart Combo Filter] Reduciendo items a renovación única de: ${matchingPriceItems[0].Streaming} porque el pago de $${check.amount} coincide únicamente con su precio.`);
-                                            stateData.items = matchingPriceItems;
-                                            stateData.total = check.amount;
                                         }
                                     } catch (err) {
                                         console.error("Error en Smart Combo Filter:", err.message);
