@@ -1007,7 +1007,17 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
     };
   }
 
-  const accountSummary = summarizeAccounts(userAccounts);
+  let accountSummary = summarizeAccounts(userAccounts);
+
+  if (userAccounts && userAccounts.length > 0) {
+    const platNames = userAccounts.map(a => a.Streaming || a.streaming || a.platform || '').filter(Boolean);
+    if (platNames.length > 0) {
+      const activeListStr = platNames.join(', ');
+      accountSummary = `🎯 PLATAFORMAS REALES Y ACTIVAS DE ESTE CLIENTE: [ ${activeListStr.toUpperCase()} ]\n` +
+        `⚠️ (REGLA DE COHERENCIA: Habla ÚNICAMENTE de las plataformas listadas arriba. Queda estrictamente PROHIBIDO inventar o asumir que el cliente habla de Spotify, Netflix o Disney si no la tiene contratada o si no la mencionó explícitamente).\n\n` +
+        accountSummary;
+    }
+  }
   const platformDocs = await getPlatformKnowledge();
   const wisdomData = await getWisdomKnowledge();
   const supportDocs = await getSupportKnowledge();
