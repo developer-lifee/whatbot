@@ -7076,60 +7076,14 @@ async function baseProcessIncomingMessage(messages) {
         }
 
         if (!isSolvable) {
-            // Verificar si el modo advisor ha expirado por inactividad del asesor (más de 2 horas)
+            const lastInteraction = (currentStateData && currentStateData.lastHumanInteraction) || 0;
+            const timeSinceLastHumanMs = lastInteraction ? (Date.now() - lastInteraction) : Infinity;
+            const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
+
             let isAdvisorExpired = false;
-            if (mode === 'advisor') {
-                if (!currentStateData.clientWaitingSince) {
-                    currentStateData.clientWaitingSince = Date.now();
-                    userStates.set(userId, currentStateData);
-                }
-
-                const clientWaitingMs = Date.now() - currentStateData.clientWaitingSince;
-                const minutesWaiting = clientWaitingMs / (1000 * 60);
-
-                const lastInteraction = (currentStateData && currentStateData.lastHumanInteraction) || 0;
-                const timeSinceLastHumanMs = Date.now() - lastInteraction;
-                const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
-
-                if (minutesSinceLastHuman > 120) {
-                    console.log(`[BOT MUTE EXPIRE] El asesor no ha interactuado en ${minutesSinceLastHuman.toFixed(1)} minutos con @${userId}. Expirando modo advisor.`);
-                    isAdvisorExpired = true;
-                } else if (minutesWaiting > 30) {
-                    // SI EL BOT NO PUEDE RESOLVERLO Y YA PASARON 30 MIN DE ESPERA DEL CLIENTE: Alertar al administrador y dar turno de cola
-                    if (!global.supportQueue) global.supportQueue = [];
-                    let turnIdx = global.supportQueue.indexOf(userId);
-                    if (turnIdx === -1) {
-                        global.supportQueue.push(userId);
-                        turnIdx = global.supportQueue.length - 1;
-                    }
-                    const turnNumber = turnIdx + 1;
-
-                    const lastWarning = (currentStateData && currentStateData.lastWarningTime) || 0;
-                    if (Date.now() - lastWarning > 15 * 60 * 1000) {
-                        await message.reply(`🤖 Hola, lamentamos la demora. Nuestro equipo de soporte ha estado muy ocupado, pero sigues en nuestra lista de espera.\n\n📍 *Tu turno actual es el #${turnNumber}*.\n\nUn asesor se comunicará contigo lo antes posible. ¡Agradecemos mucho tu paciencia! ⏳`);
-
-                        try {
-                            const groupChat = await client.getChatById(GROUP_ID);
-                            if (groupChat) {
-                                await groupChat.sendMessage(`⏳ *ALERTA DE INACTIVIDAD DE ASESOR* ⏳\n\nEl cliente *${foundName || 'Cliente'}* (@${realPhone}) lleva más de *30 minutos* esperando respuesta del asesor y requiere atención humana.\n\n📍 *Turno en cola:* #${turnNumber}\n\nPor favor, atiende este chat lo antes posible.`);
-                            }
-                        } catch (err) {
-                            console.error("Error notificando al grupo sobre inactividad del asesor:", err.message);
-                        }
-
-                        userStates.set(userId, {
-                            ...currentStateData,
-                            lastWarningTime: Date.now()
-                        });
-                    }
-                    return; // Mantener silencio absoluto del bot de cara a resolver intenciones
-                }
-            } else {
-                const stateAgeMs = Date.now() - (currentStateData.timestamp || Date.now());
-                if (stateAgeMs > 2 * 60 * 60 * 1000) {
-                    console.log(`[BOT MUTE EXPIRE] Estado de advisor muy antiguo sin timestamp de interacción. Expirando.`);
-                    isAdvisorExpired = true;
-                }
+            if (minutesSinceLastHuman > 120) {
+                console.log(`[BOT MUTE EXPIRE] El asesor no ha interactuado en ${minutesSinceLastHuman.toFixed(1)} minutos con @${userId}. Expirando modo advisor.`);
+                isAdvisorExpired = true;
             }
 
             // Reactivación rápida explícita para ambos modos o si el modo advisor expiró
@@ -7138,28 +7092,32 @@ async function baseProcessIncomingMessage(messages) {
                 userStates.delete(userId);
                 currentState = undefined;
             } else {
-                // Si el cliente está en conversación activa con un asesor humano (mode === 'advisor' o atención reciente), SILENCIO ABSOLUTO.
-                if (mode === 'advisor' || (currentStateData && currentStateData.lastHumanInteraction)) {
-                    console.log(`[BOT MUTE ABSOLUTE] @${userId} está en atención humana activa por asesor. Manteniendo silencio absoluto.`);
+                // HILO ACTIVO CON ASESOR: Si el asesor interactuó hace menos de 15 minutos, SILENCIO ABSOLUTO.
+                // Permite conversaciones fluidas como "Si señor" -> sin interrupciones del bot.
+                if (minutesSinceLastHuman <= 15) {
+                    console.log(`[BOT MUTE ACTIVE THREAD] Asesor interactuó hace ${minutesSinceLastHuman.toFixed(1)} mins con @${userId}. Manteniendo silencio absoluto por hilo activo con asesor.`);
                     return;
                 }
 
-                // Si el cliente está en cola del bot (mode === 'bot') y sigue enviando mensajes, informarle periódicamente de su posición (límite 15 min)
+                // HILO ABANDONADO / EN ESPERA (> 15 MINUTOS SIN RESPUESTA DEL ASESOR):
+                // Si pasaron más de 15 min desde que el asesor habló y el cliente vuelve a escribir, le damos aviso de turno en cola.
                 const lastWarning = (currentStateData && currentStateData.lastWarningTime) || 0;
                 const isClosingMsg = detection && detection.intent === 'cierre';
                 if (!isClosingMsg && (Date.now() - lastWarning > 15 * 60 * 1000)) {
                     const { getQueuePosition } = require('./supportScheduleService');
                     const queuePos = getQueuePosition(userId, userStates);
                     if (queuePos) {
-                        await safeReply(message, `🤖 Sigues en nuestra lista de espera para atención humana.\n\n📌 *Tu turno actual en la cola:* #${queuePos}.\n\nUn asesor te atenderá lo antes posible. ¡Gracias por tu paciencia! 😊`, userId);
+                        await safeReply(message, `🤖 Hola, lamentamos la demora. Tu caso sigue en proceso de atención por soporte.\n\n📌 *Tu turno actual en la cola:* #${queuePos}.\n\nUn asesor te atenderá a la brevedad. ¡Gracias por tu paciencia! 😊`, userId);
                     } else {
-                        await safeReply(message, `🤖 Sigues en nuestra lista de espera para atención humana. Un asesor te atenderá lo antes posible. ¡Gracias por tu paciencia! 😊`, userId);
+                        await safeReply(message, `🤖 Hola, lamentamos la demora. Tu caso sigue en proceso de atención por soporte. Un asesor te atenderá a la brevedad. ¡Gracias por tu paciencia! 😊`, userId);
                     }
                     userStates.set(userId, {
                         ...currentStateData,
                         lastWarningTime: Date.now()
                     });
                 }
+                return;
+            }
 
                 // BYPASS INTELIGENTE: Si el usuario pide un código de verificación/2FA o sus credenciales, lo asistimos automáticamente
                 // incluso si está en espera humana (waiting_human), para que no dependa de un asesor para algo automatizable.
