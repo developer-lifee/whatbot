@@ -167,7 +167,7 @@ async function startPurchaseProcess(message, userId, userStates) {
  * @param {number} limit - Cantidad de mensajes a recuperar.
  * @returns {Promise<string>}
  */
-async function getChatHistoryText(message, limit = 15) {
+async function getChatHistoryText(message, limit = 25) {
   let chatHistoryText = "";
   try {
     if (!message) return "";

@@ -485,10 +485,20 @@ async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de so
 /**
  * Utiliza Gemini para describir un comprobante de pago/imagen.
  * @param {object} mediaData
+ * @param {string} chatHistory Historial reciente del chat para dar contexto a la imagen
+ * @param {string} accountSummary Cuentas activas registradas del cliente
  * @returns {Promise<string>} La descripción de la imagen.
  */
-async function describeImageWithGemini(mediaData) {
-  const prompt = `Analiza detalladamente esta imagen. Puede ser un comprobante de pago, una captura de pantalla de un inicio de sesión/2FA, un mensaje de error o una consulta.
+async function describeImageWithGemini(mediaData, chatHistory = "", accountSummary = "") {
+  let contextBlock = "";
+  if (accountSummary || chatHistory) {
+    contextBlock = `\n\nCONTEXTO PREVIO DEL CHAT Y PLATAFORMAS REGISTRADAS DEL CLIENTE:\n` +
+      (accountSummary ? `${accountSummary}\n` : "") +
+      (chatHistory ? `Historial reciente del chat:\n${chatHistory}\n` : "") +
+      `\n⚠️ REGLA DE INTERPRETACIÓN COHERENTE: Utiliza el contexto previo para guiarte. Si el cliente tiene contratada o estuvo discutiendo YouTube Premium, NUNCA identifiques la pantalla como Netflix o Spotify a menos que el logo de Netflix o Spotify sea 100% explícito y visible en la imagen.`;
+  }
+
+  const prompt = `Analiza detalladamente esta imagen. Puede ser un comprobante de pago, una captura de pantalla de un inicio de sesión/2FA, un mensaje de error o una consulta.${contextBlock}
 
 Realiza una extracción precisa (OCR) y describe detalladamente lo que se ve en la imagen:
 
@@ -1081,7 +1091,7 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
   let mediaDescription = "";
   if (isMedia && mediaData) {
     try {
-      mediaDescription = await describeImageWithGemini(mediaData);
+      mediaDescription = await describeImageWithGemini(mediaData, chatHistory, accountSummary);
       
       if (mediaDescription) {
         const descLower = mediaDescription.toLowerCase();
