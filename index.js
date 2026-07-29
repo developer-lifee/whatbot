@@ -6637,18 +6637,17 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 if (codes && codes.length > 0) {
                     const latest = codes[0];
                     let response = `🤖 *Código / Enlace de ${streamingName} Encontrado* 🚀\n\n`;
+                    if (latest.code) {
+                        response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
+                    }
+
                     if (latest.link) {
                         if (streamingName.toLowerCase().includes('netflix')) {
                             const cleanPhone = userId.replace(/\D/g, '');
-                            response += `🔗 Enlace de inicio de sesión:\n👉 https://sheerit.com.co/verificar?tel=${cleanPhone}\n\n`;
+                            response += `🔗 *Para registrar la IP de tu hogar y confirmar acceso en tu TV/celular:*\n👉 https://sheerit.com.co/verificar?tel=${cleanPhone}\n\n`;
                         } else {
-                            if (latest.code) {
-                                response += `🔢 Código: *${latest.code}*\n`;
-                            }
-                            response += `🔗 Enlace de inicio de sesión:\n👉 ${latest.link}\n\n`;
+                            response += `🔗 *Enlace de inicio de sesión / activación:*\n👉 ${latest.link}\n\n`;
                         }
-                    } else if (latest.code) {
-                        response += `🔢 Código: *${latest.code}*\n`;
                     }
                     response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código/enlace vence pronto._`;
                     await message.reply(response);
