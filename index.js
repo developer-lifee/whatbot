@@ -8890,13 +8890,14 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         const isPasswordFocus = isIncorrectPassword || (detection && detection.intent === 'credenciales') ||
             ['clave', 'contraseña', 'password', 'datos', 'ingresar', 'ingreso', 'acceso'].some(kw => bodyLower.includes(kw) || explanationLower.includes(kw));
 
-        if (isGetHelpScreen && isPasswordFocus) {
+        if (isGetHelpScreen) {
             console.log(`[BOT MEDIA OCR GET HELP SCREEN] Se detectó pantalla 'Obtener ayuda' / 'Enviamos a tu email' en @${userId}. Guiando para ingresar con contraseña.`);
-            await message.reply(`🤖 ¡Veo la pantalla de inicio de sesión de Netflix en tu TV! 📺\n\n` +
-                `Como deseas ingresar con tu correo y contraseña:\n` +
-                `1. En esa misma pantalla, presiona la opción **"Obtener ayuda ∨"** en la parte inferior.\n` +
-                `2. Selecciona **"Iniciar sesión con contraseña"** (o **"Usar contraseña"**).\n\n` +
-                `¡Ahí podrás ingresar la clave directamente de tu cuenta sin depender de códigos! 🔑`);
+            await message.reply(`🤖 ¡Veo la pantalla de inicio de sesión en tu TV! 📺\n\n` +
+                `*Por favor realiza estos sencillos pasos en tu pantalla:*\n` +
+                `1. En esa misma pantalla, presiona la opción **"Obtener ayuda ∨"** en la parte inferior izquierda.\n` +
+                `2. Selecciona **"Iniciar sesión con contraseña"** (o **"Usar contraseña"**).\n` +
+                `3. Ingresa la contraseña asignada a tu cuenta para ingresar de inmediato. 🔑\n\n` +
+                `_(Si tu pantalla te exige obligatoriamente un código de 6 dígitos, presiona "Enviar código" y responde aquí con la palabra **código** para entregártelo)._`);
             return;
         }
 
