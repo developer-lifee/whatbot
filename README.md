@@ -480,3 +480,23 @@ Para evitar bloqueos por parte de los sistemas automatizados de WhatsApp y asegu
 
 ### 3. Protección contra Bucles de Reinicio Rápido
 * **Desconexiones en Frío:** En el handler `disconnected`, el bot detecta el estado actual a través de `currentWhatsappStatus`. Si el bot se desconecta antes de estar logueado (`CONNECTED`), el bot esperará **15 segundos** antes de ejecutar `process.exit(1)`. Esto previene bucles de reinicio rápidos y protege la dirección IP del servidor contra el rate-limiting de WhatsApp.
+
+---
+
+## 🛠️ Actualizaciones Recientes (28-29 de Julio de 2026)
+
+### 1. ⚡ Redirección Instantánea al Panel de Cliente / Portal OTP tras Pago en Bold
+- **Navegación sin Esperas**: Al completar el pago en la pasarela Bold / PSE, el cliente es redirigido a `https://sheerit.com.co/?orderId=${orderId}&payment=success`.
+- **Integración con Portal de Verificación (`/verificar`)**: El frontend (`sheeritpage/src/App.tsx`) consulta la API de validación inmediata `/api/bold/check-status/:orderId` y traslada automáticamente al usuario al **Panel de Cliente / Verificación de Códigos OTP** prellenado con su número WhatsApp (`/?tel=57300XXXXXX`), permitiéndole ver sus credenciales y solicitar códigos en tiempo real.
+
+### 2. 🎟️ Generación de Tickets de Soporte en MariaDB (`#TK-xxxx`)
+- **Gestión Relacional en MariaDB**: Toda solicitud que requiere intervención humana (activación de invitaciones familiares de YouTube Premium, Apple One o escalaciones de la IA) crea automáticamente un registro en la tabla `tickets` de MariaDB (`status: open`, `priority: high`).
+- **Trazabilidad en WhatsApp**: Las alertas enviadas al grupo administrativo incluyen el ID único de ticket generado (ej: `🚨 ACTIVACIÓN MANUAL REQUERIDA (#TK-1042)`).
+
+### 3. 🔕 Silenciamiento de Notificaciones de Pagos Autovalidados
+- Para eliminar el ruido en el grupo principal de WhatsApp, los pagos **100% autovalidados por el bot** ya no envían mensajes al chat del grupo.
+- Las ventas se registran de forma transparente en la base de datos `web_sales_approved`, la hoja de Excel en Azure y las vistas administrativas (`WebSalesView` / Contabilidad).
+
+### 4. 🧠 Autonomía Resolutiva de IA sin Bloqueos Rígidos
+- **Remoción de Filtros Hardcoded**: Se eliminó la lista de patrones de texto fijos (`isExplicitFailure`) que forzaba escalaciones erróneas ante frases como *"se me cerró la sesión de ChatGPT"*.
+- **Autoservicio Inteligente**: La IA (DeepSeek Chat) consulta las credenciales vigentes en `ACCOUNT_SUMMARY` y resuelve directamente consultas de contraseña o cierres de sesión sin crear tickets innecesarios.
