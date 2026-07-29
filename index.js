@@ -585,7 +585,7 @@ app.post('/api/bold/generate-token', async (req, res) => {
             description: `Suscripción a ${platform.name}`,
             tax: 'vat-19',
             integritySignature,
-            redirectionUrl: 'https://sheerit.com.co/'
+            redirectionUrl: `https://sheerit.com.co/?orderId=${orderId}&payment=success`
         });
     } catch (e) {
         console.error("Bold Generate Token Error:", e);
@@ -6471,7 +6471,27 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                     contact = { number: userId.replace(/\D/g, '') };
                 }
                 const realPhone = contact.number || userId.replace(/\D/g, '');
-                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE* de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
+                let ticketTag = "";
+                try {
+                    const { pool } = require('./database');
+                    const [tRes] = await pool.query(
+                        'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
+                        [
+                            userId,
+                            `Escalamiento IA: ${fallbackResult.escalationSummary || 'Atención de Asesor'}`,
+                            (message.body || 'Revisión de soporte requerida').substring(0, 500),
+                            'open',
+                            'high'
+                        ]
+                    );
+                    if (tRes && tRes.insertId) {
+                        ticketTag = ` (#TK-${tRes.insertId})`;
+                    }
+                } catch (tErr) {
+                    console.error("Error guardando ticket en DB:", tErr.message);
+                }
+
+                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE*${ticketTag} de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
         } catch (e) { console.error('Error enviando escalamiento:', e); }
         globalLastPaymentUserId = userId;
@@ -8602,7 +8622,7 @@ async function baseProcessIncomingMessage(messages) {
                                     // Notificar al grupo administrativo del éxito automático
                                     try {
                                         const groupChat = await client.getChatById(GROUP_ID);
-                                        if (groupChat) {
+                                        if (false && groupChat) {
                                             let successMsg = `✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
                                                 `Monto: $${check.amount}\n` +
                                                 `Banco: ${check.bank || 'Bre-B'}\n`;
@@ -9664,7 +9684,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 if (validationResult.success) {
                     try {
                         const groupChat = await client.getChatById(GROUP_ID);
-                        if (groupChat) {
+                        if (false && groupChat) {
                             await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO CON OPERADOR* (@${userId.replace('@c.us', '')})\n` +
                                 `Monto: $${st.checkAmount}\n` +
                                 `Banco: ${st.paymentMethod || 'Bre-B'}\n` +
