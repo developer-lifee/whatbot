@@ -1105,10 +1105,30 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     }
   }
 
+  // Detección de reclamo sobre cuenta aún en garantía (vigente)
+  const lowerMsg = (messageContent || "").toLowerCase();
+  const isDropReport = ['publicidad', 'anuncio', 'anuncios', 'se cayo', 'se cayó', 'cancelada', 'cancelaron', 'me saco', 'me sacó'].some(k => lowerMsg.includes(k));
+  
+  let warrantyNotice = "";
+  if (isDropReport && userAccounts && userAccounts.length > 0) {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const validAccounts = userAccounts.filter(acc => {
+      const vencStr = acc.Vencimiento || acc.vencimiento || acc.deben || acc.Deben || "";
+      if (!vencStr) return false;
+      const parsedDate = new Date(vencStr);
+      return !isNaN(parsedDate.getTime()) && parsedDate >= today;
+    });
+
+    if (validAccounts.length > 0) {
+      warrantyNotice = `\n⚠️ *ALERTA DE GARANTÍA VIGENTE:* El cliente está reportando una caída/anuncios en un servicio que aún está VIGENTE y PAGADO (su fecha de vencimiento es posterior a hoy). Queda ESTRICTAMENTE PROHIBIDO pedirle dinero o venderle renovaciones. Su servicio está en garantía ($0 COP). Discúlpate por la caída del proveedor, agrega OBLIGATORIAMENTE la etiqueta [ESCALAR] al final de tu respuesta y confirma que soporte le enviará la nueva invitación gratis.\n`;
+    }
+  }
+
   const prompt = template
     .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
     .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
-    .replace('{{WISDOM_CONTEXT}}', wisdomContext + "\n" + paymentContext + (activeIncidents ? "\n" + activeIncidents : "") + (specificAccountIncidents ? "\n" + specificAccountIncidents : "") + "\n" + supportStatusText)
+    .replace('{{WISDOM_CONTEXT}}', wisdomContext + "\n" + paymentContext + (activeIncidents ? "\n" + activeIncidents : "") + (specificAccountIncidents ? "\n" + specificAccountIncidents : "") + "\n" + supportStatusText + "\n" + warrantyNotice)
     .replace('{{PLATFORM_CONTEXT}}', platformContext)
     .replace('{{SUPPORT_CONTEXT}}', supportContext)
     .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
