@@ -489,7 +489,7 @@
   {
     "id": 23,
     "name": "Claude Pro",
-    "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Claude_AI_logo.svg/1024px-Claude_AI_logo.svg.png",
+    "image": "/plataform/claude.svg",
     "price": 20000,
     "characteristics": [
       "Cuenta compartida",
