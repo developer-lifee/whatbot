@@ -928,7 +928,7 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
 
   try {
     // 1. Pre-procesar la imagen con Gemini para extraer la descripción visual / OCR
-    const imageDescription = await describeImageWithGemini(mediaData);
+    const imageDescription = await describeImageWithGemini(mediaData, chatHistory);
 
     // 2. Pasar la descripción a DeepSeek para la clasificación estructurada
     let promptTemplate = `Analiza la siguiente descripción textual de una imagen/comprobante y determina si corresponde a un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
@@ -1195,7 +1195,7 @@ async function detectInitialIntent(messageContent, chatHistory = "", mediaData =
   let mediaDescription = "";
   if (mediaData) {
     try {
-      mediaDescription = await describeImageWithGemini(mediaData);
+      mediaDescription = await describeImageWithGemini(mediaData, chatHistory, accountSummary);
     } catch (e) {
       console.error("Error generating media description in detectInitialIntent:", e);
     }
