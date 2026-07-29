@@ -2619,15 +2619,76 @@ app.get('/api/admin/visit-stats', async (req, res) => {
 
 app.get('/api/admin/click-heatmap', async (req, res) => {
     try {
-        const { page } = req.query;
+        const { page, device } = req.query;
         const pagePath = page || '/';
-        const [clicks] = await pool.query(
-            'SELECT x_pct, y_pct, element_selector, screen_width, screen_height, clicked_at FROM page_clicks WHERE page_path = ? ORDER BY clicked_at DESC LIMIT 2000',
-            [pagePath]
-        );
+        let query = 'SELECT x_pct, y_pct, element_selector, screen_width, screen_height, clicked_at FROM page_clicks WHERE page_path = ?';
+        const params = [pagePath];
+
+        if (device === 'mobile') {
+            query += ' AND (screen_width IS NULL OR screen_width < 768)';
+        } else if (device === 'desktop') {
+            query += ' AND screen_width >= 768';
+        }
+
+        query += ' ORDER BY clicked_at DESC LIMIT 2000';
+
+        const [clicks] = await pool.query(query, params);
         res.json({ clicks });
     } catch (e) {
         console.error('Error fetching admin click heatmap:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/element-clicks', async (req, res) => {
+    try {
+        const [rows] = await pool.query(`
+            SELECT 
+                COALESCE(element_selector, 'Área General de Página') as element,
+                COUNT(*) as total_clicks,
+                SUM(CASE WHEN screen_width < 768 THEN 1 ELSE 0 END) as mobile_clicks,
+                SUM(CASE WHEN screen_width >= 768 THEN 1 ELSE 0 END) as desktop_clicks
+            FROM page_clicks
+            GROUP BY element
+            ORDER BY total_clicks DESC
+            LIMIT 15
+        `);
+        res.json({ elements: rows });
+    } catch (e) {
+        console.error('Error fetching element clicks:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/admin/purchase-funnel', async (req, res) => {
+    try {
+        const [visits] = await pool.query('SELECT COUNT(*) as count FROM page_visits');
+        const [clicks] = await pool.query('SELECT COUNT(*) as count FROM page_clicks');
+        const [payClicks] = await pool.query(`
+            SELECT COUNT(*) as count FROM page_clicks 
+            WHERE element_selector LIKE '%bold%' 
+               OR element_selector LIKE '%pagar%' 
+               OR element_selector LIKE '%comprar%' 
+               OR element_selector LIKE '%button%'
+        `);
+        const [sales] = await pool.query('SELECT COUNT(*) as count FROM web_sales_approved');
+
+        const totalVisits = visits[0]?.count || 0;
+        const totalClicks = clicks[0]?.count || 0;
+        const totalPayClicks = payClicks[0]?.count || 0;
+        const totalSales = sales[0]?.count || 0;
+
+        res.json({
+            funnel: [
+                { step: 'Visitas a la Web', count: totalVisits, pct: 100 },
+                { step: 'Interacción / Clics', count: totalClicks, pct: totalVisits ? Math.round((totalClicks / totalVisits) * 100) : 0 },
+                { step: 'Inicios de Pago (Bold)', count: totalPayClicks, pct: totalVisits ? Math.round((totalPayClicks / totalVisits) * 100) : 0 },
+                { step: 'Ventas Completadas', count: totalSales, pct: totalVisits ? Math.round((totalSales / totalVisits) * 100) : 0 },
+            ],
+            conversionRate: totalVisits ? ((totalSales / totalVisits) * 100).toFixed(2) : '0.00'
+        });
+    } catch (e) {
+        console.error('Error fetching purchase funnel:', e.message);
         res.status(500).json({ error: e.message });
     }
 });
