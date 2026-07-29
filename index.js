@@ -763,7 +763,22 @@ async function approveBoldOrder(orderId) {
                 try {
                     const groupChat = await client.getChatById(GROUP_ID);
                     if (groupChat) {
-                        await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA* (@${phoneId.replace('@c.us', '')})\n` +
+                        let ticketTag = "";
+                        try {
+                            const [tRes] = await pool.query(
+                                'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
+                                [
+                                    phoneId,
+                                    `Activación Manual: ${platformsStr}`,
+                                    `Pago Web Bold de $${customerData.amount || ''} para ${platformsStr}`,
+                                    'open',
+                                    'high'
+                                ]
+                            );
+                            if (tRes && tRes.insertId) ticketTag = ` (#TK-${tRes.insertId})`;
+                        } catch (tErr) { }
+
+                        await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA*${ticketTag} (@${phoneId.replace('@c.us', '')})\n` +
                             `Servicios: ${platformsStr}\n` +
                             `Monto: $${customerData.amount || ''}\n` +
                             `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
