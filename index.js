@@ -7092,6 +7092,18 @@ async function baseProcessIncomingMessage(messages) {
                 userStates.delete(userId);
                 currentState = undefined;
             } else {
+                // BYPASS INTELIGENTE: Si el usuario pide un código de verificación/2FA o sus credenciales, lo asistimos automáticamente
+                const txt = (message.body || "").toLowerCase();
+                const isCodeRequest = txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación") || txt.includes("2fa");
+                const isCredentialsRequest = (detection && detection.intent === 'credenciales') || cleanInput === '2' || txt.includes('credenciales') || txt.includes('datos de acceso') || txt.includes('mis datos');
+
+                if (isCredentialsRequest || isCodeRequest) {
+                    console.log(`[Bypass Waiting Human] 🔑 El usuario @${userId.replace('@c.us', '')} pidió credenciales/código. Procesando de forma automática.`);
+                    const { processCheckCredentials } = require('./billingService');
+                    await processCheckCredentials(userId, client, message.body, "", userStates);
+                    return;
+                }
+
                 // HILO ACTIVO CON ASESOR: Si el asesor interactuó hace menos de 15 minutos, SILENCIO ABSOLUTO.
                 // Permite conversaciones fluidas como "Si señor" -> sin interrupciones del bot.
                 if (minutesSinceLastHuman <= 15) {
@@ -7116,31 +7128,6 @@ async function baseProcessIncomingMessage(messages) {
                         lastWarningTime: Date.now()
                     });
                 }
-                return;
-            }
-
-                // BYPASS INTELIGENTE: Si el usuario pide un código de verificación/2FA o sus credenciales, lo asistimos automáticamente
-                // incluso si está en espera humana (waiting_human), para que no dependa de un asesor para algo automatizable.
-                const txt = (message.body || "").toLowerCase();
-                const isCodeRequest = txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación") || txt.includes("2fa");
-                const isCredentialsRequest = (detection && detection.intent === 'credenciales') || cleanInput === '2' || txt.includes('credenciales') || txt.includes('datos de acceso') || txt.includes('mis datos');
-
-                if (isCredentialsRequest) {
-                    console.log(`[Bypass Waiting Human] 🔐 El usuario @${userId.replace('@c.us', '')} pidió sus credenciales/datos de acceso. Entregando credenciales de forma automática.`);
-                    const { processCheckCredentials } = require('./billingService');
-                    await processCheckCredentials(userId, client, message.body, "", userStates);
-                    return;
-                }
-
-                if (isCodeRequest) {
-                    console.log(`[Bypass Waiting Human] 🔑 El usuario @${userId.replace('@c.us', '')} pidió un código. Procesando de forma automática.`);
-                    const { processCheckCredentials } = require('./billingService');
-                    await processCheckCredentials(userId, client, message.body, "", userStates);
-                    return;
-                }
-
-                // Silencio absoluto para consultas no resolubles en modo advisor / bot
-                console.log(`[DEBUG] Usuario @${userId.replace('@c.us', '')} está en waiting_human (modo ${mode}). Manteniendo silencio absoluto.`);
                 return;
             }
         }
