@@ -2,7 +2,7 @@
   {
     "id": 1,
     "name": "Netflix",
-    "image": "/plataform/netflix.webp",
+    "image": "https://about.netflix.com/images/meta/netflix-symbol-black.png",
     "price": 13000,
     "characteristics": [
       "Cuenta estable y renovable",
@@ -37,7 +37,7 @@
   {
     "id": 6,
     "name": "ChatGPT",
-    "image": "/plataform/chatgpt-icon-logo.webp",
+    "image": "https://th.bing.com/th/id/OIP.PcgoreK_H_utzQX-eTNbrQHaHa?rs=1&pid=ImgDetMain",
     "price": 20000,
     "characteristics": [
       "Cuenta compartida",
@@ -96,7 +96,7 @@
   {
     "id": 5,
     "name": "Disney+ Premium",
-    "image": "/plataform/disney.webp",
+    "image": "https://mdcthereporter.com/wp-content/uploads/2019/09/Disney-Logo.jpeg",
     "price": 14000,
     "characteristics": [
       "Cuenta estable, con ESPN",
@@ -119,7 +119,7 @@
   {
     "id": 3,
     "name": "HBOMax",
-    "image": "/plataform/hbo.webp",
+    "image": "https://filmhounds.co.uk/wp-content/uploads/2023/05/max-logo.jpg",
     "price": 8000,
     "characteristics": [
       "Renueva la misma suscripción",
@@ -154,7 +154,7 @@
   {
     "id": 4,
     "name": "Prime Video",
-    "image": "/plataform/prime_video.png",
+    "image": "https://th.bing.com/th/id/OIP.hOyeETmfMNoeV9ThyQMNBQHaHa?cb=iwc2&rs=1&pid=ImgDetMain",
     "price": 10000,
     "characteristics": [],
     "plans": [
@@ -218,7 +218,6 @@
       }
     ]
   },
-
   {
     "id": 17,
     "name": "Coworking Alquiler",
@@ -246,7 +245,7 @@
     "id": 8,
     "name": "YouTube Premium",
     "discountTier": "C",
-    "image": "/plataform/youtube.webp",
+    "image": "https://cdn.pixabay.com/photo/2021/09/11/18/21/youtube-6616310_1280.png",
     "price": 12000,
     "characteristics": [
       "Usa tu cuenta personal",
@@ -269,7 +268,7 @@
   {
     "id": 9,
     "name": "Paramount+",
-    "image": "/plataform/paramount.webp",
+    "image": "https://th.bing.com/th/id/R.b80c8814890d78ad63b43c0bc2f4b401?rik=M95rQ%2fqeKRSHPQ&pid=ImgRaw&r=0",
     "price": 8000,
     "characteristics": [
       "Plan Estándar",
@@ -294,7 +293,7 @@
   {
     "id": 10,
     "name": "Spotify",
-    "image": "/plataform/spotify.png",
+    "image": "https://upload.wikimedia.org/wikipedia/commons/7/74/Spotify_App_Logo.svg",
     "price": 8000,
     "characteristics": [
       "Ninguna cuenta es compartida",
@@ -329,7 +328,7 @@
   {
     "id": 11,
     "name": "Crunchyroll",
-    "image": "/plataform/crunchyroll.svg",
+    "image": "https://i.pinimg.com/originals/d3/af/7d/d3af7d3ac568b0890b42370d2be192c8.png",
     "price": 7000,
     "characteristics": [
       "Cuenta estable 12 meses",
@@ -352,7 +351,7 @@
   {
     "id": 12,
     "name": "Xbox Game Pass Ultimate",
-    "image": "/plataform/game_pass.png",
+    "image": "https://th.bing.com/th/id/R.6b6125b82e9694dae2125c36b7d917c3?rik=aFR3QZK9HRmLIw&pid=ImgRaw&r=0",
     "price": 15000,
     "characteristics": [
       "Acceso a todo el catálogo Ultimate",
