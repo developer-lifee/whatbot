@@ -7138,17 +7138,22 @@ async function baseProcessIncomingMessage(messages) {
                 userStates.delete(userId);
                 currentState = undefined;
             } else {
-                // Si el cliente está en cola y sigue enviando mensajes, informarle periódicamente de su posición (límite 5 min)
-                // Excluimos mensajes de cierre/agradecimiento para no molestar al cliente.
+                // Si el cliente está en conversación activa con un asesor humano (mode === 'advisor' o atención reciente), SILENCIO ABSOLUTO.
+                if (mode === 'advisor' || (currentStateData && currentStateData.lastHumanInteraction)) {
+                    console.log(`[BOT MUTE ABSOLUTE] @${userId} está en atención humana activa por asesor. Manteniendo silencio absoluto.`);
+                    return;
+                }
+
+                // Si el cliente está en cola del bot (mode === 'bot') y sigue enviando mensajes, informarle periódicamente de su posición (límite 15 min)
                 const lastWarning = (currentStateData && currentStateData.lastWarningTime) || 0;
                 const isClosingMsg = detection && detection.intent === 'cierre';
-                if (!isClosingMsg && (Date.now() - lastWarning > 5 * 60 * 1000)) {
+                if (!isClosingMsg && (Date.now() - lastWarning > 15 * 60 * 1000)) {
                     const { getQueuePosition } = require('./supportScheduleService');
                     const queuePos = getQueuePosition(userId, userStates);
                     if (queuePos) {
-                        await message.reply(`🤖 Sigues en nuestra lista de espera para atención humana.\n\n📌 *Tu turno actual en la cola:* #${queuePos}.\n\nUn asesor te atenderá lo antes posible. ¡Gracias por tu paciencia! 😊`);
+                        await safeReply(message, `🤖 Sigues en nuestra lista de espera para atención humana.\n\n📌 *Tu turno actual en la cola:* #${queuePos}.\n\nUn asesor te atenderá lo antes posible. ¡Gracias por tu paciencia! 😊`, userId);
                     } else {
-                        await message.reply(`🤖 Sigues en nuestra lista de espera para atención humana. Un asesor te atenderá lo antes posible. ¡Gracias por tu paciencia! 😊`);
+                        await safeReply(message, `🤖 Sigues en nuestra lista de espera para atención humana. Un asesor te atenderá lo antes posible. ¡Gracias por tu paciencia! 😊`, userId);
                     }
                     userStates.set(userId, {
                         ...currentStateData,
