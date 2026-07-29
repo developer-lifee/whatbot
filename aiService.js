@@ -1126,11 +1126,23 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     let needsEscalation = false;
     if (replyText.includes('[ESCALAR]')) {
       needsEscalation = true;
-      replyText = replyText.replace('[ESCALAR]', '').trim();
-      // Ensure the bot icon 🤖 is still appended nicely at the end if we stripped it
+      replyText = replyText.replace(/\[ESCALAR\]/g, '').trim();
       if (!replyText.includes('🤖')) {
         replyText += ' 🤖';
       }
+    }
+
+    // Salvaguarda adicional: Si el cliente indica explícitamente que su cuenta no está funcionando, forzar escalación a asesor
+    const lowerContent = (messageContent || "").toLowerCase();
+    const isExplicitFailure = [
+      'no funciona', 'no esta funcionando', 'no está funcionando', 'no sirve', 'se cayo', 'se cayó',
+      'no deja entrar', 'no deja ingresar', 'clave incorrecta', 'contraseña incorrecta', 'me saco', 'me sacó',
+      'se cerro', 'se cerró', 'pantalla negra', 'no me deja', 'pantalla en blanco', 'no abre'
+    ].some(kw => lowerContent.includes(kw));
+
+    if (isExplicitFailure) {
+      console.log("[AI Fallback Safeguard] Detectado reporte explícito de falla de cuenta. Forzando escalación a soporte humano.");
+      needsEscalation = true;
     }
 
     return {
