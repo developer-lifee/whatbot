@@ -10019,12 +10019,15 @@ client.on('message', async (message) => {
 
     queue.messages.push(message);
 
+    const hasAnyMedia = queue.messages.some(m => m.hasMedia || m.type === 'image' || m.type === 'document');
+    const dynamicBatchInterval = hasAnyMedia ? 20000 : BATCH_INTERVAL;
+
     queue.timer = setTimeout(async () => {
         const batch = [...queue.messages];
         messageQueues.delete(userId);
-        console.log(`[Batch Processor] Encolando lote de ${batch.length} mensajes para @${userId.replace('@c.us', '')}`);
+        console.log(`[Batch Processor] Encolando lote de ${batch.length} mensajes (media: ${hasAnyMedia}, wait: ${dynamicBatchInterval}ms) para @${userId.replace('@c.us', '')}`);
         await addToGlobalProcessingQueue(userId, batch);
-    }, BATCH_INTERVAL);
+    }, dynamicBatchInterval);
 });
 
 
