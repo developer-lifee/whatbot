@@ -6445,11 +6445,9 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
 
     // Puede que devuelva solo string si algo falló gravemente, por precaución validamos
     if (typeof fallbackResult === 'string') {
-        await message.reply(fallbackResult);
+        await safeReply(message, fallbackResult, userId);
         return;
     }
-
-
 
     if (fallbackResult.needsEscalation) {
         const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
@@ -6461,7 +6459,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
         if (!supportStatus.open) {
             const { getOfflineReplyMessage } = require('./supportScheduleService');
             const offlineMsg = await getOfflineReplyMessage(userId, userStates);
-            await message.reply(offlineMsg);
+            await safeReply(message, offlineMsg, userId);
         } else {
             let replyText = fallbackResult.replyMessage || "";
             const queuePos = getQueuePosition(userId, userStates);
@@ -6471,7 +6469,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                 }
             }
             if (replyText) {
-                await message.reply(replyText);
+                await safeReply(message, replyText, userId);
             }
         }
 
@@ -6512,7 +6510,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
         globalLastPaymentUserId = userId;
     } else {
         if (fallbackResult.replyMessage) {
-            await message.reply(fallbackResult.replyMessage);
+            await safeReply(message, fallbackResult.replyMessage, userId);
         }
     }
 }
