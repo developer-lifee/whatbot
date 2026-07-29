@@ -218,29 +218,7 @@
       }
     ]
   },
-  {
-    "id": 17,
-    "name": "Coworking Alquiler",
-    "image": "https://scratchup.com.co/images/design-mode/logo.png",
-    "price": 10000,
-    "characteristics": [
-      "Espacio agradable y acogedor",
-      "Una Hora de Barra libre",
-      "Internet y herramientas para trabajar"
-    ],
-    "plans": [
-      {
-        "id": 1701,
-        "name": "Espacio / Hora",
-        "price": 10000,
-        "characteristics": [
-          "Espacio agradable y acogedor",
-          "Una Hora de Barra libre",
-          "Internet alta velocidad"
-        ]
-      }
-    ]
-  },
+
   {
     "id": 8,
     "name": "YouTube Premium",
@@ -348,29 +326,7 @@
       }
     ]
   },
-  {
-    "id": 12,
-    "name": "Xbox Game Pass Ultimate",
-    "image": "https://th.bing.com/th/id/R.6b6125b82e9694dae2125c36b7d917c3?rik=aFR3QZK9HRmLIw&pid=ImgRaw&r=0",
-    "price": 15000,
-    "characteristics": [
-      "Acceso a todo el catálogo Ultimate",
-      "Cuenta compartida por horarios (1/7 del mes)",
-      "Incluye EA Play, PC y Consola"
-    ],
-    "plans": [
-      {
-        "id": 1201,
-        "name": "Compartida por horarios",
-        "price": 15000,
-        "characteristics": [
-          "Elige tus franjas horarias (pico y valle)",
-          "Juega 1/7 parte del mes",
-          "Cuenta administrada por nosotros, sin cortes"
-        ]
-      }
-    ]
-  },
+
   {
     "id": 16,
     "name": "Platzi Expert",
@@ -508,40 +464,7 @@
       }
     ]
   },
-  {
-    "id": 22,
-    "name": "Gamma App",
-    "image": "https://cdn.mos.cms.futurecdn.net/cfo9wrPuw9H2NXugivFUJh-1200-80.jpg.webp",
-    "price": 10000,
-    "characteristics": [
-      "Presentaciones con IA en minutos",
-      "Interfaz intuitiva y moderna",
-      "Exportación a PDF y PPT"
-    ],
-    "plans": [
-      {
-        "id": 2201,
-        "name": "Plan Plus",
-        "price": 10000,
-        "characteristics": [
-          "Créditos de IA mensuales",
-          "Sin marca de agua",
-          "Exportación completa"
-        ]
-      },
-      {
-        "id": 2202,
-        "name": "Plan Pro",
-        "price": 20000,
-        "characteristics": [
-          "Uso ilimitado de IA",
-          "Analíticas avanzadas",
-          "Fuentes personalizadas",
-          "Soporte prioritario"
-        ]
-      }
-    ]
-  },
+
   {
     "id": 23,
     "name": "Claude Pro",
