@@ -8900,6 +8900,22 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             return;
         }
 
+        const isProfileSelectScreen = [
+            'elige tu perfil', 'quién está viendo', 'quien esta viendo', 'quién va a ver', 'quien va a ver',
+            'no sale mi nombre', 'cuál perfil', 'cual perfil', 'cuál es mi perfil', 'cual es mi perfil', 'mi nombre'
+        ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
+
+        if (isProfileSelectScreen) {
+            console.log(`[BOT MEDIA OCR PROFILE SELECT SCREEN] Se detectó pantalla de selección de perfil en @${userId}.`);
+            await message.reply(`🤖 ¡Veo la pantalla de perfiles en tu dispositivo! 📺\n\n` +
+                `💡 *Instrucciones para ingresar a tu perfil:*\n\n` +
+                `1. Si no ves un perfil con tu nombre pre-creado, selecciona la opción **"Añadir perfil"** (o **"+"**).\n` +
+                `2. O si ves un perfil libre sin candado/pin, puedes seleccionarlo y cambiarle el nombre.\n` +
+                `3. Asígnale a tu perfil **tu nombre exacto** (tal como estás registrado con nosotros) para llevar el control de tu suscripción. 😊\n\n` +
+                `_Si todos los perfiles tienen candado o están ocupados, avísanos y con gusto te reasignamos uno de inmediato._`);
+            return;
+        }
+
         if (wantsImgCode && !isIncorrectPassword) {
             const isOptionsScreen = [
                 'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'estoy de viaje'
