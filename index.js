@@ -3712,7 +3712,22 @@ async function resolveJidForPhone(phone) {
             const chats = await client.getChats();
             for (const chat of chats) {
                 if (chat.isGroup) continue;
-                if (chat.id.user.includes(cleanPhone) || cleanPhone.includes(chat.id.user)) {
+                let matchFound = chat.id.user.includes(cleanPhone) || cleanPhone.includes(chat.id.user);
+                
+                // Búsqueda inteligente por número de contacto real en chats tipo @lid
+                if (!matchFound && chat.id._serialized.endsWith('@lid')) {
+                    try {
+                        const contact = await Promise.race([
+                            chat.getContact(),
+                            new Promise((_, r) => setTimeout(() => r(new Error("Timeout")), 800))
+                        ]).catch(() => null);
+                        if (contact && contact.number && (contact.number.includes(cleanPhone) || cleanPhone.includes(contact.number))) {
+                            matchFound = true;
+                        }
+                    } catch (e) { }
+                }
+
+                if (matchFound) {
                     // Actualizar mapeo en base de datos previniendo violación de FK
                     const [custExists] = await pool.query('SELECT phone FROM customers WHERE phone = ?', [cleanPhone]);
                     if (custExists.length > 0) {
@@ -3771,7 +3786,53 @@ app.get('/api/admin/chat-messages', async (req, res) => {
             );
         }
 
-        const formatted = rows.map(m => ({
+        // 2. REGLA MULTIVERSAL: Auto-sincronización en vivo con WhatsApp Puppeteer si la BD no tiene mensajes
+        if ((!rows || rows.length === 0) && client && client.info) {
+            try {
+                console.log(`[Auto-Sync Universal] 🔄 Sincronizando historial en vivo para @${phone} (JID: ${targetChatId})...`);
+                let liveChat = await client.getChatById(targetChatId).catch(() => null);
+
+                if (!liveChat && clean10) {
+                    liveChat = await client.getChatById(`57${clean10}@c.us`).catch(() => null);
+                    if (!liveChat) {
+                        liveChat = await client.getChatById(`${clean10}@c.us`).catch(() => null);
+                    }
+                }
+
+                if (liveChat) {
+                    await liveChat.syncHistory().catch(() => { });
+                    const liveMsgs = await liveChat.fetchMessages({ limit: 50 }).catch(() => []);
+
+                    for (const m of liveMsgs) {
+                        try {
+                            await saveMessage(m);
+                        } catch (sErr) { }
+                    }
+
+                    // Vincular customer_phone en tabla chats si es un chat LID
+                    if (clean10 && liveChat.id && liveChat.id._serialized) {
+                        try {
+                            await pool.query(
+                                `INSERT INTO chats (chat_id, customer_phone, last_message_time) 
+                                  VALUES (?, ?, NOW()) 
+                                  ON DUPLICATE KEY UPDATE customer_phone = VALUES(customer_phone)`,
+                                [liveChat.id._serialized, clean10.length === 10 ? '57' + clean10 : clean10]
+                            );
+                        } catch (e) { }
+                    }
+
+                    // Re-consultar la base de datos recién actualizada
+                    [rows] = await pool.query(
+                        `SELECT * FROM messages WHERE chat_id = ? OR chat_id LIKE ? OR sender_id LIKE ? ORDER BY created_at DESC LIMIT 50`,
+                        [targetChatId, `%${clean10}%`, `%${clean10}%`]
+                    );
+                }
+            } catch (syncErr) {
+                console.error("[Auto-Sync Universal] Error durante sincronización en vivo:", syncErr.message);
+            }
+        }
+
+        const formatted = (rows || []).map(m => ({
             id: m.message_id || `msg_${m.id}`,
             body: m.body || (m.media_path ? '📷 Foto / Archivo' : ''),
             fromMe: m.is_from_me === 1 || m.direction === 'outbound',
