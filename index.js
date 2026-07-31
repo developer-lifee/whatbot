@@ -7232,7 +7232,13 @@ async function baseProcessIncomingMessage(messages) {
             } else {
                 // BYPASS INTELIGENTE: Si el usuario pide un código de verificación/2FA o sus credenciales, lo asistimos automáticamente
                 const txt = (message.body || "").toLowerCase();
-                const isCodeRequest = txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación") || txt.includes("2fa");
+                const salesInquiryKeywords = ['interesa', 'precio', 'cuanto', 'cuánto', 'vale', 'cuesta', 'como funciona', 'cómo funciona', 'se cae', 'tengo que estar', 'comprar', 'dudas', 'informacion', 'información'];
+                const isSalesQuestion = salesInquiryKeywords.some(kw => txt.includes(kw));
+                const codeActionKeywords = ['dame el codigo', 'dame codigo', 'dame el código', 'necesito el codigo', 'necesito el código', 'mandame el codigo', 'mi codigo', 'codigo porfa', 'el codigo', 'sacar codigo', 'solicito codigo'];
+                const isExplicitCodeAction = codeActionKeywords.some(kw => txt.includes(kw));
+                const isShortCodeMsg = txt.split(/\s+/).length <= 4 && (txt.includes('codigo') || txt.includes('código') || txt.includes('2fa') || txt.includes('verificacion') || txt.includes('verificación'));
+
+                const isCodeRequest = !isSalesQuestion && (isExplicitCodeAction || isShortCodeMsg);
                 const isCredentialsRequest = (detection && detection.intent === 'credenciales') || cleanInput === '2' || txt.includes('credenciales') || txt.includes('datos de acceso') || txt.includes('mis datos');
 
                 if (isCredentialsRequest || isCodeRequest) {
@@ -8560,46 +8566,50 @@ async function baseProcessIncomingMessage(messages) {
                                         const now = new Date();
                                         now.setHours(0, 0, 0, 0);
 
-                                        // Filtrar cuentas vencidas o que vencen en los próximos 7 días
-                                        const urgentItems = stateData.items.filter(item => {
-                                            const d = getJsDateFromExcel(item.deben || item.vencimiento);
-                                            if (!d) return true;
-                                            const diffDays = (d - now) / (1000 * 60 * 60 * 24);
-                                            return diffDays <= 7; // Vencida, hoy, o vence en <= 7 días
+                                        const validItems = stateData.items.filter(item => {
+                                            const str = (item.Streaming || item.Plataforma || "").toString().trim().toLowerCase();
+                                            return str && str !== 'gmail.com' && !str.includes('@') && !str.endsWith('.com');
                                         });
 
-                                        if (urgentItems.length === 1) {
-                                            console.log(`[Smart Renewal Filter] ✅ Priorizando renovación urgente única de: ${urgentItems[0].Streaming} (vence pronto/vencida) sobre otras cuentas lejanas.`);
-                                            stateData.items = urgentItems;
-                                            stateData.total = check.amount;
-                                        } else {
-                                            // Si hay varias urgentes o ninguna clara, NO ADIVINAR POR PRECIO.
-                                            // Le mostramos las opciones al cliente para que elija explícitamente.
-                                            const candidateList = urgentItems.length > 1 ? urgentItems : stateData.items;
-                                            let promptMsg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
-                                                `Veo que tienes varias cuentas activas en nuestro sistema. Por favor responde únicamente con el número del servicio que deseas renovar:\n\n`;
-                                            
-                                            candidateList.forEach((acc, idx) => {
-                                                const platName = (acc.Streaming || acc.Plataforma || "Servicio").toUpperCase();
-                                                const vencStr = acc.deben || acc.vencimiento || "Vencimiento N/A";
-                                                promptMsg += `${idx + 1} - Renovar *${platName}* (Vence: ${vencStr}) 🔄\n`;
+                                        if (validItems.length > 0) {
+                                            const urgentItems = validItems.filter(item => {
+                                                const d = getJsDateFromExcel(item.deben || item.vencimiento);
+                                                if (!d) return true;
+                                                const diffDays = (d - now) / (1000 * 60 * 60 * 24);
+                                                return diffDays <= 7;
                                             });
-                                            promptMsg += `${candidateList.length + 1} - Es para un servicio nuevo u otro motivo ❌`;
 
-                                            await message.reply(promptMsg);
+                                            if (urgentItems.length === 1) {
+                                                console.log(`[Smart Renewal Filter] ✅ Priorizando renovación urgente única de: ${urgentItems[0].Streaming} (vence pronto/vencida) sobre otras cuentas lejanas.`);
+                                                stateData.items = urgentItems;
+                                                stateData.total = check.amount;
+                                            } else {
+                                                const candidateList = urgentItems.length > 0 ? urgentItems : validItems;
+                                                let promptMsg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
+                                                    `Veo que tienes varias cuentas activas en nuestro sistema. Por favor responde únicamente con el número del servicio que deseas renovar:\n\n`;
+                                                
+                                                candidateList.forEach((acc, idx) => {
+                                                    const platName = (acc.Streaming || acc.Plataforma || "Servicio").toUpperCase();
+                                                    const vencStr = acc.deben || acc.vencimiento || "Vencimiento N/A";
+                                                    promptMsg += `${idx + 1} - Renovar *${platName}* (Vence: ${vencStr})\n`;
+                                                });
+                                                promptMsg += `${candidateList.length + 1} - Es para un servicio nuevo u otro motivo`;
 
-                                            userStates.set(userId, {
-                                                state: 'awaiting_payment_multi_renewal_selection',
-                                                candidateAccounts: candidateList,
-                                                amount: check.amount,
-                                                bank: check.bank,
-                                                matchId: match.id,
-                                                subject: match.subject,
-                                                chatJid: originalChatJid,
-                                                nombre: foundName,
-                                                leftoverAmount: leftoverAmount
-                                            });
-                                            return;
+                                                await message.reply(promptMsg);
+
+                                                userStates.set(userId, {
+                                                    state: 'awaiting_payment_multi_renewal_selection',
+                                                    candidateAccounts: candidateList,
+                                                    amount: check.amount,
+                                                    bank: check.bank,
+                                                    matchId: match.id,
+                                                    subject: match.subject,
+                                                    chatJid: originalChatJid,
+                                                    nombre: foundName,
+                                                    leftoverAmount: leftoverAmount
+                                                });
+                                                return;
+                                            }
                                         }
                                     } catch (err) {
                                         console.error("Error en Smart Combo Filter:", err.message);

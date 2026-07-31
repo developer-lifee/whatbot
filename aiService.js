@@ -1316,8 +1316,26 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
   else if (txt === "3") keywordIntent = "pagar";
   else if (txt === "4" || txt === "5") keywordIntent = "soporte";
 
-  // Prioridad absoluta a palabras clave muy específicas ante la clasificación de la IA
-  const isCodeRequest = txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación");
+  // Prioridad a solicitudes explícitas de códigos de verificación 2FA (previniendo falsos positivos en preguntas de ventas)
+  const salesInquiryKeywords = [
+    'interesa', 'precio', 'cuanto', 'cuánto', 'vale', 'cuesta',
+    'como funciona', 'cómo funciona', 'se cae', 'tengo que estar',
+    'comprar', 'dudas', 'informacion', 'información', 'pregunta', 'consulta'
+  ];
+  const isSalesQuestion = salesInquiryKeywords.some(kw => txt.includes(kw));
+
+  const codeActionKeywords = [
+    'dame el codigo', 'dame codigo', 'dame el código', 'dame código',
+    'envia el codigo', 'envia el código', 'necesito el codigo', 'necesito el código',
+    'mande el codigo', 'mande el código', 'mandame el codigo', 'mandame el código',
+    'mi codigo', 'mi código', 'codigo porfa', 'código porfa', 'codigo por favor',
+    'código por favor', 'el codigo', 'el código', 'sacar codigo', 'sacar código',
+    'solicito codigo', 'solicito código', 'pedir codigo', 'pedir código'
+  ];
+  const isExplicitCodeAction = codeActionKeywords.some(kw => txt.includes(kw));
+  const isShortCodeMsg = txt.split(/\s+/).length <= 4 && (txt.includes('codigo') || txt.includes('código') || txt.includes('2fa') || txt.includes('verificacion') || txt.includes('verificación'));
+
+  const isCodeRequest = !isSalesQuestion && (isExplicitCodeAction || isShortCodeMsg);
 
   try {
     const jsonString = await callDeepSeek(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true);
@@ -1336,7 +1354,7 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
       parsed.intent = keywordIntent;
     }
 
-    // Prioridad absoluta para códigos de verificación
+    // Prioridad para códigos de verificación (solo si no es pregunta de ventas)
     if (isCodeRequest) {
       parsed.intent = "credenciales";
     }
