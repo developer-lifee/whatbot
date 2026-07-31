@@ -21,18 +21,30 @@ function extractPlatformFromText(text) {
     return null;
 }
 
-async function checkPendingWebSaleForPhone(phone) {
-    if (!phone) return null;
-    const clean = phone.replace(/\D/g, '');
-    if (!clean) return null;
-    const last10 = clean.slice(-10);
+async function checkPendingWebSaleForPhone(phone, name = '') {
+    if (!phone && !name) return null;
+    const clean = (phone || '').replace(/\D/g, '');
+    const last10 = clean.length >= 10 ? clean.slice(-10) : clean;
     const { pool } = require('./database');
     try {
-        const [rows] = await pool.query(
-            "SELECT * FROM web_sales_pending WHERE whatsapp LIKE ? OR whatsapp = ?",
-            [`%${last10}`, clean]
-        );
-        return rows.length > 0 ? rows[0] : null;
+        if (last10 && last10.length === 10) {
+            const [rows] = await pool.query(
+                "SELECT * FROM web_sales_pending WHERE whatsapp LIKE ? OR whatsapp = ?",
+                [`%${last10}`, clean]
+            );
+            if (rows.length > 0) return rows[0];
+        }
+        if (name && name.trim().length > 2) {
+            const cleanName = name.trim().toLowerCase().split(' ')[0];
+            if (cleanName.length > 2 && !['hola', 'buenas', 'user', 'cliente', 'nuevo'].includes(cleanName)) {
+                const [rowsByName] = await pool.query(
+                    "SELECT * FROM web_sales_pending WHERE LOWER(firstName) LIKE ? OR LOWER(lastName) LIKE ?",
+                    [`%${cleanName}%`, `%${cleanName}%`]
+                );
+                if (rowsByName.length > 0) return rowsByName[0];
+            }
+        }
+        return null;
     } catch (e) {
         return null;
     }

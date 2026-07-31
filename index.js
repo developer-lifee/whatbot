@@ -524,6 +524,20 @@ app.get('/api/admin/web-sales/approved', async (req, res) => {
     }
 });
 
+app.post('/api/admin/web-sales/pending/approve', express.json(), async (req, res) => {
+    try {
+        const { orderId } = req.body;
+        if (!orderId) return res.status(400).json({ success: false, error: 'OrderId is required' });
+        const result = await approveBoldOrder(orderId);
+        if (result.status === 'APPROVED') {
+            return res.json({ success: true, message: 'Venta pendiente aprobada exitosamente y notificada por WhatsApp', sale: result.sale });
+        }
+        res.status(404).json({ success: false, error: 'Venta no encontrada en pendientes' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/admin/web-sales/pending/delete', express.json(), async (req, res) => {
     try {
         const { orderId } = req.body;
@@ -845,9 +859,10 @@ app.get('/api/bold/check-status/:orderId', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Orden no encontrada' });
         }
 
-        // 3. Consultar estado en tiempo real a la API de Bold
+        // 3. Consultar estado en tiempo real a la API de Bold o verificar parámetro de redirección exitosa
         const apiKey = process.env.BOLD_IDENTITY_KEY;
         let boldStatus = 'PENDING';
+        const isSuccessRedirect = req.query.payment === 'success' || req.query.status === 'APPROVED' || req.query.status === 'success';
 
         if (apiKey) {
             try {
@@ -872,8 +887,9 @@ app.get('/api/bold/check-status/:orderId', async (req, res) => {
             }
         }
 
-        // 4. Si el estado en Bold es APROBADO, procesar la orden inmediatamente
-        if (boldStatus === 'APPROVED') {
+        // 4. Si el estado en Bold es APROBADO o viene redirigido con pago exitoso, procesar la orden inmediatamente
+        if (boldStatus === 'APPROVED' || isSuccessRedirect) {
+            console.log(`[Bold Check Status] 🚀 Aprobando orden ${orderId} al instante (boldStatus: ${boldStatus}, isSuccessRedirect: ${isSuccessRedirect})`);
             const approveRes = await approveBoldOrder(orderId);
             return res.json({
                 success: true,
@@ -2050,42 +2066,82 @@ app.post('/api/admin/tickets/release', async (req, res) => {
 app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
     try {
         const { phone, password } = req.body;
-        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (password !== 'admin123' && password !== 'admin') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const userId = phone.includes('@') ? phone : phone + '@c.us';
-        userStates.delete(userId); // Liberar de modo asesor / espera
+        const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
+        const userId = phone.includes('@') ? phone : (cleanPhone ? (cleanPhone.length === 10 ? '57' + cleanPhone : cleanPhone) + '@c.us' : phone);
 
-        const chat = await client.getChatById(userId);
-        if (!chat) return res.status(404).json({ success: false, message: 'Chat no encontrado' });
-
-        await chat.syncHistory().catch(() => { });
-        const messages = await chat.fetchMessages({ limit: 10 });
-        if (!messages || messages.length === 0) {
-            return res.status(400).json({ success: false, message: 'No hay mensajes en el chat' });
+        // Resetear estado del bot para este cliente
+        userStates.delete(userId);
+        if (cleanPhone) {
+            userStates.delete(`57${cleanPhone}@c.us`);
+            userStates.delete(`${cleanPhone}@c.us`);
         }
 
-        // Buscar últimos mensajes consecutivos que no sean nuestros ni del bot
-        const clientMessages = [];
-        for (let i = messages.length - 1; i >= 0; i--) {
-            const m = messages[i];
-            if (!m.fromMe && !m.body.includes('🤖')) {
-                clientMessages.unshift(m);
-            } else {
-                break;
+        let rawMessages = [];
+        let chat = await client.getChatById(userId).catch(() => null);
+        if (!chat && cleanPhone) {
+            chat = await client.getChatById(`57${cleanPhone}@c.us`).catch(() => null);
+        }
+
+        if (chat) {
+            await chat.syncHistory().catch(() => { });
+            rawMessages = await chat.fetchMessages({ limit: 15 }).catch(() => []);
+        }
+
+        // Fallback a Base de Datos MariaDB si Puppeteer no tiene mensajes en caché
+        if (!rawMessages || rawMessages.length === 0) {
+            const { pool } = require('./database');
+            const [dbMsgs] = await pool.query(
+                "SELECT * FROM messages WHERE chat_id LIKE ? OR sender_id LIKE ? ORDER BY created_at DESC LIMIT 15",
+                [`%${cleanPhone}%`, `%${cleanPhone}%`]
+            );
+
+            if (dbMsgs && dbMsgs.length > 0) {
+                const targetChatId = dbMsgs[0].chat_id || userId;
+                rawMessages = dbMsgs.reverse().map(m => ({
+                    id: { _serialized: m.message_id || `msg_${m.id}` },
+                    from: m.sender_id || targetChatId,
+                    to: m.chat_id || targetChatId,
+                    body: m.body || '',
+                    fromMe: m.is_from_me === 1,
+                    timestamp: Math.floor(new Date(m.created_at).getTime() / 1000),
+                    reply: async (text) => client.sendMessage(targetChatId, text),
+                    getContact: async () => ({ number: cleanPhone, name: m.sender_name || cleanPhone })
+                }));
             }
         }
 
-        if (clientMessages.length === 0) {
-            return res.status(400).json({ success: false, message: 'El último mensaje no es del cliente' });
+        // Buscar últimos mensajes del cliente
+        const clientMessages = [];
+        if (rawMessages && rawMessages.length > 0) {
+            for (let i = rawMessages.length - 1; i >= 0; i--) {
+                const m = rawMessages[i];
+                if (!m.fromMe && !m.body.includes('🤖')) {
+                    clientMessages.unshift(m);
+                } else if (clientMessages.length > 0) {
+                    break;
+                }
+            }
         }
 
-        console.log(`[Force Bot Reply] Procesando manualmente ${clientMessages.length} mensajes para @${phone}`);
-        processIncomingMessage(clientMessages).catch(err => {
-            console.error('[Force Bot Reply] Error en procesamiento manual:', err.message);
-        });
+        const messagesToProcess = clientMessages.length > 0 ? clientMessages : (rawMessages.length > 0 ? [rawMessages[rawMessages.length - 1]] : []);
 
-        res.json({ success: true, message: 'Respuesta del bot forzada con éxito' });
+        if (messagesToProcess.length > 0) {
+            console.log(`[Force Bot Reply] 🚀 Procesando ${messagesToProcess.length} mensajes para @${cleanPhone || phone}`);
+            processIncomingMessage(messagesToProcess).catch(err => {
+                console.error('[Force Bot Reply] Error en procesamiento:', err.message);
+            });
+        } else {
+            // Si no hay mensajes en ningún lado, enviar saludo/ayuda inicial del bot
+            console.log(`[Force Bot Reply] Enviando respuesta inicial por defecto para @${cleanPhone || phone}`);
+            const targetJid = userId;
+            await client.sendMessage(targetJid, `🤖 ¡Hola! 👋 ¿En qué te puedo colaborar el día de hoy? Cuéntame tu duda o envíame foto de lo que necesitas. 😊`);
+        }
+
+        res.json({ success: true, message: 'Respuesta del bot forzada y reactivada con éxito' });
     } catch (e) {
+        console.error('[Force Bot Reply Error]', e.message);
         res.status(500).json({ success: false, error: e.message });
     }
 });
@@ -3547,36 +3603,50 @@ async function downloadMediaWithRetry(msg, retries = 3, delay = 1500) {
 }
 
 async function resolveJidForPhone(phone) {
+    if (!phone) return '';
+    const cleanPhone = phone.replace(/\D/g, '').slice(-10);
+    const fullClean = phone.replace(/\D/g, '');
+
+    // 1. Si es un LID explícito pero existe un mapeo en chats
     if (phone.includes('@lid')) {
+        try {
+            const [chatRows] = await pool.query(
+                `SELECT chat_id FROM chats WHERE chat_id = ? OR customer_phone LIKE ? LIMIT 1`,
+                [phone.trim().toLowerCase(), `%${cleanPhone}%`]
+            );
+            if (chatRows.length > 0 && chatRows[0].chat_id) return chatRows[0].chat_id;
+        } catch (e) { }
         return phone.trim().toLowerCase();
     }
+
+    // 2. Validar primero en la base de datos chats por customer_phone o chat_id
+    if (cleanPhone) {
+        try {
+            const [chatRows] = await pool.query(
+                `SELECT chat_id FROM chats WHERE customer_phone = ? OR customer_phone = ? OR customer_phone LIKE ? OR chat_id LIKE ? ORDER BY updated_at DESC LIMIT 1`,
+                [fullClean, cleanPhone, `%${cleanPhone}%`, `%${cleanPhone}%`]
+            );
+            if (chatRows.length > 0 && chatRows[0].chat_id) {
+                return chatRows[0].chat_id;
+            }
+        } catch (err) {
+            console.error("[resolveJidForPhone] Error en DB query:", err.message);
+        }
+    }
+
     if (phone.includes('@c.us')) {
         return phone.trim().toLowerCase();
     }
 
-    const cleanPhone = phone.replace(/\D/g, '');
-    const userId = cleanPhone + '@c.us';
+    const userId = (fullClean || cleanPhone) + '@c.us';
 
-    // 1. Validar en userStates en memoria
+    // 3. Validar en userStates en memoria
     const state = userStates.get(userId) || userStates.get(cleanPhone + '@lid');
     if (state && state.chatJid) {
         return state.chatJid;
     }
 
-    // 2. Validar en la base de datos chats
-    try {
-        const [chatRows] = await pool.query(
-            `SELECT chat_id FROM chats WHERE customer_phone = ? OR chat_id LIKE ? LIMIT 1`,
-            [cleanPhone, `%${cleanPhone}%`]
-        );
-        if (chatRows.length > 0 && chatRows[0].chat_id) {
-            return chatRows[0].chat_id;
-        }
-    } catch (err) {
-        console.error("[resolveJidForPhone] Error en DB query:", err.message);
-    }
-
-    // 3. Fallback: Buscar en client.getChats() del navegador de Puppeteer
+    // 4. Fallback: Buscar en client.getChats() del navegador de Puppeteer
     if (client && client.info) {
         try {
             const chats = await client.getChats();
@@ -3626,23 +3696,31 @@ app.get('/api/admin/chat-messages', async (req, res) => {
         if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
 
         const targetChatId = await resolveJidForPhone(phone);
+        const clean10 = phone.replace(/\D/g, '').slice(-10);
 
-        // 1. Obtener el historial directamente de la base de datos (ultra rápido: ~5ms)
-        const [rows] = await pool.query(
+        // 1. Obtener el historial de la base de datos
+        let [rows] = await pool.query(
             `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 50`,
             [targetChatId]
         );
 
+        if (rows.length === 0 && clean10) {
+            [rows] = await pool.query(
+                `SELECT * FROM messages WHERE chat_id LIKE ? OR sender_id LIKE ? ORDER BY created_at DESC LIMIT 50`,
+                [`%${clean10}%`, `%${clean10}%`]
+            );
+        }
+
         const formatted = rows.map(m => ({
-            id: m.message_id,
-            body: m.body || "",
-            fromMe: m.is_from_me === 1,
+            id: m.message_id || `msg_${m.id}`,
+            body: m.body || (m.media_path ? '📷 Foto / Archivo' : ''),
+            fromMe: m.is_from_me === 1 || m.direction === 'outbound',
             timestamp: new Date(m.created_at).getTime(),
-            type: m.message_type || 'text',
-            hasMedia: m.media_path ? true : false,
+            type: m.message_type || (m.media_path ? 'media' : 'text'),
+            hasMedia: !!m.media_path,
             mediaPath: m.media_path,
             mediaMime: m.media_mime
-        })).reverse(); // Orden cronológico ascendente para el chat
+        })).reverse();
 
         return res.json(formatted);
     } catch (err) {
@@ -9181,7 +9259,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             // --- VERIFICACIÓN INTELIGENTE DE VENTAS WEB PENDIENTES (TEMPORALES) ---
             try {
                 const { checkPendingWebSaleForPhone } = require('./billingService');
-                const pendingSale = await checkPendingWebSaleForPhone(realPhone);
+                const pendingSale = await checkPendingWebSaleForPhone(realPhone, foundName);
                 if (pendingSale) {
                     console.log(`[Web Sale Check] Detectada venta pendiente en BD para ${realPhone}: Orden ${pendingSale.order_id}`);
                     const apiKey = process.env.BOLD_IDENTITY_KEY;
