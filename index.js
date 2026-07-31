@@ -6774,25 +6774,58 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
                 if (codes && codes.length > 0) {
                     const latest = codes[0];
-                    const hasLink = !!latest.link;
-                    const isFourDigitPin = latest.code && /^\d{4}$/.test(latest.code.toString().trim());
+                    const nameLower = streamingName.toLowerCase();
 
-                    let response = `🤖 *${hasLink ? 'Enlace de acceso' : 'Código'} de ${streamingName} Encontrado* 🚀\n\n`;
-                    
-                    // Solo mostrar código numérico si NO hay enlace o si es un PIN de 4 dígitos explícito
-                    if (latest.code && (!hasLink || isFourDigitPin)) {
-                        response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
-                    }
+                    // Plataformas basadas ÚNICAMENTE en Código OTP (ej: Disney+, Max, Amazon, Paramount, VIX)
+                    const isCodeOnlyPlatform = nameLower.includes('disney') || nameLower.includes('star') || nameLower.includes('max') || nameLower.includes('hbo') || nameLower.includes('prime') || nameLower.includes('amazon') || nameLower.includes('paramount') || nameLower.includes('vix') || nameLower.includes('youtube');
 
-                    if (hasLink) {
-                        if (streamingName.toLowerCase().includes('netflix')) {
-                            const cleanPhone = userId.replace(/\D/g, '');
-                            response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 https://sheerit.com.co/verificar?tel=${cleanPhone}\n\n`;
+                    // Plataformas basadas ÚNICAMENTE en Enlace Mágico / Magic Link (ej: Claude, Canva, ChatGPT)
+                    const isLinkOnlyPlatform = nameLower.includes('claude') || nameLower.includes('canva') || nameLower.includes('gpt') || nameLower.includes('notion') || nameLower.includes('medium');
+
+                    let response = '';
+
+                    if (isCodeOnlyPlatform || (!latest.link && latest.code)) {
+                        // 1. ENTREGA EXCLUSIVA DE CÓDIGO (DISNEY, MAX, PRIME, ETC.)
+                        response = `🤖 *Código de ${streamingName} Encontrado* 🚀\n\n`;
+                        if (latest.code) {
+                            response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                         } else {
+                            response += `📝 ${latest.snippet}\n\n`;
+                        }
+                        response += `⏰ Recibido hace ${latest.time} min.\n\n_Úsalo en tu pantalla o aplicación para iniciar sesión._`;
+
+                    } else if (isLinkOnlyPlatform) {
+                        // 2. ENTREGA EXCLUSIVA DE ENLACE MÁGICO (CLAUDE, CANVA, ETC.)
+                        response = `🤖 *Enlace de acceso de ${streamingName} Encontrado* 🚀\n\n`;
+                        if (latest.link) {
                             response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${latest.link}\n\n`;
                         }
+                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
+
+                    } else if (nameLower.includes('netflix')) {
+                        // 3. NETFLIX (CÓDIGO DE 4 DÍGITOS + ENLACE DE HOGAR SHEERIT)
+                        const cleanPhone = userId.replace(/\D/g, '');
+                        const isFourDigitPin = latest.code && /^\d{4}$/.test(latest.code.toString().trim());
+
+                        response = `🤖 *${isFourDigitPin ? 'Código y Enlace' : 'Enlace de acceso'} de NETFLIX Encontrado* 🚀\n\n`;
+                        if (isFourDigitPin) {
+                            response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
+                        }
+                        response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 https://sheerit.com.co/verificar?tel=${cleanPhone}\n\n`;
+                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
+
+                    } else {
+                        // 4. CASO GENERAL RESTANTE
+                        const hasLink = !!latest.link;
+                        response = `🤖 *${hasLink ? 'Enlace de acceso' : 'Código'} de ${streamingName} Encontrado* 🚀\n\n`;
+                        if (latest.code && !hasLink) {
+                            response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
+                        }
+                        if (hasLink) {
+                            response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${latest.link}\n\n`;
+                        }
+                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.`;
                     }
-                    response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código/enlace vence pronto._`;
                     await message.reply(response);
                     userStates.delete(userId);
                     return;
