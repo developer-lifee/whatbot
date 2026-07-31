@@ -619,12 +619,13 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 
         await message.reply(response);
         
-        // Actualizar estado para esperar comprobante
+        // Actualizar estado para esperar comprobante y registrar ticket de trabajo humano
         userStates.set(userId, { 
             state: 'awaiting_payment_method', 
             total: total, 
             items: itemsForRenewal, 
             isRenewal: true,
+            category: churnPlatforms.length > 0 ? 'Corte / Churn' : 'Aviso de Cobro / Renovación',
             durationMonths: durationMonths,
             churnPlatforms: churnPlatforms.length > 0 ? churnPlatforms : null
         });

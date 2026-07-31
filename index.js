@@ -1746,7 +1746,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             targetEntries = Array.from(userStates.entries()).map(([userId, state]) => {
                 if (!state) return null;
                 const stateStr = typeof state === 'object' ? state.state : state;
-                const pendingStates = ['waiting_human', 'awaiting_payment_confirmation', 'waiting_admin_confirmation', 'resolved'];
+                const pendingStates = ['waiting_human', 'awaiting_payment_confirmation', 'awaiting_payment_method', 'waiting_admin_confirmation', 'resolved'];
                 if (!pendingStates.includes(stateStr)) return null;
                 return [userId, state];
             }).filter(Boolean);
@@ -1980,9 +1980,9 @@ app.post('/api/admin/tickets/claim', async (req, res) => {
         let updatedState = {};
         const newMode = agent ? 'advisor' : 'bot';
         if (typeof currentState === 'string') {
-            updatedState = { state: currentState, agent: agent, waiting_human_mode: newMode };
+            updatedState = { state: currentState, agent: agent, waiting_human_mode: newMode, claimedAt: agent ? Date.now() : null };
         } else {
-            updatedState = { ...currentState, agent: agent, waiting_human_mode: newMode };
+            updatedState = { ...currentState, agent: agent, waiting_human_mode: newMode, claimedAt: agent ? Date.now() : null };
         }
 
         userStates.set(userId, updatedState);
@@ -2007,15 +2007,15 @@ app.post('/api/admin/tickets/update-mode', async (req, res) => {
         const currentState = userStates.get(userId);
 
         if (!currentState) {
-            userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: mode });
+            userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: mode, claimedAt: mode === 'advisor' ? Date.now() : null });
             return res.json({ success: true, message: `Estado creado y modo configurado a ${mode}` });
         }
 
         let updatedState = {};
         if (typeof currentState === 'string') {
-            updatedState = { state: currentState, waiting_human_mode: mode };
+            updatedState = { state: currentState, waiting_human_mode: mode, claimedAt: mode === 'advisor' ? Date.now() : null };
         } else {
-            updatedState = { ...currentState, waiting_human_mode: mode };
+            updatedState = { ...currentState, waiting_human_mode: mode, claimedAt: mode === 'advisor' ? Date.now() : null };
         }
 
         if (mode === 'advisor') {
@@ -2188,12 +2188,15 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         const stateData = userStates.get(userId) || {};
         const agentName = bodyAgentName || stateData.agent || 'Bot / Sistema';
         const customerName = await getRealCustomerName(cleanPhone, stateData.nombre);
+        const category = stateData.category || (stateData.churnPlatforms ? 'Corte / Churn' : (stateData.isRenewal ? 'Renovación / Cobro' : 'Atención General'));
+        const claimedAtDate = stateData.claimedAt ? new Date(stateData.claimedAt) : null;
+        const durationSeconds = stateData.claimedAt ? Math.round((Date.now() - stateData.claimedAt) / 1000) : 0;
 
-        // Log resolved ticket
+        // Log resolved ticket con categoría y tiempo de resolución
         try {
             await pool.query(
-                'INSERT INTO resolved_tickets_log (phone, customerName, agent) VALUES (?, ?, ?)',
-                [cleanPhone, customerName, agentName]
+                'INSERT INTO resolved_tickets_log (phone, customerName, agent, category, claimedAt, durationSeconds) VALUES (?, ?, ?, ?, ?, ?)',
+                [cleanPhone, customerName, agentName, category, claimedAtDate, durationSeconds]
             );
         } catch (logErr) {
             console.error('[Resolved Log] Error logging resolved ticket:', logErr.message);
@@ -2256,6 +2259,63 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         res.json({ success: true, message });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// === ENDPOINT DE MÉTRICAS DE PRODUCTIVIDAD Y DESEMPEÑO DE ASESORES ===
+app.get('/api/admin/metrics/agent-performance', async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        let query = `SELECT id, phone, customerName, agent, category, claimedAt, durationSeconds, resolvedAt FROM resolved_tickets_log`;
+        let params = [];
+
+        if (startDate && endDate) {
+            query += ` WHERE resolvedAt BETWEEN ? AND ?`;
+            params.push(startDate + ' 00:00:00', endDate + ' 23:59:59');
+        }
+
+        query += ` ORDER BY resolvedAt DESC LIMIT 500`;
+
+        const [rows] = await pool.query(query, params);
+
+        const agentStats = {};
+        rows.forEach(r => {
+            const agent = r.agent || 'Sin Asesor';
+            if (!agentStats[agent]) {
+                agentStats[agent] = {
+                    agentName: agent,
+                    totalResolved: 0,
+                    categories: {},
+                    totalDurationSeconds: 0,
+                    avgDurationSeconds: 0
+                };
+            }
+
+            agentStats[agent].totalResolved++;
+            const cat = r.category || 'Atención General';
+            agentStats[agent].categories[cat] = (agentStats[agent].categories[cat] || 0) + 1;
+
+            if (r.durationSeconds > 0) {
+                agentStats[agent].totalDurationSeconds += r.durationSeconds;
+            }
+        });
+
+        Object.values(agentStats).forEach(stat => {
+            if (stat.totalResolved > 0 && stat.totalDurationSeconds > 0) {
+                stat.avgDurationSeconds = Math.round(stat.totalDurationSeconds / stat.totalResolved);
+            }
+        });
+
+        res.json({
+            success: true,
+            totalLogs: rows.length,
+            agentStats: Object.values(agentStats),
+            logs: rows
+        });
+    } catch (e) {
+        console.error('[Metrics Error]', e.message);
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
