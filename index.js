@@ -6714,17 +6714,22 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
                 if (codes && codes.length > 0) {
                     const latest = codes[0];
-                    let response = `🤖 *Código / Enlace de ${streamingName} Encontrado* 🚀\n\n`;
-                    if (latest.code) {
+                    const hasLink = !!latest.link;
+                    const isFourDigitPin = latest.code && /^\d{4}$/.test(latest.code.toString().trim());
+
+                    let response = `🤖 *${hasLink ? 'Enlace de acceso' : 'Código'} de ${streamingName} Encontrado* 🚀\n\n`;
+                    
+                    // Solo mostrar código numérico si NO hay enlace o si es un PIN de 4 dígitos explícito
+                    if (latest.code && (!hasLink || isFourDigitPin)) {
                         response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                     }
 
-                    if (latest.link) {
+                    if (hasLink) {
                         if (streamingName.toLowerCase().includes('netflix')) {
                             const cleanPhone = userId.replace(/\D/g, '');
-                            response += `🔗 *Para registrar la IP de tu hogar y confirmar acceso en tu TV/celular:*\n👉 https://sheerit.com.co/verificar?tel=${cleanPhone}\n\n`;
+                            response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 https://sheerit.com.co/verificar?tel=${cleanPhone}\n\n`;
                         } else {
-                            response += `🔗 *Enlace de inicio de sesión / activación:*\n👉 ${latest.link}\n\n`;
+                            response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${latest.link}\n\n`;
                         }
                     }
                     response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este código/enlace vence pronto._`;
