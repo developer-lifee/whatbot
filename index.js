@@ -9385,9 +9385,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 // Pero solo si el mensaje NO contiene palabras de compra explícitas (ej: "comprar", "nueva", "quiero una")
                 const isExplicitPurchase = inputToUse.toLowerCase().includes('comprar') || inputToUse.toLowerCase().includes('nueva');
 
-                if (userAccounts.length > 0 && !detection.detectedPlatform && !isExplicitPurchase) {
+                if (userAccounts.length > 0 && !isExplicitPurchase) {
                     const durationMonths = getDurationMonths(detection, inputToUse);
-                    await processCheckPrices(message, userId, userStates, null, detection.detectedPlatform, durationMonths);
+                    await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
                     return;
                 }
 

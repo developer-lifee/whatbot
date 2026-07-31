@@ -378,19 +378,36 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 
         let hasZeroPrice = false;
         
-        let accountsToProcess = userAccounts;
-        if (detectedPlatform) {
-            const search = detectedPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
-            const filtered = userAccounts.filter(acc => {
+        // 0. Filtrar filas de Excel malformadas o inválidas (como 'gmail.com', dominios o vacías)
+        let validUserAccounts = userAccounts.filter(acc => {
+            const str = (acc.Streaming || "").toString().trim().toLowerCase();
+            if (!str) return false;
+            if (str === 'gmail.com' || str === 'hotmail.com' || str === 'outlook.com' || str.includes('@') || str.endsWith('.com') || str.endsWith('.net')) return false;
+            return true;
+        });
+
+        if (validUserAccounts.length === 0) {
+            validUserAccounts = userAccounts;
+        }
+
+        let accountsToProcess = validUserAccounts;
+
+        // Detección de múltiples plataformas en la entrada del usuario (ej: "disney y spotify")
+        const platformKeywords = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'spotify', 'youtube', 'apple', 'crunchyroll', 'vix', 'paramount', 'canva', 'chatgpt', 'gpt', 'claude', 'gemini', 'microsoft'];
+        const inputLower = (inputToUse || "").toLowerCase();
+        const matchedKeywords = platformKeywords.filter(p => inputLower.includes(p) || (detectedPlatform && detectedPlatform.toLowerCase().includes(p)));
+
+        if (matchedKeywords.length > 0) {
+            const filtered = validUserAccounts.filter(acc => {
                 const current = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                return current.includes(search) || search.includes(current);
+                return matchedKeywords.some(p => current.includes(p) || p.includes(current));
             });
             if (filtered.length > 0) {
                 accountsToProcess = filtered;
             }
         } else {
             // Si no hay plataforma específica, filtramos para renovar solo servicios vencidos o por vencer pronto (próximos 5 días)
-            const expiredOrExpiring = userAccounts.filter(acc => {
+            const expiredOrExpiring = validUserAccounts.filter(acc => {
                 const vencimientoRaw = acc.deben || acc.vencimiento;
                 const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
                 if (!vencimientoDate) return false;
@@ -584,6 +601,16 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
         }
 
         response += `*TOTAL A PAGAR: $${total}*\n\n`;
+
+        const currentState = userStates.get(userId) || {};
+        const isPaymentAlreadyReceived = currentState.state === 'awaiting_payment_confirmation' || currentState.state === 'waiting_human' || (currentState.lastPaymentValidated && Date.now() - currentState.lastPaymentValidated < 1000 * 60 * 20);
+
+        if (isPaymentAlreadyReceived) {
+            response += `✅ *Comprobante Registrado:* He asociado estos servicios (*${itemsForRenewal.map(i => i.platform?.name || 'Servicio').join(', ')}*) a tu pago realizado. Un asesor o el sistema automático actualizará las fechas de vencimiento de tus pantallas de inmediato. ¡Gracias! 😊`;
+            await message.reply(response);
+            return;
+        }
+
         response += "🤖 ¿Por cuál medio deseas realizar la transferencia?\n\n⭐ *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n⭐ *Llave Bre-V (AUTOMÁTICA ⚡)*:\n   • Celular: *0087387259*\n⭐ *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*:\n   • Ahorros: *46772753713* (CC: 1032936324)\n\n💡 *Tip de Renovación:* Si pagas por un medio automático (QR, Llave Bre-V o Bancolombia), tu servicio se renovará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
         
         if (churnText) {
