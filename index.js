@@ -4373,7 +4373,7 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             console.error("[Migration] Error checking/altering agent_schedules table for week_start:", err.message);
         }
 
-        // Check and add exclude_from_payroll column to agents if it doesn't exist
+        // Check and add exclude_from_payroll & password_hash columns to agents if they don't exist
         try {
             const [cols] = await pool.query("SHOW COLUMNS FROM agents");
             const hasExcludePayroll = cols.some(c => c.Field === 'exclude_from_payroll');
@@ -4381,8 +4381,13 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 console.log("[Migration] Adding exclude_from_payroll column to agents...");
                 await pool.query("ALTER TABLE agents ADD COLUMN exclude_from_payroll TINYINT(1) NOT NULL DEFAULT 0");
             }
+            const hasPasswordHash = cols.some(c => c.Field === 'password_hash');
+            if (!hasPasswordHash) {
+                console.log("[Migration] Adding password_hash column to agents...");
+                await pool.query("ALTER TABLE agents ADD COLUMN password_hash VARCHAR(255) NULL");
+            }
         } catch (err) {
-            console.error("[Migration] Error adding exclude_from_payroll column to agents:", err.message);
+            console.error("[Migration] Error adding columns to agents:", err.message);
         }
 
         // Create agent_bonuses and monthly_payroll tables
@@ -5225,6 +5230,96 @@ app.post('/api/admin/agents/role', express.json(), async (req, res) => {
         await pool.query('UPDATE agents SET role = ? WHERE id = ?', [role, agent_id]);
 
         res.json({ success: true, message: 'Rol de asesor actualizado correctamente.' });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Create or Update Employee / Agent
+app.post('/api/admin/agents/save', express.json(), async (req, res) => {
+    try {
+        const { id, fullname, email, password, role, status, exclude_from_payroll } = req.body;
+        if (!fullname || !email) {
+            return res.status(400).json({ success: false, message: 'Nombre completo y correo son obligatorios.' });
+        }
+
+        const { pool } = require('./database');
+        const cleanEmail = email.trim().toLowerCase();
+        const cleanRole = role || 'agent';
+        const cleanStatus = status || 'active';
+        const excludeVal = exclude_from_payroll ? 1 : 0;
+        const username = cleanEmail.split('@')[0].replace(/[^a-z0-9_]/g, '');
+
+        if (id) {
+            let updateQuery = 'UPDATE agents SET fullname = ?, email = ?, role = ?, status = ?, exclude_from_payroll = ?';
+            let params = [fullname.trim(), cleanEmail, cleanRole, cleanStatus, excludeVal];
+
+            if (password && password.trim().length > 0) {
+                const bcrypt = require('bcryptjs');
+                const hashed = await bcrypt.hash(password.trim(), 10);
+                updateQuery += ', password_hash = ?';
+                params.push(hashed);
+            }
+
+            updateQuery += ' WHERE id = ?';
+            params.push(id);
+
+            await pool.query(updateQuery, params);
+
+            return res.json({
+                success: true,
+                message: `Empleado ${fullname} actualizado correctamente.`
+            });
+        } else {
+            const [existing] = await pool.query('SELECT id FROM agents WHERE email = ?', [cleanEmail]);
+            if (existing && existing.length > 0) {
+                return res.status(400).json({ success: false, message: `El correo ${cleanEmail} ya está registrado.` });
+            }
+
+            let hashedPassword = null;
+            if (password && password.trim().length > 0) {
+                const bcrypt = require('bcryptjs');
+                hashedPassword = await bcrypt.hash(password.trim(), 10);
+            }
+
+            const [result] = await pool.query(
+                'INSERT INTO agents (username, fullname, email, role, status, password_hash, exclude_from_payroll) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [username, fullname.trim(), cleanEmail, cleanRole, cleanStatus, hashedPassword, excludeVal]
+            );
+
+            return res.json({
+                success: true,
+                agent_id: result.insertId,
+                message: `Empleado ${fullname} creado exitosamente.`
+            });
+        }
+    } catch (e) {
+        console.error('Error al guardar empleado:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Terminate Contract / Change Agent Status
+app.post('/api/admin/agents/terminate', express.json(), async (req, res) => {
+    try {
+        const { agent_id, status } = req.body;
+        if (!agent_id) return res.status(400).json({ success: false, message: 'Falta ID de asesor.' });
+
+        const { pool } = require('./database');
+        const targetStatus = status || 'inactive';
+        const excludePayroll = targetStatus === 'inactive' ? 1 : 0;
+
+        await pool.query(
+            'UPDATE agents SET status = ?, exclude_from_payroll = ? WHERE id = ?',
+            [targetStatus, excludePayroll, agent_id]
+        );
+
+        res.json({
+            success: true,
+            message: targetStatus === 'inactive'
+                ? 'Contrato finalizado. El colaborador fue marcado como INACTIVO y excluido de Nómina y Labores.'
+                : 'Estado del colaborador reactivado a ACTIVO.'
+        });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
