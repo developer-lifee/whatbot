@@ -5142,7 +5142,7 @@ app.get('/api/admin/payroll', async (req, res) => {
                         trialHoursInPeriod = trialHoursLeft;
                         normalHoursInPeriod = totalHours - trialHoursInPeriod;
                         finalPayment = (trialHoursInPeriod * trialHourlyRate) + (normalHoursInPeriod * hourlyRate) + totalBonuses;
-                        rateToUse = totalHours > 0 ? ((trialHoursInPeriod * trialHourlyRate + normalHoursInPeriod * hourlyRate) / totalHours) : hourlyRate;
+                        rateToUse = hourlyRate;
                     }
                 } else {
                     trialHoursInPeriod = 0;
@@ -5165,7 +5165,8 @@ app.get('/api/admin/payroll', async (req, res) => {
                 trial_hours_target: trialHoursTarget,
                 trial_hours_left: trialHoursLeft,
                 total_hist_trial: totalHistTrial + trialHoursInPeriod,
-                hourly_rate: rateToUse,
+                hourly_rate: hourlyRate,
+                normal_hourly_rate: hourlyRate,
                 trial_hourly_rate: trialHourlyRate,
                 bonuses: agentBonuses,
                 total_bonuses: bonusesToUse,
@@ -5330,7 +5331,7 @@ app.post('/api/admin/payroll/close', express.json(), async (req, res) => {
                 trHours = trialHoursLeft;
                 normHours = totHours - trHours;
                 finalPayment = (trHours * trialHourlyRate) + (normHours * hourlyRateConfig) + totBonuses;
-                rateToUse = totHours > 0 ? ((trHours * trialHourlyRate + normHours * hourlyRateConfig) / totHours) : hourlyRateConfig;
+                rateToUse = hourlyRateConfig;
             }
 
             // Auto-promote trial agent if target trial hours completed
