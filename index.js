@@ -8640,27 +8640,27 @@ async function baseProcessIncomingMessage(messages) {
                 let userAccounts = [];
                 try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
+                const historyLower = (history || "").toLowerCase();
+                const lastMsgLower = (batchText || "").toLowerCase();
+                const isNewRequested = historyLower.includes('otro') ||
+                    historyLower.includes('otra') ||
+                    historyLower.includes('nueva') ||
+                    historyLower.includes('nuevo') ||
+                    historyLower.includes('adquirir') ||
+                    historyLower.includes('adicional') ||
+                    lastMsgLower.includes('otro') ||
+                    lastMsgLower.includes('otra') ||
+                    lastMsgLower.includes('nueva') ||
+                    lastMsgLower.includes('nuevo') ||
+                    lastMsgLower.includes('adquirir') ||
+                    lastMsgLower.includes('adicional') ||
+                    stateData.intent === 'comprar' ||
+                    stateData.state === 'awaiting_purchase_platforms';
+
                 // Si el carrito está vacío, intentar auto-rellenarlo
                 if (!stateData.items || stateData.items.length === 0) {
 
                     if (check.inferredPlatform) {
-                        const historyLower = (history || "").toLowerCase();
-                        const lastMsgLower = (batchText || "").toLowerCase();
-                        const isNewRequested = historyLower.includes('otro') ||
-                            historyLower.includes('otra') ||
-                            historyLower.includes('nueva') ||
-                            historyLower.includes('nuevo') ||
-                            historyLower.includes('adquirir') ||
-                            historyLower.includes('adicional') ||
-                            lastMsgLower.includes('otro') ||
-                            lastMsgLower.includes('otra') ||
-                            lastMsgLower.includes('nueva') ||
-                            lastMsgLower.includes('nuevo') ||
-                            lastMsgLower.includes('adquirir') ||
-                            lastMsgLower.includes('adicional') ||
-                            stateData.intent === 'comprar' ||
-                            stateData.state === 'awaiting_purchase_platforms';
-
                         console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}. isNewRequested=${isNewRequested}`);
 
                         // Intentar obtener el precio real de la plataforma en el catálogo
