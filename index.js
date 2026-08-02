@@ -4404,6 +4404,18 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 )
             `);
             await pool.query(`
+                CREATE TABLE IF NOT EXISTS agent_contract_history (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    agent_id INT NOT NULL,
+                    action ENUM('terminated', 'reactivated', 'role_change', 'updated') NOT NULL,
+                    status VARCHAR(50) NOT NULL,
+                    reason TEXT NULL,
+                    performed_by VARCHAR(255) DEFAULT 'admin',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+                )
+            `);
+            await pool.query(`
                 CREATE TABLE IF NOT EXISTS monthly_payroll (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     agent_id INT NOT NULL,
@@ -5302,24 +5314,53 @@ app.post('/api/admin/agents/save', express.json(), async (req, res) => {
 // POST Terminate Contract / Change Agent Status
 app.post('/api/admin/agents/terminate', express.json(), async (req, res) => {
     try {
-        const { agent_id, status } = req.body;
+        const { agent_id, status, reason, performed_by } = req.body;
         if (!agent_id) return res.status(400).json({ success: false, message: 'Falta ID de asesor.' });
 
         const { pool } = require('./database');
         const targetStatus = status || 'inactive';
         const excludePayroll = targetStatus === 'inactive' ? 1 : 0;
+        const actionType = targetStatus === 'inactive' ? 'terminated' : 'reactivated';
+        const defaultReason = targetStatus === 'inactive' ? 'Terminación de contrato de colaborador' : 'Reactivación de contrato de colaborador';
+        const finalReason = reason && reason.trim().length > 0 ? reason.trim() : defaultReason;
+        const operator = performed_by || 'admin';
 
         await pool.query(
             'UPDATE agents SET status = ?, exclude_from_payroll = ? WHERE id = ?',
             [targetStatus, excludePayroll, agent_id]
         );
 
+        // Registrar auditoría en historial de contratos
+        await pool.query(
+            'INSERT INTO agent_contract_history (agent_id, action, status, reason, performed_by) VALUES (?, ?, ?, ?, ?)',
+            [agent_id, actionType, targetStatus, finalReason, operator]
+        );
+
         res.json({
             success: true,
             message: targetStatus === 'inactive'
-                ? 'Contrato finalizado. El colaborador fue marcado como INACTIVO y excluido de Nómina y Labores.'
-                : 'Estado del colaborador reactivado a ACTIVO.'
+                ? `Contrato finalizado (${finalReason}). Colaborador excluido de Nómina y Labores.`
+                : `Contrato reactivado correctamente (${finalReason}).`
         });
+    } catch (e) {
+        console.error("Error en terminate endpoint:", e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET Agent Contract Audit History
+app.get('/api/admin/agents/:id/contract-history', async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!id) return res.status(400).json({ success: false, message: 'Falta ID de asesor.' });
+
+        const { pool } = require('./database');
+        const [rows] = await pool.query(
+            'SELECT * FROM agent_contract_history WHERE agent_id = ? ORDER BY created_at DESC',
+            [id]
+        );
+
+        res.json({ success: true, history: rows });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
