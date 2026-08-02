@@ -18,7 +18,10 @@ async function saveMessage(message, botIntent = null) {
 
     try {
         if (message.id && typeof message.getContact === 'function') {
-            const contact = await message.getContact();
+            const contact = await Promise.race([
+                message.getContact(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout (2s)")), 2000))
+            ]).catch(() => null);
             senderName = contact ? (contact.name || contact.pushname || null) : null;
         }
     } catch (e) {
@@ -77,7 +80,10 @@ async function saveMessage(message, botIntent = null) {
         } else if (chatId && chatId.includes('@lid')) {
             try {
                 if (message.id && typeof message.getContact === 'function') {
-                    const contact = await message.getContact();
+                    const contact = await Promise.race([
+                        message.getContact(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout (2s)")), 2000))
+                    ]).catch(() => null);
                     if (contact && contact.number) {
                         customerPhone = contact.number;
                     }

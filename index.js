@@ -6283,29 +6283,51 @@ const port = process.env.PORT || 3000;
 server.listen(port, () => {
     console.log(`Servidor Express corriendo en el puerto ${port}`);
 
-    // Heartbeat cada 5 minutos (reducido para detectar cuelgues de Puppeteer)
+    // Heartbeat cada 5 minutos (con detector anti-zombie de estados atascados OPENING / DISCONNECTED)
+    let nonConnectedHeartbeatCount = 0;
+
     setInterval(async () => {
         try {
             if (!client) return;
-            if (currentWhatsappStatus !== 'CONNECTED') {
-                console.log(`💓 Heartbeat: Esperando conexión. Estado actual: ${currentWhatsappStatus}`);
+
+            let state = null;
+            try {
+                state = await Promise.race([
+                    client.getState(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("getState Timeout (15s)")), 15000))
+                ]);
+            } catch (e) {
+                console.error('⚠️ Heartbeat: client.getState() falló o dio timeout:', e.message);
+                throw e;
+            }
+
+            console.log(`💓 Heartbeat: Proceso vivo. Estado en WWebJS: ${state} | Estado interno: ${currentWhatsappStatus}`);
+
+            if (state !== 'CONNECTED') {
+                nonConnectedHeartbeatCount++;
+                console.warn(`⚠️ Heartbeat: Cliente en estado NO-CONECTADO ('${state}'). Intento sin conexión #${nonConnectedHeartbeatCount}`);
+
+                // Si lleva 2 heartbeats seguidos (10 minutos) sin estar en CONNECTED (ej: atascado en OPENING), forzar reinicio
+                if (nonConnectedHeartbeatCount >= 2) {
+                    console.error(`🔥 [ANTI-ZOMBIE] El cliente WhatsApp lleva ${nonConnectedHeartbeatCount * 5} minutos sin estar en estado CONNECTED (estado actual: '${state}'). Forzando reinicio para PM2...`);
+                    process.exit(1);
+                }
                 return;
             }
-            const state = await client.getState();
-            console.log(`💓 Heartbeat: Proceso vivo. Estado del cliente: ${state}`);
+
+            nonConnectedHeartbeatCount = 0;
 
             // Verificación de salud profunda: ¿Sigue respondiendo el navegador?
-            if (state === 'CONNECTED') {
-                // Intentamos obtener info básica del cliente para verificar que el canal IPC con Puppeteer sigue vivo
+            if (client.info && client.info.wid) {
                 const info = await Promise.race([
                     client.getContactById(client.info.wid._serialized),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 30000))
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout (20s)")), 20000))
                 ]);
                 if (!info) throw new Error("Browser unresponsive (Deep check failed)");
             }
         } catch (err) {
             console.error('⚠️ Heartbeat: Error de salud detectado:', err.message);
-            if (isCriticalBrowserError(err) || err.message.includes("Timeout") || err.message.includes("unresponsive")) {
+            if (isCriticalBrowserError(err) || err.message.includes("Timeout") || err.message.includes("unresponsive") || err.message.includes("Protocol error")) {
                 console.error('🔥 [ANTI-ZOMBIE] Detectado estado crítico o zombie de Puppeteer. Forzando reinicio para PM2...');
                 process.exit(1);
             }
@@ -6554,7 +6576,10 @@ client.on('message_create', async (msg) => {
         // Traducción de LID a @c.us para consistencia en el estado (evita pisar charlas humanas)
         if (targetId && targetId.includes('@lid')) {
             try {
-                const contact = await client.getContactById(targetId);
+                const contact = await Promise.race([
+                    client.getContactById(targetId),
+                    new Promise((_, r) => setTimeout(() => r(new Error("Timeout (3s)")), 3000))
+                ]).catch(() => null);
                 if (contact && contact.id && contact.id.user) {
                     targetId = contact.id.user + '@c.us';
                 }
