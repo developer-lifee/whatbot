@@ -11155,13 +11155,23 @@ async function startClientWithRetries(retriesLeft = 4) {
         console.log(`🤖 Inicializando cliente de WhatsApp Web (Intentos restantes: ${retriesLeft})...`);
         const fs = require('fs');
         const path = require('path');
-        const lockPath = path.join(__dirname, '.wwebjs_auth', 'session', 'SingletonLock');
-        if (fs.existsSync(lockPath)) {
-            try {
-                fs.unlinkSync(lockPath);
-                console.log('🧹 [Startup Clean] SingletonLock obsoleto eliminado antes de iniciar cliente.');
-            } catch (e) { }
-        }
+        const sessionDirs = [
+            path.join(__dirname, '.wwebjs_auth', 'session'),
+            path.join(__dirname, '.wwebjs_auth', 'session', 'Default')
+        ];
+        sessionDirs.forEach(dir => {
+            if (fs.existsSync(dir)) {
+                ['SingletonLock', 'SingletonSocket', 'SingletonCookie'].forEach(lockFile => {
+                    const lockPath = path.join(dir, lockFile);
+                    if (fs.existsSync(lockPath)) {
+                        try {
+                            fs.unlinkSync(lockPath);
+                            console.log(`🧹 [Startup Clean] ${lockFile} obsoleto eliminado en ${dir}`);
+                        } catch (e) { }
+                    }
+                });
+            }
+        });
 
         await client.initialize();
     } catch (err) {
