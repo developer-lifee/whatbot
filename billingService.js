@@ -4,6 +4,27 @@ const { getPlatformKnowledge } = require('./apiService');
 const path = require('path');
 const fs = require('fs');
 
+async function safeSend(message, text, userId = null, clientInstance = null) {
+    const activeClient = clientInstance || (message && message._client);
+    const destJid = userId || (message && (message.from || message.to));
+    if (activeClient && destJid) {
+        try {
+            await activeClient.sendMessage(destJid, text);
+            return;
+        } catch (e) {
+            console.warn(`[safeSend] client.sendMessage error for ${destJid}:`, e.message);
+        }
+    }
+    if (message && typeof message.reply === 'function') {
+        try {
+            await message.reply(text);
+            return;
+        } catch (e) {
+            console.error(`[safeSend] message.reply error:`, e.message);
+        }
+    }
+}
+
 function extractPlatformFromText(text) {
     if (!text) return null;
     const txt = text.toLowerCase().trim();
@@ -1074,7 +1095,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     }
 
     if (records.length === 0) {
-      await message.reply('🤖 Revisé la base de datos y no encontré cobros pendientes para hoy o fechas anteriores en la columna "deben".');
+      await safeSend(message, '🤖 Revisé la base de datos y no encontré cobros pendientes para hoy o fechas anteriores en la columna "deben".', userId, client);
       return;
     }
 
@@ -1128,12 +1149,12 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     const toSuspend = Array.from(toSuspendUsers.values());
 
     if (toCharge.length === 0 && toReview.length === 0 && toNotify.length === 0 && toSuspend.length === 0) {
-      await message.reply('🤖 No se encontraron cobros, revisiones ni pagos pendientes para procesar.');
+      await safeSend(message, '🤖 No se encontraron cobros, revisiones ni pagos pendientes para procesar.', userId, client);
       return;
     }
 
     // AVISAR QUE INICIAMOS
-    await message.reply(`🤖 *PROCESO AUTOMÁTICO DE COBROS INICIADO*\n\nHe encontrado ${toCharge.length} para cobrar, ${toSuspend.length} para corte inminente, ${toReview.length} para revisión y ${toNotify.length} con pagos/actividad pendiente. Procedo con el envío...`);
+    await safeSend(message, `🤖 *PROCESO AUTOMÁTICO DE COBROS INICIADO*\n\nHe encontrado ${toCharge.length} para cobrar, ${toSuspend.length} para corte inminente, ${toReview.length} para revisión y ${toNotify.length} con pagos/actividad pendiente. Procedo con el envío...`, userId, client);
 
     // EJECUCIÓN DIRECTA
     let exitosos = 0;
@@ -1215,11 +1236,11 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
     }
 
     finalReport += `\n_El bot ha terminado su tarea programada de la mañana._`;
-    await message.reply(finalReport);
+    await safeSend(message, finalReport, userId, client);
 
   } catch (err) {
     console.error('Error calculando cobros automáticos:', err);
-    await message.reply('Ocurrió un error al consultar Azure. Intenta nuevamente.');
+    await safeSend(message, 'Ocurrió un error al procesar los cobros automáticos. Intenta nuevamente.', userId, client);
   }
 }
 
