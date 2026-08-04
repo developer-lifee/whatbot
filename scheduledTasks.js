@@ -38,9 +38,14 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
             const fakeMessage = {
                 from: groupId,
                 body: '@bot cobros automáticos',
+                _client: client,
                 reply: async (text) => {
-                    const chat = await client.getChatById(groupId);
-                    await chat.sendMessage(text);
+                    try {
+                        const chat = await client.getChatById(groupId);
+                        if (chat) await chat.sendMessage(text);
+                    } catch (e) {
+                        console.error('Error enviando reporte de cobros al grupo:', e.message);
+                    }
                 }
             };
             

@@ -1746,7 +1746,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             targetEntries = Array.from(userStates.entries()).map(([userId, state]) => {
                 if (!state) return null;
                 const stateStr = typeof state === 'object' ? state.state : state;
-                const pendingStates = ['waiting_human', 'awaiting_payment_confirmation', 'awaiting_payment_method', 'waiting_admin_confirmation', 'resolved'];
+                const pendingStates = ['waiting_human', 'waiting_admin_confirmation', 'resolved'];
                 if (!pendingStates.includes(stateStr)) return null;
                 return [userId, state];
             }).filter(Boolean);
@@ -9950,11 +9950,15 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             userAccounts = [];
             try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
-            const fallback = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
+            const fallbackResult = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
+            const fallbackMsg = typeof fallbackResult === 'string' ? fallbackResult : (fallbackResult?.replyMessage || "");
 
-            if (fallback && fallback.trim() !== "") {
+            if (fallbackMsg && fallbackMsg.trim() !== "") {
                 console.log(`[Fallback Conversacional] Enviando respuesta empática de Gemini a @${userId}`);
-                await safeReply(message, fallback, userId);
+                await safeReply(message, fallbackMsg, userId);
+                if (typeof fallbackResult === 'object' && fallbackResult.needsEscalation) {
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', nombre: foundName });
+                }
             } else {
                 console.log(`[Fallback Menú] Enviando menú de bienvenida estándar a @${userId}`);
                 const currentData = userStates.get(userId) || {};
