@@ -7268,34 +7268,93 @@ async function baseProcessIncomingMessage(messages) {
         }
     }
 
-    let contact;
+    let contact = null;
+    let resolvedPhoneFromLid = null;
+
+    // Fast-path 1: si el estado ya tiene guardado el realPhone
+    const cachedState = userStates.get(userId);
+    if (cachedState && cachedState.realPhone) {
+        resolvedPhoneFromLid = cachedState.realPhone;
+    }
+
+    // Fast-path 2: si es LID, buscar en la BD (tabla chats)
+    if (!resolvedPhoneFromLid && userId.includes('@lid')) {
+        try {
+            const { pool } = require('./database');
+            const [chatRows] = await pool.query(
+                'SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1',
+                [userId]
+            );
+            if (chatRows.length > 0 && chatRows[0].customer_phone) {
+                resolvedPhoneFromLid = chatRows[0].customer_phone;
+            }
+        } catch (e) { }
+    }
+
+    // Fast-path 3: consultar getContact con timeout estricto de 2000ms
     try {
         if (message && typeof message.getContact === 'function' && message.id && message.id._serialized) {
-            contact = await message.getContact();
-            if (contact && contact.number) {
-                const oldId = userId;
-                realPhone = contact.number;
+            contact = await Promise.race([
+                message.getContact(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getContact (2s)")), 2000))
+            ]).catch(() => null);
 
-                if (userId.includes('@lid') || (isFromAdmin && !userId.includes('@g.us'))) {
-                    userId = realPhone + '@c.us';
-
-                    // MIGRACIÓN DE ESTADO: Si el ID cambió (de @lid a @c.us) y tenemos estado en el viejo, lo pasamos al nuevo
-                    if (oldId !== userId && userStates.has(oldId)) {
-                        const oldData = userStates.get(oldId);
-                        const newData = userStates.get(userId) || {};
-
-                        // Solo migramos si el nuevo está vacío o si el viejo tiene información más relevante (como items en carrito)
-                        if (!newData.state || (oldData.items && oldData.items.length > 0)) {
-                            userStates.set(userId, { ...oldData, ...newData });
-                            console.log(`[LID Migration] Migrado estado de ${oldId} a ${userId} para preservar contexto.`);
-                        }
-                        userStates.delete(oldId);
+            if (contact) {
+                let extractedNum = contact.number;
+                if (!extractedNum && contact.phoneNumber) {
+                    if (typeof contact.phoneNumber === 'string') {
+                        extractedNum = contact.phoneNumber.replace(/\D/g, '');
+                    } else if (typeof contact.phoneNumber === 'object' && contact.phoneNumber.user) {
+                        extractedNum = contact.phoneNumber.user;
+                    } else if (typeof contact.phoneNumber === 'object' && contact.phoneNumber._serialized) {
+                        extractedNum = contact.phoneNumber._serialized.replace(/\D/g, '');
                     }
+                }
+                if (extractedNum) {
+                    resolvedPhoneFromLid = extractedNum;
                 }
             }
         }
     } catch (err) {
         console.warn("No se pudo obtener contacto del mensaje:", err.message);
+    }
+
+    if (resolvedPhoneFromLid) {
+        const cleanResolved = String(resolvedPhoneFromLid).replace(/\D/g, '');
+        if (cleanResolved.length >= 7) {
+            const oldId = userId;
+            realPhone = cleanResolved;
+
+            if (userId.includes('@lid') || (isFromAdmin && !userId.includes('@g.us'))) {
+                userId = realPhone + '@c.us';
+
+                // MIGRACIÓN DE ESTADO: Si el ID cambió (de @lid a @c.us), migramos estado
+                if (oldId !== userId && userStates.has(oldId)) {
+                    const oldData = userStates.get(oldId);
+                    const newData = userStates.get(userId) || {};
+                    if (!newData.state || (oldData.items && oldData.items.length > 0)) {
+                        userStates.set(userId, { ...oldData, ...newData, realPhone });
+                        console.log(`[LID Migration] Migrado estado de ${oldId} a ${userId} (realPhone: ${realPhone}).`);
+                    }
+                    userStates.delete(oldId);
+                }
+            }
+
+            // Persistir mapeo en DB chats y userStates
+            try {
+                const { pool } = require('./database');
+                await pool.query(
+                    'UPDATE chats SET customer_phone = ? WHERE chat_id = ?',
+                    [realPhone, oldId]
+                );
+            } catch (e) { }
+
+            const targetState = userStates.get(userId) || userStates.get(oldId);
+            if (targetState && typeof targetState === 'object') {
+                targetState.realPhone = realPhone;
+                userStates.set(userId, targetState);
+            }
+        }
     }
 
     // Asegurar que el estado tenga guardado el chatJid original para envíos directos sin LID mismatch
@@ -7616,7 +7675,16 @@ async function baseProcessIncomingMessage(messages) {
 
     // --- Cobros automáticos: mensaje especial ---
     const checkCobros = message.body ? message.body.toLowerCase().trim() : '';
-    if (checkCobros === '@bot cobros automáticos' || checkCobros === '@bot cobros automaticos') {
+    const isAutoCobrosCommand = checkCobros === '@bot cobros automáticos' || 
+        checkCobros === '@bot cobros automaticos' ||
+        checkCobros === '@bot haz los cobros' ||
+        checkCobros === '@bot porfa haz los cobros' ||
+        checkCobros === '@bot inicia cobranza' ||
+        checkCobros === '@bot cobros' ||
+        checkCobros === '@bot pasa los recibos' ||
+        checkCobros === '@bot manda avisos';
+
+    if (isAutoCobrosCommand) {
         await handleAutoCobros(message, userId, userStates, pendingConfirmations);
         return;
     }

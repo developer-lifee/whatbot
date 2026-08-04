@@ -1163,6 +1163,32 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         }
     }
 
+    // CREAR TICKETS EN MARIADB ÚNICAMENTE PARA LOS QUE YA TIENEN EL AVISO DE CORTE PREVIO
+    if (toReview.length > 0) {
+        try {
+            const { pool } = require('./database');
+            for (const r of toReview) {
+                const destId = r.phone + '@c.us';
+                await pool.query(
+                    `INSERT INTO tickets (chat_id, title, description, status, priority) 
+                     VALUES (?, ?, ?, 'open', 'high')
+                     ON DUPLICATE KEY UPDATE status = 'open', priority = 'high'`,
+                    [
+                        destId,
+                        `Corte de Servicio: ${r.name}`,
+                        `Corte requerido por mora persistente tras aviso de corte previo. Servicios: ${r.services.join(' | ')}`
+                    ]
+                );
+                if (userStates) {
+                    const st = userStates.get(destId) || {};
+                    userStates.set(destId, { ...st, state: 'waiting_human', category: 'Corte / Churn', churnPlatforms: r.services });
+                }
+            }
+        } catch (ticketErr) {
+            console.error('Error creando tickets de corte en MariaDB:', ticketErr.message);
+        }
+    }
+
     let finalReport = `✅ *REPORTE DE EJECUCIÓN FINALIZADO*\n\n`;
     finalReport += `- Cobros enviados: ${exitosos}/${toCharge.length}\n`;
     finalReport += `- Avisos de corte enviados: ${exitososCorte}/${toSuspend.length}\n`;
