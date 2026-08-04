@@ -80,14 +80,39 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
         let phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
         let contactName = null;
         if (userId.includes('@lid')) {
-            try {
-                const contact = await client.getContactById(userId);
-                if (contact && contact.number) {
-                    phoneNumber = contact.number;
-                    contactName = contact.name || contact.pushname;
+            const stObj = userStates ? userStates.get(userId) : null;
+            if (stObj && stObj.realPhone) {
+                phoneNumber = stObj.realPhone;
+            } else {
+                try {
+                    const { pool } = require('./database');
+                    const [chatRows] = await pool.query('SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1', [userId]);
+                    if (chatRows.length > 0 && chatRows[0].customer_phone) {
+                        phoneNumber = chatRows[0].customer_phone;
+                    }
+                } catch (e) { }
+            }
+
+            if (phoneNumber.includes('@lid') || !/^\d+$/.test(phoneNumber)) {
+                try {
+                    const contact = await Promise.race([
+                        client.getContactById(userId),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getContactById")), 1500))
+                    ]).catch(() => null);
+
+                    if (contact && (contact.number || contact.phoneNumber)) {
+                        let extractedNum = contact.number;
+                        if (!extractedNum && contact.phoneNumber) {
+                            extractedNum = typeof contact.phoneNumber === 'string' ? contact.phoneNumber.replace(/\D/g, '') : (contact.phoneNumber.user || '');
+                        }
+                        if (extractedNum) {
+                            phoneNumber = extractedNum;
+                            contactName = contact.name || contact.pushname;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("[processCheckCredentials] No se pudo obtener contacto para LID:", e.message);
                 }
-            } catch (e) {
-                console.warn("[processCheckCredentials] No se pudo obtener contacto para LID:", e.message);
             }
         }
 

@@ -7689,7 +7689,7 @@ async function baseProcessIncomingMessage(messages) {
         checkCobros === '@bot manda avisos';
 
     if (isAutoCobrosCommand) {
-        await handleAutoCobros(message, userId, userStates, pendingConfirmations);
+        await handleAutoCobros(message, userId, userStates, pendingConfirmations, client);
         return;
     }
 
