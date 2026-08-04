@@ -5,10 +5,15 @@ const path = require('path');
 const fs = require('fs');
 
 async function safeSend(message, text, userId = null, clientInstance = null) {
-    const activeClient = clientInstance || (message && message._client);
+    const activeClient = clientInstance || (message && message._client) || (typeof global !== 'undefined' ? global.client : null);
     const destJid = userId || (message && (message.from || message.to));
     if (activeClient && destJid) {
         try {
+            const chat = await activeClient.getChatById(destJid).catch(() => null);
+            if (chat && typeof chat.sendMessage === 'function') {
+                await chat.sendMessage(text);
+                return;
+            }
             await activeClient.sendMessage(destJid, text);
             return;
         } catch (e) {
@@ -848,7 +853,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
 
     try {
         const customMessage = `🤖 *Aviso de Cobro*\nHola ${r.name}, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que ${vencimientoTxt}.\n\nServicio(s): ${servicesToPrint}${totalText}\n\nEscribe *3* en este chat para conocer el desglose detallado (precios, combos y correos) o ver otros medios. ¡Gracias por preferirnos!`;
-        await client.sendMessage(dest, customMessage);
+        await safeSend(null, customMessage, dest, client);
         
         if (userStates) {
             const st = userStates.get(dest);
@@ -923,118 +928,85 @@ async function handleCobrosParser(message, userId, userStates, pendingConfirmati
   }
 
   if (parsedLines.length === 0) {
-    await message.reply('🤖 No pude parsear ninguna línea de números de la lista. Verifica el formato e intenta nuevamente.');
+    await safeSend(message, '🤖 No pude parsear ninguna línea de números de la lista. Verifica el formato e intenta nuevamente.', userId);
     return;
   }
 
+  // Si no hay parámetro de ejecución o es análisis
   const finalRecords = [];
   const skippedList = [];
-  
-  // Buscar en base de datos de Excel para verificar servicios actuales y saltar si ya pagaron
-  for (const item of parsedLines) {
-    try {
-      const destId = item.phone + '@c.us';
-      const userState = userStates.get(destId);
-      const stateStr = (typeof userState === 'object') ? userState.state : userState;
 
-      // 1. Si el chat está pendiente de validación manual o confirmación de pago por el admin, lo saltamos
-      if (stateStr === 'waiting_admin_confirmation' || stateStr === 'awaiting_payment_confirmation') {
-        skippedList.push({ name: item.name, phone: item.phone, reason: 'Ya hay un pago en validación.' });
-        continue;
-      }
+  for (const { name, phone } of parsedLines) {
+    const destId = phone + '@c.us';
+    const currentState = userStates ? userStates.get(destId) : null;
+    const stateStr = (typeof currentState === 'object') ? currentState.state : currentState;
 
-      // 2. Buscar cuentas del cliente en el Excel
-      const userAccounts = await getAccountsByPhone(item.phone);
-      if (userAccounts.length === 0) {
-        // Si no tiene cuentas vigentes asociadas, no sabemos qué cobrarle
-        skippedList.push({ name: item.name, phone: item.phone, reason: 'No tiene cuentas registradas.' });
-        continue;
-      }
-
-      // Extraer los nombres de las plataformas reales asociadas al cliente
-      const services = userAccounts.map(acc => (acc.Streaming || acc.streaming || '').toString().trim()).filter(s => s.length > 0);
-      if (services.length === 0) {
-        skippedList.push({ name: item.name, phone: item.phone, reason: 'Servicios sin nombre en base de datos.' });
-        continue;
-      }
-
-      // Añadir al registro de cobro con las plataformas reales del Excel
-      finalRecords.push({
-        name: item.name,
-        phone: item.phone,
-        textToShow: services.join(', ')
-      });
-
-    } catch (err) {
-      console.error(`Error validando cuenta para ${item.phone}:`, err);
-      // Fallback: lo añadimos igual con genérico por si falla la llamada
-      finalRecords.push({
-        name: item.name,
-        phone: item.phone,
-        textToShow: 'tus servicios'
-      });
+    if (stateStr === 'waiting_admin_confirmation') {
+      skippedList.push({ name, phone, reason: `Actividad o pago en proceso (${stateStr})` });
+      continue;
     }
+
+    const { getAccountsByPhone } = require('./apiService');
+    const userAccounts = await getAccountsByPhone(phone, name);
+
+    if (!userAccounts || userAccounts.length === 0) {
+      skippedList.push({ name, phone, reason: 'Sin servicios registrados en la base de datos' });
+      continue;
+    }
+
+    finalRecords.push({
+      name: userAccounts[0].Nombre || name,
+      phone,
+      services: userAccounts.map(a => a.Streaming || a.streaming || 'Servicio')
+    });
   }
 
-  if (finalRecords.length === 0) {
-    let report = '🤖 Revisé los números en la base de datos y todos fueron omitidos:\n\n';
+  let report = `📋 *REPORTE DE COBROS MANUALES DETECTADOS*\n\n`;
+  report += `✅ *Cuentas a cobrar (${finalRecords.length}):*\n`;
+  finalRecords.forEach(r => {
+    report += `• ${r.name} - Tel: ${r.phone} (${r.services.join(', ')})\n`;
+  });
+
+  if (skippedList.length > 0) {
+    report += `\n⚠️ *Omitidos de seguridad (${skippedList.length}):*\n`;
     skippedList.forEach(s => {
-      report += `• *${s.name}* (Tel: ${s.phone}) - Omitido: _${s.reason}_\n`;
+      report += `• ${s.name} - Tel: ${s.phone} (${s.reason})\n`;
     });
-    await message.reply(report);
+  }
+
+  report += `\n¿Deseas enviar los cobros a estas cuentas ahora mismo?\nResponde *@bot confirmar cobros* para proceder o *@bot cancelar cobros* para anular.`;
+
+  pendingConfirmations.set(userId, {
+    timestamp: Date.now(),
+    records: finalRecords
+  });
+
+  await safeSend(message, report, userId);
+}
+
+async function handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations) {
+  const text = (message.body || '').toLowerCase().trim();
+  const pendingData = pendingConfirmations.get(userId);
+
+  if (!pendingData) {
+    await safeSend(message, '🤖 No hay cobros pendientes para confirmar.', userId);
     return;
   }
 
-  const client = message._client || global.client; 
-  
-  // Avisar al admin sobre el análisis inicial
-  let alertMsg = `🚀 *Iniciando envío directo...*\n`;
-  alertMsg += `✅ A cobrar: ${finalRecords.length} destinatarios.\n`;
-  if (skippedList.length > 0) {
-    alertMsg += `⚠️ Omitidos (salteados): ${skippedList.length}\n`;
-    skippedList.forEach(s => {
-      alertMsg += ` • *${s.name}* (${s.phone}): _${s.reason}_\n`;
-    });
-  }
-  await message.reply(alertMsg);
+  if (text.includes('confirmar') || text === 'si' || text === 'sí') {
+    const { records } = pendingData;
+    pendingConfirmations.delete(userId);
 
-  try {
-    const exitosos = await sendBulkCharges(client, finalRecords, userId, userStates);
-    await message.reply(`🤖 *PROCESO COMPLETADO EXCELENTE*\n- Total en lista: ${parsedLines.length}\n- Enviados con éxito: ${exitosos}\n- Omitidos: ${skippedList.length}\n- Fallidos: ${finalRecords.length - exitosos}`);
-  } catch (error) {
-    console.error("Error enviando cobros directos:", error);
-    await message.reply("⚠️ Hubo un error al procesar el envío masivo de cobros directos.");
-  }
-}
+    await safeSend(message, `🚀 *Iniciando envío de ${records.length} cobros confirmados...*`, userId);
 
-async function handleAwaitingCobrosConfirmation(message, userId, userStates, pendingConfirmations, client) {
-  try {
-    const body = (message.body || '').trim().toLowerCase();
-    if (body === 'si' || body === 'sí') {
-      const records = pendingConfirmations.get(userId) || [];
-      if (records.length === 0) {
-        await message.reply('🤖 No hay cobros pendientes para confirmar.');
-        userStates.delete(userId);
-        return;
-      }
+    const exitosos = await sendBulkCharges(message._client, records, userId, userStates);
 
-      await message.reply(`🚀 *Iniciando envío de ${records.length} cobros confirmados...*`);
-      const exitosos = await sendBulkCharges(client, records, userId);
-
-      await message.reply(`🤖 He finalizado el proceso.\n- Total: ${records.length}\n- Enviados con éxito: ${exitosos}\n- Fallidos: ${records.length - exitosos}`);
-      pendingConfirmations.delete(userId);
-      userStates.delete(userId);
-    } else if (body === 'no') {
-      pendingConfirmations.delete(userId);
-      userStates.delete(userId);
-      await message.reply('🤖 Operación cancelada. No se enviaron cobros.');
-    } else {
-      await message.reply('🤖 Por favor responde *SI* para confirmar o *NO* para cancelar.');
-    }
-  } catch (error) {
-    console.error("Error en confirmación de cobros:", error);
-    await message.reply("🤖 ⚠️ Ocurrió un error procesando tu solicitud. Por favor contacta al administrador.");
-    userStates.delete(userId);
+    await safeSend(message, `🤖 He finalizado el proceso.\n- Total: ${records.length}\n- Enviados con éxito: ${exitosos}\n- Fallidos: ${records.length - exitosos}`, userId);
+  } else if (text.includes('cancelar') || text === 'no') {
+    pendingConfirmations.delete(userId);
+    await safeSend(message, '🤖 Operación cancelada. No se enviaron cobros.', userId);
+  } else {
+    await safeSend(message, '🤖 Por favor responde *@bot confirmar cobros* para proceder o *@bot cancelar cobros* para anular.', userId);
   }
 }
 
@@ -1193,7 +1165,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         try {
             const destId = r.phone + '@c.us';
             const suspendMsg = `⚠️ *AVISO DE CORTE INMINENTE* ⚠️\n\nHola ${r.name}, te informamos que por falta de respuesta, tus cuentas de *${r.services.join(', ')}* serán suspendidas el día de hoy a menos de que envíes el comprobante de pago en el transcurso del día.\n\nPor favor envíanos tu comprobante lo antes posible para evitar la interrupción del servicio.`;
-            await (client || message._client).sendMessage(destId, suspendMsg);
+            await safeSend(null, suspendMsg, destId, client || message._client);
             if (userStates && userStates.has(destId)) {
                 const st = userStates.get(destId);
                 const stateStr = (typeof st === 'object') ? st.state : st;
@@ -1215,6 +1187,10 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
             const { pool } = require('./database');
             for (const r of toReview) {
                 const destId = r.phone + '@c.us';
+                await pool.query(
+                    'INSERT IGNORE INTO chats (chat_id, customer_phone, last_message_text, last_message_time) VALUES (?, ?, ?, NOW())',
+                    [destId, r.phone, `Corte de Servicio: ${r.name}`]
+                );
                 await pool.query(
                     `INSERT INTO tickets (chat_id, title, description, status, priority) 
                      VALUES (?, ?, ?, 'open', 'high')
