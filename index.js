@@ -2970,6 +2970,27 @@ app.post('/api/admin/payment-config', (req, res) => {
     }
 });
 
+app.post('/api/admin/trigger-auto-cobros', async (req, res) => {
+    try {
+        if (!client || !client.info) {
+            return res.status(503).json({ error: 'WhatsApp client is not ready' });
+        }
+        const { handleAutoCobros } = require('./billingService');
+        const fakeMsg = {
+            from: '120363161345379149@g.us',
+            to: '120363161345379149@g.us',
+            body: '@bot cobros automáticos',
+            reply: async (text) => console.log('[Trigger Cobros Reply]:', text)
+        };
+        handleAutoCobros(fakeMsg, '120363161345379149@g.us', userStates, pendingConfirmations, client).catch(err => {
+            console.error('[Trigger Auto-Cobros API Error]:', err);
+        });
+        res.json({ success: true, message: 'Cobros automáticos iniciados correctamente en segundo plano.' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/admin/groups', async (req, res) => {
     try {
         if (!client || !client.info) {
