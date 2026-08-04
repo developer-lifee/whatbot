@@ -6453,6 +6453,10 @@ server.listen(port, () => {
             }
 
             nonConnectedHeartbeatCount = 0;
+            if (state === 'CONNECTED' && currentWhatsappStatus !== 'CONNECTED') {
+                currentWhatsappStatus = 'CONNECTED';
+                broadcastSseEvent('status', { status: currentWhatsappStatus });
+            }
 
             // Verificación de salud profunda: ¿Sigue respondiendo el navegador?
             if (client.info && client.info.wid) {
