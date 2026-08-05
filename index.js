@@ -5194,6 +5194,7 @@ app.get('/api/admin/payroll', async (req, res) => {
                 fullname: agent.fullname,
                 email: agent.email,
                 role: agent.role,
+                contract_status: agent.status,
                 exclude_from_payroll: isExcludedFromPayroll,
                 start_date: startDateStr,
                 end_date: endDateStr,
