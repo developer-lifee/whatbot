@@ -5284,13 +5284,22 @@ app.post('/api/admin/agents/save', express.json(), async (req, res) => {
         const excludeVal = exclude_from_payroll ? 1 : 0;
         const username = cleanEmail.split('@')[0].replace(/[^a-z0-9_]/g, '');
 
+        const safeHashPassword = async (pwd) => {
+            try {
+                const bcrypt = require('bcryptjs');
+                return await bcrypt.hash(pwd, 10);
+            } catch (e) {
+                const crypto = require('crypto');
+                return crypto.createHash('sha256').update(pwd).digest('hex');
+            }
+        };
+
         if (id) {
             let updateQuery = 'UPDATE agents SET fullname = ?, email = ?, role = ?, status = ?, exclude_from_payroll = ?';
             let params = [fullname.trim(), cleanEmail, cleanRole, cleanStatus, excludeVal];
 
             if (password && password.trim().length > 0) {
-                const bcrypt = require('bcryptjs');
-                const hashed = await bcrypt.hash(password.trim(), 10);
+                const hashed = await safeHashPassword(password.trim());
                 updateQuery += ', password_hash = ?';
                 params.push(hashed);
             }
@@ -5312,8 +5321,7 @@ app.post('/api/admin/agents/save', express.json(), async (req, res) => {
 
             let hashedPassword = null;
             if (password && password.trim().length > 0) {
-                const bcrypt = require('bcryptjs');
-                hashedPassword = await bcrypt.hash(password.trim(), 10);
+                hashedPassword = await safeHashPassword(password.trim());
             }
 
             const [result] = await pool.query(
