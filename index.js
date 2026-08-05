@@ -4437,6 +4437,17 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 )
             `);
             await pool.query(`
+                CREATE TABLE IF NOT EXISTS system_activity_logs (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    agent_email VARCHAR(255) NOT NULL,
+                    agent_name VARCHAR(255) NULL,
+                    action_type VARCHAR(100) NOT NULL,
+                    description TEXT NOT NULL,
+                    metadata JSON NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            await pool.query(`
                 CREATE TABLE IF NOT EXISTS monthly_payroll (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     agent_id INT NOT NULL,
@@ -5391,6 +5402,40 @@ app.get('/api/admin/agents/:id/contract-history', async (req, res) => {
         );
 
         res.json({ success: true, history: rows });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Registrar log de actividad del sistema
+app.post('/api/admin/logs/log', express.json(), async (req, res) => {
+    try {
+        const { agent_email, agent_name, action_type, description, metadata } = req.body;
+        if (!agent_email || !action_type || !description) {
+            return res.status(400).json({ success: false, message: 'Faltan datos obligatorios para el log.' });
+        }
+        const { pool } = require('./database');
+        const metaStr = metadata ? JSON.stringify(metadata) : null;
+        await pool.query(
+            'INSERT INTO system_activity_logs (agent_email, agent_name, action_type, description, metadata) VALUES (?, ?, ?, ?, ?)',
+            [agent_email, agent_name || agent_email.split('@')[0], action_type, description, metaStr]
+        );
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// GET Consultar auditoría de logs del sistema
+app.get('/api/admin/logs', async (req, res) => {
+    try {
+        const { limit = 100 } = req.query;
+        const { pool } = require('./database');
+        const [rows] = await pool.query(
+            'SELECT * FROM system_activity_logs ORDER BY created_at DESC LIMIT ?',
+            [Number(limit)]
+        );
+        res.json({ success: true, logs: rows });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
