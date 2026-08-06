@@ -29,6 +29,12 @@ function isSamePlatformFamily(name1, name2) {
     if (!name1 || !name2) return false;
     const n1 = normalizeStreamingName(name1);
     const n2 = normalizeStreamingName(name2);
+
+    // REGLA CRÍTICA: Cuentas OWNER / PROPORCIONADO no deben emparejarse con cuentas PERSONAL / INDIVIDUAL / FAMILIAR
+    const isOwner1 = n1.includes('owner') || name1.toLowerCase().includes('owner') || name1.toLowerCase().includes('proporcionado');
+    const isOwner2 = n2.includes('owner') || name2.toLowerCase().includes('owner') || name2.toLowerCase().includes('proporcionado');
+    if (isOwner1 !== isOwner2) return false;
+
     if (n1 === n2) return true;
     
     const families = [
@@ -456,5 +462,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 }
 
 module.exports = {
-    recordNewSale
+    recordNewSale,
+    isSamePlatformFamily
 };
