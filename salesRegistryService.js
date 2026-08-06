@@ -30,10 +30,28 @@ function isSamePlatformFamily(name1, name2) {
     const n1 = normalizeStreamingName(name1);
     const n2 = normalizeStreamingName(name2);
 
-    // REGLA CRÍTICA: Cuentas OWNER / PROPORCIONADO no deben emparejarse con cuentas PERSONAL / INDIVIDUAL / FAMILIAR
+    // REGLA CRÍTICA 1: Cuentas OWNER / PROPORCIONADO no deben emparejarse con cuentas PERSONAL / INDIVIDUAL / FAMILIAR
     const isOwner1 = n1.includes('owner') || name1.toLowerCase().includes('owner') || name1.toLowerCase().includes('proporcionado');
     const isOwner2 = n2.includes('owner') || name2.toLowerCase().includes('owner') || name2.toLowerCase().includes('proporcionado');
     if (isOwner1 !== isOwner2) return false;
+
+    // REGLA CRÍTICA 2: Planes PLATINO / PLATINUM no deben emparejarse con planes ESTÁNDAR / NORMALES
+    const isPlatino1 = n1.includes('platino') || name1.toLowerCase().includes('platino') || name1.toLowerCase().includes('platinum');
+    const isPlatino2 = n2.includes('platino') || name2.toLowerCase().includes('platino') || name2.toLowerCase().includes('platinum');
+    if (isPlatino1 !== isPlatino2) return false;
+
+    // REGLA CRÍTICA 3: Cuentas EXTRA no deben emparejarse con cuentas normales
+    const isExtra1 = n1.includes('extra') || name1.toLowerCase().includes('extra');
+    const isExtra2 = n2.includes('extra') || name2.toLowerCase().includes('extra');
+    if (isExtra1 !== isExtra2) return false;
+
+    // REGLA CRÍTICA 4: Tiers específicos (ej: disney_premium vs disney_standard) no deben cruzarse entre sí
+    if (n1 !== n2) {
+        const specificTiers = ['hbo_platino', 'netflix_extra', 'spotify_owner', 'youtube_owner', 'disney_premium', 'disney_standard'];
+        if (specificTiers.includes(n1) || specificTiers.includes(n2)) {
+            return false;
+        }
+    }
 
     if (n1 === n2) return true;
     
