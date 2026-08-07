@@ -1733,6 +1733,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                 const [rows] = await pool.query(`
                     SELECT chat_id, customer_phone, last_message_text, last_message_time 
                     FROM chats 
+                    WHERE chat_id NOT LIKE '%3118587974%'
                     ORDER BY last_message_time DESC 
                     LIMIT 150
                 `);
@@ -1748,7 +1749,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             });
         } else {
             targetEntries = Array.from(userStates.entries()).map(([userId, state]) => {
-                if (!state) return null;
+                if (!state || userId.includes('3118587974')) return null;
                 const stateStr = typeof state === 'object' ? state.state : state;
                 const pendingStates = ['waiting_human', 'waiting_admin_confirmation', 'resolved'];
                 if (!pendingStates.includes(stateStr)) return null;
@@ -6782,8 +6783,9 @@ client.on('message_create', async (msg) => {
     // Ignorar si el mensaje es antiguo
     if (msg.timestamp < BOT_START_TIME) return;
 
-    // Persistir mensaje en base de datos (ignorar grupos y broadcasts)
+    // Persistir mensaje en base de datos (ignorar grupos, broadcasts y el número propio del bot)
     const targetChatId = msg.fromMe ? msg.to : msg.from;
+    if (targetChatId && (targetChatId.includes('3118587974') || targetChatId.includes('573118587974'))) return;
     if (targetChatId && !targetChatId.includes('@g.us') && !targetChatId.includes('status@broadcast')) {
         saveMessage(msg).catch(err => console.error("[DB Save Error] message_create:", err.message));
     }
@@ -10484,6 +10486,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
  * durante el tiempo de procesamiento, evitando "pisar" al usuario con respuestas stale.
  */
 async function safeReply(message, content, userId) {
+    if (!content || content.trim() === '👍' || content.trim() === '🤖\n👍' || content.trim() === '🤖 👍') {
+        console.log(`[Safe Reply] 🛑 Omitiendo respuesta vacía o emoji suelto.`);
+        return null;
+    }
     if (messageQueues.has(userId)) {
         console.log(`[Stale Guard] 🛑 Abortando respuesta para @${userId.replace('@c.us', '')} porque hay nuevos mensajes en cola.`);
         return null;
