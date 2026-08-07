@@ -9053,37 +9053,44 @@ async function baseProcessIncomingMessage(messages) {
                                                 return diffDays <= 7;
                                             });
 
-                                            if (urgentItems.length === 1) {
-                                                console.log(`[Smart Renewal Filter] ✅ Priorizando renovación urgente única de: ${urgentItems[0].Streaming} (vence pronto/vencida) sobre otras cuentas lejanas.`);
-                                                stateData.items = urgentItems;
-                                                stateData.total = check.amount;
-                                            } else {
-                                                const candidateList = urgentItems.length > 0 ? urgentItems : validItems;
-                                                let promptMsg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
-                                                    `Veo que tienes varias cuentas activas en nuestro sistema. Por favor responde únicamente con el número del servicio que deseas renovar:\n\n`;
-                                                
-                                                candidateList.forEach((acc, idx) => {
-                                                    const platName = (acc.Streaming || acc.Plataforma || "Servicio").toUpperCase();
-                                                    const vencStr = acc.deben || acc.vencimiento || "Vencimiento N/A";
-                                                    promptMsg += `${idx + 1} - Renovar *${platName}* (Vence: ${vencStr})\n`;
-                                                });
-                                                promptMsg += `${candidateList.length + 1} - Es para un servicio nuevo u otro motivo`;
+                                            const candidateList = urgentItems.length > 0 ? urgentItems : validItems;
+                                            const formatDateForDisplay = (rawVal) => {
+                                                if (!rawVal) return "N/A";
+                                                const d = getJsDateFromExcel(rawVal);
+                                                if (!d || isNaN(d.getTime())) return String(rawVal);
+                                                const day = String(d.getDate()).padStart(2, '0');
+                                                const month = String(d.getMonth() + 1).padStart(2, '0');
+                                                const year = d.getFullYear();
+                                                return `${day}/${month}/${year}`;
+                                            };
 
-                                                await message.reply(promptMsg);
+                                            const allPlatsNames = [...new Set(candidateList.map(acc => (acc.Streaming || acc.Plataforma || "Servicio").toUpperCase()))].join(', ');
+                                            
+                                            let promptMsg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
+                                                `Veo que tienes varias cuentas activas en nuestro sistema. Por favor responde únicamente con el número de la opción deseada:\n\n` +
+                                                `1 - Renovar *TODAS* mis cuentas (${allPlatsNames}) ✅\n`;
+                                            
+                                            candidateList.forEach((acc, idx) => {
+                                                const platName = (acc.Streaming || acc.Plataforma || "Servicio").toUpperCase();
+                                                const vencStr = formatDateForDisplay(acc.deben || acc.vencimiento);
+                                                promptMsg += `${idx + 2} - Renovar solo *${platName}* (Vence: ${vencStr})\n`;
+                                            });
+                                            promptMsg += `${candidateList.length + 2} - Es para un servicio nuevo u otro motivo ❌`;
 
-                                                userStates.set(userId, {
-                                                    state: 'awaiting_payment_multi_renewal_selection',
-                                                    candidateAccounts: candidateList,
-                                                    amount: check.amount,
-                                                    bank: check.bank,
-                                                    matchId: match.id,
-                                                    subject: match.subject,
-                                                    chatJid: originalChatJid,
-                                                    nombre: foundName,
-                                                    leftoverAmount: leftoverAmount
-                                                });
-                                                return;
-                                            }
+                                            await message.reply(promptMsg);
+
+                                            userStates.set(userId, {
+                                                state: 'awaiting_payment_multi_renewal_selection',
+                                                candidateAccounts: candidateList,
+                                                amount: check.amount,
+                                                bank: check.bank,
+                                                matchId: match.id,
+                                                subject: match.subject,
+                                                chatJid: originalChatJid,
+                                                nombre: foundName,
+                                                leftoverAmount: leftoverAmount
+                                            });
+                                            return;
                                         }
                                     } catch (err) {
                                         console.error("Error en Smart Combo Filter:", err.message);
@@ -10125,8 +10132,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         case 'awaiting_payment_multi_renewal_selection': {
             const selChoice = parseInt((message.body || "").trim());
             const multiCandidates = currentStateData.candidateAccounts || [];
-            if (!isNaN(selChoice) && selChoice >= 1 && selChoice <= multiCandidates.length) {
-                const chosenAccount = multiCandidates[selChoice - 1];
+            
+            if (selChoice === 1) {
+                const allPlatsNames = [...new Set(multiCandidates.map(acc => (acc.Streaming || acc.Plataforma || "Servicio").toUpperCase()))].join(', ');
+                await message.reply(`🤖 ¡Entendido! Estoy registrando la renovación de *TODAS* tus cuentas (*${allPlatsNames}*) y preparando tus credenciales. Dame un momento... ⏳`);
+                const tempState = {
+                    nombre: currentStateData.nombre,
+                    items: multiCandidates,
+                    total: currentStateData.amount,
+                    chatJid: currentStateData.chatJid || userId
+                };
+                const valResult = await executePaymentValidation(userId, tempState, client, userStates, null, currentStateData.matchId);
+                if (!valResult.success) {
+                    await message.reply("🤖 Hubo un problema al renovar automáticamente tus cuentas. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                }
+            } else if (!isNaN(selChoice) && selChoice >= 2 && selChoice <= multiCandidates.length + 1) {
+                const chosenAccount = multiCandidates[selChoice - 2];
                 const platName = (chosenAccount.Streaming || "Servicio").toUpperCase();
                 await message.reply(`🤖 ¡Entendido! Estoy registrando la renovación de tu cuenta de *${platName}* y preparando tus credenciales. Dame un momento... ⏳`);
                 const tempState = {
@@ -10140,11 +10162,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     await message.reply("🤖 Hubo un problema al renovar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
                 }
-            } else if (!isNaN(selChoice) && selChoice === multiCandidates.length + 1) {
+            } else if (!isNaN(selChoice) && selChoice === multiCandidates.length + 2) {
                 await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
                 userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
             } else {
-                await message.reply(`🤖 Por favor, responde únicamente con el número de la opción que deseas (1 a ${multiCandidates.length + 1}).`);
+                await message.reply(`🤖 Por favor, responde únicamente con el número de la opción que deseas (1 a ${multiCandidates.length + 2}).`);
             }
             break;
         }
