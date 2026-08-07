@@ -10759,6 +10759,17 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
 async function handleRenewalModification(message, userId, textToUse, stateData) {
     if (!stateData.isRenewal || !stateData.items || stateData.items.length === 0) return false;
 
+    const cleanText = (textToUse || '').trim().toLowerCase();
+    if (!cleanText) return false;
+
+    // Si el texto es solo un número (como "3", "1", "2") o no contiene palabras clave explícitas de modificación, ignorar
+    const modificationKeywords = ['quitar', 'sin', 'no quiero', 'cancelar', 'solo', 'eliminar', 'sacar', 'descartar', 'dejar solo', 'no renovar', 'borrar', 'quítame', 'quitame', 'remueve'];
+    const hasModificationKeyword = modificationKeywords.some(kw => cleanText.includes(kw));
+
+    if (/^\d+$/.test(cleanText) && !hasModificationKeyword) {
+        return false;
+    }
+
     try {
         const { analyzeRenewalModification } = require('./aiService');
         const modification = await analyzeRenewalModification(textToUse, stateData.items);

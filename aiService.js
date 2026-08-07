@@ -1712,6 +1712,7 @@ REGLAS DE CLASIFICACIÓN:
 3. Identifica en "platformsToExclude" los nombres de las plataformas que el cliente desea EXCLUIR/NO renovar/cancelar.
 4. Genera una respuesta empática y clara en "reply" en español confirmando la modificación. Sé muy directo y breve (máximo 2 líneas), informando el cambio y diciendo que recalculas el total. Firma con 🤖 al final.
 5. Si el mensaje no indica ninguna intención de quitar o seleccionar un subconjunto de plataformas (por ejemplo, solo saluda, hace una pregunta genérica, o envía un comprobante), pon "shouldModify": false.
+6. MUY IMPORTANTE: Si el mensaje del cliente es solo un número (como "1", "2", "3", etc.) o una consulta sobre medios de pago/desglose, DEBES poner "shouldModify": false. NUNCA asumas que un número aislado representa la plataforma a conservar o quitar. Solo modifica si hay palabras explícitas de cancelación/exclusión (ej: 'quitar', 'cancelar', 'solo quiero X', 'sin Y').
 
 Salida esperada JSON:
 {
