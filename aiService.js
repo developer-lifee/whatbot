@@ -255,7 +255,7 @@ Responde solo con el texto del mensaje para el cliente.`;
  */
 function summarizePlatformKnowledge(platforms) {
   if (!platforms || platforms.length === 0) return "No hay documentación detallada disponible.";
-  return platforms.map(p => {
+  let summaryText = platforms.map(p => {
     let text = `PLATAFORMA: ${p.name}\n`;
     if (p.plans && p.plans.length > 0) {
       p.plans.forEach(plan => {
@@ -271,6 +271,11 @@ function summarizePlatformKnowledge(platforms) {
     }
     return text;
   }).join('\n---\n');
+
+  summaryText += `\n\n⚠️ REGLAS ESTRICTAS DE STOCK Y DISPONIBILIDAD (OBLIGATORIO):
+- NETFLIX EXTRA (Miembro Extra / Perfil Propio con tu correo): Actualmente NO TIENE STOCK DISPONIBLE (AGOTADO). Si un usuario pregunta por Netflix Extra o desea comprar un miembro extra de Netflix, DEBES informarle amablemente que "Netflix Extra / Miembro Extra se encuentra temporalmente agotado y sin stock disponible", y en su lugar ofrecerle el perfil tradicional de Netflix o la pantalla completa. NUNCA vendas ni dejes en carrito Netflix Extra mientras esté sin stock.`;
+
+  return summaryText;
 }
 
 /**
@@ -1695,40 +1700,46 @@ Salida esperada usando formato JSON estricto:
 async function analyzeRenewalModification(messageContent, currentItems) {
   const itemsSummary = (currentItems || []).map(item => {
     const name = item.Streaming || (item.platform ? item.platform.name : '') || item.name || '';
-    return `- Fila: ${item._rowNumber || item.index || 'N/A'}, Plataforma: ${name}`;
+    const email = (item.correo || item['customer mail'] || item.email || '').trim();
+    const profile = (item['pin perfil'] || item.Nombre || item.nombre || '').trim();
+    const row = item._rowNumber || item.index || 'N/A';
+    return `- Fila ${row}: Plataforma=${name}, Correo=${email || 'N/A'}, Perfil/Nombre=${profile || 'N/A'}`;
   }).join('\n');
 
   const prompt = `Analiza el mensaje del cliente que está en proceso de renovación/pago de sus servicios.
-Determina si el cliente desea MODIFICAR los servicios a renovar: ya sea excluyendo (no renovar, quitar, cancelar) o incluyendo (solo renovar ciertas plataformas) algún servicio de la lista actual.
+Determina si el cliente desea MODIFICAR los servicios a renovar: ya sea excluyendo (no renovar, quitar, cancelar) o incluyendo (solo renovar ciertas plataformas/cuentas específicas) de la lista actual.
 
-Lista de servicios actualmente en el carrito de renovación:
+Lista de servicios actualmente en el carrito de renovación del cliente:
 ${itemsSummary}
 
 Mensaje del cliente: "${messageContent}"
 
 REGLAS DE CLASIFICACIÓN:
-1. Si el cliente dice que no desea renovar alguna plataforma, que la cancele, que la quite, o que solo desea pagar por cierta plataforma (y por ende quitar las demás), pon "shouldModify": true.
-2. Identifica en "platformsToRenew" los nombres de las plataformas que el cliente SÍ desea conservar/renovar. Deben coincidir con el campo 'Plataforma' de la lista actual.
-3. Identifica en "platformsToExclude" los nombres de las plataformas que el cliente desea EXCLUIR/NO renovar/cancelar.
-4. Genera una respuesta empática y clara en "reply" en español confirmando la modificación. Sé muy directo y breve (máximo 2 líneas), informando el cambio y diciendo que recalculas el total. Firma con 🤖 al final.
-5. Si el mensaje no indica ninguna intención de quitar o seleccionar un subconjunto de plataformas (por ejemplo, solo saluda, hace una pregunta genérica, o envía un comprobante), pon "shouldModify": false.
-6. MUY IMPORTANTE: Si el mensaje del cliente es solo un número (como "1", "2", "3", etc.) o una consulta sobre medios de pago/desglose, DEBES poner "shouldModify": false. NUNCA asumas que un número aislado representa la plataforma a conservar o quitar. Solo modifica si hay palabras explícitas de cancelación/exclusión (ej: 'quitar', 'cancelar', 'solo quiero X', 'sin Y').
+1. Si el cliente tiene MÚLTIPLES cuentas de una misma plataforma (por ejemplo, 2 cuentas de Disney) y especifica cuál conservar o cuál quitar (ej: "solo quiero la de correo X" o "conservar la cuenta Y" o "solo deseo 1 de Disney"), DEBES identificar exactamente los números de Fila (row) correspondientes en "rowsToRenew" y "rowsToExclude".
+2. Identifica en "rowsToRenew" los números de Fila (ej: [10, 12]) de las cuentas exactas que el cliente SÍ desea conservar/renovar.
+3. Identifica en "rowsToExclude" los números de Fila (ej: [11]) de las cuentas exactas que el cliente desea EXCLUIR/NO renovar/cancelar.
+4. Identifica en "platformsToRenew" los nombres de las plataformas a conservar y en "platformsToExclude" las plataformas a excluir.
+5. Genera una respuesta empática y clara en "reply" en español confirmando la modificación exacta. Sé muy directo y breve (máximo 2 líneas), informando el cambio y diciendo que recalculas el total. Firma con 🤖 al final.
+6. Si el mensaje no indica ninguna intención de quitar o seleccionar un subconjunto de plataformas, pon "shouldModify": false.
+7. MUY IMPORTANTE: Si el mensaje del cliente es solo un número (como "1", "2", "3", etc.) o una consulta sobre medios de pago/desglose, DEBES poner "shouldModify": false. NUNCA asumas que un número aislado representa la plataforma a conservar o quitar. Solo modifica si hay palabras explícitas de cancelación/exclusión.
 
 Salida esperada JSON:
 {
   "shouldModify": boolean,
-  "platformsToRenew": string[], // plataformas de la lista actual que desea renovar
-  "platformsToExclude": string[], // plataformas de la lista actual que desea quitar/cancelar
-  "reply": string // Mensaje de confirmación para el cliente con el emoji 🤖 al final
+  "rowsToRenew": number[], // Nombres/números de Fila exactos a conservar
+  "rowsToExclude": number[], // Nombres/números de Fila exactos a quitar
+  "platformsToRenew": string[],
+  "platformsToExclude": string[],
+  "reply": string
 }
 `;
 
   try {
-    const jsonString = await callDeepSeek(prompt, "Eres un asistente de ventas experto. Responde estrictamente con JSON.", true);
+    const jsonString = await callDeepSeek(prompt, "Eres un asistente de ventas experto. Responde strictly con JSON.", true);
     return JSON.parse(jsonString);
   } catch (error) {
     console.error("Error en analyzeRenewalModification:", error);
-    return { shouldModify: false, platformsToRenew: [], platformsToExclude: [], reply: "" };
+    return { shouldModify: false, rowsToRenew: [], rowsToExclude: [], platformsToRenew: [], platformsToExclude: [], reply: "" };
   }
 }
 

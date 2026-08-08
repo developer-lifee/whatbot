@@ -10787,10 +10787,22 @@ async function handleRenewalModification(message, userId, textToUse, stateData) 
             console.log(`[Renewal Mod] User requested modification for @${userId}:`, modification);
 
             const originalItems = stateData.items;
-            const updatedItems = originalItems.filter(item => {
-                const name = (item.Streaming || (item.platform ? item.platform.name : '') || item.name || '').toLowerCase();
-                return modification.platformsToRenew.some(p => name.includes(p.toLowerCase()) || p.toLowerCase().includes(name));
-            });
+            let updatedItems = [];
+
+            if (modification.rowsToRenew && Array.isArray(modification.rowsToRenew) && modification.rowsToRenew.length > 0) {
+                const targetRows = modification.rowsToRenew.map(r => String(r));
+                updatedItems = originalItems.filter(item => {
+                    const row = String(item._rowNumber || item.index || '');
+                    return targetRows.includes(row);
+                });
+            }
+
+            if (updatedItems.length === 0 && modification.platformsToRenew && modification.platformsToRenew.length > 0) {
+                updatedItems = originalItems.filter(item => {
+                    const name = (item.Streaming || (item.platform ? item.platform.name : '') || item.name || '').toLowerCase();
+                    return modification.platformsToRenew.some(p => name.includes(p.toLowerCase()) || p.toLowerCase().includes(name));
+                });
+            }
 
             const excludedItems = originalItems.filter(item => !updatedItems.includes(item));
             if (excludedItems.length > 0) {
