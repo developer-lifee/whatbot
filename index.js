@@ -8404,7 +8404,7 @@ async function baseProcessIncomingMessage(messages) {
                         const { formatDirectCredentials } = require('./aiService');
                         try {
                             const phoneNumber = targetId.replace('@c.us', '').replace(/\D/g, '');
-                            const userAccounts = await getAccountsByPhone(phoneNumber);
+                            const userAccounts = await getAccountsByPhone(phoneNumber, null, true);
                             const platFilter = adminAI.target_platform || '';
 
                             const formatted = formatDirectCredentials(userAccounts, platFilter);

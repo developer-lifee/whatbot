@@ -259,7 +259,7 @@ async function handleSendBulkCredentials(message, command, client, getAccountsBy
     for (const phone of phones) {
         try {
             const cleanPhone = phone.replace(/\s+/g, '');
-            const accounts = await getAccountsByPhone(cleanPhone);
+            const accounts = await getAccountsByPhone(cleanPhone, null, true);
             const targetAccount = accounts.find(a => (a.Streaming || '').toLowerCase().includes(requestedPlatform));
 
             if (targetAccount) {

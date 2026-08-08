@@ -143,11 +143,11 @@ async function fetchCustomersData(retries = 3, delay = 2000, force = false) {
   }
 }
 
-async function getAccountsByPhone(phoneNumber, contactName = null) {
+async function getAccountsByPhone(phoneNumber, contactName = null, force = false) {
   try {
     if (!phoneNumber) return [];
     const cleanInputPhone = phoneNumber.toString().replace(/\D/g, '');
-    const clientes = await fetchCustomersData();
+    const clientes = await fetchCustomersData(3, 2000, force);
     let userAccounts = clientes.filter(c => {
       const rowNumber = c.numero || c.Numero || c.whatsapp || c.WhatsApp || c.celular || c.Celular;
       if (!rowNumber) return false;
