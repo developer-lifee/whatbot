@@ -6845,16 +6845,20 @@ client.on('message_create', async (msg) => {
         const isSystemResponse = body.includes('¡he despertado, jefe!') || body.includes('modo dormido activado, jefe') || body.includes('bot reactivado');
 
         if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand && !isSystemResponse) {
-            let st = userStates.get(targetId);
+            const cleanTargetJid = targetId.split('@')[0].split(':')[0].replace(/\D/g, '') + '@c.us';
+            let st = userStates.get(targetId) || userStates.get(cleanTargetJid);
             if (typeof st === 'object' && st.state === 'waiting_human') {
                 // Ya estaba silenciado, renovamos el temporizador de mute absoluto (30 min extra)
                 st.lastHumanInteraction = Date.now();
                 st.waiting_human_mode = 'advisor';
                 st.clientWaitingSince = null;
                 userStates.set(targetId, st);
+                userStates.set(cleanTargetJid, st);
             } else {
                 console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot por 30 mins.`);
-                userStates.set(targetId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor', clientWaitingSince: null });
+                const muteObj = { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor', clientWaitingSince: null };
+                userStates.set(targetId, muteObj);
+                userStates.set(cleanTargetJid, muteObj);
             }
 
             // Si el asesor intervino manualmente, lo sacamos de la cola de espera
@@ -7475,7 +7479,8 @@ async function baseProcessIncomingMessage(messages) {
 
 
     // 2. ESTADO ACTUAL
-    let currentStateData = userStates.get(userId);
+    const cleanPhoneJid = realPhone ? (realPhone + '@c.us') : userId.split('@')[0].split(':')[0].replace(/\D/g, '') + '@c.us';
+    let currentStateData = userStates.get(userId) || userStates.get(cleanPhoneJid) || userStates.get(realPhone);
     let currentState = undefined;
     if (currentStateData && typeof currentStateData === 'object') {
         currentState = currentStateData.state;

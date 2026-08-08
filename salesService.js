@@ -196,7 +196,8 @@ async function getChatHistoryText(message, limit = 25) {
       const d = new Date(m.timestamp * 1000);
       const mDateStr = d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
       const mTimeStr = d.toLocaleTimeString('es-CO');
-      return `[${mDateStr}, ${mTimeStr}] ${m.fromMe ? 'Asistente' : 'Usuario'}: ${m.body || ''}`;
+      const senderLabel = m.fromMe ? (m.body && m.body.includes('🤖') ? 'Bot' : 'Asesor Humano (Atención Manual)') : 'Usuario';
+      return `[${mDateStr}, ${mTimeStr}] ${senderLabel}: ${m.body || ''}`;
     }).join('\n');
     
     const currentMsgDate = new Date(message.timestamp * 1000);
