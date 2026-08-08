@@ -395,10 +395,8 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
                     if (hasAppleOne) {
                         const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
-                            `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
-                            `1. Tu número de teléfono celular\n` +
-                            `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
-                            `*(Ejemplo: 3101234567, miusuario@gmail.com)*`;
+                            `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
+                            `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
                         await client.sendMessage(targetJid, appleMsg);
 
                         const otherManuals = newManualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
@@ -423,10 +421,8 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
                     if (hasAppleOne) {
                         const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
-                            `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
-                            `1. Tu número de teléfono celular\n` +
-                            `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
-                            `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
+                            `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
+                            `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
                         await client.sendMessage(targetJid, appleMsg);
 
                         const otherManuals = newManualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
@@ -996,10 +992,8 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
 
             const appleOneItem = manualItems.find(item => item.name.toLowerCase().includes('apple one'));
             if (appleOneItem) {
-                const appleMsg = `🤖 Para poder enviarte la invitación familiar de *Apple One*, por favor envíame en un solo mensaje:\n` +
-                    `1. Tu número de teléfono celular\n` +
-                    `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
-                    `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
+                const appleMsg = `🤖 Para poder enviarte la invitación familiar de *Apple One*, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
+                    `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
                 await client.sendMessage(userId, appleMsg);
                 userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: userId, nombre: (activeStateData && activeStateData.nombre) || "Cliente", lastPaymentValidated: Date.now() });
             } else {
@@ -1010,10 +1004,8 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             const appleOneItem = manualItems.find(item => item.name.toLowerCase().includes('apple one'));
             if (appleOneItem) {
                 const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
-                    `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
-                    `1. Tu número de teléfono celular\n` +
-                    `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
-                    `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
+                    `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
+                    `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
                 await client.sendMessage(userId, appleMsg);
 
                 const otherFailed = manualItems.filter(item => !item.name.toLowerCase().includes('apple one'));

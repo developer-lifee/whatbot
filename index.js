@@ -743,10 +743,8 @@ async function approveBoldOrder(orderId) {
             const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
             if (hasAppleOne) {
                 const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
-                    `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
-                    `1. Tu número de teléfono celular\n` +
-                    `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
-                    `*(Ejemplo: 3101234567, miusuario@gmail.com)*`;
+                    `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
+                    `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
                 await client.sendMessage(phoneId, appleMsg);
                 userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
             } else {
@@ -764,10 +762,8 @@ async function approveBoldOrder(orderId) {
             const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
             if (hasAppleOne) {
                 const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
-                    `Para poder enviarte la invitación familiar, por favor envíame en un solo mensaje:\n` +
-                    `1. Tu número de teléfono celular\n` +
-                    `2. Tu correo electrónico (que usas como Apple ID)\n\n` +
-                    `*(Ejemplo: 3101234567, miusuario@icloud.com)*`;
+                    `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
+                    `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
                 await client.sendMessage(phoneId, appleMsg);
                 userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
             } else {
