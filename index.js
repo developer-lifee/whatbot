@@ -10605,15 +10605,30 @@ async function safeReply(message, content, userId) {
     try {
         return await message.reply(content);
     } catch (replyErr) {
-        // Fallback para contactos @lid u otros que fallan con "Data passed to getter must include an id property"
-        if (replyErr.message && (replyErr.message.includes('id property') || replyErr.message.includes('getter'))) {
-            console.warn(`[Safe Reply] ⚠️ message.reply falló para @${userId} (probable LID). Intentando client.sendMessage...`);
-            try {
-                if (typeof client !== 'undefined' && client && typeof client.sendMessage === 'function') {
-                    return await client.sendMessage(userId, content);
+        if (replyErr.message && (replyErr.message.includes('id property') || replyErr.message.includes('getter') || replyErr.message.includes('Evaluation failed'))) {
+            console.warn(`[Safe Reply] ⚠️ message.reply falló para @${userId}: ${replyErr.message}. Intentando resolver chat...`);
+            const activeClient = (message && message._client) || (typeof global !== 'undefined' ? global.client : null);
+            if (activeClient) {
+                let realPhoneJid = null;
+                if (userId && userId.includes('@lid') && typeof userStates !== 'undefined') {
+                    const st = userStates.get(userId);
+                    if (st && st.realPhone) {
+                        realPhoneJid = st.realPhone + '@c.us';
+                    }
                 }
-            } catch (sendErr) {
-                console.error(`[Safe Reply] ❌ client.sendMessage también falló para @${userId}:`, sendErr.message);
+                const jidsToTry = [userId, realPhoneJid].filter(Boolean);
+                for (const jid of jidsToTry) {
+                    try {
+                        const chat = await activeClient.getChatById(jid).catch(() => null);
+                        if (chat && typeof chat.sendMessage === 'function') {
+                            return await chat.sendMessage(content);
+                        }
+                        const res = await activeClient.sendMessage(jid, content).catch(() => null);
+                        if (res) return res;
+                    } catch (e2) {
+                        console.error(`[Safe Reply] ❌ Falló envío alternativo para @${jid}:`, e2.message);
+                    }
+                }
             }
         } else {
             throw replyErr;

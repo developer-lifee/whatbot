@@ -7,19 +7,34 @@ const fs = require('fs');
 async function safeSend(message, text, userId = null, clientInstance = null) {
     const activeClient = clientInstance || (message && message._client) || (typeof global !== 'undefined' ? global.client : null);
     const destJid = userId || (message && (message.from || message.to));
-    if (activeClient && destJid) {
-        try {
-            const chat = await activeClient.getChatById(destJid).catch(() => null);
-            if (chat && typeof chat.sendMessage === 'function') {
-                await chat.sendMessage(text);
-                return;
-            }
-            await activeClient.sendMessage(destJid, text);
-            return;
-        } catch (e) {
-            console.warn(`[safeSend] client.sendMessage error for ${destJid}:`, e.message);
+    if (!destJid) return;
+
+    let realPhoneJid = null;
+    if (destJid.includes('@lid') && typeof userStates !== 'undefined' && userStates) {
+        const st = userStates.get(destJid);
+        if (st && st.realPhone) {
+            realPhoneJid = st.realPhone + '@c.us';
         }
     }
+
+    const jidsToTry = [destJid, realPhoneJid].filter(Boolean);
+
+    if (activeClient) {
+        for (const jid of jidsToTry) {
+            try {
+                const chat = await activeClient.getChatById(jid).catch(() => null);
+                if (chat && typeof chat.sendMessage === 'function') {
+                    await chat.sendMessage(text);
+                    return;
+                }
+                await activeClient.sendMessage(jid, text);
+                return;
+            } catch (e) {
+                console.warn(`[safeSend] Attempt failed for ${jid}:`, e.message);
+            }
+        }
+    }
+
     if (message && typeof message.reply === 'function') {
         try {
             await message.reply(text);
@@ -149,9 +164,9 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             const pendingSale = await checkPendingWebSaleForPhone(phoneNumber);
             if (pendingSale) {
                 const amountFmt = pendingSale.amount ? `$${Number(pendingSale.amount).toLocaleString('es-CO')} COP` : '';
-                await client.sendMessage(userId, `🤖 ¡Hola ${pendingSale.firstName || ''}! 👋 Veo que tu pedido de *${pendingSale.platformName}* (${amountFmt}) está registrado en nuestro sistema (Orden \`${pendingSale.order_id}\`). 🎉\n\nEstamos monitoreando la confirmación de tu banco (Nequi/PSE) en tiempo real. Tan pronto como el banco confirme la transacción, te entregaremos tus claves automáticamente por aquí. 😊`);
+                await safeSend(null, `🤖 ¡Hola ${pendingSale.firstName || ''}! 👋 Veo que tu pedido de *${pendingSale.platformName}* (${amountFmt}) está registrado en nuestro sistema (Orden \`${pendingSale.order_id}\`). 🎉\n\nEstamos monitoreando la confirmación de tu banco (Nequi/PSE) en tiempo real. Tan pronto como el banco confirme la transacción, te entregaremos tus claves automáticamente por aquí. 😊`, userId, client);
             } else {
-                await client.sendMessage(userId, "🤖 Tu pago está registrado en nuestro sistema y está en proceso de validación. En breve te entregaremos tus accesos automáticamente. ¡Gracias por tu paciencia! 😊");
+                await safeSend(null, "🤖 Tu pago está registrado en nuestro sistema y está en proceso de validación. En breve te entregaremos tus accesos automáticamente. ¡Gracias por tu paciencia! 😊", userId, client);
             }
             return;
         }
@@ -159,7 +174,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
         let userAccounts = await getAccountsByPhone(phoneNumber, contactName);
 
         if (userAccounts.length === 0) {
-            await client.sendMessage(userId, "🤖 No encontré servicios activos vinculados a este número. Si compraste desde otro número, por favor dímelo para ayudarte a buscar o contacta a un asesor.");
+            await safeSend(null, "🤖 No encontré servicios activos vinculados a este número. Si compraste desde otro número, por favor dímelo para ayudarte a buscar o contacta a un asesor.", userId, client);
             return;
         }
 
@@ -172,7 +187,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             });
 
             if (!hasPlatform) {
-                await client.sendMessage(userId, `🤖 Veo que actualmente no tienes una suscripción activa de *${requestedPlatform}* con nosotros.\n\n¿Te gustaría adquirir un plan? Escribe *1* para ver nuestro catálogo y comprar. 🛒\n\nSi crees que esto es un error, no te preocupes, en un momento un asesor humano revisará este chat para ayudarte. 🧑‍💻`);
+                await safeSend(null, `🤖 Veo que actualmente no tienes una suscripción activa de *${requestedPlatform}* con nosotros.\n\n¿Te gustaría adquirir un plan? Escribe *1* para ver nuestro catálogo y comprar. 🛒\n\nSi crees que esto es un error, no te preocupes, en un momento un asesor humano revisará este chat para ayudarte. 🧑‍💻`, userId, client);
                 // Activar modo humano para que el asesor pueda revisar el error si el cliente responde
                 if (userStates) {
                     const existing = userStates.get(userId);
@@ -229,7 +244,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
         if (assignedAccounts.length === 0) {
             // Todas las cuentas están pendientes de asignar
             const platformsStr = userAccounts.map(a => (a.Streaming || "Servicio").toUpperCase()).join(", ");
-            await client.sendMessage(userId, `🤖 Veo que tus credenciales de *${platformsStr}* aún no se han asignado. Ya le recordé a un asesor humano que has estado esperando${waitingTimeText} para que te las entregue lo antes posible. ¡Gracias por tu paciencia! 😊`);
+            await safeSend(null, `🤖 Veo que tus credenciales de *${platformsStr}* aún no se han asignado. Ya le recordé a un asesor humano que has estado esperando${waitingTimeText} para que te las entregue lo antes posible. ¡Gracias por tu paciencia! 😊`, userId, client);
             return;
         }
 
@@ -244,11 +259,11 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             aiResponse += `\n\n⚠️ *Nota:* Tus credenciales de *${pendingPlatformsStr}* aún no se han asignado. Ya le recordé a un asesor que has estado esperando${waitingTimeText} para que te las entregue.`;
         }
 
-        await client.sendMessage(userId, aiResponse);
+        await safeSend(null, aiResponse, userId, client);
 
     } catch (error) {
         console.error('[Billing Service] Error al procesar credenciales:', error);
-        await client.sendMessage(userId, "🤖 Hubo un error al recuperar tus credenciales. Por favor, inténtalo de nuevo en un momento o contacta a un asesor.");
+        await safeSend(null, "🤖 Hubo un error al recuperar tus credenciales. Por favor, inténtalo de nuevo en un momento o contacta a un asesor.", userId, client);
     }
 }
 
