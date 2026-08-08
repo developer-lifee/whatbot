@@ -87,6 +87,10 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
             const chatId = chat.id._serialized;
             if (chat.isGroup || chatId.includes('@broadcast')) return false;
 
+            // Excluir chats LID: whatsapp-web.js no puede enviar mensajes directos a JIDs @lid
+            // (lanza "Data passed to getter must include an id property"). Los atiende el listener activo.
+            if (chatId.includes('@lid')) return false;
+
             // Criterio 1: Mensajes sin leer
             if (chat.unreadCount > 0) return true;
 

@@ -10602,7 +10602,23 @@ async function safeReply(message, content, userId) {
         console.log(`[Stale Guard] 🛑 Abortando respuesta para @${userId.replace('@c.us', '')} porque hay nuevos mensajes en cola.`);
         return null;
     }
-    return await message.reply(content);
+    try {
+        return await message.reply(content);
+    } catch (replyErr) {
+        // Fallback para contactos @lid u otros que fallan con "Data passed to getter must include an id property"
+        if (replyErr.message && (replyErr.message.includes('id property') || replyErr.message.includes('getter'))) {
+            console.warn(`[Safe Reply] ⚠️ message.reply falló para @${userId} (probable LID). Intentando client.sendMessage...`);
+            try {
+                if (typeof client !== 'undefined' && client && typeof client.sendMessage === 'function') {
+                    return await client.sendMessage(userId, content);
+                }
+            } catch (sendErr) {
+                console.error(`[Safe Reply] ❌ client.sendMessage también falló para @${userId}:`, sendErr.message);
+            }
+        } else {
+            throw replyErr;
+        }
+    }
 }
 
 // Cola global secuencial para procesar mensajes con delays anti-spam entre usuarios
