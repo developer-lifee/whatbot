@@ -10224,9 +10224,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const emailMatch = text.match(emailRegex);
             const phoneMatch = text.match(phoneRegex);
 
-            if (emailMatch && phoneMatch) {
-                const appleId = emailMatch[0].trim();
-                const phoneNumber = phoneMatch[0].replace(/\s+/g, '');
+            if (emailMatch || phoneMatch) {
+                const appleId = emailMatch ? emailMatch[0].trim() : "No especificado";
+                const rawUserPhone = userId.split('@')[0].split(':')[0].replace(/\D/g, '');
+                const phoneNumber = phoneMatch ? phoneMatch[0].replace(/\s+/g, '') : rawUserPhone;
 
                 await message.reply(`🤖 ¡Perfecto! He recibido tus datos:\n📱 *Número:* ${phoneNumber}\n📧 *Apple ID:* ${appleId}\n\nYa reporté la información al área encargada. Por favor, está al tanto de tu correo electrónico o de tus mensajes de texto, ya que por ahí recibirás las instrucciones e invitación para unerte. ¡Muchas gracias! 😊`);
 
@@ -10288,7 +10289,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 }
                 userStates.set(userId, { state: 'main_menu', nombre: foundName });
             } else {
-                await message.reply("🤖 No pude identificar tu número de celular y/o tu correo (Apple ID).\n\nPor favor, envíamelos en un solo mensaje.\n*(Ejemplo: 3101234567, miusuario@icloud.com)*");
+                await message.reply("🤖 Para la activación de tu servicio de *Apple One*, por favor envíame el correo electrónico de tu Apple ID (ejemplo: miusuario@icloud.com).");
             }
             break;
         case 'awaiting_netflix_operator_post_payment':
