@@ -393,10 +393,48 @@ index e9584d9..795dfe0 100644
                  id: e
              });
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Store.js b/node_modules/whatsapp-web.js/src/util/Injected/Store.js
-index 8f56a56..79d4df4 100644
+index 8f56a56..d53d676 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Store.js
 +++ b/node_modules/whatsapp-web.js/src/util/Injected/Store.js
-@@ -211,7 +211,12 @@ exports.ExposeStore = () => {
+@@ -44,6 +44,37 @@ exports.ExposeStore = () => {
+     };
+ 
+     window.Store = Object.assign({}, window.require('WAWebCollections'));
++
++    // Safety patch against WhatsApp Web getter memoization error
++    const collectionsToPatch = [
++        window.Store.Contact,
++        window.Store.Chat,
++        window.Store.Msg,
++        window.Store.Label,
++        window.Store.Presence,
++        window.Store.ProfilePicThumb,
++        window.Store.WAWebNewsletterMetadataCollection
++    ];
++    collectionsToPatch.forEach(col => {
++        if (col && typeof col.get === 'function' && !col._safePatched) {
++            const orig = col.get.bind(col);
++            col.get = function(id, ...args) {
++                if (!id) return null;
++                try {
++                    return orig(id, ...args);
++                } catch (err) {
++                    if (err && err.message && err.message.includes('Data passed to getter must include an id property')) {
++                        const sid = typeof id === 'object' ? (id._serialized || id.id || String(id)) : String(id);
++                        try { return orig({ id: sid }, ...args); } catch (e2) {}
++                        try { return orig(sid, ...args); } catch (e3) {}
++                        return null;
++                    }
++                    throw err;
++                }
++            };
++            col._safePatched = true;
++        }
++    });
+     window.Store.AppState = window.require('WAWebSocketModel').Socket;
+     window.Store.BlockContact = window.require('WAWebBlockContactAction');
+     window.Store.Conn = window.require('WAWebConnModel').Conn;
+@@ -211,7 +242,12 @@ exports.ExposeStore = () => {
  
      if (!window.Store.Chat._find || !window.Store.Chat.findImpl) {
          window.Store.Chat._find = e => {
@@ -411,32 +449,29 @@ index 8f56a56..79d4df4 100644
                  id: e
              });
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-index 4fdc45d..be474b8 100644
+index 4fdc45d..e14b7bf 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
 +++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-@@ -3,8 +3,30 @@
+@@ -3,8 +3,27 @@
  exports.LoadUtils = () => {
      window.WWebJS = {};
  
 +    window.WWebJS.safeGetStoreItem = (collection, id) => {
 +        if (!collection || !id) return null;
-+        try {
-+            const res = collection.get(id);
-+            if (res) return res;
-+        } catch (e) {}
-+        try {
-+            if (typeof id === 'string') {
-+                const resObj = collection.get({ id: id });
-+                if (resObj) return resObj;
-+            }
-+        } catch (e2) {}
-+        try {
-+            if (typeof id === 'string' && window.Store && window.Store.MsgKey) {
-+                const msgKey = window.Store.MsgKey.fromString(id);
-+                const resKey = collection.get(msgKey);
-+                if (resKey) return resKey;
-+            }
-+        } catch (e3) {}
++        const serializedId = typeof id === 'object' ? (id._serialized || id.id || String(id)) : String(id);
++        const tries = [
++            () => collection.get(id),
++            () => collection.get(serializedId),
++            () => collection.get({ id: serializedId }),
++            () => collection.get({ id: { id: serializedId } }),
++            () => (typeof id === 'string' && window.Store && window.Store.MsgKey) ? collection.get(window.Store.MsgKey.fromString(id)) : null
++        ];
++        for (const fn of tries) {
++            try {
++                const res = fn();
++                if (res) return res;
++            } catch (e) {}
++        }
 +        return null;
 +    };
 +
@@ -446,7 +481,7 @@ index 4fdc45d..be474b8 100644
          const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
          return await window.Store.ForwardUtils.forwardMessages({'chat': chat, 'msgs' : [msg], 'multicast': true, 'includeCaption': true, 'appendedText' : undefined});
      };
-@@ -49,7 +71,7 @@ exports.LoadUtils = () => {
+@@ -49,7 +68,7 @@ exports.LoadUtils = () => {
  
          let quotedMsgOptions = {};
          if (options.quotedMessageId) {
@@ -455,7 +490,7 @@ index 4fdc45d..be474b8 100644
              !quotedMessage && (quotedMessage = (await window.Store.Msg.getMessagesById([options.quotedMessageId]))?.messages?.[0]);
              if (quotedMessage) {
  
-@@ -361,11 +383,11 @@ exports.LoadUtils = () => {
+@@ -361,11 +380,11 @@ exports.LoadUtils = () => {
          }
  
          const [msgPromise, sendMsgResultPromise] = window.Store.SendMessage.addAndSendMsgToChat(chat, message);
@@ -469,7 +504,7 @@ index 4fdc45d..be474b8 100644
      };
  	
      window.WWebJS.editMessage = async (msg, content, options = {}) => {
-@@ -402,7 +424,7 @@ exports.LoadUtils = () => {
+@@ -402,7 +421,7 @@ exports.LoadUtils = () => {
          };
  
          await window.Store.EditMessage.sendMessageEdit(msg, content, internalOptions);
@@ -478,7 +513,7 @@ index 4fdc45d..be474b8 100644
      };
  
      window.WWebJS.toStickerData = async (mediaInfo) => {
-@@ -556,8 +578,14 @@ exports.LoadUtils = () => {
+@@ -556,8 +575,14 @@ exports.LoadUtils = () => {
              msg.replyButtons = JSON.parse(JSON.stringify(msg.replyButtons));
          }
  
@@ -495,7 +530,7 @@ index 4fdc45d..be474b8 100644
          }
  
          delete msg.pendingAckUpdate;
-@@ -572,7 +600,7 @@ exports.LoadUtils = () => {
+@@ -572,7 +597,7 @@ exports.LoadUtils = () => {
  
          if (isChannel) {
              try {
@@ -504,7 +539,7 @@ index 4fdc45d..be474b8 100644
                  if (!chat) {
                      await window.Store.ChannelUtils.loadNewsletterPreviewChat(chatId);
                      chat = await window.Store.WAWebNewsletterMetadataCollection.find(chatWid);
-@@ -581,7 +609,14 @@ exports.LoadUtils = () => {
+@@ -581,7 +606,14 @@ exports.LoadUtils = () => {
                  chat = null;
              }
          } else {
@@ -520,7 +555,7 @@ index 4fdc45d..be474b8 100644
          }
  
          return getAsModel && chat
-@@ -620,14 +655,62 @@ exports.LoadUtils = () => {
+@@ -620,14 +652,62 @@ exports.LoadUtils = () => {
  
      window.WWebJS.getChats = async () => {
          const chats = window.Store.Chat.getModelsArray();
@@ -587,7 +622,7 @@ index 4fdc45d..be474b8 100644
      };
  
      window.WWebJS.getChatModel = async (chat, { isChannel = false } = {}) => {
-@@ -637,36 +720,69 @@ exports.LoadUtils = () => {
+@@ -637,36 +717,69 @@ exports.LoadUtils = () => {
          model.isGroup = false;
          model.isMuted = chat.mute?.expiration !== 0;
          if (isChannel) {

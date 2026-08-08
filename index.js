@@ -1527,7 +1527,8 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
             return res.json({ success: true, isScheduled: true, formattedTime: result.formattedTime, message: 'Mensaje programado con éxito' });
         }
 
-        await client.sendMessage(chatId, message);
+        const { safeSend } = require('./billingService');
+        await safeSend(null, message, chatId, client);
 
         res.json({ success: true, message: 'Message sent via WhatsApp' });
     } catch (e) {
