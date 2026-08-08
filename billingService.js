@@ -303,6 +303,18 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
 async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
     if (!stateData || !paidAmount) return;
     try {
+        // 0. Si el usuario YA seleccionó ítems específicos en el contexto de la conversación (stateData.items)
+        // y el monto pagado coincide con el total esperado de esa selección:
+        if (stateData.items && Array.isArray(stateData.items) && stateData.items.length > 0) {
+            const currentTotal = stateData.total || stateData.items.reduce((sum, item) => sum + (item.price || item.precio || 0), 0);
+            if (currentTotal > 0 && Math.abs(currentTotal - paidAmount) < 500) {
+                console.log(`[Duration Adjuster] 🎯 Respetando selección previa del contexto del chat: ${stateData.items.map(i => i.Streaming || i.name).join(', ')} ($${paidAmount}).`);
+                stateData.total = paidAmount;
+                stateData.leftoverAmount = 0;
+                return;
+            }
+        }
+
         const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
         const userAccounts = await getAccountsByPhone(phoneNumber);
         if (!userAccounts || userAccounts.length === 0) return;
