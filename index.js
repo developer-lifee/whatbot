@@ -9656,8 +9656,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         }
     }
 
+    const paymentConfirmationStates = ['awaiting_payment_renewal_confirmation', 'awaiting_payment_multi_renewal_confirmation', 'awaiting_payment_autofill_confirmation'];
     let isNumericSelectionBreakout = false;
-    if (statesExpectingNumbers.includes(currentState) && !isSingleDigit) {
+    if (statesExpectingNumbers.includes(currentState) && !isSingleDigit && !paymentConfirmationStates.includes(currentState)) {
         if (['comprar', 'pagar', 'renovar', 'soporte'].includes(detection.intent)) {
             isNumericSelectionBreakout = true;
             console.log(`[Flow Breakout] Rompiendo selección numérica '${currentState}' por intent de texto: ${detection.intent}`);
@@ -10085,21 +10086,57 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     await message.reply("🤖 Hubo un problema al renovar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
                 }
-            } else if (responseOption === '2') {
-                await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
-                userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
-                try {
-                    const groupChat = await client.getChatById(GROUP_ID);
-                    if (groupChat) {
-                        await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${userId.replace('@c.us', '')}\n` +
-                            `Monto: $${currentStateData.amount}\n` +
-                            `Banco: ${currentStateData.bank || 'Nequi'}\n` +
-                            `Asunto: ${currentStateData.subject}\n` +
-                            `El cliente indicó que el pago NO es para renovar su cuenta actual de ${(currentStateData.matchedAccount.Streaming || "Servicio").toUpperCase()}.`);
-                    }
-                } catch (e) { }
             } else {
-                await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, renovar) o *2* (No, servicio nuevo).");
+                const textLower = responseOption.toLowerCase();
+                const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'spotify', 'youtube', 'apple', 'crunchyroll', 'vix', 'paramount', 'canva', 'chatgpt', 'gpt', 'claude', 'gemini', 'microsoft'];
+                const targetPlatform = platformsSupported.find(p => textLower.includes(p));
+
+                if (targetPlatform) {
+                    const platformName = targetPlatform.toUpperCase();
+                    const otherActiveAccount = userAccounts && userAccounts.find(acc => {
+                        const s = (acc.Streaming || "").toLowerCase();
+                        return s.includes(targetPlatform);
+                    });
+
+                    if (otherActiveAccount) {
+                        await message.reply(`🤖 ¡Entendido! Registrando la renovación de tu servicio de *${platformName}* con tu pago verificado de *$${currentStateData.amount}*... ⏳`);
+                        const tempState = {
+                            nombre: currentStateData.nombre,
+                            items: [otherActiveAccount],
+                            total: currentStateData.amount,
+                            chatJid: currentStateData.chatJid || userId
+                        };
+                        await executePaymentValidation(userId, tempState, client, userStates, null, currentStateData.matchId);
+                    } else {
+                        await message.reply(`🤖 ¡Entendido! He registrado tu pago verificado de *$${currentStateData.amount.toLocaleString('es-CO')}* COP para el servicio de *${platformName}*. 🚀\n\nUn asesor validará los detalles y te entregará tus credenciales de *${platformName}* lo más pronto posible. ¡Gracias por tu compra! 😊`);
+                        userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                        try {
+                            const groupChat = await client.getChatById(GROUP_ID);
+                            if (groupChat) {
+                                await groupChat.sendMessage(`🚨 *PAGO VERIFICADO ($${currentStateData.amount}) PARA NUEVO SERVICIO (${platformName})* de @${userId.replace('@c.us', '')}\n` +
+                                    `Monto: $${currentStateData.amount}\n` +
+                                    `Banco: ${currentStateData.bank || 'Nequi'}\n` +
+                                    `Plataforma solicitada: ${platformName}\n` +
+                                    `Asunto: ${currentStateData.subject}`);
+                            }
+                        } catch (e) { }
+                    }
+                } else if (responseOption === '2') {
+                    await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                    try {
+                        const groupChat = await client.getChatById(GROUP_ID);
+                        if (groupChat) {
+                            await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${userId.replace('@c.us', '')}\n` +
+                                `Monto: $${currentStateData.amount}\n` +
+                                `Banco: ${currentStateData.bank || 'Nequi'}\n` +
+                                `Asunto: ${currentStateData.subject}\n` +
+                                `El cliente indicó que el pago NO es para renovar su cuenta actual de ${(currentStateData.matchedAccount.Streaming || "Servicio").toUpperCase()}.`);
+                        }
+                    } catch (e) { }
+                } else {
+                    await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, renovar) o *2* (No, servicio nuevo), o especifícame qué servicio deseas activar con tu pago verificado. 😊");
+                }
             }
             break;
         case 'awaiting_payment_multi_renewal_confirmation':
@@ -10118,24 +10155,60 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     await message.reply("🤖 Hubo un problema al renovar automáticamente tus cuentas. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
                 }
-            } else if (multiResponseOption === '2') {
-                await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
-                userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
-                try {
-                    const groupChat = await client.getChatById(GROUP_ID);
-                    if (groupChat) {
-                        const platformsList = currentStateData.matchedAccounts.map(item => (item.Streaming || item.name || "Servicio").toUpperCase());
-                        const uniquePlats = [...new Set(platformsList)];
-                        const platformsStr = uniquePlats.join(', ');
-                        await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${userId.replace('@c.us', '')}\n` +
-                            `Monto: $${currentStateData.amount}\n` +
-                            `Banco: ${currentStateData.bank || 'Nequi'}\n` +
-                            `Asunto: ${currentStateData.subject}\n` +
-                            `El cliente indicó que el pago NO es para renovar sus cuentas actuales de ${platformsStr}.`);
-                    }
-                } catch (e) { }
             } else {
-                await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, renovar) o *2* (No, servicio nuevo).");
+                const textLower = multiResponseOption.toLowerCase();
+                const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'spotify', 'youtube', 'apple', 'crunchyroll', 'vix', 'paramount', 'canva', 'chatgpt', 'gpt', 'claude', 'gemini', 'microsoft'];
+                const targetPlatform = platformsSupported.find(p => textLower.includes(p));
+
+                if (targetPlatform) {
+                    const platformName = targetPlatform.toUpperCase();
+                    const otherActiveAccount = userAccounts && userAccounts.find(acc => {
+                        const s = (acc.Streaming || "").toLowerCase();
+                        return s.includes(targetPlatform);
+                    });
+
+                    if (otherActiveAccount) {
+                        await message.reply(`🤖 ¡Entendido! Registrando la renovación de tu servicio de *${platformName}* con tu pago verificado de *$${currentStateData.amount}*... ⏳`);
+                        const tempState = {
+                            nombre: currentStateData.nombre,
+                            items: [otherActiveAccount],
+                            total: currentStateData.amount,
+                            chatJid: currentStateData.chatJid || userId
+                        };
+                        await executePaymentValidation(userId, tempState, client, userStates, null, currentStateData.matchId);
+                    } else {
+                        await message.reply(`🤖 ¡Entendido! He registrado tu pago verificado de *$${currentStateData.amount.toLocaleString('es-CO')}* COP para el servicio de *${platformName}*. 🚀\n\nUn asesor validará los detalles y te entregará tus credenciales de *${platformName}* lo más pronto posible. ¡Gracias por tu compra! 😊`);
+                        userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                        try {
+                            const groupChat = await client.getChatById(GROUP_ID);
+                            if (groupChat) {
+                                await groupChat.sendMessage(`🚨 *PAGO VERIFICADO ($${currentStateData.amount}) PARA NUEVO SERVICIO (${platformName})* de @${userId.replace('@c.us', '')}\n` +
+                                    `Monto: $${currentStateData.amount}\n` +
+                                    `Banco: ${currentStateData.bank || 'Nequi'}\n` +
+                                    `Plataforma solicitada: ${platformName}\n` +
+                                    `Asunto: ${currentStateData.subject}`);
+                            }
+                        } catch (e) { }
+                    }
+                } else if (multiResponseOption === '2') {
+                    await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                    try {
+                        const groupChat = await client.getChatById(GROUP_ID);
+                        if (groupChat) {
+                            const platformsList = currentStateData.matchedAccounts.map(item => (item.Streaming || item.name || "Servicio").toUpperCase());
+                            const uniquePlats = [...new Set(platformsList)];
+                            const platformsStr = uniquePlats.join(', ');
+                            await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${userId.replace('@c.us', '')}\n` +
+                                `Monto: $${currentStateData.amount}\n` +
+                                `Banco: ${currentStateData.bank || 'Nequi'}\n` +
+                                `Asunto: ${currentStateData.subject}\n` +
+                                `El cliente indicó que el pago NO es para renovar sus cuentas actuales de ${platformsStr}.`);
+                        }
+                    } catch (e) { }
+                } else {
+                    await message.reply("🤖 Por favor, responde únicamente con *1* (Sí, renovar) o *2* (No, servicio nuevo), o especifícame qué servicio deseas activar con tu pago verificado. 😊");
+                }
             }
             break;
         case 'awaiting_payment_multi_renewal_selection': {
