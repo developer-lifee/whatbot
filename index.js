@@ -7134,20 +7134,20 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         }
                         response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.`;
                     }
-                    await message.reply(response);
+                    await safeReply(message, response, userId);
                     userStates.delete(userId);
                     return;
                 } else {
-                    await message.reply(`🤖 No encontré códigos recientes en ${accountEmail} para ${streamingName}. Por favor, asegúrate de haber seleccionado la opción de enviar el código en tu pantalla hace menos de 10 minutos y vuelve a escribir *código*.`);
+                    await safeReply(message, `🤖 No encontré códigos recientes en ${accountEmail} para ${streamingName}. Por favor, asegúrate de haber seleccionado la opción de enviar el código en tu pantalla hace menos de 10 minutos y vuelve a escribir *código*.`, userId);
                     userStates.delete(userId);
                     return;
                 }
             } catch (err) {
                 console.error(`Error al buscar códigos en Gmail para ${accountEmail}:`, err.message);
                 if (err.message.includes('invalid_grant') || err.message.includes('auth') || err.message.includes('token') || err.message.includes('credential')) {
-                    await message.reply(`⚠️ *Error de conexión con la cuenta* ⚠️\n\nEl buzón de correo de ${accountEmail} ha perdido la conexión de seguridad o requiere volver a vincularse.\n\nPor favor, contacta a soporte para que un administrador vincule la cuenta nuevamente.`);
+                    await safeReply(message, `⚠️ *Error de conexión con la cuenta* ⚠️\n\nEl buzón de correo de ${accountEmail} ha perdido la conexión de seguridad o requiere volver a vincularse.\n\nPor favor, contacta a soporte para que un administrador vincule la cuenta nuevamente.`, userId);
                 } else {
-                    await message.reply(`🤖 Hubo un inconveniente temporal al consultar los códigos en ${accountEmail}. Por favor, vuelve a intentarlo en un momento.`);
+                    await safeReply(message, `🤖 Hubo un inconveniente temporal al consultar los códigos en ${accountEmail}. Por favor, vuelve a intentarlo en un momento.`, userId);
                 }
                 userStates.delete(userId);
                 return;

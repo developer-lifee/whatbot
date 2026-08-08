@@ -45,6 +45,36 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
     }
 }
 
+function getPlatformPriceFromExcel(streamingName, platforms = []) {
+    if (!streamingName) return 0;
+    const cleanName = streamingName.toString().trim().toUpperCase();
+    const aliasMap = {
+        'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE TV+',
+        'HBO': 'HBOMAX', 'MAX': 'HBOMAX', 'DISNEY': 'DISNEY+ PREMIUM',
+        'STAR': 'DISNEY+ PREMIUM', 'YOUTUBE': 'YOUTUBE PREMIUM', 'MICROSOFT': 'MICROSOFT 365',
+        'NETFLIX EXTRA': 'NETFLIX EXTRA', 'EXTRA': 'NETFLIX EXTRA'
+    };
+    const targetName = aliasMap[cleanName] || cleanName;
+
+    if (Array.isArray(platforms)) {
+        for (const p of platforms) {
+            const pName = (p.name || '').toUpperCase();
+            if (pName.includes(targetName) || targetName.includes(pName)) {
+                return p.price || 0;
+            }
+            if (Array.isArray(p.plans)) {
+                for (const plan of p.plans) {
+                    const planName = (plan.name || '').toUpperCase();
+                    if (planName.includes(targetName) || targetName.includes(planName)) {
+                        return plan.price || p.price || 0;
+                    }
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 function extractPlatformFromText(text) {
     if (!text) return null;
     const txt = text.toLowerCase().trim();

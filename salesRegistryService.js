@@ -45,12 +45,12 @@ function isSamePlatformFamily(name1, name2) {
     const isExtra2 = n2.includes('extra') || name2.toLowerCase().includes('extra');
     if (isExtra1 !== isExtra2) return false;
 
-    // REGLA CRÍTICA 4: Tiers específicos (ej: disney_standard, netflix_extra) no deben cruzarse entre sí
+    // REGLA CRÍTICA 4: Tiers específicos (ej: netflix_extra, hbo_platino, spotify_owner, youtube_owner) no deben cruzarse entre sí
     if (n1 !== n2) {
         if ((n1 === 'disney' && n2 === 'disney_premium') || (n1 === 'disney_premium' && n2 === 'disney')) {
             return true;
         }
-        const specificTiers = ['hbo_platino', 'netflix_extra', 'spotify_owner', 'youtube_owner', 'disney_standard'];
+        const specificTiers = ['hbo_platino', 'netflix_extra', 'spotify_owner', 'youtube_owner', 'appletv', 'appleone'];
         if (specificTiers.includes(n1) || specificTiers.includes(n2)) {
             return false;
         }

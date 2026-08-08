@@ -40,10 +40,9 @@ function normalizeStreamingName(name) {
         return 'hbo';
     }
     if (normalized.includes('disney')) {
-        if (normalized.includes('standard') || normalized.includes('estandar')) return 'disney_standard';
         return 'disney';
     }
-    if (normalized.includes('netflix')) {
+    if (normalized.includes('netflix') || normalized.includes('extra')) {
         if (normalized.includes('extra')) return 'netflix_extra';
         return 'netflix';
     }

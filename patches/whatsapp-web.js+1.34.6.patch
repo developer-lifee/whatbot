@@ -374,11 +374,111 @@ index 93d9a0c..2aa247b 100644
              }
  
              return msgs.map(m => window.WWebJS.getMessageModel(m));
+diff --git a/node_modules/whatsapp-web.js/src/util/Injected/LegacyStore.js b/node_modules/whatsapp-web.js/src/util/Injected/LegacyStore.js
+index e9584d9..795dfe0 100644
+--- a/node_modules/whatsapp-web.js/src/util/Injected/LegacyStore.js
++++ b/node_modules/whatsapp-web.js/src/util/Injected/LegacyStore.js
+@@ -96,7 +96,12 @@ exports.ExposeLegacyStore = () => {
+ 
+     if (!window.Store.Chat._find) {
+         window.Store.Chat._find = e => {
+-            const target = window.Store.Chat.get(e);
++            let target = null;
++            try {
++                target = window.Store.Chat.get(e);
++            } catch (err) {
++                target = null;
++            }
+             return target ? Promise.resolve(target) : Promise.resolve({
+                 id: e
+             });
+diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Store.js b/node_modules/whatsapp-web.js/src/util/Injected/Store.js
+index 8f56a56..79d4df4 100644
+--- a/node_modules/whatsapp-web.js/src/util/Injected/Store.js
++++ b/node_modules/whatsapp-web.js/src/util/Injected/Store.js
+@@ -211,7 +211,12 @@ exports.ExposeStore = () => {
+ 
+     if (!window.Store.Chat._find || !window.Store.Chat.findImpl) {
+         window.Store.Chat._find = e => {
+-            const target = window.Store.Chat.get(e);
++            let target = null;
++            try {
++                target = window.Store.Chat.get(e);
++            } catch (err) {
++                target = null;
++            }
+             return target ? Promise.resolve(target) : Promise.resolve({
+                 id: e
+             });
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-index 4fdc45d..4dc640f 100644
+index 4fdc45d..be474b8 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
 +++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-@@ -556,8 +556,14 @@ exports.LoadUtils = () => {
+@@ -3,8 +3,30 @@
+ exports.LoadUtils = () => {
+     window.WWebJS = {};
+ 
++    window.WWebJS.safeGetStoreItem = (collection, id) => {
++        if (!collection || !id) return null;
++        try {
++            const res = collection.get(id);
++            if (res) return res;
++        } catch (e) {}
++        try {
++            if (typeof id === 'string') {
++                const resObj = collection.get({ id: id });
++                if (resObj) return resObj;
++            }
++        } catch (e2) {}
++        try {
++            if (typeof id === 'string' && window.Store && window.Store.MsgKey) {
++                const msgKey = window.Store.MsgKey.fromString(id);
++                const resKey = collection.get(msgKey);
++                if (resKey) return resKey;
++            }
++        } catch (e3) {}
++        return null;
++    };
++
+     window.WWebJS.forwardMessage = async (chatId, msgId) => {
+-        const msg = window.Store.Msg.get(msgId) || (await window.Store.Msg.getMessagesById([msgId]))?.messages?.[0];
++        const msg = window.WWebJS.safeGetStoreItem(window.Store.Msg, msgId) || (await window.Store.Msg.getMessagesById([msgId]))?.messages?.[0];
+         const chat = await window.WWebJS.getChat(chatId, { getAsModel: false });
+         return await window.Store.ForwardUtils.forwardMessages({'chat': chat, 'msgs' : [msg], 'multicast': true, 'includeCaption': true, 'appendedText' : undefined});
+     };
+@@ -49,7 +71,7 @@ exports.LoadUtils = () => {
+ 
+         let quotedMsgOptions = {};
+         if (options.quotedMessageId) {
+-            let quotedMessage = window.Store.Msg.get(options.quotedMessageId);
++            let quotedMessage = window.WWebJS.safeGetStoreItem(window.Store.Msg, options.quotedMessageId);
+             !quotedMessage && (quotedMessage = (await window.Store.Msg.getMessagesById([options.quotedMessageId]))?.messages?.[0]);
+             if (quotedMessage) {
+ 
+@@ -361,11 +383,11 @@ exports.LoadUtils = () => {
+         }
+ 
+         const [msgPromise, sendMsgResultPromise] = window.Store.SendMessage.addAndSendMsgToChat(chat, message);
+-        await msgPromise;
++        const sentMsgModel = await msgPromise;
+ 
+         if (options.waitUntilMsgSent) await sendMsgResultPromise;
+ 
+-        return window.Store.Msg.get(newMsgKey._serialized);
++        return window.WWebJS.safeGetStoreItem(window.Store.Msg, newMsgKey._serialized) || sentMsgModel || message;
+     };
+ 	
+     window.WWebJS.editMessage = async (msg, content, options = {}) => {
+@@ -402,7 +424,7 @@ exports.LoadUtils = () => {
+         };
+ 
+         await window.Store.EditMessage.sendMessageEdit(msg, content, internalOptions);
+-        return window.Store.Msg.get(msg.id._serialized);
++        return window.WWebJS.safeGetStoreItem(window.Store.Msg, msg.id._serialized) || msg;
+     };
+ 
+     window.WWebJS.toStickerData = async (mediaInfo) => {
+@@ -556,8 +578,14 @@ exports.LoadUtils = () => {
              msg.replyButtons = JSON.parse(JSON.stringify(msg.replyButtons));
          }
  
@@ -395,7 +495,32 @@ index 4fdc45d..4dc640f 100644
          }
  
          delete msg.pendingAckUpdate;
-@@ -620,14 +626,62 @@ exports.LoadUtils = () => {
+@@ -572,7 +600,7 @@ exports.LoadUtils = () => {
+ 
+         if (isChannel) {
+             try {
+-                chat = window.Store.WAWebNewsletterMetadataCollection.get(chatId);
++                chat = window.WWebJS.safeGetStoreItem(window.Store.WAWebNewsletterMetadataCollection, chatId);
+                 if (!chat) {
+                     await window.Store.ChannelUtils.loadNewsletterPreviewChat(chatId);
+                     chat = await window.Store.WAWebNewsletterMetadataCollection.find(chatWid);
+@@ -581,7 +609,14 @@ exports.LoadUtils = () => {
+                 chat = null;
+             }
+         } else {
+-            chat = window.Store.Chat.get(chatWid) || (await window.Store.FindOrCreateChat.findOrCreateLatestChat(chatWid))?.chat;
++            chat = window.WWebJS.safeGetStoreItem(window.Store.Chat, chatWid);
++            if (!chat) {
++                try {
++                    chat = (await window.Store.FindOrCreateChat.findOrCreateLatestChat(chatWid))?.chat;
++                } catch (e) {
++                    chat = null;
++                }
++            }
+         }
+ 
+         return getAsModel && chat
+@@ -620,14 +655,62 @@ exports.LoadUtils = () => {
  
      window.WWebJS.getChats = async () => {
          const chats = window.Store.Chat.getModelsArray();
@@ -462,7 +587,7 @@ index 4fdc45d..4dc640f 100644
      };
  
      window.WWebJS.getChatModel = async (chat, { isChannel = false } = {}) => {
-@@ -637,36 +691,69 @@ exports.LoadUtils = () => {
+@@ -637,36 +720,69 @@ exports.LoadUtils = () => {
          model.isGroup = false;
          model.isMuted = chat.mute?.expiration !== 0;
          if (isChannel) {
