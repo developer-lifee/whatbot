@@ -492,22 +492,37 @@
     "image": "/plataform/claude.svg",
     "price": 20000,
     "characteristics": [
-      "Cuenta compartida",
-      "Acceso a Claude 3.5 Sonnet y Opus",
-      "Ideal para código e investigación"
+      "Planes compartidos según intensidad de uso",
+      "Acceso a Claude 3.5 Sonnet, 3.7 y Opus",
+      "Contexto amplio de 200k tokens y Claude CoWork"
     ],
     "plans": [
       {
         "id": 2301,
-        "name": "Compartida",
+        "name": "Compartida Estándar (15% - 25% uso)",
         "price": 20000,
         "characteristics": [
-          "Acceso a los mejores modelos de Claude",
-          "Cuenta compartida estable",
-          "Proyectos ilimitados para organizar chats",
-          "Límites de uso mucho más amplios",
+          "Uso estimado del 15% al 25% de tokens por usuario",
+          "Cuenta compartida económica",
+          "Acceso a Claude 3.5 Sonnet / Opus",
+          "Creación de Proyectos y Artefactos",
           "Entrega en tiempo real"
         ],
+        "detalles": "Plan compartido estándar. Ideal para uso moderado, consultas de estudio y programación ligera.",
+        "isPersonalEmail": false
+      },
+      {
+        "id": 2302,
+        "name": "Compartida Alto Uso (40% - 60% uso)",
+        "price": 30000,
+        "characteristics": [
+          "Uso amplio del 40% al 60% de tokens por usuario",
+          "Compartida con menos usuarios (grupo reducido)",
+          "Mayor ventana de contexto (200k tokens para PDFs y código extenso)",
+          "Aprovechamiento de Claude CoWork / Proyectos intensivos",
+          "Mayor estabilidad y menor riesgo de agotar límites por hora"
+        ],
+        "detalles": "Cuenta compartida entre menos personas para garantizar entre 40% y 60% de tokens, ideal para trabajar con documentos largos en contexto extendido y proyectos en Claude CoWork.",
         "isPersonalEmail": false
       }
     ]
