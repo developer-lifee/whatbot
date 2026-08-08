@@ -10035,6 +10035,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         }
                         await safeReply(message, replyText, userId);
                     }
+                } else if (message.hasMedia || (mediaData && mediaData.length > 0)) {
+                    await safeReply(message, `🤖 ¡Hola! He recibido la captura de pantalla del error que me enviaste. 📺\n\nYa notifiqué a nuestro equipo de soporte técnico para revisar la falla y darte solución lo antes posible. ¡Gracias por tu paciencia! 😊`, userId);
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', nombre: foundName });
                 } else {
                     await safeReply(message, `🤖 ¡Hola! Entiendo que tienes un inconveniente con tu cuenta. Para poder ayudarte a solucionarlo lo antes posible (e incluso resolverlo automáticamente si es un código de acceso o restablecimiento de hogar), por favor **envíame una foto del error que te aparece en pantalla o descríbeme detalladamente qué plataforma es y qué error te sale**. 📲`, userId);
                     userStates.set(userId, { state: 'awaiting_support_details', timestamp: Date.now(), platform: platform, nombre: foundName });
@@ -10845,11 +10848,8 @@ async function handleRenewalModification(message, userId, textToUse, stateData) 
     const cleanText = (textToUse || '').trim().toLowerCase();
     if (!cleanText) return false;
 
-    // Si el texto es solo un número (como "3", "1", "2") o no contiene palabras clave explícitas de modificación, ignorar
-    const modificationKeywords = ['quitar', 'sin', 'no quiero', 'cancelar', 'solo', 'eliminar', 'sacar', 'descartar', 'dejar solo', 'no renovar', 'borrar', 'quítame', 'quitame', 'remueve'];
-    const hasModificationKeyword = modificationKeywords.some(kw => cleanText.includes(kw));
-
-    if (/^\d+$/.test(cleanText) && !hasModificationKeyword) {
+    // Si el texto es un número aislado (como "1", "2", "3", "4", "5"), JAMÁS es una modificación de renovación
+    if (/^\d+$/.test(cleanText)) {
         return false;
     }
 
