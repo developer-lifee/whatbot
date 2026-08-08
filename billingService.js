@@ -280,43 +280,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
             let totalWithoutDiscount = 0;
 
             userAccounts.forEach(acc => {
-                const streaming = (acc.Streaming || "").toUpperCase();
-                let price = 0;
-
-                if (streaming.includes('EXTRA')) {
-                    price = 17000;
-                } else if (streaming.includes('PLATINO') || streaming.includes('PLATINUM')) {
-                    price = 11000;
-                } else {
-                    let mappedStreaming = streaming;
-                    for (const [alias, real] of Object.entries(aliasMap)) {
-                        if (mappedStreaming.includes(alias)) {
-                            mappedStreaming = mappedStreaming.replace(alias, real);
-                            break;
-                        }
-                    }
-                    const cleanExcel = mappedStreaming.replace(/[^A-Z0-9]/g, '');
-                    const platInfo = platforms.find(p => {
-                        const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                        return cleanExcel.includes(cleanPlat) || cleanPlat.includes(cleanExcel);
-                    });
-                    if (platInfo) {
-                        price = platInfo.price || 0;
-                        if (platInfo.name.toUpperCase() === 'SPOTIFY' && !cleanExcel.includes('PROPORCIONADO') && !cleanExcel.includes('OWNER')) {
-                            const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL'));
-                            if (personalPlan) price = personalPlan.price;
-                        } else if (platInfo.plans && platInfo.plans.length > 0) {
-                            const specificPlan = platInfo.plans.find(plan => {
-                                const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
-                            });
-                            if (specificPlan) price = specificPlan.price;
-                        }
-                    }
-                }
-
-                if (price === 0) price = 17000; // precio predeterminado estimado si no figura en catálogo
-
+                const price = getPlatformPriceFromExcel(acc.Streaming, platforms);
                 totalWithDiscount += price * m;
                 totalWithoutDiscount += price * m;
             });
@@ -338,38 +302,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
 
         // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta del usuario por M meses
         for (const acc of userAccounts) {
-            const streaming = (acc.Streaming || "").toUpperCase();
-            let price = 0;
-            if (streaming.includes('EXTRA')) {
-                price = 17000;
-            } else if (streaming.includes('PLATINO') || streaming.includes('PLATINUM')) {
-                price = 11000;
-            } else {
-                let mappedStreaming = streaming;
-                for (const [alias, real] of Object.entries(aliasMap)) {
-                    if (mappedStreaming.includes(alias)) {
-                        mappedStreaming = mappedStreaming.replace(alias, real);
-                        break;
-                    }
-                }
-                const cleanExcel = mappedStreaming.replace(/[^A-Z0-9]/g, '');
-                const platInfo = platforms.find(p => {
-                    const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                    return cleanExcel.includes(cleanPlat) || cleanPlat.includes(cleanExcel);
-                });
-                if (platInfo) {
-                    price = platInfo.price || 0;
-                    if (platInfo.plans && platInfo.plans.length > 0) {
-                        const specificPlan = platInfo.plans.find(plan => {
-                            const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                            return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
-                        });
-                        if (specificPlan) price = specificPlan.price;
-                    }
-                }
-            }
-
-            if (price === 0) price = 17000;
+            const price = getPlatformPriceFromExcel(acc.Streaming, platforms);
 
             for (let m = 1; m <= 12; m++) {
                 if (Math.abs((price * m) - paidAmount) < 500) {
@@ -481,89 +414,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
             
             // Buscar precio estrictamente en el catálogo de la página (platforms.json)
-            // Lógica de matching agresiva (quitando caracteres especiales)
-            let price = 0;
-            
-            let mappedStreaming = streaming.toUpperCase();
-            const aliasMap = {
-                'AMAZON': 'PRIME VIDEO',
-                'PRIME': 'PRIME VIDEO',
-                'APPLE TV': 'APPLE TV+',
-                'HBO': 'HBOMAX',
-                'MAX': 'HBOMAX',
-                'DISNEY': 'DISNEY+ PREMIUM',
-                'STAR': 'DISNEY+ PREMIUM',
-                'YOUTUBE': 'YOUTUBE PREMIUM',
-                'MICROSOFT': 'MICROSOFT 365'
-            };
-            for (const [alias, real] of Object.entries(aliasMap)) {
-                if (mappedStreaming.includes(alias)) {
-                    mappedStreaming = mappedStreaming.replace(alias, real);
-                    break;
-                }
-            }
-            
-            const cleanExcel = mappedStreaming.replace(/[^A-Z0-9]/g, '');
-            
-            const platInfo = platforms.find(p => {
-                const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                return cleanExcel.includes(cleanPlat) || cleanPlat.includes(cleanExcel);
-            });
-
-            if (platInfo) {
-                price = platInfo.price || 0; 
-                
-                // Regla especial para Spotify:
-                // Si la plataforma es Spotify y el Excel NO contiene palabras de "proporcionado" u "owner",
-                // por defecto asumimos que es el plan "Personal (Tu Correo)" de 10,000.
-                if (platInfo.name.toUpperCase() === 'SPOTIFY' && !cleanExcel.includes('PROPORCIONADO') && !cleanExcel.includes('OWNER')) {
-                    const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL'));
-                    if (personalPlan) {
-                        price = personalPlan.price;
-                    }
-                } else if (platInfo.name.toUpperCase().includes('GEMINI') && !cleanExcel.includes('COMPARTIDA')) {
-                    const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('CORREO') || p.name.toUpperCase().includes('PROPIO'));
-                    if (personalPlan) {
-                        price = personalPlan.price;
-                    }
-                } else if (platInfo.name.toUpperCase().includes('MICROSOFT') && !cleanExcel.includes('COMPARTIDA')) {
-                    const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL') || p.name.toUpperCase().includes('INDIVIDUAL'));
-                    if (personalPlan) {
-                        price = personalPlan.price;
-                    }
-                } else if (platInfo.plans && platInfo.plans.length > 0) {
-                    const specificPlan = platInfo.plans.find(plan => {
-                        const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                        
-                        const keywords = ['PERSONAL', 'EXTRA', 'COMPARTIDA', 'ESTANDAR', 'PLATINO', 'MENSUAL', 'ANUAL', 'PLUS', 'PRO', 'CORREOPROPIO', 'NUEVA', 'RENOVACION', 'PROPORCIONADO', 'OWNER', 'INDIVIDUAL', 'PROPIO', 'CORREO'];
-                        const synonyms = {
-                            'INDIVIDUAL': ['PERSONAL', 'CORREOPROPIO', 'PROPIO', 'CORREO'],
-                            'PERSONAL': ['INDIVIDUAL', 'CORREOPROPIO', 'PROPIO', 'CORREO'],
-                            'PROPIO': ['PERSONAL', 'INDIVIDUAL', 'CORREOPROPIO', 'CORREO'],
-                            'CORREOPROPIO': ['PERSONAL', 'INDIVIDUAL', 'PROPIO', 'CORREO'],
-                            'CORREO': ['PERSONAL', 'INDIVIDUAL', 'PROPIO', 'CORREOPROPIO']
-                        };
-
-                        for (const kw of keywords) {
-                            if (cleanExcel.includes(kw)) {
-                                if (cleanPlan.includes(kw)) return true;
-                                if (synonyms[kw] && synonyms[kw].some(syn => cleanPlan.includes(syn))) {
-                                    return true;
-                                }
-                            }
-                        }
-                        
-                        return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
-                    });
-                    
-                    if (specificPlan) {
-                        price = specificPlan.price;
-                    } else if (price === 0) {
-                        price = platInfo.plans[0].price;
-                    }
-                }
-            }
-
+            let price = getPlatformPriceFromExcel(streaming, platforms);
             if (price === 0) hasZeroPrice = true;
             
             const isExpired = vencimientoDate && vencimientoDate < today;
@@ -755,75 +606,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
         targetAccounts.forEach(acc => {
           const streaming = (acc.Streaming || "").toUpperCase();
           if (streaming) billedServicesList.push(streaming);
-          let price = 0;
-          let mappedStreaming = streaming.toUpperCase();
-          
-          const aliasMap = {
-              'AMAZON': 'PRIME VIDEO',
-              'PRIME': 'PRIME VIDEO',
-              'APPLE TV': 'APPLE TV+',
-              'HBO': 'HBOMAX',
-              'MAX': 'HBOMAX',
-              'DISNEY': 'DISNEY+ PREMIUM',
-              'STAR': 'DISNEY+ PREMIUM',
-              'YOUTUBE': 'YOUTUBE PREMIUM',
-              'MICROSOFT': 'MICROSOFT 365'
-          };
-          for (const [alias, real] of Object.entries(aliasMap)) {
-              if (mappedStreaming.includes(alias)) {
-                  mappedStreaming = mappedStreaming.replace(alias, real);
-                  break;
-              }
-          }
-          const cleanExcel = mappedStreaming.replace(/[^A-Z0-9]/g, '');
-          const platInfo = platforms.find(p => {
-              const cleanPlat = p.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-              return cleanExcel.includes(cleanPlat) || cleanPlat.includes(cleanExcel);
-          });
-
-          if (platInfo) {
-              price = platInfo.price || 0;
-              if (platInfo.name.toUpperCase() === 'SPOTIFY' && !cleanExcel.includes('PROPORCIONADO') && !cleanExcel.includes('OWNER')) {
-                  const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL'));
-                  if (personalPlan) price = personalPlan.price;
-              } else if (platInfo.name.toUpperCase().includes('GEMINI') && !cleanExcel.includes('COMPARTIDA')) {
-                  const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('CORREO') || p.name.toUpperCase().includes('PROPIO'));
-                  if (personalPlan) price = personalPlan.price;
-              } else if (platInfo.name.toUpperCase().includes('MICROSOFT') && !cleanExcel.includes('COMPARTIDA')) {
-                  const personalPlan = platInfo.plans.find(p => p.name.toUpperCase().includes('PERSONAL') || p.name.toUpperCase().includes('INDIVIDUAL'));
-                  if (personalPlan) price = personalPlan.price;
-              } else if (platInfo.plans && platInfo.plans.length > 0) {
-                  const specificPlan = platInfo.plans.find(plan => {
-                      const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                      
-                      const keywords = ['PERSONAL', 'EXTRA', 'COMPARTIDA', 'ESTANDAR', 'PLATINO', 'MENSUAL', 'ANUAL', 'PLUS', 'PRO', 'CORREOPROPIO', 'NUEVA', 'RENOVACION', 'PROPORCIONADO', 'OWNER', 'INDIVIDUAL', 'PROPIO', 'CORREO'];
-                      const synonyms = {
-                          'INDIVIDUAL': ['PERSONAL', 'CORREOPROPIO', 'PROPIO', 'CORREO'],
-                          'PERSONAL': ['INDIVIDUAL', 'CORREOPROPIO', 'PROPIO', 'CORREO'],
-                          'PROPIO': ['PERSONAL', 'INDIVIDUAL', 'CORREOPROPIO', 'CORREO'],
-                          'CORREOPROPIO': ['PERSONAL', 'INDIVIDUAL', 'PROPIO', 'CORREO'],
-                          'CORREO': ['PERSONAL', 'INDIVIDUAL', 'PROPIO', 'CORREOPROPIO']
-                      };
-
-                      for (const kw of keywords) {
-                          if (cleanExcel.includes(kw)) {
-                              if (cleanPlan.includes(kw)) return true;
-                              if (synonyms[kw] && synonyms[kw].some(syn => cleanPlan.includes(syn))) {
-                                  return true;
-                              }
-                          }
-                      }
-                      
-                      return cleanExcel.includes(cleanPlan) || cleanPlan.includes(cleanExcel);
-                  });
-                  
-                  if (specificPlan) {
-                      price = specificPlan.price;
-                  } else if (price === 0) {
-                      price = platInfo.plans[0].price;
-                  }
-              }
-          }
+          const price = getPlatformPriceFromExcel(acc.Streaming, platforms);
           totalSum += price;
         });
 
