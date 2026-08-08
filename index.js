@@ -10642,7 +10642,7 @@ async function triggerGlobalQueueProcessing() {
  * Event Listener principal
  */
 client.on('message', async (message) => {
-    // Manejo de mensajes antiguos
+    // Manejo de mensajes antiguos al iniciar el bot
     if (message.timestamp < BOT_START_TIME) {
         if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) return;
         const shouldProcess = await new Promise(resolve => {
@@ -10650,18 +10650,29 @@ client.on('message', async (message) => {
                 try {
                     const chat = await message.getChat();
                     const msgs = await chat.fetchMessages({ limit: 5 });
-                    let isHuman = false;
+                    let isRecentHuman = false;
+                    let lastHumanTimestamp = 0;
+                    const nowSec = Math.floor(Date.now() / 1000);
+
                     for (const m of msgs) {
-                        if (m.fromMe && !m.body.includes('🤖')) { isHuman = true; break; }
+                        if (m.fromMe && !m.body.includes('🤖')) {
+                            // Solo considerar como conversación humana activa si ocurrió en los últimos 15 minutos
+                            const ageMinutes = (nowSec - m.timestamp) / 60;
+                            if (ageMinutes <= 15) {
+                                isRecentHuman = true;
+                                lastHumanTimestamp = m.timestamp * 1000;
+                                break;
+                            }
+                        }
                     }
-                    if (isHuman) {
-                        userStates.set(message.from, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor' });
+
+                    if (isRecentHuman) {
+                        userStates.set(message.from, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: lastHumanTimestamp || Date.now(), waiting_human_mode: 'advisor' });
                         resolve(false);
                     } else {
-                        await new Promise(r => setTimeout(r, 2500));
                         resolve(true);
                     }
-                } catch (e) { resolve(false); }
+                } catch (e) { resolve(true); }
             });
         });
         if (!shouldProcess) return;
