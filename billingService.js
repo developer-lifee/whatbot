@@ -307,17 +307,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
         const userAccounts = await getAccountsByPhone(phoneNumber);
         if (!userAccounts || userAccounts.length === 0) return;
 
-        // Marcar implícitamente como renovación si el usuario ya posee servicios registrados
-        stateData.isRenewal = true;
-
         const platforms = await getPlatformKnowledge();
-
-        const aliasMap = {
-            'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE TV+',
-            'HBO': 'HBOMAX', 'MAX': 'HBOMAX', 'DISNEY': 'DISNEY+ PREMIUM',
-            'STAR': 'DISNEY+ PREMIUM', 'YOUTUBE': 'YOUTUBE PREMIUM', 'MICROSOFT': 'MICROSOFT 365',
-            'NETFLIX EXTRA': 'NETFLIX EXTRA', 'EXTRA': 'NETFLIX EXTRA'
-        };
 
         // 1. Probar si paidAmount coincide con la suma de todas las cuentas del usuario (para 1 a 12 meses)
         for (let m = 1; m <= 12; m++) {
@@ -350,7 +340,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
             const price = getPlatformPriceFromExcel(acc.Streaming, platforms);
 
             for (let m = 1; m <= 12; m++) {
-                if (Math.abs((price * m) - paidAmount) < 500) {
+                if (price > 0 && Math.abs((price * m) - paidAmount) < 500) {
                     console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con renovación individual de ${acc.Streaming} por ${m} mes(es).`);
                     stateData.durationMonths = m;
                     stateData.total = paidAmount;
@@ -362,11 +352,18 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
             }
         }
 
-        // 3. Fallback: Si el usuario es cliente existente y paga un monto arbitrario de renovación
-        if (stateData.isRenewal && paidAmount > 0) {
+        // 3. Probar si paidAmount es $4.000 (NETFLIX EXTRA / Miembro Extra)
+        if (Math.abs(paidAmount - 4000) < 500) {
+            console.log(`[Duration Adjuster] 🎯 Monto pagado $${paidAmount} es $4.000 (NETFLIX EXTRA).`);
+            stateData.items = [{ Streaming: 'NETFLIX EXTRA', price: 4000, name: 'NETFLIX EXTRA' }];
             stateData.total = paidAmount;
+            stateData.isRenewal = false;
             stateData.leftoverAmount = 0;
+            return;
         }
+
+        // 4. Si el monto NO coincide con ninguna renovación ni extra, NO marcar arbitrariamente como renovación.
+        console.log(`[Duration Adjuster] ⚠️ Monto pagado $${paidAmount} no coincide con renovación exacta del usuario.`);
     } catch (e) {
         console.error('[Duration Adjuster] Error en ajuste de duración:', e.message);
     }
