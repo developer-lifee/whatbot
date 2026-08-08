@@ -8982,7 +8982,9 @@ async function baseProcessIncomingMessage(messages) {
                 const { adjustDurationToMatchAmount } = require('./billingService');
                 await adjustDurationToMatchAmount(stateData, check.amount, userId);
 
-                let totalPaidSoFar = (stateData.checkAmount || 0) + (check.amount || 0);
+                let currentCheckAmount = check.amount || 0;
+                let previousCheckPaid = (stateData.checkAmount && stateData.checkAmount !== currentCheckAmount) ? stateData.checkAmount : 0;
+                let totalPaidSoFar = previousCheckPaid + currentCheckAmount;
                 let leftoverAmount = 0;
                 if (check.amount && check.amount > 0) {
                     const expectedTotal = Math.max(0, (stateData.total || 0) - (stateData.saldo || 0));
@@ -11271,11 +11273,18 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         await adjustDurationToMatchAmount(stateData, check.amount, userId);
 
                         const expectedTotal = Math.max(0, (stateData.total || 0) - (stateData.saldo || 0));
-                        const totalPaidSoFar = (stateData.checkAmount || 0) + (check.amount || 0);
-                        const amountMatches = expectedTotal <= 0 || Math.abs(totalPaidSoFar - expectedTotal) < 500;
+                        const currentAmount = check.amount || 0;
+                        const previousPaid = (stateData.checkAmount && stateData.checkAmount !== currentAmount) ? stateData.checkAmount : 0;
+                        const totalPaidSoFar = previousPaid + currentAmount;
+
+                        const amountMatches = expectedTotal <= 0 ||
+                            Math.abs(currentAmount - expectedTotal) < 500 ||
+                            Math.abs(totalPaidSoFar - expectedTotal) < 500 ||
+                            currentAmount >= (expectedTotal - 500) ||
+                            totalPaidSoFar >= (expectedTotal - 500);
 
                         if (!amountMatches) {
-                            if (expectedTotal > 0 && totalPaidSoFar < expectedTotal) {
+                            if (expectedTotal > 0 && totalPaidSoFar < expectedTotal && currentAmount < expectedTotal) {
                                 console.log(`[AUTO-VALIDATE] ❌ Monto acumulado ${totalPaidSoFar} es menor a esperado ${expectedTotal}. Guardando pago corto.`);
                                 userStates.set(userId, {
                                     ...stateData,
@@ -11284,19 +11293,23 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                                     checkAmount: totalPaidSoFar
                                 });
                                 const diff = expectedTotal - totalPaidSoFar;
-                                await message.reply(
-                                    `🤖 Revisé tu comprobante: detecté un pago de *$${check.amount.toLocaleString('es-CO')}* a la llave correcta.\n\n` +
+                                await safeReply(
+                                    message,
+                                    `🤖 Revisé tu comprobante: detecté un pago de *$${currentAmount.toLocaleString('es-CO')}* a la llave correcta.\n\n` +
                                     `Con esto, has pagado un total de *$${totalPaidSoFar.toLocaleString('es-CO')}* COP de un total de *$${expectedTotal.toLocaleString('es-CO')}* COP. ` +
                                     `Aún hace falta un pago por el valor restante de *$${diff.toLocaleString('es-CO')}* COP. ⚠️\n\n` +
-                                    `Por favor realiza la transferencia del monto restante y envía nuevamente el comprobante. 😊`
+                                    `Por favor realiza la transferencia del monto restante y envía nuevamente el comprobante. 😊`,
+                                    userId
                                 );
                                 await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                             } else {
-                                console.log(`[AUTO-VALIDATE] ❌ Monto ${check.amount} no coincide con esperado ${expectedTotal}.`);
-                                await message.reply(
-                                    `🤖 Revisé tu comprobante: detecté un pago de *$${check.amount.toLocaleString('es-CO')}* a la llave correcta, ` +
+                                console.log(`[AUTO-VALIDATE] ❌ Monto ${currentAmount} no coincide con esperado ${expectedTotal}.`);
+                                await safeReply(
+                                    message,
+                                    `🤖 Revisé tu comprobante: detecté un pago de *$${currentAmount.toLocaleString('es-CO')}* a la llave correcta, ` +
                                     `pero el total de tu pedido es *$${expectedTotal.toLocaleString('es-CO')}*. ` +
-                                    `Por favor verifica el monto y envía nuevamente el comprobante correcto. 😊`
+                                    `Por favor verifica el monto y envía nuevamente el comprobante correcto. 😊`,
+                                    userId
                                 );
                             }
                             return;
