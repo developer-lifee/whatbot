@@ -9337,43 +9337,6 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 } catch (adminErr) {
                     console.error("Error notificando al grupo sobre pago interceptado:", adminErr.message);
                 }
-                return; // Salir, ya procesamos el mensaje
-            } else {
-                // --- NUEVO: DETECCIÓN DE FALLO PREMATURO ---
-                // Si mandó una imagen que NO es pago, revisamos si tiene cuentas activas
-                const lowerBatch = batchText.toLowerCase();
-                const errorKeywords = ['falla', 'error', 'funciona', 'caido', 'suspendid', 'problema', 'sale asi', 'sacó', 'mira lo que', 'no deja', 'qué pasó', 'que paso', 'bloquead', 'no sirve'];
-                const hasErrorText = errorKeywords.some(k => lowerBatch.includes(k));
-
-                if (hasErrorText) {
-                    const { getAccountsByPhone } = require('./apiService');
-                    const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
-                    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
-                    const accounts = await getAccountsByPhone(phoneNumber);
-
-                    const activeAccountWithProblem = accounts.find(acc => {
-                        const expDate = getJsDateFromExcel(acc.deben);
-                        const today = getTodayInBogota();
-                        return expDate && expDate > today; // Cuenta sigue vigente en el papel
-                    });
-
-                    if (activeAccountWithProblem) {
-                        const expD = getJsDateFromExcel(activeAccountWithProblem.deben);
-                        const dateStr = expD ? expD.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : activeAccountWithProblem.deben;
-                        console.log(`[FAULT DETECTOR] 🚨 Posible fallo prematuro detectado para @${userId}`);
-                        try {
-                            const groupChat = await client.getChatById(GROUP_ID);
-                            if (groupChat) {
-                                const adminMsg = `🚨 *POSIBLE FALLO PREMATURO* (@${userId.replace('@c.us', '')})\n` +
-                                    `El cliente reporta un error pero su cuenta de *${activeAccountWithProblem.Streaming}* vence hasta el *${dateStr}*.\n\n` +
-                                    `Favor revisar el chat de inmediato.`;
-                                await groupChat.sendMessage(adminMsg);
-                                const mediaToForward = await message.downloadMedia();
-                                await groupChat.sendMessage(mediaToForward);
-                            }
-                        } catch (e) { }
-                    }
-                }
             }
         }
 
@@ -9444,7 +9407,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
         const wantsImgCode = [
             'hogar', 'dispositivo', 'código', 'codigo', '2fa', 'authenticator', 'autenticación',
-            'televisor', 'tv', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating'
+            'televisor', 'tv', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
+            'no forma parte', 'hogar con netflix', 'tu tv no forma parte'
         ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
 
         const isGetHelpScreen = [
@@ -9483,7 +9447,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
         if (wantsImgCode && !isIncorrectPassword) {
             const isOptionsScreen = [
-                'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'estoy de viaje'
+                'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'estoy de viaje',
+                'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte'
             ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
 
             if (isOptionsScreen) {
@@ -9555,6 +9520,49 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             }
         } catch (e) {
             console.error("Error en interceptor OCR de códigos:", e);
+        }
+    }
+
+    // --- DETECCIÓN INTELIGENTE DE FALLO PREMATURO (Solo para imágenes/mensajes con errores reales en la plataforma correspondiente) ---
+    if (detection && mediaData && mediaData.length > 0 && !isCodeRequestFromImage) {
+        const explanationLower = (detection.explanation || "").toLowerCase();
+        const bodyLower = inputToUse.toLowerCase();
+        const errorKeywords = ['falla', 'error', 'funciona', 'caido', 'suspendid', 'problema', 'sale asi', 'sacó', 'mira lo que', 'no deja', 'qué pasó', 'que paso', 'bloquead', 'no sirve'];
+        const hasErrorText = errorKeywords.some(k => explanationLower.includes(k) || bodyLower.includes(k));
+
+        if (hasErrorText) {
+            const { isSamePlatformFamily } = require('./salesRegistryService');
+            const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
+
+            const fullText = explanationLower + " " + bodyLower;
+            const activeAccountWithProblem = userAccounts.find(acc => {
+                const streamName = (acc.Streaming || "").toLowerCase();
+                const expDate = getJsDateFromExcel(acc.deben);
+                const today = getTodayInBogota();
+                const isActive = expDate && expDate > today;
+                if (!isActive) return false;
+
+                return fullText.includes(streamName) || isSamePlatformFamily(acc.Streaming, detection.detectedPlatform || "");
+            });
+
+            if (activeAccountWithProblem) {
+                const expD = getJsDateFromExcel(activeAccountWithProblem.deben);
+                const dateStr = expD ? expD.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : activeAccountWithProblem.deben;
+                console.log(`[FAULT DETECTOR] 🚨 Posible fallo prematuro detectado para @${userId} en ${activeAccountWithProblem.Streaming}`);
+                try {
+                    const groupChat = await client.getChatById(GROUP_ID);
+                    if (groupChat) {
+                        const adminMsg = `🚨 *POSIBLE FALLO PREMATURO* (@${userId.replace('@c.us', '')})\n` +
+                            `El cliente reporta un error pero su cuenta de *${activeAccountWithProblem.Streaming}* vence hasta el *${dateStr}*.\n\n` +
+                            `Favor revisar el chat de inmediato.`;
+                        await groupChat.sendMessage(adminMsg);
+                        if (message.hasMedia) {
+                            const mediaToForward = await message.downloadMedia();
+                            await groupChat.sendMessage(mediaToForward);
+                        }
+                    }
+                } catch (e) { }
+            }
         }
     }
 
