@@ -87,9 +87,8 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
             const chatId = chat.id._serialized;
             if (chat.isGroup || chatId.includes('@broadcast')) return false;
 
-            // Excluir chats LID: whatsapp-web.js no puede enviar mensajes directos a JIDs @lid
-            // (lanza "Data passed to getter must include an id property"). Los atiende el listener activo.
-            if (chatId.includes('@lid')) return false;
+            // Chats @lid: incluirlos si tienen mensajes no leídos (se resolverá realPhone al procesar)
+            // Ya NO los excluimos en el BATCH: ahora safeSend puede manejarlos con fallback @c.us
 
             // Criterio 1: Mensajes sin leer
             if (chat.unreadCount > 0) return true;
@@ -123,9 +122,9 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
                     // Si no hay no leídos (pero estaba en waiting_human), procesar al menos el último
                     const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
 
-                    // Procesar solo mensajes que NO sean del bot y que no sean antiguos
-                    // En arranque (isStartup=true) limitamos a 10 min de antigüedad para evitar procesar flujos masivos viejos
-                    const limitMin = isStartup ? 10 : 30;
+                    // En arranque (isStartup=true) usamos 60 min para procesar mensajes acumulados mientras el bot estuvo caído
+                    // En escaneo periódico (isStartup=false) usamos 30 min
+                    const limitMin = isStartup ? 60 : 30;
                     const maxAge = Math.floor(Date.now() / 1000) - (limitMin * 60);
                     const filteredMessages = toProcess.filter(m => !m.fromMe && m.timestamp > maxAge);
 
