@@ -7,33 +7,40 @@ const fs = require('fs');
 async function safeSend(message, text, userId = null, clientInstance = null) {
     const activeClient = clientInstance || (message && message._client) || (typeof global !== 'undefined' ? global.client : null);
     
-    // Preferir message.from (el JID exacto del chat en WhatsApp Web) sobre userId
-    const rawJid = (message && message.from && message.from !== 'status@broadcast') ? message.from : userId;
-    if (!rawJid) return;
-
     let realPhoneJid = null;
     let lidJid = null;
 
-    if (rawJid.includes('@lid')) {
-        lidJid = rawJid;
-        if (typeof userStates !== 'undefined' && userStates) {
-            const st = userStates.get(rawJid);
-            if (st && st.realPhone) {
-                realPhoneJid = st.realPhone.replace(/\D/g, '') + '@c.us';
-            }
-        }
-    } else if (rawJid.includes('@c.us')) {
-        realPhoneJid = rawJid;
-        if (typeof userStates !== 'undefined' && userStates) {
-            for (const [key, val] of userStates.entries()) {
-                if (key.includes('@lid') && val && val.realPhone && (val.realPhone.replace(/\D/g, '') + '@c.us') === rawJid) {
-                    lidJid = key;
-                    break;
-                }
-            }
+    if (userId && typeof userId === 'string' && userId.includes('@c.us')) {
+        realPhoneJid = userId;
+    } else if (userId && typeof userId === 'string' && userId.includes('@lid')) {
+        lidJid = userId;
+    }
+
+    if (message && message.from && message.from !== 'status@broadcast') {
+        if (message.from.includes('@c.us') && !realPhoneJid) {
+            realPhoneJid = message.from;
+        } else if (message.from.includes('@lid') && !lidJid) {
+            lidJid = message.from;
         }
     }
 
+    if (message && message.author && message.author !== 'status@broadcast') {
+        if (message.author.includes('@c.us') && !realPhoneJid) {
+            realPhoneJid = message.author;
+        } else if (message.author.includes('@lid') && !lidJid) {
+            lidJid = message.author;
+        }
+    }
+
+    // Buscar en userStates si solo tenemos lidJid
+    if (!realPhoneJid && lidJid && typeof userStates !== 'undefined' && userStates) {
+        const st = userStates.get(lidJid);
+        if (st && st.realPhone) {
+            realPhoneJid = st.realPhone.replace(/\D/g, '') + '@c.us';
+        }
+    }
+
+    // Buscar en Puppeteer window.Store si aún no tenemos realPhoneJid
     if (!realPhoneJid && lidJid && activeClient && activeClient.pupPage) {
         try {
             const phone = await activeClient.pupPage.evaluate((lid) => {
@@ -50,8 +57,8 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
         } catch(e) {}
     }
 
-    // SIEMPRE colocar realPhoneJid (@c.us) PRIMERO si existe para garantizar la entrega a la App de WhatsApp del usuario
-    const jidsToTry = [realPhoneJid, rawJid, lidJid].filter((j, idx, self) => Boolean(j) && self.indexOf(j) === idx);
+    // SIEMPRE colocar realPhoneJid (@c.us) PRIMERO para garantizar la entrega a la App del cliente
+    const jidsToTry = [realPhoneJid, lidJid, (userId && userId.includes('@c.us')) ? userId : null].filter((j, idx, self) => Boolean(j) && self.indexOf(j) === idx);
 
     if (activeClient) {
         for (const jid of jidsToTry) {
