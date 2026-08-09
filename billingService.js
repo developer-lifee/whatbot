@@ -10,14 +10,34 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
     if (!destJid) return;
 
     let realPhoneJid = null;
-    if (destJid.includes('@lid') && typeof userStates !== 'undefined' && userStates) {
-        const st = userStates.get(destJid);
-        if (st && st.realPhone) {
-            realPhoneJid = st.realPhone + '@c.us';
+    if (destJid.includes('@lid')) {
+        if (typeof userStates !== 'undefined' && userStates) {
+            const st = userStates.get(destJid);
+            if (st && st.realPhone) {
+                realPhoneJid = st.realPhone.replace(/\D/g, '') + '@c.us';
+            }
+        }
+        if (!realPhoneJid && activeClient && activeClient.pupPage) {
+            try {
+                const phone = await activeClient.pupPage.evaluate((lidJid) => {
+                    try {
+                        const chat = window.Store.Chat.get(lidJid);
+                        if (chat && chat.phoneNumber) return chat.phoneNumber;
+                        const contact = window.Store.Contact.get(lidJid);
+                        if (contact && contact.phoneNumber) return contact.phoneNumber;
+                        if (contact && contact.id && contact.id.user && !contact.id.user.includes('lid')) return contact.id.user;
+                    } catch(e) {}
+                    return null;
+                }, destJid).catch(() => null);
+                if (phone) {
+                    realPhoneJid = phone.replace(/\D/g, '') + '@c.us';
+                }
+            } catch (e) {}
         }
     }
 
-    const jidsToTry = [destJid, realPhoneJid].filter(Boolean);
+    // SIEMPRE colocar realPhoneJid (@c.us) PRIMERO si existe para ruteo correcto en la red WhatsApp
+    const jidsToTry = [realPhoneJid, destJid].filter(Boolean);
 
     if (activeClient) {
         for (const jid of jidsToTry) {
