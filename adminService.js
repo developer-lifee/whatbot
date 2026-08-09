@@ -135,6 +135,7 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
                     if (filteredMessages.length > 0) {
                         console.log(`[BATCH] 🚀 Procesando ${filteredMessages.length} mensaje(s) para ${chatId}`);
                         await processIncomingMessage(filteredMessages);
+                        await chat.sendSeen().catch(() => {});
                     } else {
                         console.log(`[BATCH] ⏩ Omitiendo ${chatId}: los mensajes tienen más de 6 horas o son propios.`);
                     }
