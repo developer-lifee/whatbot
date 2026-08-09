@@ -10603,22 +10603,8 @@ async function safeReply(message, content, userId) {
         console.log(`[Stale Guard] 🛑 Abortando respuesta para @${userId.replace('@c.us', '')} porque hay nuevos mensajes en cola.`);
         return null;
     }
-    // Si el usuario es de tipo @lid o el mensaje proviene de un @lid, usar safeSend para garantizar el ruteo a su número real @c.us
-    if (userId.includes('@lid') || (message && message.from && message.from.includes('@lid'))) {
-        const { safeSend } = require('./billingService');
-        return await safeSend(message, content, userId);
-    }
-    try {
-        return await message.reply(content);
-    } catch (replyErr) {
-        if (replyErr.message && (replyErr.message.includes('id property') || replyErr.message.includes('getter') || replyErr.message.includes('Evaluation failed'))) {
-            console.warn(`[Safe Reply] ⚠️ message.reply falló para @${userId}: ${replyErr.message}. Intentando resolver chat con safeSend...`);
-            const { safeSend } = require('./billingService');
-            return await safeSend(message, content, userId);
-        } else {
-            throw replyErr;
-        }
-    }
+    const { safeSend } = require('./billingService');
+    return await safeSend(message, content, userId);
 }
 
 // Cola global secuencial para procesar mensajes con delays anti-spam entre usuarios

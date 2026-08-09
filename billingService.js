@@ -6,38 +6,36 @@ const fs = require('fs');
 
 async function safeSend(message, text, userId = null, clientInstance = null) {
     const activeClient = clientInstance || (message && message._client) || (typeof global !== 'undefined' ? global.client : null);
-    const destJid = userId || (message && (message.from || message.to));
-    if (!destJid) return;
+    
+    // Preferir message.from (el JID exacto del chat en WhatsApp Web) sobre userId
+    const rawJid = (message && message.from && message.from !== 'status@broadcast') ? message.from : userId;
+    if (!rawJid) return;
 
     let realPhoneJid = null;
-    if (destJid.includes('@lid')) {
+    let lidJid = null;
+
+    if (rawJid.includes('@lid')) {
+        lidJid = rawJid;
         if (typeof userStates !== 'undefined' && userStates) {
-            const st = userStates.get(destJid);
+            const st = userStates.get(rawJid);
             if (st && st.realPhone) {
                 realPhoneJid = st.realPhone.replace(/\D/g, '') + '@c.us';
             }
         }
-        if (!realPhoneJid && activeClient && activeClient.pupPage) {
-            try {
-                const phone = await activeClient.pupPage.evaluate((lidJid) => {
-                    try {
-                        const chat = window.Store.Chat.get(lidJid);
-                        if (chat && chat.phoneNumber) return chat.phoneNumber;
-                        const contact = window.Store.Contact.get(lidJid);
-                        if (contact && contact.phoneNumber) return contact.phoneNumber;
-                        if (contact && contact.id && contact.id.user && !contact.id.user.includes('lid')) return contact.id.user;
-                    } catch(e) {}
-                    return null;
-                }, destJid).catch(() => null);
-                if (phone) {
-                    realPhoneJid = phone.replace(/\D/g, '') + '@c.us';
+    } else if (rawJid.includes('@c.us')) {
+        realPhoneJid = rawJid;
+        if (typeof userStates !== 'undefined' && userStates) {
+            for (const [key, val] of userStates.entries()) {
+                if (key.includes('@lid') && val && val.realPhone && (val.realPhone.replace(/\D/g, '') + '@c.us') === rawJid) {
+                    lidJid = key;
+                    break;
                 }
-            } catch (e) {}
+            }
         }
     }
 
-    // SIEMPRE colocar realPhoneJid (@c.us) PRIMERO si existe para ruteo correcto en la red WhatsApp
-    const jidsToTry = [realPhoneJid, destJid].filter(Boolean);
+    // Probar ambos JIDs (tanto el del mensaje original como su contraparte @c.us o @lid)
+    const jidsToTry = [rawJid, lidJid, realPhoneJid].filter((j, idx, self) => Boolean(j) && self.indexOf(j) === idx);
 
     if (activeClient) {
         for (const jid of jidsToTry) {
