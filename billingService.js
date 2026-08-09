@@ -56,12 +56,21 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
     if (activeClient) {
         for (const jid of jidsToTry) {
             try {
-                const res = await activeClient.sendMessage(jid, text).catch(() => null);
+                const res = await activeClient.sendMessage(jid, text).catch((err) => {
+                    console.error(`[safeSend activeClient error] for ${jid}:`, err ? err.message : 'null');
+                    return null;
+                });
                 if (res) return res;
 
-                const chat = await activeClient.getChatById(jid).catch(() => null);
+                const chat = await activeClient.getChatById(jid).catch((err) => {
+                    console.error(`[safeSend getChatById error] for ${jid}:`, err ? err.message : 'null');
+                    return null;
+                });
                 if (chat && typeof chat.sendMessage === 'function') {
-                    const resChat = await chat.sendMessage(text).catch(() => null);
+                    const resChat = await chat.sendMessage(text).catch((err) => {
+                        console.error(`[safeSend chat.sendMessage error] for ${jid}:`, err ? err.message : 'null');
+                        return null;
+                    });
                     if (resChat) return resChat;
                 }
             } catch (e) {
