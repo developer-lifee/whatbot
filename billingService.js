@@ -32,10 +32,24 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
                 }
             }
         }
+    if (!realPhoneJid && lidJid && activeClient && activeClient.pupPage) {
+        try {
+            const phone = await activeClient.pupPage.evaluate((lid) => {
+                try {
+                    const c = window.Store.Contact.get(lid);
+                    if (c && c.phoneNumber) return c.phoneNumber;
+                    if (c && c.id && c.id.user && !c.id.user.includes('lid')) return c.id.user;
+                    const chat = window.Store.Chat.get(lid);
+                    if (chat && chat.phoneNumber) return chat.phoneNumber;
+                } catch(e) {}
+                return null;
+            }, lidJid).catch(() => null);
+            if (phone) realPhoneJid = phone.replace(/\D/g, '') + '@c.us';
+        } catch(e) {}
     }
 
-    // Probar ambos JIDs (tanto el del mensaje original como su contraparte @c.us o @lid)
-    const jidsToTry = [rawJid, lidJid, realPhoneJid].filter((j, idx, self) => Boolean(j) && self.indexOf(j) === idx);
+    // SIEMPRE colocar realPhoneJid (@c.us) PRIMERO si existe para garantizar la entrega a la App de WhatsApp del usuario
+    const jidsToTry = [realPhoneJid, rawJid, lidJid].filter((j, idx, self) => Boolean(j) && self.indexOf(j) === idx);
 
     if (activeClient) {
         for (const jid of jidsToTry) {
