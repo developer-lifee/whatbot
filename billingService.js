@@ -32,6 +32,8 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
                 }
             }
         }
+    }
+
     if (!realPhoneJid && lidJid && activeClient && activeClient.pupPage) {
         try {
             const phone = await activeClient.pupPage.evaluate((lid) => {
