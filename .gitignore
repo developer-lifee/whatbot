@@ -26,6 +26,7 @@ user_states.json
 scratch/*.exp
 *.sh
 scratch/*.sh
+scratch/*.js
 
 # Logs and registration files
 logs/
