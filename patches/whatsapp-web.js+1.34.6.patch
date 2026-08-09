@@ -393,15 +393,36 @@ index e9584d9..795dfe0 100644
                  id: e
              });
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Store.js b/node_modules/whatsapp-web.js/src/util/Injected/Store.js
-index 8f56a56..d53d676 100644
+index 8f56a56..676758a 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Store.js
 +++ b/node_modules/whatsapp-web.js/src/util/Injected/Store.js
-@@ -44,6 +44,37 @@ exports.ExposeStore = () => {
+@@ -44,6 +44,44 @@ exports.ExposeStore = () => {
      };
  
      window.Store = Object.assign({}, window.require('WAWebCollections'));
 +
 +    // Safety patch against WhatsApp Web getter memoization error
++    const patchCollection = (col) => {
++        if (!col || typeof col.get !== 'function' || col._safePatched) return;
++        const orig = col.get;
++        col.get = function(id, ...args) {
++            if (!id) return null;
++            try {
++                return orig.call(this, id, ...args);
++            } catch (err) {
++                if (err && err.message && err.message.includes('Data passed to getter must include an id property')) {
++                    const strId = (typeof id === 'object') ? (id._serialized || id.id || String(id)) : String(id);
++                    try { return orig.call(this, strId, ...args); } catch (e1) {}
++                    try { return orig.call(this, { id: strId }, ...args); } catch (e2) {}
++                    try { return orig.call(this, { id: { id: strId } }, ...args); } catch (e3) {}
++                    return null;
++                }
++                throw err;
++            }
++        };
++        col._safePatched = true;
++    };
++
 +    const collectionsToPatch = [
 +        window.Store.Contact,
 +        window.Store.Chat,
@@ -411,30 +432,16 @@ index 8f56a56..d53d676 100644
 +        window.Store.ProfilePicThumb,
 +        window.Store.WAWebNewsletterMetadataCollection
 +    ];
-+    collectionsToPatch.forEach(col => {
-+        if (col && typeof col.get === 'function' && !col._safePatched) {
-+            const orig = col.get.bind(col);
-+            col.get = function(id, ...args) {
-+                if (!id) return null;
-+                try {
-+                    return orig(id, ...args);
-+                } catch (err) {
-+                    if (err && err.message && err.message.includes('Data passed to getter must include an id property')) {
-+                        const sid = typeof id === 'object' ? (id._serialized || id.id || String(id)) : String(id);
-+                        try { return orig({ id: sid }, ...args); } catch (e2) {}
-+                        try { return orig(sid, ...args); } catch (e3) {}
-+                        return null;
-+                    }
-+                    throw err;
-+                }
-+            };
-+            col._safePatched = true;
++    collectionsToPatch.forEach(patchCollection);
++    Object.keys(window.Store).forEach(k => {
++        if (window.Store[k] && typeof window.Store[k].get === 'function') {
++            patchCollection(window.Store[k]);
 +        }
 +    });
      window.Store.AppState = window.require('WAWebSocketModel').Socket;
      window.Store.BlockContact = window.require('WAWebBlockContactAction');
      window.Store.Conn = window.require('WAWebConnModel').Conn;
-@@ -211,7 +242,12 @@ exports.ExposeStore = () => {
+@@ -211,7 +249,12 @@ exports.ExposeStore = () => {
  
      if (!window.Store.Chat._find || !window.Store.Chat.findImpl) {
          window.Store.Chat._find = e => {

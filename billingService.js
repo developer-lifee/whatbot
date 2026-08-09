@@ -403,7 +403,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
         const userAccounts = await getAccountsByPhone(phoneNumber, contactName);
 
         if (userAccounts.length === 0) {
-            await message.reply("🤖 No encontré servicios activos vinculados a este número para renovar. Si deseas comprar algo nuevo, escribe *1*.");
+            await safeSend(message, "🤖 No encontré servicios activos vinculados a este número para renovar. Si deseas comprar algo nuevo, escribe *1*.", userId);
             return;
         }
 
@@ -504,7 +504,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
         // FALLBACK: Si algún precio es cero o el total es cero, no enviar resumen automático
         if (hasZeroPrice || total === 0) {
             console.log(`[Billing Service] Fallback activado: Precio cero detectado para el usuario ${userId}`);
-            await message.reply("🤖 No pude calcular automáticamente el valor total de tu renovación debido a una discrepancia en los nombres de los servicios registrados. \n\nPor favor, espera un momento a que un asesor humano revise tu caso y te envíe el valor correcto manualmente. ¡Gracias por tu paciencia! 😊");
+            await safeSend(message, "🤖 No pude calcular automáticamente el valor total de tu renovación debido a una discrepancia en los nombres de los servicios registrados. \n\nPor favor, espera un momento a que un asesor humano revise tu caso y te envíe el valor correcto manualmente. ¡Gracias por tu paciencia! 😊", userId);
             return;
         }
 
@@ -563,7 +563,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 
         if (isPaymentAlreadyReceived) {
             response += `✅ *Comprobante Registrado:* He asociado estos servicios (*${itemsForRenewal.map(i => i.platform?.name || 'Servicio').join(', ')}*) a tu pago realizado. Un asesor o el sistema automático actualizará las fechas de vencimiento de tus pantallas de inmediato. ¡Gracias! 😊`;
-            await message.reply(response);
+            await safeSend(message, response, userId);
             return;
         }
 
@@ -573,7 +573,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             response += churnText;
         }
 
-        await message.reply(response);
+        await safeSend(message, response, userId);
         
         // Actualizar estado para esperar comprobante y registrar ticket de trabajo humano
         userStates.set(userId, { 
@@ -588,7 +588,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 
     } catch (error) {
         console.error('[Billing Service] Error en processCheckPrices:', error);
-        await message.reply("🤖 Tuve un problema al calcular tus precios. Por favor espera a que un asesor revise tu caso.");
+        await safeSend(message, "🤖 Tuve un problema al calcular tus precios. Por favor espera a que un asesor revise tu caso.", userId);
     }
 }
 
