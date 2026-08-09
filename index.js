@@ -6576,10 +6576,8 @@ const client = new Client({
             '--disable-dev-shm-usage',
             '--disable-accelerated-2d-canvas',
             '--no-first-run',
-            '--no-zygote',
             '--disable-gpu',
             '--disable-extensions',
-            '--disable-software-rasterizer',
             '--disable-blink-features=AutomationControlled' // Oculta navigator.webdriver
         ],
         timeout: 60000,
@@ -11494,10 +11492,10 @@ process.on('unhandledRejection', (reason, promise) => {
     console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
 });
 
-// Inicializar cliente con reintentos para evitar caídas por recargas de la página de WhatsApp Web
-async function startClientWithRetries(retriesLeft = 4) {
+// Inicializar cliente de WhatsApp Web
+async function startClientWithRetries() {
     try {
-        console.log(`🤖 Inicializando cliente de WhatsApp Web (Intentos restantes: ${retriesLeft})...`);
+        console.log('🤖 Inicializando cliente de WhatsApp Web...');
         const fs = require('fs');
         const path = require('path');
         const sessionDirs = [
@@ -11521,12 +11519,7 @@ async function startClientWithRetries(retriesLeft = 4) {
         await client.initialize();
     } catch (err) {
         console.error('❌ Error al inicializar cliente:', err.message);
-        if (retriesLeft > 0 && (err.message.includes('destroyed') || err.message.includes('detached') || err.message.includes('Protocol error') || err.message.includes('context'))) {
-            console.log('⏳ Detectada recarga de página o destrucción de contexto. Reintentando inicialización en 6 segundos...');
-            await new Promise(resolve => setTimeout(resolve, 6000));
-            return startClientWithRetries(retriesLeft - 1);
-        }
-        console.error('🔥 Se agotaron los intentos de inicialización. Forzando salida para PM2...');
+        console.error('🔥 Forzando salida para que PM2 reinicie con un cliente limpio...');
         process.exit(1);
     }
 }
