@@ -10599,10 +10599,6 @@ async function safeReply(message, content, userId) {
         console.log(`[Safe Reply] 🛑 Omitiendo respuesta vacía o emoji suelto.`);
         return null;
     }
-    if (messageQueues.has(userId)) {
-        console.log(`[Stale Guard] 🛑 Abortando respuesta para @${userId.replace('@c.us', '')} porque hay nuevos mensajes en cola.`);
-        return null;
-    }
     const { safeSend } = require('./billingService');
     return await safeSend(message, content, userId);
 }
