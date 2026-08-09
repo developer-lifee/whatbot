@@ -11489,7 +11489,12 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-    console.error('🔥 Promesa Rechazada sin manejo (El bot sigue vivo):', reason);
+    const errObj = reason instanceof Error ? reason : new Error(String(reason));
+    console.error('🔥 Promesa Rechazada sin manejo:', reason);
+    if (isCriticalBrowserError(errObj)) {
+        console.error('🔥 [ANTI-ZOMBIE] Error crítico de navegador detectado en unhandledRejection. Reiniciando para PM2...');
+        process.exit(1);
+    }
 });
 
 // Inicializar cliente de WhatsApp Web
