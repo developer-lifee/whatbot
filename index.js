@@ -10607,30 +10607,9 @@ async function safeReply(message, content, userId) {
         return await message.reply(content);
     } catch (replyErr) {
         if (replyErr.message && (replyErr.message.includes('id property') || replyErr.message.includes('getter') || replyErr.message.includes('Evaluation failed'))) {
-            console.warn(`[Safe Reply] ⚠️ message.reply falló para @${userId}: ${replyErr.message}. Intentando resolver chat...`);
-            const activeClient = (message && message._client) || (typeof global !== 'undefined' ? global.client : null);
-            if (activeClient) {
-                let realPhoneJid = null;
-                if (userId && userId.includes('@lid') && typeof userStates !== 'undefined') {
-                    const st = userStates.get(userId);
-                    if (st && st.realPhone) {
-                        realPhoneJid = st.realPhone + '@c.us';
-                    }
-                }
-                const jidsToTry = [userId, realPhoneJid].filter(Boolean);
-                for (const jid of jidsToTry) {
-                    try {
-                        const chat = await activeClient.getChatById(jid).catch(() => null);
-                        if (chat && typeof chat.sendMessage === 'function') {
-                            return await chat.sendMessage(content);
-                        }
-                        const res = await activeClient.sendMessage(jid, content).catch(() => null);
-                        if (res) return res;
-                    } catch (e2) {
-                        console.error(`[Safe Reply] ❌ Falló envío alternativo para @${jid}:`, e2.message);
-                    }
-                }
-            }
+            console.warn(`[Safe Reply] ⚠️ message.reply falló para @${userId}: ${replyErr.message}. Intentando resolver chat con safeSend...`);
+            const { safeSend } = require('./billingService');
+            return await safeSend(message, content, userId);
         } else {
             throw replyErr;
         }

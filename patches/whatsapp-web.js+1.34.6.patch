@@ -393,7 +393,7 @@ index e9584d9..795dfe0 100644
                  id: e
              });
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Store.js b/node_modules/whatsapp-web.js/src/util/Injected/Store.js
-index 8f56a56..676758a 100644
+index 8f56a56..62edf0c 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Store.js
 +++ b/node_modules/whatsapp-web.js/src/util/Injected/Store.js
 @@ -44,6 +44,44 @@ exports.ExposeStore = () => {
@@ -441,7 +441,25 @@ index 8f56a56..676758a 100644
      window.Store.AppState = window.require('WAWebSocketModel').Socket;
      window.Store.BlockContact = window.require('WAWebBlockContactAction');
      window.Store.Conn = window.require('WAWebConnModel').Conn;
-@@ -211,7 +249,12 @@ exports.ExposeStore = () => {
+@@ -75,6 +113,17 @@ exports.ExposeStore = () => {
+         ...window.require('WAWebFrontendContactGetters')
+     };
+     window.Store.UserConstructor = window.require('WAWebWid');
++    try {
++        const WidClass = window.Store.UserConstructor;
++        if (WidClass && WidClass.prototype) {
++            if (!Object.getOwnPropertyDescriptor(WidClass.prototype, 'id')) {
++                Object.defineProperty(WidClass.prototype, 'id', {
++                    get() { return this._serialized || this.user || ''; },
++                    configurable: true
++                });
++            }
++        }
++    } catch (e) {}
+     window.Store.Validators = window.require('WALinkify');
+     window.Store.WidFactory = window.require('WAWebWidFactory');
+     window.Store.ProfilePic = window.require('WAWebContactProfilePicThumbBridge');
+@@ -211,7 +260,12 @@ exports.ExposeStore = () => {
  
      if (!window.Store.Chat._find || !window.Store.Chat.findImpl) {
          window.Store.Chat._find = e => {
