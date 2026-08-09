@@ -22,23 +22,23 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
     if (activeClient) {
         for (const jid of jidsToTry) {
             try {
+                const res = await activeClient.sendMessage(jid, text).catch(() => null);
+                if (res) return res;
+
                 const chat = await activeClient.getChatById(jid).catch(() => null);
                 if (chat && typeof chat.sendMessage === 'function') {
-                    await chat.sendMessage(text);
-                    return;
+                    const resChat = await chat.sendMessage(text).catch(() => null);
+                    if (resChat) return resChat;
                 }
-                await activeClient.sendMessage(jid, text);
-                return;
             } catch (e) {
-                console.warn(`[safeSend] Attempt failed for ${jid}:`, e.message);
+                console.warn(`[safeSend] activeClient attempt failed for ${jid}:`, e.message);
             }
         }
     }
 
     if (message && typeof message.reply === 'function') {
         try {
-            await message.reply(text);
-            return;
+            return await message.reply(text);
         } catch (e) {
             console.error(`[safeSend] message.reply error:`, e.message);
         }
