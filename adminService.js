@@ -117,19 +117,22 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
 
                     console.log(`[BATCH] Escaneando chat: ${chatId} (Unread: ${unreadCount}${isSilenced ? ', Silenced' : ''})`);
 
-                    // Procesar todos los mensajes no leídos
-                    const unreadMessages = unreadCount > 0 ? messages.slice(-unreadCount) : [];
-                    const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
+                    // Buscar todos los mensajes del cliente (!fromMe) en los mensajes del chat
+                    const customerMessages = messages.filter(m => {
+                        if (!m) return false;
+                        const isFromMe = m.fromMe || (m.id && m.id.fromMe);
+                        return !isFromMe;
+                    });
 
-                    // Tomar todos los mensajes que NO sean fromMe
-                    const filteredMessages = toProcess.filter(m => m && !m.fromMe);
+                    if (customerMessages.length > 0) {
+                        const countToTake = unreadCount > 0 ? Math.min(unreadCount, customerMessages.length) : 1;
+                        const filteredMessages = customerMessages.slice(-countToTake);
 
-                    if (filteredMessages.length > 0) {
-                        console.log(`[BATCH] 🚀 Procesando ${filteredMessages.length} mensaje(s) para ${chatId}`);
+                        console.log(`[BATCH] 🚀 Procesando ${filteredMessages.length} mensaje(s) del cliente para ${chatId}`);
                         await processIncomingMessage(filteredMessages);
                         await chat.sendSeen().catch(() => {});
                     } else {
-                        console.log(`[BATCH] ⏩ Omitiendo ${chatId}: no hay mensajes del cliente para procesar.`);
+                        console.log(`[BATCH] ⏩ Omitiendo ${chatId}: no se encontraron mensajes del cliente en los últimos ${messages.length} mensajes.`);
                     }
                 }
             } catch (err) {
