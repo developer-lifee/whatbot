@@ -1083,6 +1083,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
 }
 
 module.exports = {
+  safeSend,
   processCheckCredentials,
   processCheckPrices,
   handleAutoCobros,
