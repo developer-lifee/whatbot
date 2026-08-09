@@ -119,25 +119,17 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
 
                     // Procesar todos los mensajes no leídos
                     const unreadMessages = unreadCount > 0 ? messages.slice(-unreadCount) : [];
-                    // Si no hay no leídos (pero estaba en waiting_human), procesar al menos el último
                     const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
 
-                    // Filtrar mensajes recibidos desde las 7:30 PM de hoy (últimas 6 horas / 360 minutos)
-                    // Esto incluye todos los chats pendientes acumulados sin escanear días antiguos
-                    const limitMin = 360;
-                    const maxAge = Math.floor(Date.now() / 1000) - (limitMin * 60);
-                    const filteredMessages = toProcess.filter(m => {
-                        if (!m || m.fromMe) return false;
-                        const ts = m.timestamp || m.t || (m._data && m._data.t) || 0;
-                        return ts > maxAge;
-                    });
+                    // Tomar todos los mensajes que NO sean fromMe
+                    const filteredMessages = toProcess.filter(m => m && !m.fromMe);
 
                     if (filteredMessages.length > 0) {
                         console.log(`[BATCH] 🚀 Procesando ${filteredMessages.length} mensaje(s) para ${chatId}`);
                         await processIncomingMessage(filteredMessages);
                         await chat.sendSeen().catch(() => {});
                     } else {
-                        console.log(`[BATCH] ⏩ Omitiendo ${chatId}: los mensajes tienen más de 6 horas o son propios.`);
+                        console.log(`[BATCH] ⏩ Omitiendo ${chatId}: no hay mensajes del cliente para procesar.`);
                     }
                 }
             } catch (err) {
