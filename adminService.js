@@ -122,11 +122,9 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
                     // Si no hay no leídos (pero estaba en waiting_human), procesar al menos el último
                     const toProcess = unreadMessages.length > 0 ? unreadMessages : [messages[messages.length - 1]];
 
-                    // En arranque (isStartup=true) usamos 60 min para procesar mensajes acumulados mientras el bot estuvo caído
-                    // En escaneo periódico (isStartup=false) usamos 30 min
-                    const limitMin = isStartup ? 60 : 30;
-                    const maxAge = Math.floor(Date.now() / 1000) - (limitMin * 60);
-                    const filteredMessages = toProcess.filter(m => !m.fromMe && m.timestamp > maxAge);
+                    // En arranque o escaneo continuo, si el chat tiene mensajes no leídos (unreadMessages),
+                    // los procesamos sin restringir por tiempo estricto para no ignorar clientes pendientes.
+                    const filteredMessages = toProcess.filter(m => !m.fromMe);
 
                     if (filteredMessages.length > 0) {
                         await processIncomingMessage(filteredMessages);
