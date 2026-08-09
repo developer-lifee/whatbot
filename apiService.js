@@ -179,15 +179,17 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
           const whatsappDigits = whatsappVal.replace(/\D/g, '');
           if (whatsappVal && !whatsappDigits) {
             const cleanWhatsapp = whatsappVal.toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (cleanWhatsapp === cleanContactName || cleanWhatsapp.includes(cleanContactName) || cleanContactName.includes(cleanWhatsapp)) {
-              return true;
+            if (cleanWhatsapp.length >= 3) {
+              if (cleanWhatsapp === cleanContactName || cleanWhatsapp.includes(cleanContactName) || cleanContactName.includes(cleanWhatsapp)) {
+                return true;
+              }
             }
           }
           const nameVal = (c.Nombre || c.nombre || "").toString().trim().toLowerCase();
           const lastNameVal = (c.Apellido || c.apellido || "").toString().trim().toLowerCase();
           const fullName = `${nameVal} ${lastNameVal}`.replace(/[^a-z0-9]/g, '').trim();
           
-          if (!fullName) return false;
+          if (!fullName || fullName.length < 3) return false;
           
           // Descartar si es una fila marcada como libre o disponible
           if (fullName.includes('libre') || fullName.includes('vacio') || fullName.includes('disponible')) {

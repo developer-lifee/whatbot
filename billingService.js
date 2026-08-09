@@ -95,6 +95,28 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
     }
 }
 
+async function resolveRealPhoneFromJid(jid, client = null) {
+    if (!jid) return null;
+    if (jid.includes('@c.us')) return jid.replace('@c.us', '').replace(/\D/g, '');
+    const activeClient = client || (typeof global !== 'undefined' ? global.client : null);
+    if (activeClient && activeClient.pupPage) {
+        try {
+            const phone = await activeClient.pupPage.evaluate((targetJid) => {
+                try {
+                    const c = window.Store.Contact.get(targetJid);
+                    if (c && c.phoneNumber) return c.phoneNumber;
+                    if (c && c.id && c.id.user && !c.id.user.includes('lid')) return c.id.user;
+                    const chat = window.Store.Chat.get(targetJid);
+                    if (chat && chat.phoneNumber) return chat.phoneNumber;
+                } catch(e) {}
+                return null;
+            }, jid).catch(() => null);
+            if (phone) return phone.replace(/\D/g, '');
+        } catch(e) {}
+    }
+    return jid.replace(/\D/g, '');
+}
+
 function getPlatformPriceFromExcel(streamingName, platforms = []) {
     if (!streamingName) return 0;
     const cleanName = streamingName.toString().trim().toUpperCase();
@@ -107,18 +129,26 @@ function getPlatformPriceFromExcel(streamingName, platforms = []) {
     const targetName = aliasMap[cleanName] || cleanName;
 
     if (Array.isArray(platforms)) {
+        // 1. Buscar coincidencia exacta o cercana en planes de todas las plataformas primero
         for (const p of platforms) {
-            const pName = (p.name || '').toUpperCase();
-            if (pName.includes(targetName) || targetName.includes(pName)) {
-                return p.price || 0;
-            }
             if (Array.isArray(p.plans)) {
                 for (const plan of p.plans) {
                     const planName = (plan.name || '').toUpperCase();
-                    if (planName.includes(targetName) || targetName.includes(planName)) {
-                        return plan.price || p.price || 0;
+                    const fullPlanName = `${p.name || ''} ${plan.name || ''}`.toUpperCase();
+                    if (targetName === planName || targetName === fullPlanName ||
+                        planName.includes(targetName) || targetName.includes(planName) ||
+                        fullPlanName.includes(targetName) || targetName.includes(fullPlanName)) {
+                        return plan.price || 0;
                     }
                 }
+            }
+        }
+
+        // 2. Si no coincide con ningún plan, buscar coincidencia en el nombre de la plataforma
+        for (const p of platforms) {
+            const pName = (p.name || '').toUpperCase();
+            if (pName === targetName || pName.includes(targetName) || targetName.includes(pName)) {
+                return p.price || 0;
             }
         }
     }
@@ -177,43 +207,27 @@ async function checkPendingWebSaleForPhone(phone, name = '') {
 async function processCheckCredentials(userId, client, triggerMessage = "", history = "", userStates = null) {
     try {
         if (!userId || userId.endsWith('@newsletter')) return;
-        let phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+        let phoneNumber = await resolveRealPhoneFromJid(userId, client);
         let contactName = null;
         if (userId.includes('@lid')) {
-            const stObj = userStates ? userStates.get(userId) : null;
-            if (stObj && stObj.realPhone) {
-                phoneNumber = stObj.realPhone;
-            } else {
-                try {
-                    const { pool } = require('./database');
-                    const [chatRows] = await pool.query('SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1', [userId]);
-                    if (chatRows.length > 0 && chatRows[0].customer_phone) {
-                        phoneNumber = chatRows[0].customer_phone;
-                    }
-                } catch (e) { }
-            }
-
-            if (phoneNumber.includes('@lid') || !/^\d+$/.test(phoneNumber)) {
-                try {
-                    const contact = await Promise.race([
-                        client.getContactById(userId),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getContactById")), 1500))
-                    ]).catch(() => null);
-
-                    if (contact && (contact.number || contact.phoneNumber)) {
-                        let extractedNum = contact.number;
-                        if (!extractedNum && contact.phoneNumber) {
-                            extractedNum = typeof contact.phoneNumber === 'string' ? contact.phoneNumber.replace(/\D/g, '') : (contact.phoneNumber.user || '');
-                        }
-                        if (extractedNum) {
-                            phoneNumber = extractedNum;
-                            contactName = contact.name || contact.pushname;
-                        }
-                    }
-                } catch (e) {
-                    console.warn("[processCheckCredentials] No se pudo obtener contacto para LID:", e.message);
+            try {
+                const { pool } = require('./database');
+                const [chatRows] = await pool.query('SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1', [userId]);
+                if (chatRows.length > 0 && chatRows[0].customer_phone) {
+                    phoneNumber = chatRows[0].customer_phone.replace(/\D/g, '');
                 }
-            }
+            } catch (e) { }
+
+            try {
+                const contact = await Promise.race([
+                    client.getContactById(userId),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getContactById")), 1500))
+                ]).catch(() => null);
+
+                if (contact) {
+                    contactName = contact.name || contact.pushname;
+                }
+            } catch (e) { }
         }
 
         // Validar si tiene un pago en proceso de validación humana
@@ -365,7 +379,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
             }
         }
 
-        const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+        const phoneNumber = await resolveRealPhoneFromJid(userId);
         const userAccounts = await getAccountsByPhone(phoneNumber);
         if (!userAccounts || userAccounts.length === 0) return;
 
@@ -436,13 +450,13 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
  */
 async function processCheckPrices(message, userId, userStates, inputToUse = "", detectedPlatform = null, durationMonths = 1) {
     try {
-        let phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+        const client = (message && message._client) || (typeof global !== 'undefined' ? global.client : null);
+        let phoneNumber = await resolveRealPhoneFromJid(userId, client);
         let contactName = null;
         try {
             if (message && typeof message.getContact === 'function') {
                 const contact = await message.getContact();
-                if (contact && contact.number) {
-                    phoneNumber = contact.number;
+                if (contact) {
                     contactName = contact.name || contact.pushname;
                 }
             }
@@ -1140,5 +1154,6 @@ module.exports = {
   handleCobrosParser,
   handleAwaitingCobrosConfirmation,
   adjustDurationToMatchAmount,
-  checkPendingWebSaleForPhone
+  checkPendingWebSaleForPhone,
+  resolveRealPhoneFromJid
 };

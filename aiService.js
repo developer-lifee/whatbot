@@ -273,7 +273,8 @@ function summarizePlatformKnowledge(platforms) {
   }).join('\n---\n');
 
   summaryText += `\n\n⚠️ REGLAS ESTRICTAS DE STOCK Y DISPONIBILIDAD (OBLIGATORIO):
-- NETFLIX EXTRA (Miembro Extra / Perfil Propio con tu correo): Actualmente NO TIENE STOCK DISPONIBLE (AGOTADO). Si un usuario pregunta por Netflix Extra o desea comprar un miembro extra de Netflix, DEBES informarle amablemente que "Netflix Extra / Miembro Extra se encuentra temporalmente agotado y sin stock disponible", y en su lugar ofrecerle el perfil tradicional de Netflix o la pantalla completa. NUNCA vendas ni dejes en carrito Netflix Extra mientras esté sin stock.`;
+- NETFLIX EXTRA (Miembro Extra / Perfil Propio con tu correo): Actualmente NO TIENE STOCK DISPONIBLE (AGOTADO). Si un usuario pregunta por Netflix Extra o desea comprar un miembro extra de Netflix, DEBES informarle amablemente que "Netflix Extra / Miembro Extra se encuentra temporalmente agotado y sin stock disponible", y en su lugar ofrecerle el perfil tradicional de Netflix o la pantalla completa. NUNCA vendas ni dejes en carrito Netflix Extra mientras esté sin stock.
+- DURACIONES Y RENOVACIONES: Todos los precios y renovaciones de todas las plataformas (incluyendo Crunchyroll, Netflix, Disney, Spotify, etc.) son SIEMPRE por una duración de 1 MES (mensual), a menos que el plan diga explícitamente "Anual" en su NOMBRE. Características en la descripción como "Cuenta estable 12 meses" o "Garantía de 12 meses" significan que la cuenta física dura o se garantiza por ese tiempo, pero la facturación y renovación del pago es SIEMPRE mensual (1 mes). NUNCA le digas al cliente que un pago mensual (ej. Crunchyroll a $7.000) le cubre una duración de 12 meses. Siempre es de 1 mes.`;
 
   return summaryText;
 }

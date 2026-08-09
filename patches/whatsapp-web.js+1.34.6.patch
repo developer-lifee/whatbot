@@ -474,7 +474,7 @@ index 8f56a56..62edf0c 100644
                  id: e
              });
 diff --git a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
-index 4fdc45d..e14b7bf 100644
+index 4fdc45d..a0b5351 100644
 --- a/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
 +++ b/node_modules/whatsapp-web.js/src/util/Injected/Utils.js
 @@ -3,8 +3,27 @@
@@ -735,3 +735,23 @@ index 4fdc45d..e14b7bf 100644
          }
  
          delete model.msgs;
+@@ -699,15 +812,16 @@ exports.LoadUtils = () => {
+         res.shortName = window.Store.ContactMethods.getShortName(contact);
+         res.pushname = window.Store.ContactMethods.getPushname(contact);
+ 
++        if (res.id && res.id._serialized && res.id._serialized.endsWith('@lid') && contact.phoneNumber) {
++            res.id = contact.phoneNumber;
++        }
++
+         return res;
+     };
+ 
+     window.WWebJS.getContact = async contactId => {
+         const wid = window.Store.WidFactory.createWid(contactId);
+         let contact = await window.Store.Contact.find(wid);
+-        if (contact.id._serialized.endsWith('@lid')) {
+-            contact.id = contact.phoneNumber;
+-        }
+         const bizProfile = await window.Store.BusinessProfile.fetchBizProfile(wid);
+         bizProfile.profileOptions && (contact.businessProfile = bizProfile);
+         return window.WWebJS.getContactModel(contact);
