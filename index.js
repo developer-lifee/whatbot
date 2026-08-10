@@ -10912,25 +10912,29 @@ async function handleRenewalModification(message, userId, textToUse, stateData) 
             }
 
             const excludedItems = originalItems.filter(item => !updatedItems.includes(item));
+            const churnRows = excludedItems.map(item => item._rowNumber || item.index).filter(Boolean);
             if (excludedItems.length > 0) {
                 const { updateExcelData } = require('./apiService');
                 const dateStr = new Date().toLocaleDateString('es-CO');
-                for (const item of excludedItems) {
-                    const row = item._rowNumber || item.index;
-                    if (row) {
-                        try {
-                            await updateExcelData(row, { "observaciones": `cortar (bot ${dateStr})` });
-                            console.log(`[Renewal Mod] Fila ${row} marcada como cortar (bot)`);
-                        } catch (e) {
-                            console.error(`[Renewal Mod] Error al marcar cortar para fila ${row}:`, e.message);
-                        }
+                for (const row of churnRows) {
+                    try {
+                        await updateExcelData(row, { "observaciones": `cortar (bot ${dateStr})` });
+                        console.log(`[Renewal Mod] Fila ${row} marcada como cortar (bot)`);
+                    } catch (e) {
+                        console.error(`[Renewal Mod] Error al marcar cortar para fila ${row}:`, e.message);
                     }
                 }
             }
 
             if (updatedItems.length === 0) {
-                await message.reply(modification.reply || "🤖 Entendido, he cancelado la renovación de todos los servicios. ¡Aquí tienes tu casa para cuando gustes volver! 👋");
-                userStates.delete(userId);
+                const excludedNames = excludedItems.map(item => (item.Streaming || item.name || '').toUpperCase()).join(', ');
+                await message.reply(`🤖 Entendido, he marcado tu renovación para no continuar con los servicios: *${excludedNames}*. Lamento mucho que hoy no podamos continuar con tu servicio. 😔\n\n¿Podrías contarnos brevemente la razón de tu decisión? Tu opinión nos ayuda mucho a ser mejores.`);
+                userStates.set(userId, {
+                    ...stateData,
+                    state: 'awaiting_churn_reason',
+                    rowNumber: churnRows[0],
+                    churnPlatforms: churnRows
+                });
                 return true;
             }
 
@@ -10995,10 +10999,19 @@ async function handleRenewalModification(message, userId, textToUse, stateData) 
                 state: 'awaiting_payment_method',
                 total: total,
                 items: finalItems,
-                checkAmount: 0
+                checkAmount: 0,
+                churnPlatforms: churnRows.length > 0 ? churnRows : null
             });
 
-            let newMsg = `${modification.reply}\n\n💰 *NUEVO TOTAL A PAGAR: $${total}*\n\n` +
+            let newMsg = '';
+            if (excludedItems.length > 0) {
+                const excludedNames = excludedItems.map(item => (item.Streaming || item.name || '').toUpperCase()).join(', ');
+                newMsg = `🤖 Entendido. He quitado *${excludedNames}* de tu lista de renovación. Lamento mucho que hoy no podamos continuar con ese servicio. 😔 ¿Podrías contarnos brevemente la razón de tu decisión? Tu opinión nos ayuda mucho a mejorar.\n\n`;
+            } else {
+                newMsg = `${modification.reply}\n\n`;
+            }
+
+            newMsg += `💰 *NUEVO TOTAL A PAGAR: $${total}*\n\n` +
                 `Puedes transferir por:\n` +
                 `🔑 *Llave Bre-V:* \`0087387259\` (AUTOMÁTICA ⚡)\n` +
                 `⭐ *Bancolombia Ahorros:* \`46772753713\` (CC: 1032936324)\n\n` +
