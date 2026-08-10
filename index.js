@@ -7365,8 +7365,9 @@ async function baseProcessIncomingMessage(messages) {
         resolvedPhoneFromLid = cachedState.realPhone;
     }
 
-    // Fast-path 2: si es LID, buscar en la BD (tabla chats)
-    if (!resolvedPhoneFromLid && userId.includes('@lid')) {
+    // Fast-path 2: si es LID (o JID de LID), buscar en la BD (tabla chats)
+    const isLidJid = userId.includes('@lid') || (userId.includes('@c.us') && userId.replace(/\D/g, '').length > 12);
+    if (!resolvedPhoneFromLid && isLidJid) {
         try {
             const { pool } = require('./database');
             const [chatRows] = await pool.query(
@@ -7377,6 +7378,19 @@ async function baseProcessIncomingMessage(messages) {
                 resolvedPhoneFromLid = chatRows[0].customer_phone;
             }
         } catch (e) { }
+    }
+
+    // Fast-path 2.5: si es LID y no está en la BD, consultar Puppeteer Store en tiempo real
+    if (!resolvedPhoneFromLid && isLidJid) {
+        try {
+            const { resolveRealPhoneFromJid } = require('./billingService');
+            const resolved = await resolveRealPhoneFromJid(userId);
+            if (resolved && resolved.length >= 7) {
+                resolvedPhoneFromLid = resolved;
+            }
+        } catch (e) {
+            console.warn("[LID Fix index.js] Error consultando Puppeteer Store:", e.message);
+        }
     }
 
     // Fast-path 3: consultar getContact con timeout estricto de 2000ms
@@ -7413,7 +7427,7 @@ async function baseProcessIncomingMessage(messages) {
             const oldId = userId;
             realPhone = cleanResolved;
 
-            if (userId.includes('@lid') || (isFromAdmin && !userId.includes('@g.us'))) {
+            if (userId.includes('@lid') || isLidJid || (isFromAdmin && !userId.includes('@g.us'))) {
                 userId = realPhone + '@c.us';
 
                 // MIGRACIÓN DE ESTADO: Si el ID cambió (de @lid a @c.us), migramos estado
