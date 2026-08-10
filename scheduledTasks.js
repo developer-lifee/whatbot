@@ -18,7 +18,7 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
     }
     automationInitialized = true;
     
-    console.log('⏰ [AUTOMATION] Inicializando tareas diarias (10:00 AM y 12:00 PM)...');
+    console.log('⏰ [AUTOMATION] Inicializando tareas diarias (11:00 AM y 12:00 PM)...');
 
     // Inicializar el gestor de mensajes programados
     try {
@@ -28,10 +28,10 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
         console.error('❌ Error inicializando gestor de mensajes programados:', e.message);
     }
 
-    // 1. COBROS AUTOMÁTICOS (10:00 AM)
-    // Se ejecuta de Lunes a Domingo a las 10:00 AM
-    schedule.scheduleJob('0 10 * * *', async () => {
-        console.log('🚀 [10:00 AM] Iniciando proceso automático de cobros...');
+    // 1. COBROS AUTOMÁTICOS (11:00 AM)
+    // Se ejecuta de Lunes a Domingo a las 11:00 AM
+    schedule.scheduleJob('0 11 * * *', async () => {
+        console.log('🚀 [11:00 AM] Iniciando proceso automático de cobros...');
         try {
             // Simulamos un mensaje del admin al bot para disparar el flujo de cobros
             // El bot analizará el Excel y mandará el resumen al grupo
@@ -52,7 +52,7 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
             await handleAutoCobros(fakeMessage, groupId, userStates, pendingConfirmations, client);
             
         } catch (err) {
-            console.error('❌ Error en tarea automática de las 10:00 AM:', err);
+            console.error('❌ Error en tarea automática de las 11:00 AM:', err);
         }
     });
 

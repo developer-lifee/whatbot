@@ -4367,7 +4367,7 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
             const hasBreakType = cols.some(c => c.Field === 'break_type');
             if (!hasBreakType) {
                 console.log("[Migration] Adding break_type and break_start to agent_schedules...");
-                await pool.query("ALTER TABLE agent_schedules ADD COLUMN break_type ENUM('none', 'break_30', 'lunch_60') DEFAULT 'none'");
+                await pool.query("ALTER TABLE agent_schedules ADD COLUMN break_type ENUM('none', 'break_30', 'lunch_60', 'lunch_120') DEFAULT 'none'");
                 await pool.query("ALTER TABLE agent_schedules ADD COLUMN break_start VARCHAR(10) NULL");
             }
         } catch (err) {
@@ -4895,6 +4895,7 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                     let breakMin = 0;
                     if (slot.break_type === 'break_30') breakMin = 30;
                     else if (slot.break_type === 'lunch_60') breakMin = 60;
+                    else if (slot.break_type === 'lunch_120') breakMin = 120;
 
                     targetAgentDailyNetMinutes += Math.max(0, diff - breakMin);
                 }
@@ -5074,7 +5075,7 @@ app.get('/api/admin/payroll', async (req, res) => {
         const trialHourlyRate = parseFloat(supportConfig.trial_hourly_rate || 5000);
         const trialHoursTarget = parseFloat(supportConfig.trial_hours_target || 80);
 
-        const [agents] = await pool.query('SELECT id, fullname, email, role, exclude_from_payroll FROM agents WHERE status = "active"');
+        const [agents] = await pool.query('SELECT id, fullname, email, role, exclude_from_payroll, status FROM agents');
 
         const startObj = new Date(startDateStr + 'T00:00:00');
         const endObj = new Date(endDateStr + 'T00:00:00');
@@ -5147,6 +5148,7 @@ app.get('/api/admin/payroll', async (req, res) => {
                     let breakMin = 0;
                     if (slot.break_type === 'break_30') breakMin = 30;
                     else if (slot.break_type === 'lunch_60') breakMin = 60;
+                    else if (slot.break_type === 'lunch_120') breakMin = 120;
 
                     totalNetMinutes += Math.max(0, diff - breakMin);
                 }
@@ -5202,29 +5204,31 @@ app.get('/api/admin/payroll', async (req, res) => {
                 }
             }
 
-            payrollData.push({
-                agent_id: agent.id,
-                fullname: agent.fullname,
-                email: agent.email,
-                role: agent.role,
-                contract_status: agent.status,
-                exclude_from_payroll: isExcludedFromPayroll,
-                start_date: startDateStr,
-                end_date: endDateStr,
-                total_hours: hoursToUse,
-                trial_hours: trialHoursInPeriod,
-                normal_hours: normalHoursInPeriod,
-                trial_hours_target: trialHoursTarget,
-                trial_hours_left: trialHoursLeft,
-                total_hist_trial: totalHistTrial + trialHoursInPeriod,
-                hourly_rate: hourlyRate,
-                normal_hourly_rate: hourlyRate,
-                trial_hourly_rate: trialHourlyRate,
-                bonuses: agentBonuses,
-                total_bonuses: bonusesToUse,
-                total_payment: finalPayment,
-                status: closed ? closed.status : 'draft'
-            });
+            if (agent.status === 'active' || totalHours > 0 || totalBonuses > 0 || closed) {
+                payrollData.push({
+                    agent_id: agent.id,
+                    fullname: agent.fullname,
+                    email: agent.email,
+                    role: agent.role,
+                    contract_status: agent.status,
+                    exclude_from_payroll: isExcludedFromPayroll,
+                    start_date: startDateStr,
+                    end_date: endDateStr,
+                    total_hours: hoursToUse,
+                    trial_hours: trialHoursInPeriod,
+                    normal_hours: normalHoursInPeriod,
+                    trial_hours_target: trialHoursTarget,
+                    trial_hours_left: trialHoursLeft,
+                    total_hist_trial: totalHistTrial + trialHoursInPeriod,
+                    hourly_rate: hourlyRate,
+                    normal_hourly_rate: hourlyRate,
+                    trial_hourly_rate: trialHourlyRate,
+                    bonuses: agentBonuses,
+                    total_bonuses: bonusesToUse,
+                    total_payment: finalPayment,
+                    status: closed ? closed.status : 'draft'
+                });
+            }
         }
 
         res.json({
