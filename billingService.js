@@ -58,7 +58,10 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
     }
 
     // SIEMPRE colocar realPhoneJid (@c.us) PRIMERO para garantizar la entrega a la App del cliente
-    const jidsToTry = [realPhoneJid, lidJid, (userId && userId.includes('@c.us')) ? userId : null].filter((j, idx, self) => Boolean(j) && self.indexOf(j) === idx);
+    const botNum = (activeClient && activeClient.info && activeClient.info.wid) ? activeClient.info.wid.user : '3118587974';
+    const jidsToTry = [realPhoneJid, lidJid, (userId && userId.includes('@c.us')) ? userId : null]
+        .filter((j, idx, self) => Boolean(j) && self.indexOf(j) === idx)
+        .filter(j => !j.includes(botNum) && !j.includes('573118587974'));
 
     if (activeClient) {
         for (const jid of jidsToTry) {
