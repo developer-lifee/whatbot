@@ -105,11 +105,15 @@ async function resolveRealPhoneFromJid(jid, client = null) {
         try {
             const phone = await activeClient.pupPage.evaluate((targetJid) => {
                 try {
-                    const c = window.Store.Contact.get(targetJid);
-                    if (c && c.phoneNumber) return c.phoneNumber;
-                    if (c && c.id && c.id.user && !c.id.user.includes('lid')) return c.id.user;
-                    const chat = window.Store.Chat.get(targetJid);
-                    if (chat && chat.phoneNumber) return chat.phoneNumber;
+                    const cleanJid = targetJid.split('@')[0];
+                    const jidsToTry = [cleanJid + '@lid', cleanJid + '@c.us'];
+                    for (const tryJid of jidsToTry) {
+                        const c = window.Store.Contact.get(tryJid);
+                        if (c && c.phoneNumber) return c.phoneNumber;
+                        if (c && c.id && c.id.user && !c.id.user.includes('lid')) return c.id.user;
+                        const chat = window.Store.Chat.get(tryJid);
+                        if (chat && chat.phoneNumber) return chat.phoneNumber;
+                    }
                 } catch(e) {}
                 return null;
             }, jid).catch(() => null);
