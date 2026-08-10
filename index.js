@@ -1778,24 +1778,19 @@ app.get('/api/admin/tickets', async (req, res) => {
                         }
                     } catch (e) { }
                 }
-                // 3. Buscar via whatsapp-web.js getContactById
-                if (!resolvedPhoneFromLid && client && client.info) {
+                // 3. Buscar via resolveRealPhoneFromJid (Puppeteer)
+                if (!resolvedPhoneFromLid) {
                     try {
-                        const contact = await Promise.race([
-                            client.getContactById(userId),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1500))
-                        ]);
-                        if (contact && contact.number) {
-                            resolvedPhoneFromLid = contact.number;
+                        const { resolveRealPhoneFromJid } = require('./billingService');
+                        const resolved = await resolveRealPhoneFromJid(userId);
+                        if (resolved && resolved.length >= 7) {
+                            resolvedPhoneFromLid = resolved;
                             // Guardar en DB para futuras consultas
                             try {
-                                const [custCheck] = await pool.query('SELECT phone FROM customers WHERE phone = ?', [contact.number]);
-                                if (custCheck.length > 0) {
-                                    await pool.query(
-                                        'UPDATE chats SET customer_phone = ? WHERE chat_id = ?',
-                                        [contact.number, userId]
-                                    );
-                                }
+                                await pool.query(
+                                    'UPDATE chats SET customer_phone = ? WHERE chat_id = ?',
+                                    [resolved, userId]
+                                );
                             } catch (e) { }
                         }
                     } catch (e) { }
