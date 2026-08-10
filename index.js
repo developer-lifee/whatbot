@@ -6793,14 +6793,14 @@ client.on('message_create', async (msg) => {
         let targetId = msg.to;
 
         // Traducción de LID a @c.us para consistencia en el estado (evita pisar charlas humanas)
-        if (targetId && targetId.includes('@lid')) {
+        const cleanTarget = targetId.replace(/\D/g, '');
+        const isLid = targetId.includes('@lid') || (targetId.includes('@c.us') && cleanTarget.length > 12);
+        if (isLid) {
             try {
-                const contact = await Promise.race([
-                    client.getContactById(targetId),
-                    new Promise((_, r) => setTimeout(() => r(new Error("Timeout (3s)")), 3000))
-                ]).catch(() => null);
-                if (contact && contact.id && contact.id.user) {
-                    targetId = contact.id.user + '@c.us';
+                const { resolveRealPhoneFromJid } = require('./billingService');
+                const resolved = await resolveRealPhoneFromJid(targetId);
+                if (resolved && resolved.length >= 7) {
+                    targetId = resolved + '@c.us';
                 }
             } catch (e) {
                 if (msg && msg.body) console.warn("[LID Fix message_create] Error traduciendo contacto:", e.message);
