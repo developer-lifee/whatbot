@@ -97,7 +97,9 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
 
 async function resolveRealPhoneFromJid(jid, client = null) {
     if (!jid) return null;
-    if (jid.includes('@c.us')) return jid.replace('@c.us', '').replace(/\D/g, '');
+    const clean = jid.replace(/\D/g, '');
+    const isLid = jid.includes('@lid') || (jid.includes('@c.us') && clean.length > 12);
+    if (!isLid && jid.includes('@c.us')) return clean;
     const activeClient = client || (typeof global !== 'undefined' ? global.client : null);
     if (activeClient && activeClient.pupPage) {
         try {
