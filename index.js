@@ -1801,12 +1801,15 @@ app.get('/api/admin/tickets', async (req, res) => {
                     } catch (e) { }
                 }
 
-                if (resolvedPhoneFromLid) {
+                const botNum = (client.info && client.info.wid) ? client.info.wid.user : '3118587974';
+                if (resolvedPhoneFromLid && resolvedPhoneFromLid !== '573118587974' && resolvedPhoneFromLid !== botNum) {
                     phone = String(resolvedPhoneFromLid).replace(/\D/g, '');
                     // Guardar en estado para futuras consultas
                     if (typeof state === 'object') {
                         state.realPhone = phone;
                     }
+                } else {
+                    phone = userId.replace('@c.us', '').replace('@lid', '');
                 }
             }
 
@@ -7395,11 +7398,18 @@ async function baseProcessIncomingMessage(messages) {
 
     // Fast-path 3: consultar getContact con timeout estricto de 2000ms
     try {
-        if (message && typeof message.getContact === 'function' && message.id && message.id._serialized) {
-            contact = await Promise.race([
-                message.getContact(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getContact (2s)")), 2000))
-            ]).catch(() => null);
+        if (message && message.id && message.id._serialized) {
+            if (message.fromMe) {
+                contact = await Promise.race([
+                    client.getContactById(userId),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getContactById (2s)")), 2000))
+                ]).catch(() => null);
+            } else if (typeof message.getContact === 'function') {
+                contact = await Promise.race([
+                    message.getContact(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getContact (2s)")), 2000))
+                ]).catch(() => null);
+            }
 
             if (contact) {
                 let extractedNum = contact.number;
@@ -7412,7 +7422,8 @@ async function baseProcessIncomingMessage(messages) {
                         extractedNum = contact.phoneNumber._serialized.replace(/\D/g, '');
                     }
                 }
-                if (extractedNum) {
+                const botNum = (client.info && client.info.wid) ? client.info.wid.user : '3118587974';
+                if (extractedNum && extractedNum !== botNum && extractedNum !== '573118587974') {
                     resolvedPhoneFromLid = extractedNum;
                 }
             }
