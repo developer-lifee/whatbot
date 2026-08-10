@@ -101,7 +101,7 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
 async function resolveRealPhoneFromJid(jid, client = null) {
     if (!jid) return null;
     const clean = jid.replace(/\D/g, '');
-    const isLid = jid.includes('@lid') || (jid.includes('@c.us') && clean.length > 12);
+    const isLid = jid.includes('@lid') || (jid.includes('@c.us') && !clean.startsWith('57') && clean.length > 10) || clean.length > 12;
     if (!isLid && jid.includes('@c.us')) return clean;
     const activeClient = client || (typeof global !== 'undefined' ? global.client : null);
     if (activeClient && activeClient.pupPage) {

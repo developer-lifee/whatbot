@@ -2151,8 +2151,35 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         const { phone, password, resolveAll, agentName: bodyAgentName } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const userId = phone.includes('@') ? phone : phone + '@c.us';
-        const cleanPhone = phone.replace('@c.us', '').replace(/\D/g, '');
+        const cleanPhone = phone.replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
+        const userId = cleanPhone + '@c.us';
+
+        // Obtener todos los posibles JIDs asociados a este teléfono (LID y teléfono real)
+        const possibleJids = [cleanPhone + '@c.us', cleanPhone + '@lid'];
+        const isLid = cleanPhone.length > 12 || (!cleanPhone.startsWith('57') && cleanPhone.length > 10);
+        if (isLid) {
+            try {
+                const [chatRows] = await pool.query(
+                    'SELECT customer_phone FROM chats WHERE chat_id = ? OR chat_id = ? LIMIT 1',
+                    [cleanPhone + '@lid', cleanPhone + '@c.us']
+                );
+                if (chatRows.length > 0 && chatRows[0].customer_phone) {
+                    const real = chatRows[0].customer_phone;
+                    possibleJids.push(real + '@c.us');
+                }
+            } catch (e) { }
+        } else {
+            try {
+                const [chatRows] = await pool.query(
+                    'SELECT chat_id FROM chats WHERE customer_phone = ?',
+                    [cleanPhone]
+                );
+                chatRows.forEach(row => {
+                    if (row.chat_id) possibleJids.push(row.chat_id);
+                });
+            } catch (e) { }
+        }
+        const uniqueJids = Array.from(new Set(possibleJids));
 
         // Obtener correos asociados a este teléfono
         let targetEmails = [];
@@ -2202,12 +2229,15 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
             console.error('[Resolved Log] Error logging resolved ticket:', logErr.message);
         }
 
-        userStates.set(userId, {
-            ...(typeof stateData === 'object' ? stateData : { state: stateData }),
-            state: 'resolved',
-            agent: agentName,
-            resolvedAt: Date.now()
-        });
+        for (const targetJid of uniqueJids) {
+            const stateData = userStates.get(targetJid) || {};
+            userStates.set(targetJid, {
+                ...(typeof stateData === 'object' ? stateData : { state: stateData }),
+                state: 'resolved',
+                agent: agentName,
+                resolvedAt: Date.now()
+            });
+        }
 
         // Auto-resolver tickets de otras personas que tengan las mismas cuentas/correos
         let resolvedOthersCount = 0;
@@ -6794,7 +6824,7 @@ client.on('message_create', async (msg) => {
 
         // Traducción de LID a @c.us para consistencia en el estado (evita pisar charlas humanas)
         const cleanTarget = targetId.replace(/\D/g, '');
-        const isLid = targetId.includes('@lid') || (targetId.includes('@c.us') && cleanTarget.length > 12);
+        const isLid = targetId.includes('@lid') || (targetId.includes('@c.us') && !cleanTarget.startsWith('57') && cleanTarget.length > 10) || cleanTarget.length > 12;
         if (isLid) {
             try {
                 const { resolveRealPhoneFromJid } = require('./billingService');
@@ -7364,7 +7394,7 @@ async function baseProcessIncomingMessage(messages) {
     }
 
     // Fast-path 2: si es LID (o JID de LID), buscar en la BD (tabla chats)
-    const isLidJid = userId.includes('@lid') || (userId.includes('@c.us') && userId.replace(/\D/g, '').length > 12);
+    const isLidJid = userId.includes('@lid') || (userId.includes('@c.us') && !userId.replace(/\D/g, '').startsWith('57') && userId.replace(/\D/g, '').length > 10) || userId.replace(/\D/g, '').length > 12;
     if (!resolvedPhoneFromLid && isLidJid) {
         try {
             const { pool } = require('./database');
@@ -7586,7 +7616,7 @@ async function baseProcessIncomingMessage(messages) {
     } catch (err) { }
 
     // Sincronizar con Google Contacts si tenemos un nombre válido y es un chat individual
-    const isLidPhone = realPhone.length > 12;
+    const isLidPhone = realPhone.length > 12 || (!realPhone.startsWith('57') && realPhone.length > 10);
     if (!message.fromMe && foundName && !realPhone.includes(ADMIN_RAW_PHONE) && !userId.includes('@g.us') && !isLidPhone) {
         try {
             const { addNewContact } = require('./googleContactsService');
