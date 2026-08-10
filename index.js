@@ -7586,7 +7586,8 @@ async function baseProcessIncomingMessage(messages) {
     } catch (err) { }
 
     // Sincronizar con Google Contacts si tenemos un nombre válido y es un chat individual
-    if (!message.fromMe && foundName && !realPhone.includes(ADMIN_RAW_PHONE) && !userId.includes('@g.us')) {
+    const isLidPhone = realPhone.length > 12;
+    if (!message.fromMe && foundName && !realPhone.includes(ADMIN_RAW_PHONE) && !userId.includes('@g.us') && !isLidPhone) {
         try {
             const { addNewContact } = require('./googleContactsService');
             await addNewContact(foundName, realPhone).catch(() => null);
