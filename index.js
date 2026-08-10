@@ -7111,7 +7111,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
                     } else if (nameLower.includes('netflix')) {
                         // 3. NETFLIX (CÓDIGO DE 4 DÍGITOS + ENLACE DE HOGAR SHEERIT)
-                        const cleanPhone = userId.replace(/\D/g, '');
+                        const cleanPhone = realPhone || userId.replace(/\D/g, '');
                         const isFourDigitPin = latest.code && /^\d{4}$/.test(latest.code.toString().trim());
 
                         response = `🤖 *${isFourDigitPin ? 'Código y Enlace' : 'Enlace de acceso'} de NETFLIX Encontrado* 🚀\n\n`;
