@@ -7256,6 +7256,27 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
 
 /**
+ * Determina si hay algún mensaje reciente enviado por un humano (asesor) en las últimas 6 horas.
+ */
+async function hasRecentHumanMessage(message, limit = 15) {
+    try {
+        const chat = await message.getChat();
+        const msgs = await chat.fetchMessages({ limit });
+        const nowSec = Math.floor(Date.now() / 1000);
+        for (const m of msgs) {
+            if (m.fromMe && !m.body.includes('🤖')) {
+                const diffHours = (nowSec - m.timestamp) / 3600;
+                if (diffHours <= 6) {
+                    return true;
+                }
+            }
+        }
+    } catch (e) {}
+    return false;
+}
+
+
+/**
  * Procesa un lote de mensajes de un mismo usuario con bloqueo a nivel de usuario.
  */
 async function processIncomingMessage(messages) {
@@ -10843,6 +10864,10 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     await processCheckCredentials(userId, client, message.body, "", userStates);
                     return;
                 } else if (detection.intent === 'duda_contexto') {
+                    if (await hasRecentHumanMessage(message)) {
+                        console.log(`[Bypass Bot Reply] Silenciando respuesta 'duda_contexto' por mensaje humano reciente en las últimas 6 horas.`);
+                        return;
+                    }
                     const history = await getChatHistoryText(message);
                     let accounts = [];
                     try { accounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
@@ -10873,7 +10898,10 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                 }
             }
 
-            // Si no es un número, usamos la IA para ver si tiene una duda o comentario
+            if (await hasRecentHumanMessage(message)) {
+                console.log(`[Bypass Bot Reply] Silenciando respuesta general/fallback por mensaje humano reciente en las últimas 6 horas.`);
+                return;
+            }
             const history = await getChatHistoryText(message);
 
             let accounts = [];
