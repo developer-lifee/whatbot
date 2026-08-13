@@ -4664,7 +4664,7 @@ app.get('/api/admin/agents/schedules/all', async (req, res) => {
         const week_start = req.query.week_start || 'default';
         const { pool } = require('./database');
 
-        const [agents] = await pool.query('SELECT id, username, fullname, email, role FROM agents WHERE status = "active"');
+        const [agents] = await pool.query('SELECT id, username, fullname, email, role, status FROM agents');
         const allSchedules = [];
 
         for (const agent of agents) {
