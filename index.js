@@ -319,6 +319,115 @@ app.get('/', (req, res) => {
     res.send('Hola, mundo! This is Sheerit Whatbot Express Server.');
 });
 
+// ==========================================
+// 🎵 iOS SHORTCUTS & SIRI MUSIC SEARCH API
+// ==========================================
+app.all('/api/music/search', express.json(), async (req, res) => {
+    try {
+        const query = req.query.q || req.query.query || req.body?.q || req.body?.query || req.body?.prompt || "";
+        
+        if (!query || !query.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: "Por favor proporciona el comando o nombre de la canción en el parámetro 'q' o 'query'."
+            });
+        }
+
+        console.log(`[Music API] 🎵 Procesando comando de voz / búsqueda: "${query}"`);
+
+        // 1. Consultar a la IA (DeepSeek) para interpretar la intención del usuario
+        let aiResult = null;
+        try {
+            const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+            const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
+
+            if (DEEPSEEK_API_KEY) {
+                const response = await fetch(`${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: 'Eres un asistente musical para iOS Shortcuts y Siri. El usuario te dará un comando de voz como "oye siri reproduce X" o "pon la canción Y". Extrae el título exacto de la canción, el artista y genera el término ideal de búsqueda para encontrar el video o audio oficial. Responde ÚNICAMENTE un objeto JSON válido con los campos: "song" (título de la canción), "artist" (nombre del artista), "searchTerm" (término de búsqueda limpio).'
+                            },
+                            {
+                                role: 'user',
+                                content: query
+                            }
+                        ],
+                        response_format: { type: 'json_object' }
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const rawContent = data.choices?.[0]?.message?.content || "";
+                    aiResult = JSON.parse(rawContent);
+                }
+            }
+        } catch (aiErr) {
+            console.warn("[Music API] ⚠️ Error en consulta de IA, continuando con búsqueda limpia:", aiErr.message);
+        }
+
+        const songTitle = aiResult?.song || query.replace(/^(oye\s+siri\s+)?reproduce\s+/i, '').trim();
+        const artistName = aiResult?.artist || "";
+        const searchTerm = aiResult?.searchTerm || `${songTitle} ${artistName}`.trim();
+
+        // 2. Obtener enlace directo a YouTube / YouTube Music
+        let ytData = null;
+        try {
+            const ytUrl = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(searchTerm);
+            const ytRes = await fetch(ytUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+                }
+            });
+            const html = await ytRes.text();
+            const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
+            if (match && match[1]) {
+                ytData = {
+                    videoId: match[1],
+                    url: `https://www.youtube.com/watch?v=${match[1]}`,
+                    musicUrl: `https://music.youtube.com/watch?v=${match[1]}`
+                };
+            }
+        } catch (ytErr) {
+            console.warn("[Music API] ⚠️ Error extrayendo link de YouTube:", ytErr.message);
+        }
+
+        const directUrl = ytData?.url || `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerm)}`;
+        const musicUrl = ytData?.musicUrl || directUrl;
+        const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(searchTerm)}`;
+
+        return res.json({
+            success: true,
+            query: query,
+            song: songTitle,
+            artist: artistName,
+            url: directUrl,
+            musicUrl: musicUrl,
+            spotifyUrl: spotifyUrl,
+            youtubeVideoId: ytData?.videoId || null,
+            shortcutAction: "open_url",
+            message: `Coincidencia encontrada para "${songTitle}"${artistName ? ' de ' + artistName : ''}`
+        });
+
+    } catch (error) {
+        console.error("[Music API] ❌ Error inesperado en /api/music/search:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Error interno procesando la solicitud de música.",
+            error: error.message
+        });
+    }
+});
+
 // Netflix Verification Endpoint
 app.post('/api/netflix/verify', async (req, res) => {
     try {
