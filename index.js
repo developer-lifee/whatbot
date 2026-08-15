@@ -319,189 +319,137 @@ app.get('/', (req, res) => {
     res.send('Hola, mundo! This is Sheerit Whatbot Express Server.');
 });
 
-// ==========================================
-// 🎵 iOS SHORTCUTS & SIRI MUSIC SEARCH API
-// ==========================================
+// Helper interno para resolver la intención por IA + Link directo de YouTube/Music/Spotify
+async function resolveMusicLink(query) {
+    let aiResult = null;
+    try {
+        const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+        const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
+
+        if (DEEPSEEK_API_KEY) {
+            const response = await fetch(`${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'Eres un asistente musical para iOS Shortcuts y Siri. El usuario te dará un comando de voz como "oye siri reproduce X" o "pon la canción Y". Extrae el título exacto de la canción, el artista y genera el término ideal de búsqueda para encontrar el video o audio oficial. Responde ÚNICAMENTE un objeto JSON válido con los campos: "song" (título de la canción), "artist" (nombre del artista), "searchTerm" (término de búsqueda limpio).'
+                        },
+                        { role: 'user', content: query }
+                    ],
+                    response_format: { type: 'json_object' }
+                })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                const rawContent = data.choices?.[0]?.message?.content || "";
+                aiResult = JSON.parse(rawContent);
+            }
+        }
+    } catch (aiErr) {
+        console.warn("[Music API] ⚠️ Error en consulta de IA, continuando con búsqueda limpia:", aiErr.message);
+    }
+
+    const songTitle = aiResult?.song || query.replace(/^(oye\s+siri\s+)?reproduce\s+/i, '').trim();
+    const artistName = aiResult?.artist || "";
+    const searchTerm = aiResult?.searchTerm || `${songTitle} ${artistName}`.trim();
+
+    let ytData = null;
+    try {
+        const ytUrl = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(searchTerm);
+        const ytRes = await fetch(ytUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+            }
+        });
+        const html = await ytRes.text();
+        const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
+        if (match && match[1]) {
+            ytData = {
+                videoId: match[1],
+                url: `https://www.youtube.com/watch?v=${match[1]}`,
+                musicUrl: `https://music.youtube.com/watch?v=${match[1]}`
+            };
+        }
+    } catch (ytErr) {
+        console.warn("[Music API] ⚠️ Error extrayendo link de YouTube:", ytErr.message);
+    }
+
+    const directUrl = ytData?.url || `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerm)}`;
+    const musicUrl = ytData?.musicUrl || directUrl;
+    const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(searchTerm)}`;
+
+    return {
+        query,
+        song: songTitle,
+        artist: artistName,
+        searchTerm,
+        url: directUrl,
+        musicUrl,
+        spotifyUrl,
+        youtubeVideoId: ytData?.videoId || null
+    };
+}
+
+// 1. Endpoint JSON Completo (/api/music/search)
 app.all('/api/music/search', express.json(), async (req, res) => {
     try {
         const query = req.query.q || req.query.query || req.body?.q || req.body?.query || req.body?.prompt || "";
-        
         if (!query || !query.trim()) {
-            return res.status(400).json({
-                success: false,
-                message: "Por favor proporciona el comando o nombre de la canción en el parámetro 'q' o 'query'."
-            });
+            return res.status(400).json({ success: false, message: "Proporciona el comando en el parámetro 'q' o 'query'." });
         }
 
-        console.log(`[Music API] 🎵 Procesando comando de voz / búsqueda: "${query}"`);
+        const data = await resolveMusicLink(query);
 
-        // 1. Consultar a la IA (DeepSeek) para interpretar la intención del usuario
-        let aiResult = null;
-        try {
-            const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-            const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
-
-            if (DEEPSEEK_API_KEY) {
-                const response = await fetch(`${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-                    },
-                    body: JSON.stringify({
-                        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-                        messages: [
-                            {
-                                role: 'system',
-                                content: 'Eres un asistente musical para iOS Shortcuts y Siri. El usuario te dará un comando de voz como "oye siri reproduce X" o "pon la canción Y". Extrae el título exacto de la canción, el artista y genera el término ideal de búsqueda para encontrar el video o audio oficial. Responde ÚNICAMENTE un objeto JSON válido con los campos: "song" (título de la canción), "artist" (nombre del artista), "searchTerm" (término de búsqueda limpio).'
-                            },
-                            {
-                                role: 'user',
-                                content: query
-                            }
-                        ],
-                        response_format: { type: 'json_object' }
-                    })
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    const rawContent = data.choices?.[0]?.message?.content || "";
-                    aiResult = JSON.parse(rawContent);
-                }
-            }
-        } catch (aiErr) {
-            console.warn("[Music API] ⚠️ Error en consulta de IA, continuando con búsqueda limpia:", aiErr.message);
-        }
-
-        const songTitle = aiResult?.song || query.replace(/^(oye\s+siri\s+)?reproduce\s+/i, '').trim();
-        const artistName = aiResult?.artist || "";
-        const searchTerm = aiResult?.searchTerm || `${songTitle} ${artistName}`.trim();
-
-        // 2. Obtener enlace directo a YouTube / YouTube Music
-        let ytData = null;
-        try {
-            const ytUrl = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(searchTerm);
-            const ytRes = await fetch(ytUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
-                }
-            });
-            const html = await ytRes.text();
-            const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
-            if (match && match[1]) {
-                ytData = {
-                    videoId: match[1],
-                    url: `https://www.youtube.com/watch?v=${match[1]}`,
-                    musicUrl: `https://music.youtube.com/watch?v=${match[1]}`
-                };
-            }
-        } catch (ytErr) {
-            console.warn("[Music API] ⚠️ Error extrayendo link de YouTube:", ytErr.message);
-        }
-
-        const directUrl = ytData?.url || `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerm)}`;
-        const musicUrl = ytData?.musicUrl || directUrl;
-        const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(searchTerm)}`;
-
-        // Si se pide formato texto plano (ej: Shortcuts directo)
         if (req.query.format === 'text' || req.query.raw === 'true' || req.headers.accept?.includes('text/plain')) {
             res.setHeader('Content-Type', 'text/plain');
-            return res.send(directUrl);
+            return res.send(data.url);
         }
 
         return res.json({
             success: true,
-            query: query,
-            song: songTitle,
-            artist: artistName,
-            url: directUrl,
-            musicUrl: musicUrl,
-            spotifyUrl: spotifyUrl,
-            youtubeVideoId: ytData?.videoId || null,
+            ...data,
             shortcutAction: "open_url",
-            message: `Coincidencia encontrada para "${songTitle}"${artistName ? ' de ' + artistName : ''}`
+            message: `Coincidencia encontrada para "${data.song}"${data.artist ? ' de ' + data.artist : ''}`
         });
-
     } catch (error) {
-        console.error("[Music API] ❌ Error inesperado en /api/music/search:", error);
-        return res.status(500).json({
-            success: false,
-            message: "Error interno procesando la solicitud de música.",
-            error: error.message
-        });
+        return res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// Endpoint exclusivo que devuelve SOLAMENTE el texto plano de la URL para iOS Shortcuts
+// 2. Endpoint Texto Plano (/api/music/link) -> Devuelve ÚNICAMENTE la URL en texto plano
 app.all('/api/music/link', express.json(), async (req, res) => {
-    req.query.format = 'text';
-    return app._router.handle(req, res, () => {});
+    try {
+        const query = req.query.q || req.query.query || req.body?.q || req.body?.query || req.body?.prompt || "";
+        if (!query || !query.trim()) {
+            return res.status(400).send("Falta parámetro q");
+        }
+        const data = await resolveMusicLink(query);
+        res.setHeader('Content-Type', 'text/plain');
+        return res.send(data.url);
+    } catch (error) {
+        return res.status(500).send("Error procesando link");
+    }
 });
 
-// Endpoint que REDIRECCIONA directamente (HTTP 302) a la canción
+// 3. Endpoint Redirección HTTP 302 (/api/music/play) -> Redirecciona directamente a la URL
 app.get('/api/music/play', async (req, res) => {
     try {
         const query = req.query.q || req.query.query || "";
         if (!query.trim()) {
             return res.status(400).send("Por favor proporciona el parámetro 'q'.");
         }
-
-        let aiResult = null;
-        try {
-            const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-            const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
-
-            if (DEEPSEEK_API_KEY) {
-                const response = await fetch(`${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-                    },
-                    body: JSON.stringify({
-                        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-                        messages: [
-                            {
-                                role: 'system',
-                                content: 'Extrae el título exacto de la canción, el artista y genera el término ideal de búsqueda. Responde ÚNICAMENTE un objeto JSON válido con los campos: "song", "artist", "searchTerm".'
-                            },
-                            { role: 'user', content: query }
-                        ],
-                        response_format: { type: 'json_object' }
-                    })
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    aiResult = JSON.parse(data.choices?.[0]?.message?.content || "");
-                }
-            }
-        } catch (e) {}
-
-        const songTitle = aiResult?.song || query.replace(/^(oye\s+siri\s+)?reproduce\s+/i, '').trim();
-        const artistName = aiResult?.artist || "";
-        const searchTerm = aiResult?.searchTerm || `${songTitle} ${artistName}`.trim();
-
-        let ytUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerm)}`;
-        try {
-            const ytRes = await fetch(ytUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
-                }
-            });
-            const html = await ytRes.text();
-            const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
-            if (match && match[1]) {
-                ytUrl = `https://www.youtube.com/watch?v=${match[1]}`;
-            }
-        } catch (e) {}
-
-        return res.redirect(302, ytUrl);
+        const data = await resolveMusicLink(query);
+        return res.redirect(302, data.url);
     } catch (err) {
-        return res.status(500).send("Error procesando redirección de música.");
+        return res.status(500).send("Error procesando redirección.");
     }
 });
 
