@@ -405,6 +405,12 @@ app.all('/api/music/search', express.json(), async (req, res) => {
         const musicUrl = ytData?.musicUrl || directUrl;
         const spotifyUrl = `https://open.spotify.com/search/${encodeURIComponent(searchTerm)}`;
 
+        // Si se pide formato texto plano (ej: Shortcuts directo)
+        if (req.query.format === 'text' || req.query.raw === 'true' || req.headers.accept?.includes('text/plain')) {
+            res.setHeader('Content-Type', 'text/plain');
+            return res.send(directUrl);
+        }
+
         return res.json({
             success: true,
             query: query,
@@ -425,6 +431,77 @@ app.all('/api/music/search', express.json(), async (req, res) => {
             message: "Error interno procesando la solicitud de música.",
             error: error.message
         });
+    }
+});
+
+// Endpoint exclusivo que devuelve SOLAMENTE el texto plano de la URL para iOS Shortcuts
+app.all('/api/music/link', express.json(), async (req, res) => {
+    req.query.format = 'text';
+    return app._router.handle(req, res, () => {});
+});
+
+// Endpoint que REDIRECCIONA directamente (HTTP 302) a la canción
+app.get('/api/music/play', async (req, res) => {
+    try {
+        const query = req.query.q || req.query.query || "";
+        if (!query.trim()) {
+            return res.status(400).send("Por favor proporciona el parámetro 'q'.");
+        }
+
+        let aiResult = null;
+        try {
+            const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+            const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
+
+            if (DEEPSEEK_API_KEY) {
+                const response = await fetch(`${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: 'Extrae el título exacto de la canción, el artista y genera el término ideal de búsqueda. Responde ÚNICAMENTE un objeto JSON válido con los campos: "song", "artist", "searchTerm".'
+                            },
+                            { role: 'user', content: query }
+                        ],
+                        response_format: { type: 'json_object' }
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    aiResult = JSON.parse(data.choices?.[0]?.message?.content || "");
+                }
+            }
+        } catch (e) {}
+
+        const songTitle = aiResult?.song || query.replace(/^(oye\s+siri\s+)?reproduce\s+/i, '').trim();
+        const artistName = aiResult?.artist || "";
+        const searchTerm = aiResult?.searchTerm || `${songTitle} ${artistName}`.trim();
+
+        let ytUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(searchTerm)}`;
+        try {
+            const ytRes = await fetch(ytUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+                }
+            });
+            const html = await ytRes.text();
+            const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
+            if (match && match[1]) {
+                ytUrl = `https://www.youtube.com/watch?v=${match[1]}`;
+            }
+        } catch (e) {}
+
+        return res.redirect(302, ytUrl);
+    } catch (err) {
+        return res.status(500).send("Error procesando redirección de música.");
     }
 });
 
