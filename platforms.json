@@ -488,11 +488,11 @@
   },
   {
     "id": 23,
-    "name": "Claude Pro",
+    "name": "Claude Pro & Claude Max",
     "image": "/plataform/claude.svg",
     "price": 20000,
     "characteristics": [
-      "Planes compartidos según intensidad de uso",
+      "Planes Pro y Claude Max para desarrollo e investigación",
       "Acceso a Claude 3.5 Sonnet, 3.7 y Opus",
       "Contexto amplio de 200k tokens y Claude CoWork"
     ],
@@ -523,6 +523,34 @@
           "Mayor estabilidad y menor riesgo de agotar límites por hora"
         ],
         "detalles": "Cuenta compartida entre menos personas para garantizar entre 40% y 60% de tokens, ideal para trabajar con documentos largos en contexto extendido y proyectos en Claude CoWork.",
+        "isPersonalEmail": false
+      },
+      {
+        "id": 2303,
+        "name": "Claude Max",
+        "price": 60000,
+        "characteristics": [
+          "Plan Claude Max de alto rendimiento",
+          "Acceso prioritario a Claude 3.7 Sonnet y Opus",
+          "Mayor capacidad de mensajes y procesamiento por hora",
+          "Ideal para desarrolladores y proyectos continuos",
+          "Soporte para análisis de código complejo y archivos pesados"
+        ],
+        "detalles": "Plan Claude Max. Ofrece alta capacidad de mensajes, menor restricción de límites y prioridad máxima de respuesta para trabajo continuo.",
+        "isPersonalEmail": false
+      },
+      {
+        "id": 2304,
+        "name": "Claude Max (Mayor Uso / Intensivo)",
+        "price": 120000,
+        "characteristics": [
+          "Plan Claude Max para trabajo pesado / intensivo",
+          "Máxima asignación de tokens y límites extendidos por hora",
+          "Uso prioritario garantizado para largas sesiones de código",
+          "Ideal para empresas, agencias y desarrollo a tiempo completo",
+          "Acceso ilimitado a Proyectos, Artefactos y Claude CoWork"
+        ],
+        "detalles": "Plan Claude Max de Mayor Uso. Diseñado para usuarios de alta demanda, programadores full-time e investigadores que requieren el máximo rendimiento disponible sin interrupciones.",
         "isPersonalEmail": false
       }
     ]
