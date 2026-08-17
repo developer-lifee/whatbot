@@ -225,7 +225,7 @@ INSTRUCCIONES:
 3. Analiza los mensajes del CLIENTE en el historial:
    - Si preguntó por precios, dale una pincelada de lo que buscaba.
    - Si reportó una falla, dile que ya estás revisando su caso.
-   - Si pidió credenciales, dile que ya puedes entregárselas (y recuérdale que use el número 2).
+   - Si pidió credenciales de una cuenta ya existente, dile que con gusto le ayudas a consultarlas. Si se trata de una compra nueva recién pagada, dile que nuestro equipo ya está procesando sus accesos para entregárselos a la mayor brevedad.
 4. Sé conciso y empático. No repitas todo el historial, solo demuestra que lo "leíste" y estás listo para ayudar.
 5. Usa emojis amigables 🤖.
 

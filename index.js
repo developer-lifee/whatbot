@@ -249,6 +249,42 @@ const GROUP_ID = '120363102144405222@g.us';
 const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573133890800') + '@c.us';
 const ADMIN_RAW_PHONE = OPERATOR_NUMBER.replace('@c.us', '');
 let globalBotSleep = false;
+let cachedProviderPhones = new Set();
+let lastProviderFetch = 0;
+
+async function isProviderSender(userId) {
+    if (!userId) return false;
+    const clean = userId.replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
+    if (!clean) return false;
+    
+    // Refrescar caché cada 60s
+    if (Date.now() - lastProviderFetch > 60000) {
+        try {
+            const { pool } = require('./database');
+            const [rows] = await pool.query("SELECT DISTINCT phone FROM provider_credentials WHERE phone IS NOT NULL AND phone != ''");
+            const newSet = new Set();
+            for (const r of rows) {
+                const p = (r.phone || '').replace(/\D/g, '');
+                if (p) {
+                    newSet.add(p);
+                    if (p.startsWith('57') && p.length > 10) newSet.add(p.substring(2));
+                }
+            }
+            cachedProviderPhones = newSet;
+            lastProviderFetch = Date.now();
+        } catch (e) {
+            console.error('[Provider Check Error]:', e.message);
+        }
+    }
+    
+    for (const provPhone of cachedProviderPhones) {
+        if (clean === provPhone || clean.endsWith(provPhone) || provPhone.endsWith(clean)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 let globalLastPaymentUserId = null; // Memoria del último usuario que envió un comprobante o pidió ayuda
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
 const lastResponseTimestamps = new Map(); // Para evitar múltiples respuestas seguidas
@@ -5940,7 +5976,7 @@ INSTRUCCIONES:
 3. Analiza los mensajes del CLIENTE en el historial:
    - Si preguntó por precios, dale una pincelada de lo que buscaba.
    - Si reportó una falla, dile que ya estás revisando su caso.
-   - Si pidió credenciales, dile que ya puedes entregárselas (y recuérdale que use el número 2).
+   - Si pidió credenciales de una cuenta ya existente, dile que con gusto le ayudas a consultarlas. Si se trata de una compra nueva recién pagada, dile que nuestro equipo ya está procesando sus accesos para entregárselos a la mayor brevedad.
 4. Sé conciso y empático. No repitas todo el historial, solo demuestra que lo "leíste" y estás listo para ayudar.
 5. Usa emojis amigables 🤖.
 
@@ -6519,6 +6555,31 @@ app.delete('/api/admin/rpa/providers/:id', async (req, res) => {
     }
 });
 
+
+// GET Bot Status
+app.get('/api/admin/bot/status', (req, res) => {
+    res.json({
+        success: true,
+        isSleeping: globalBotSleep,
+        isConnected: currentWhatsappStatus === 'CONNECTED',
+        status: currentWhatsappStatus
+    });
+});
+
+// POST Toggle Bot Sleep Mode
+app.post('/api/admin/bot/toggle-sleep', express.json(), (req, res) => {
+    if (typeof req.body?.sleep === 'boolean') {
+        globalBotSleep = req.body.sleep;
+    } else {
+        globalBotSleep = !globalBotSleep;
+    }
+    console.log(`[Admin Control] Bot sleep mode cambiado a: ${globalBotSleep ? '😴 DORMIDO' : '🟢 ACTIVO'}`);
+    res.json({
+        success: true,
+        isSleeping: globalBotSleep,
+        message: globalBotSleep ? 'Bot dormido (solo web admin activa)' : 'Bot despierto (atendiendo clientes)'
+    });
+});
 
 // ==========================================
 // CLIENT OTP PORTAL SIGN-IN & 2FA REQUESTS
@@ -7897,6 +7958,13 @@ async function baseProcessIncomingMessage(messages) {
                     isCodeRequest = true;
                     console.log(`[BOT MEDIA OCR DETECTED] La imagen del cliente parece solicitar código de Netflix/Disney. Activando reactivación.`);
                 }
+            }
+
+            const isProv = await isProviderSender(userId);
+            if (isProv) {
+                console.log(`[PROVIDER MSG] @${userId.replace('@c.us', '')} es un proveedor. No se reactiva el bot.`);
+                userStates.set(userId, { state: 'waiting_human', waiting_human_mode: 'advisor', is_provider: true });
+                return;
             }
 
             if (isMenuSelection || isCodeRequest || (detection && solvableIntents.includes(detection.intent))) {
@@ -10950,6 +11018,16 @@ client.on('message', async (message) => {
 
     if (message.from.includes('status@broadcast')) return;
     if (globalBotSleep && message.from !== OPERATOR_NUMBER && message.from !== GROUP_ID) return;
+
+    // Verificar si el remitente es un proveedor registrado (no responder con bot de ventas)
+    try {
+        const isProv = await isProviderSender(message.from);
+        if (isProv) {
+            console.log(`[PROVIDER MSG IGNORED] Mensaje recibido de proveedor @${message.from.replace('@c.us', '')}. El bot no responderá automáticamente.`);
+            userStates.set(message.from, { state: 'waiting_human', waiting_human_mode: 'advisor', is_provider: true });
+            return;
+        }
+    } catch (e) { }
 
     // --- MECANISMO DE BATCHING PARA MENSAJES INDIVIDUALES ---
     const userId = message.from;

@@ -339,6 +339,18 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             return;
         }
 
+        const existingState = userStates ? userStates.get(userId) : null;
+        const hasRecentPayment = existingState && (
+            (existingState.lastPaymentValidated && Date.now() - existingState.lastPaymentValidated < 1000 * 60 * 30) ||
+            existingState.state === 'awaiting_payment_confirmation' ||
+            existingState.state === 'waiting_admin_confirmation'
+        );
+
+        if (hasRecentPayment) {
+            await safeSend(null, "🤖 ¡Hola! Tu pago ha sido recibido y registrado con éxito. 🎉 En este momento nuestro equipo está procesando la asignación de tu servicio. Te enviaremos tus credenciales de acceso directamente por aquí a la mayor brevedad. ¡Muchas gracias por tu compra! 😊", userId, client);
+            return;
+        }
+
         let userAccounts = await getAccountsByPhone(phoneNumber, contactName);
 
         if (userAccounts.length === 0) {
