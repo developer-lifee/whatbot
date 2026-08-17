@@ -254,11 +254,23 @@ let lastProviderFetch = 0;
 
 async function isProviderSender(userId) {
     if (!userId) return false;
-    const clean = userId.replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
-    if (!clean) return false;
     
-    // Refrescar caché cada 60s
-    if (Date.now() - lastProviderFetch > 60000) {
+    // 1. Obtener número limpio y buscar teléfono real si es un @lid
+    let clean = userId.replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
+    let realPhone = clean;
+
+    if (userId.includes('@lid') || clean.length > 12) {
+        try {
+            const { pool } = require('./database');
+            const [rows] = await pool.query('SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1', [userId]);
+            if (rows && rows.length > 0 && rows[0].customer_phone) {
+                realPhone = rows[0].customer_phone.replace(/\D/g, '');
+            }
+        } catch (e) {}
+    }
+
+    // 2. Refrescar caché de proveedores cada 30s
+    if (Date.now() - lastProviderFetch > 30000) {
         try {
             const { pool } = require('./database');
             const [rows] = await pool.query("SELECT DISTINCT phone FROM provider_credentials WHERE phone IS NOT NULL AND phone != ''");
@@ -270,6 +282,10 @@ async function isProviderSender(userId) {
                     if (p.startsWith('57') && p.length > 10) newSet.add(p.substring(2));
                 }
             }
+            // Agregar identificadores conocidos de proveedores principales
+            newSet.add('573027892574');
+            newSet.add('3027892574');
+            newSet.add('249723021713571'); // JID @lid de Spotinet Shop
             cachedProviderPhones = newSet;
             lastProviderFetch = Date.now();
         } catch (e) {
@@ -278,7 +294,8 @@ async function isProviderSender(userId) {
     }
     
     for (const provPhone of cachedProviderPhones) {
-        if (clean === provPhone || clean.endsWith(provPhone) || provPhone.endsWith(clean)) {
+        if (clean === provPhone || clean.endsWith(provPhone) || provPhone.endsWith(clean) ||
+            realPhone === provPhone || realPhone.endsWith(provPhone) || provPhone.endsWith(realPhone)) {
             return true;
         }
     }
@@ -7505,11 +7522,13 @@ async function processIncomingMessage(messages) {
         userId = firstMsg.to;
     }
 
-    const cleanUserId = userId.replace('@c.us', '').replace(/\D/g, '');
-    if (cleanUserId === '573027892574') {
-        console.log(`[Provider Bypass] Ignorando mensaje entrante del proveedor: ${userId}`);
-        return;
-    }
+    try {
+        if (await isProviderSender(userId)) {
+            console.log(`[Provider Bypass] Ignorando procesamiento de mensaje del proveedor: ${userId}`);
+            userStates.set(userId, { state: 'waiting_human', waiting_human_mode: 'advisor', is_provider: true });
+            return;
+        }
+    } catch (e) {}
 
     if (activeProcessingUsers.has(userId)) {
         console.log(`[Deduplicator] ⏳ El usuario @${userId.replace('@c.us', '')} ya tiene una petición en proceso activo. Omitiendo lote duplicado.`);
@@ -11110,6 +11129,11 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     }
                     return;
                 } else if (detection.intent === 'soporte') {
+                    if (await hasRecentHumanMessage(message)) {
+                        console.log(`[Bypass Bot Reply] Silenciando respuesta 'soporte' por conversación humana activa reciente.`);
+                        userStates.set(userId, { state: 'waiting_human', waiting_human_mode: 'advisor', lastHumanInteraction: Date.now() });
+                        return;
+                    }
                     const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
                     const supportStatus = await isSupportOpen();
 
