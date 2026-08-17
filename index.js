@@ -1911,6 +1911,17 @@ app.get('/api/admin/tickets', async (req, res) => {
         const showAllChats = req.query.allChats === 'true';
         let targetEntries = [];
 
+        const botWidUser = (client && client.info && client.info.wid) ? client.info.wid.user : '3118587974';
+        const isBotSender = (id) => {
+            if (!id) return true;
+            return id.includes('3118587974') || 
+                   id.includes('269285859545110') || 
+                   id.includes(':') || 
+                   id.includes('@broadcast') || 
+                   id.includes('@g.us') ||
+                   (botWidUser && id.includes(botWidUser));
+        };
+
         if (showAllChats) {
             let dbChats = [];
             try {
@@ -1918,6 +1929,9 @@ app.get('/api/admin/tickets', async (req, res) => {
                     SELECT chat_id, customer_phone, last_message_text, last_message_time 
                     FROM chats 
                     WHERE chat_id NOT LIKE '%3118587974%'
+                      AND chat_id NOT LIKE '%269285859545110%'
+                      AND chat_id NOT LIKE '%:%'
+                      AND chat_id NOT LIKE '%@g.us'
                     ORDER BY last_message_time DESC 
                     LIMIT 150
                 `);
@@ -1926,14 +1940,14 @@ app.get('/api/admin/tickets', async (req, res) => {
                 console.error("Error querying db chats:", dbErr.message);
             }
 
-            targetEntries = dbChats.map(row => {
+            targetEntries = dbChats.filter(row => !isBotSender(row.chat_id)).map(row => {
                 const userId = row.chat_id;
                 const state = userStates.get(userId) || { state: 'bot_active', lastMessage: row.last_message_text, lastMessageTime: row.last_message_time ? new Date(row.last_message_time).getTime() : null };
                 return [userId, state];
             });
         } else {
             targetEntries = Array.from(userStates.entries()).map(([userId, state]) => {
-                if (!state || userId.includes('3118587974')) return null;
+                if (!state || isBotSender(userId)) return null;
                 const stateStr = typeof state === 'object' ? state.state : state;
                 const pendingStates = ['waiting_human', 'waiting_admin_confirmation', 'resolved'];
                 if (!pendingStates.includes(stateStr)) return null;
@@ -4008,38 +4022,47 @@ app.get('/api/admin/chat-messages', async (req, res) => {
         const { phone } = req.query;
         if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
 
-        const targetChatId = await resolveJidForPhone(phone);
-        const clean10 = phone.replace(/\D/g, '').slice(-10);
+        const rawPhone = phone.trim();
+        const targetChatId = await resolveJidForPhone(rawPhone);
+        const cleanDigits = rawPhone.replace(/\D/g, '');
+        const clean10 = cleanDigits.slice(-10);
 
-        // 1. Obtener el historial de la base de datos
+        // 1. Obtener el historial de la base de datos buscando por todos los posibles identificadores del chat
         let [rows] = await pool.query(
-            `SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 50`,
-            [targetChatId]
+            `SELECT * FROM messages 
+             WHERE chat_id = ? 
+                OR chat_id = ? 
+                OR chat_id = ? 
+                OR chat_id = ?
+                OR (LENGTH(?) >= 10 AND (chat_id LIKE ? OR sender_id LIKE ?))
+             ORDER BY created_at DESC LIMIT 60`,
+            [
+                rawPhone,
+                targetChatId,
+                `${cleanDigits}@lid`,
+                `${cleanDigits}@c.us`,
+                clean10,
+                `%${clean10}%`,
+                `%${clean10}%`
+            ]
         );
-
-        if (rows.length === 0 && clean10) {
-            [rows] = await pool.query(
-                `SELECT * FROM messages WHERE chat_id LIKE ? OR sender_id LIKE ? ORDER BY created_at DESC LIMIT 50`,
-                [`%${clean10}%`, `%${clean10}%`]
-            );
-        }
 
         // 2. REGLA MULTIVERSAL: Auto-sincronización en vivo con WhatsApp Puppeteer si la BD no tiene mensajes
         if ((!rows || rows.length === 0) && client && client.info) {
             try {
                 console.log(`[Auto-Sync Universal] 🔄 Sincronizando historial en vivo para @${phone} (JID: ${targetChatId})...`);
-                let liveChat = await client.getChatById(targetChatId).catch(() => null);
-
-                if (!liveChat && clean10) {
-                    liveChat = await client.getChatById(`57${clean10}@c.us`).catch(() => null);
-                    if (!liveChat) {
-                        liveChat = await client.getChatById(`${clean10}@c.us`).catch(() => null);
-                    }
+                let liveChat = null;
+                const candidates = [targetChatId, rawPhone, `${cleanDigits}@lid`, `57${clean10}@c.us`, `${clean10}@c.us`].filter(Boolean);
+                for (const cId of candidates) {
+                    try {
+                        liveChat = await client.getChatById(cId);
+                        if (liveChat) break;
+                    } catch (e) {}
                 }
 
                 if (liveChat) {
                     await liveChat.syncHistory().catch(() => { });
-                    const liveMsgs = await liveChat.fetchMessages({ limit: 50 }).catch(() => []);
+                    const liveMsgs = await liveChat.fetchMessages({ limit: 60 }).catch(() => []);
 
                     for (const m of liveMsgs) {
                         try {
@@ -4061,8 +4084,13 @@ app.get('/api/admin/chat-messages', async (req, res) => {
 
                     // Re-consultar la base de datos recién actualizada
                     [rows] = await pool.query(
-                        `SELECT * FROM messages WHERE chat_id = ? OR chat_id LIKE ? OR sender_id LIKE ? ORDER BY created_at DESC LIMIT 50`,
-                        [targetChatId, `%${clean10}%`, `%${clean10}%`]
+                        `SELECT * FROM messages 
+                         WHERE chat_id = ? 
+                            OR chat_id = ? 
+                            OR chat_id = ? 
+                            OR (LENGTH(?) >= 10 AND chat_id LIKE ?) 
+                         ORDER BY created_at DESC LIMIT 60`,
+                        [rawPhone, targetChatId, liveChat.id._serialized, clean10, `%${clean10}%`]
                     );
                 }
             } catch (syncErr) {
