@@ -77,15 +77,18 @@ async function saveMessage(message, botIntent = null) {
         let customerPhone = null;
         if (chatId && chatId.endsWith('@c.us')) {
             customerPhone = chatId.replace('@c.us', '');
-        } else if (chatId && chatId.includes('@lid')) {
+        } else if (chatId && (chatId.includes('@lid') || chatId.replace(/\D/g, '').length > 13)) {
             try {
                 if (message.id && typeof message.getContact === 'function') {
                     const contact = await Promise.race([
                         message.getContact(),
                         new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout (2s)")), 2000))
                     ]).catch(() => null);
-                    if (contact && contact.number) {
-                        customerPhone = contact.number;
+                    if (contact) {
+                        const pNum = contact.number || (typeof contact.phoneNumber === 'string' ? contact.phoneNumber : (contact.phoneNumber?.user || contact.phoneNumber?._serialized)) || (contact.id && !contact.id._serialized.includes('@lid') ? contact.id.user : null);
+                        if (pNum && String(pNum).replace(/\D/g, '').length <= 13) {
+                            customerPhone = String(pNum).replace(/\D/g, '');
+                        }
                     }
                 }
             } catch (e) {

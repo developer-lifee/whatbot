@@ -7148,14 +7148,35 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
         try {
             const chat = await client.getChatById(GROUP_ID);
             if (chat) {
-                // Resolver número real para el reporte (LID fix)
-                let contact;
+                // Resolver contacto y número real para el reporte (LID fix)
+                let contact = null;
                 try {
                     contact = await message.getContact();
-                } catch (e) {
-                    contact = { number: userId.replace(/\D/g, '') };
+                } catch (e) { }
+
+                let phoneNum = null;
+                if (contact) {
+                    phoneNum = contact.number || (typeof contact.phoneNumber === 'string' ? contact.phoneNumber : (contact.phoneNumber?.user || contact.phoneNumber?._serialized)) || (contact.id && !contact.id._serialized.includes('@lid') ? contact.id.user : null);
                 }
-                const realPhone = contact.number || userId.replace(/\D/g, '');
+                if (!phoneNum || String(phoneNum).replace(/\D/g, '').length > 13) {
+                    const { resolveRealPhoneFromJid } = require('./billingService');
+                    phoneNum = await resolveRealPhoneFromJid(userId, client);
+                }
+
+                const cleanNum = (phoneNum && String(phoneNum).replace(/\D/g, '').length <= 13) ? String(phoneNum).replace(/\D/g, '') : null;
+                const contactName = (contact && (contact.name || contact.pushname || contact.shortName)) || null;
+
+                let userTag = "";
+                if (contactName && cleanNum) {
+                    userTag = `${contactName} (+${cleanNum})`;
+                } else if (contactName) {
+                    userTag = `${contactName}`;
+                } else if (cleanNum) {
+                    userTag = `@${cleanNum}`;
+                } else {
+                    userTag = `Cliente (@${userId.split('@')[0]})`;
+                }
+
                 let ticketTag = "";
                 try {
                     const { pool } = require('./database');
@@ -7176,7 +7197,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                     console.error("Error guardando ticket en DB:", tErr.message);
                 }
 
-                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE*${ticketTag} de @${realPhone}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
+                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE*${ticketTag} de ${userTag}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
         } catch (e) { console.error('Error enviando escalamiento:', e); }
         globalLastPaymentUserId = userId;
