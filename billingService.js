@@ -408,7 +408,6 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
         const assignedAccounts = userAccounts.filter(acc => !pendingAccounts.includes(acc));
 
         let waitingTimeText = "";
-        const existingState = userStates ? userStates.get(userId) : null;
         if (existingState && existingState.waitingTimestamp) {
             const diffMs = Date.now() - existingState.waitingTimestamp;
             const diffMins = Math.floor(diffMs / (1000 * 60));
