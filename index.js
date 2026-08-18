@@ -1967,7 +1967,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                 if (stObj && stObj.realPhone) {
                     resolvedPhoneFromLid = stObj.realPhone;
                 }
-                // 2. Buscar en la tabla chats
+                // 2. Buscar en la tabla chats (solo si es un teléfono real <= 12 dígitos, descartando LIDs)
                 if (!resolvedPhoneFromLid) {
                     try {
                         const [chatMapRows] = await pool.query(
@@ -1975,7 +1975,10 @@ app.get('/api/admin/tickets', async (req, res) => {
                             [userId]
                         );
                         if (chatMapRows.length > 0 && chatMapRows[0].customer_phone) {
-                            resolvedPhoneFromLid = chatMapRows[0].customer_phone;
+                            const cp = chatMapRows[0].customer_phone.replace(/\D/g, '');
+                            if (cp && cp.length >= 7 && cp.length <= 12 && cp !== userId.replace(/\D/g, '')) {
+                                resolvedPhoneFromLid = cp;
+                            }
                         }
                     } catch (e) { }
                 }
@@ -1983,8 +1986,8 @@ app.get('/api/admin/tickets', async (req, res) => {
                 if (!resolvedPhoneFromLid) {
                     try {
                         const { resolveRealPhoneFromJid } = require('./billingService');
-                        const resolved = await resolveRealPhoneFromJid(userId);
-                        if (resolved && resolved.length >= 7) {
+                        const resolved = await resolveRealPhoneFromJid(userId, client);
+                        if (resolved && resolved.length >= 7 && resolved.length <= 12) {
                             resolvedPhoneFromLid = resolved;
                             // Guardar en DB para futuras consultas
                             try {
@@ -2000,7 +2003,6 @@ app.get('/api/admin/tickets', async (req, res) => {
                 const botNum = (client.info && client.info.wid) ? client.info.wid.user : '3118587974';
                 if (resolvedPhoneFromLid && resolvedPhoneFromLid !== '573118587974' && resolvedPhoneFromLid !== botNum) {
                     phone = String(resolvedPhoneFromLid).replace(/\D/g, '');
-                    // Guardar en estado para futuras consultas
                     if (typeof state === 'object') {
                         state.realPhone = phone;
                     }
