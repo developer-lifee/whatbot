@@ -7117,20 +7117,14 @@ client.on('message_create', async (msg) => {
 
         if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand && !isSystemResponse) {
             const cleanTargetJid = targetId.split('@')[0].split(':')[0].replace(/\D/g, '') + '@c.us';
-            let st = userStates.get(targetId) || userStates.get(cleanTargetJid);
-            if (typeof st === 'object' && st.state === 'waiting_human') {
-                // Ya estaba silenciado, renovamos el temporizador de mute absoluto (30 min extra)
-                st.lastHumanInteraction = Date.now();
-                st.waiting_human_mode = 'advisor';
-                st.clientWaitingSince = null;
-                userStates.set(targetId, st);
-                userStates.set(cleanTargetJid, st);
-            } else {
-                console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot por 30 mins.`);
-                const muteObj = { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor', clientWaitingSince: null };
-                userStates.set(targetId, muteObj);
-                userStates.set(cleanTargetJid, muteObj);
-            }
+            const muteObj = (typeof st === 'object' && st.state === 'waiting_human') 
+                ? { ...st, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor', clientWaitingSince: null }
+                : { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor', clientWaitingSince: null };
+
+            console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot.`);
+            userStates.set(targetId, muteObj);
+            userStates.set(cleanTargetJid, muteObj);
+            if (msg.to) userStates.set(msg.to, muteObj);
 
             // Si el asesor intervino manualmente, lo sacamos de la cola de espera
             if (global.supportQueue) {
@@ -7936,8 +7930,8 @@ async function baseProcessIncomingMessage(messages) {
         const timeSinceLastHumanMs = Date.now() - lastInteraction;
         const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
 
-        if (minutesSinceLastHuman < 10) {
-            console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} porque el asesor interactuó hace ${minutesSinceLastHuman.toFixed(1)} minutos (ventana de 10 min activa).`);
+        if (minutesSinceLastHuman < 45) {
+            console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} porque el asesor interactuó hace ${minutesSinceLastHuman.toFixed(1)} minutos.`);
             return;
         }
 
@@ -8014,7 +8008,10 @@ async function baseProcessIncomingMessage(messages) {
                 return;
             }
 
-            if (isMenuSelection || isCodeRequest || (detection && solvableIntents.includes(detection.intent))) {
+            const isAdvisorActive = (currentStateData && currentStateData.waiting_human_mode === 'advisor' && minutesSinceLastHuman < 60);
+
+            // Si el asesor humano está activo en el chat (menos de 60 mins), NO reactivar el bot por intenciones ni menús
+            if (!isAdvisorActive && (isMenuSelection || isCodeRequest || (detection && solvableIntents.includes(detection.intent)))) {
                 console.log(`[BOT MUTE REACTIVATE IMMEDIATE] Reactivando bot porque el mensaje de @${userId} es resoluble de inmediato (Menú/Código/Intención: ${detection ? detection.intent : 'desconocida'}). isCode=${isCodeRequest}`);
                 userStates.delete(userId);
                 currentState = undefined;
