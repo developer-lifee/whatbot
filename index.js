@@ -9380,10 +9380,10 @@ async function baseProcessIncomingMessage(messages) {
                                 console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
 
                                 // INTELIGENCIA DE RENOVACIÓN DE COMBOS Y MÚLTIPLES CUENTAS:
-                                // Priorizar la cuenta que VENCE HOY/YA VENCIÓ. Si hay ambigüedad o múltiples opciones, PREGUNTAR AL CLIENTE EN VEZ DE ADIVINAR POR PRECIO.
                                 if (stateData.isRenewal && stateData.items && stateData.items.length > 1 && check.amount) {
                                     try {
                                         const { getJsDateFromExcel } = require('./apiService');
+                                        const { getPlatformPriceFromExcel } = require('./billingService');
                                         const now = new Date();
                                         now.setHours(0, 0, 0, 0);
 
@@ -9392,7 +9392,20 @@ async function baseProcessIncomingMessage(messages) {
                                             return str && str !== 'gmail.com' && !str.includes('@') && !str.endsWith('.com');
                                         });
 
-                                        if (validItems.length > 0) {
+                                        // Calcular el precio total esperado para renovar todas las cuentas
+                                        let totalExpectedAll = 0;
+                                        for (const item of validItems) {
+                                            const price = getPlatformPriceFromExcel(item.Streaming || item.Plataforma, []);
+                                            totalExpectedAll += (price || 7500);
+                                        }
+
+                                        const stateTotal = stateData.total || stateData.checkAmount || 0;
+                                        // Si el monto pagado cubre exactamente el total de todas las cuentas o coincide con stateData.total:
+                                        if (check.amount === stateTotal || (totalExpectedAll > 0 && Math.abs(check.amount - totalExpectedAll) <= 1000) || (stateTotal > 0 && Math.abs(check.amount - stateTotal) <= 1000)) {
+                                            console.log(`[PAYMENT AUTO-RENEW ALL] ✅ El monto de $${check.amount} coincide con el total de todas las cuentas (${validItems.length} cuentas). Auto-renovando todas sin preguntar.`);
+                                            stateData.items = validItems;
+                                            // Continuar directamente a la validación y entrega automática de todas
+                                        } else {
                                             const urgentItems = validItems.filter(item => {
                                                 const d = getJsDateFromExcel(item.deben || item.vencimiento);
                                                 if (!d) return true;
@@ -9420,7 +9433,9 @@ async function baseProcessIncomingMessage(messages) {
                                             candidateList.forEach((acc, idx) => {
                                                 const platName = (acc.Streaming || acc.Plataforma || "Servicio").toUpperCase();
                                                 const vencStr = formatDateForDisplay(acc.deben || acc.vencimiento);
-                                                promptMsg += `${idx + 2} - Renovar solo *${platName}* (Vence: ${vencStr})\n`;
+                                                const profileOrName = acc.Nombre || acc.nombre || acc.whatsapp || acc["Customer Mail"] || "";
+                                                const detailStr = (profileOrName && profileOrName.toLowerCase() !== 'libre') ? ` (Para: ${profileOrName})` : '';
+                                                promptMsg += `${idx + 2} - Renovar solo *${platName}*${detailStr} (Vence: ${vencStr})\n`;
                                             });
                                             promptMsg += `${candidateList.length + 2} - Es para un servicio nuevo u otro motivo ❌`;
 
@@ -9736,12 +9751,19 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     // Añadimos el contexto de antigüedad al historial para que la IA se disculpe si es necesario
     // --- COOLDOWN DE RESPUESTAS (Anti-Burst) ---
     const now = Date.now();
-    const lastResp = lastResponseTimestamps.get(userId) || 0;
+    const cleanDigits = userId.replace(/\D/g, '');
+    const lastResp = Math.max(
+        lastResponseTimestamps.get(userId) || 0,
+        cleanDigits ? (lastResponseTimestamps.get(cleanDigits) || 0) : 0,
+        originalChatJid ? (lastResponseTimestamps.get(originalChatJid) || 0) : 0
+    );
     if (!isFromAdmin && (now - lastResp < RESPONSE_COOLDOWN)) {
-        console.log(`[Cooldown] Ignorando ráfaga para ${userId} (${now - lastResp}ms desde última respuesta)`);
+        console.log(`[Cooldown] Ignorando ráfaga duplicada para ${userId} (${now - lastResp}ms desde última respuesta)`);
         return;
     }
     lastResponseTimestamps.set(userId, now);
+    if (cleanDigits) lastResponseTimestamps.set(cleanDigits, now);
+    if (originalChatJid) lastResponseTimestamps.set(originalChatJid, now);
 
     const timedHist = `[ESTE MENSAJE LLEGÓ HACE ${messageAgeMinutes} MINUTOS]\n${hist}`;
     const detection = await detectInitialIntent(inputToUse, timedHist, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
