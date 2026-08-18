@@ -1,4 +1,5 @@
 const { getAccountsByPhone, fetchCustomersData, getJsDateFromExcel, getTodayInBogota } = require('./apiService');
+const { normalizeStreamingName } = require('./availabilityService');
 const { generateCredentialsResponse } = require('./aiService');
 const { getPlatformKnowledge } = require('./apiService');
 const path = require('path');
@@ -201,6 +202,8 @@ function getPlatformPriceFromExcel(streamingName, platforms = []) {
         'NETFLIX EXTRA': 'NETFLIX EXTRA', 'EXTRA': 'NETFLIX EXTRA'
     };
     const targetName = aliasMap[cleanName] || cleanName;
+    const targetNorm = normalizeStreamingName(streamingName);
+    const targetAlphanum = cleanName.replace(/[^A-Z0-9]/g, '');
 
     if (Array.isArray(platforms)) {
         // 1. Buscar coincidencia exacta o cercana en planes de todas las plataformas primero
@@ -209,7 +212,12 @@ function getPlatformPriceFromExcel(streamingName, platforms = []) {
                 for (const plan of p.plans) {
                     const planName = (plan.name || '').toUpperCase();
                     const fullPlanName = `${p.name || ''} ${plan.name || ''}`.toUpperCase();
+                    const planNorm = normalizeStreamingName(`${p.name || ''} ${plan.name || ''}`);
+                    const planAlphanum = fullPlanName.replace(/[^A-Z0-9]/g, '');
+
                     if (targetName === planName || targetName === fullPlanName ||
+                        targetAlphanum === planAlphanum ||
+                        (targetNorm && planNorm && targetNorm === planNorm) ||
                         planName.includes(targetName) || targetName.includes(planName) ||
                         fullPlanName.includes(targetName) || targetName.includes(fullPlanName)) {
                         return plan.price || 0;
@@ -221,11 +229,42 @@ function getPlatformPriceFromExcel(streamingName, platforms = []) {
         // 2. Si no coincide con ningún plan, buscar coincidencia en el nombre de la plataforma
         for (const p of platforms) {
             const pName = (p.name || '').toUpperCase();
-            if (pName === targetName || pName.includes(targetName) || targetName.includes(pName)) {
+            const pNorm = normalizeStreamingName(p.name || '');
+            const pAlphanum = pName.replace(/[^A-Z0-9]/g, '');
+
+            if (pName === targetName || pAlphanum === targetAlphanum ||
+                (targetNorm && pNorm && targetNorm === pNorm) ||
+                pName.includes(targetName) || targetName.includes(pName) ||
+                (targetAlphanum && pAlphanum && (targetAlphanum.includes(pAlphanum) || pAlphanum.includes(targetAlphanum)))) {
                 return p.price || 0;
             }
         }
     }
+
+    // 3. Diccionario de respaldo por si platforms no cargó o hay variantes
+    const fallbackPrices = {
+        'crunchyroll': 7000,
+        'spotify': 7500,
+        'amazon': 9000,
+        'netflix': 13000,
+        'netflix_extra': 17000,
+        'disney': 13000,
+        'hbo': 10000,
+        'hbo_platino': 14000,
+        'youtube': 10000,
+        'gpt': 20000,
+        'canva': 10000,
+        'vix': 10000,
+        'appletv': 10000,
+        'appleone': 18000,
+        'microsoft': 15000,
+        'claude_pro': 25000
+    };
+
+    if (targetNorm && fallbackPrices[targetNorm]) {
+        return fallbackPrices[targetNorm];
+    }
+
     return 0;
 }
 
@@ -1233,6 +1272,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
 
 module.exports = {
   safeSend,
+  getPlatformPriceFromExcel,
   processCheckCredentials,
   processCheckPrices,
   handleAutoCobros,
