@@ -18,6 +18,18 @@ async function getSystemPromptTemplate() {
   }
 
   try {
+    const templatePath = path.join(__dirname, 'prompts', 'fallback_template.txt');
+    if (fs.existsSync(templatePath)) {
+      const promptContent = fs.readFileSync(templatePath, 'utf8');
+      cachedSystemPrompt = promptContent;
+      lastPromptFetchTime = now;
+      return cachedSystemPrompt;
+    }
+  } catch (e) {
+    console.warn("No se pudo cargar la plantilla de archivo local, intentando BD...");
+  }
+
+  try {
     const { pool } = require('./database');
     const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "fallback_template"');
     if (rows && rows.length > 0) {
@@ -26,19 +38,10 @@ async function getSystemPromptTemplate() {
       return cachedSystemPrompt;
     }
   } catch (err) {
-    console.warn("[aiService] Error al leer prompt de la base de datos, usando archivo local:", err.message);
+    console.warn("[aiService] Error al leer prompt de la base de datos:", err.message);
   }
 
-  try {
-    const templatePath = path.join(__dirname, 'prompts', 'fallback_template.txt');
-    const promptContent = fs.readFileSync(templatePath, 'utf8');
-    cachedSystemPrompt = promptContent;
-    lastPromptFetchTime = now;
-    return cachedSystemPrompt;
-  } catch (e) {
-    console.warn("No se pudo cargar la plantilla de archivo local, usando fallback básico.");
-    return "Responde de forma amable a: {{MESSAGE_CONTENT}}";
-  }
+  return "Responde de forma amable a: {{MESSAGE_CONTENT}}";
 }
 
 // Supported API Keys array for automated rotation and failover
