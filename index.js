@@ -1982,11 +1982,24 @@ app.get('/api/admin/tickets', async (req, res) => {
                         }
                     } catch (e) { }
                 }
-                // 3. Buscar via resolveRealPhoneFromJid (Puppeteer)
+                // 3. Buscar nombre del contacto en WhatsApp Web para cruce
+                let contactName = typeof state === 'object' ? state.nombre : null;
+                if (!contactName && client && client.info) {
+                    try {
+                        const contact = await client.getContactById(userId).catch(() => null);
+                        if (contact) {
+                            if (contact.number && !contact.number.includes('lid') && contact.number.length <= 12) {
+                                resolvedPhoneFromLid = contact.number.replace(/\D/g, '');
+                            }
+                            contactName = contact.name || contact.pushname || contact.shortName;
+                        }
+                    } catch (e) { }
+                }
+                // 4. Buscar via resolveRealPhoneFromJid (Puppeteer Store Wid / Contact Models / Excel por nombre)
                 if (!resolvedPhoneFromLid) {
                     try {
                         const { resolveRealPhoneFromJid } = require('./billingService');
-                        const resolved = await resolveRealPhoneFromJid(userId, client);
+                        const resolved = await resolveRealPhoneFromJid(userId, client, contactName);
                         if (resolved && resolved.length >= 7 && resolved.length <= 12) {
                             resolvedPhoneFromLid = resolved;
                             // Guardar en DB para futuras consultas
