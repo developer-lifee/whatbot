@@ -11901,22 +11901,8 @@ async function startClientWithRetries() {
 
 startClientWithRetries();
 
-// Escáner Atiende Pendientes (cada 5 minutos)
-setInterval(async () => {
-    try {
-        console.log('[Atiende Pendientes Scan] Iniciando escaneo automático de chats no leídos...');
-        if (typeof processPendingChats === 'function') {
-            await processPendingChats(client, userStates, processIncomingMessage);
-        } else {
-            console.warn('⚠️ [Atiende Pendientes Scan] La función processPendingChats no está disponible.');
-        }
-    } catch (err) {
-        console.error('❌ [Atiende Pendientes Scan] Error durante el escaneo automático:', err.message);
-        if (isCriticalBrowserError(err)) {
-            console.error('🔥 [ANTI-ZOMBIE] Error crítico detectado en escaneo. Forzando reinicio para PM2...');
-            process.exit(1);
-        }
-    }
-}, 5 * 1000 * 60);
+// Escáner Atiende Pendientes deshabilitado de bucle periódico para evitar duplicados y respuestas tardías
+// Los mensajes entrantes se procesan en tiempo real por los eventos 'message' y 'message_create'
+// if (typeof processPendingChats === 'function') { ... }
 
 // Bloque de escaneo automático de pagos eliminado (redundante con validación push)

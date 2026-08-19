@@ -90,18 +90,18 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
             // Chats @lid: incluirlos si tienen mensajes no leídos (se resolverá realPhone al procesar)
             // Ya NO los excluimos en el BATCH: ahora safeSend puede manejarlos con fallback @c.us
 
-            // Criterio 1: Mensajes sin leer
-            if (chat.unreadCount > 0) return true;
+            // Criterio estricto: Solo mensajes no leídos (> 0)
+            if (!chat.unreadCount || chat.unreadCount <= 0) return false;
 
-            // Criterio 2: Marcado explícitamente en memoria como esperando humano
+            // NUNCA procesar si el chat está en atención humana o silenciado
             const state = userStates.get(chatId);
             const stateStr = typeof state === 'object' ? state.state : state;
-            if (stateStr === 'waiting_human') return true;
+            if (stateStr === 'waiting_human') return false;
 
-            return false;
+            return true;
         });
 
-        console.log(`[BATCH] Chats pendientes detectados: ${pendingChats.length}`);
+        console.log(`[BATCH] Chats pendientes no leídos detectados: ${pendingChats.length}`);
 
         for (const chat of pendingChats) {
             try {
@@ -115,9 +115,20 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
                     const currentState = userStates.get(chatId);
                     const isSilenced = currentState && typeof currentState === 'object' && currentState.state === 'waiting_human';
 
-                    console.log(`[BATCH] Escaneando chat: ${chatId} (Unread: ${unreadCount}${isSilenced ? ', Silenced' : ''})`);
+                    if (isSilenced) {
+                        console.log(`[BATCH] ⏩ Omitiendo ${chatId}: chat silenciado en waiting_human.`);
+                        continue;
+                    }
 
-                    // Buscar todos los mensajes del cliente (!fromMe) en los mensajes del chat
+                    // Verificar si el ÚLTIMO mensaje fue enviado por nosotros (asesor humano). Si es así, ya fue atendido.
+                    const lastMsg = messages[messages.length - 1];
+                    if (lastMsg && (lastMsg.fromMe || (lastMsg.id && lastMsg.id.fromMe))) {
+                        console.log(`[BATCH] ⏩ Omitiendo ${chatId}: el último mensaje fue enviado por el asesor humano. Marcando como leído.`);
+                        await chat.sendSeen().catch(() => {});
+                        continue;
+                    }
+
+                    // Buscar mensajes no leídos del cliente
                     const customerMessages = messages.filter(m => {
                         if (!m) return false;
                         const isFromMe = m.fromMe || (m.id && m.id.fromMe);
@@ -125,14 +136,14 @@ async function processPendingChats(client, userStates, processIncomingMessage, i
                     });
 
                     if (customerMessages.length > 0) {
-                        const countToTake = unreadCount > 0 ? Math.min(unreadCount, customerMessages.length) : 1;
+                        const countToTake = Math.min(unreadCount, customerMessages.length);
                         const filteredMessages = customerMessages.slice(-countToTake);
 
                         console.log(`[BATCH] 🚀 Procesando ${filteredMessages.length} mensaje(s) del cliente para ${chatId}`);
                         await processIncomingMessage(filteredMessages);
                         await chat.sendSeen().catch(() => {});
                     } else {
-                        console.log(`[BATCH] ⏩ Omitiendo ${chatId}: no se encontraron mensajes del cliente en los últimos ${messages.length} mensajes.`);
+                        console.log(`[BATCH] ⏩ Omitiendo ${chatId}: no se encontraron mensajes no leídos del cliente.`);
                     }
                 }
             } catch (err) {
