@@ -2034,21 +2034,24 @@ app.get('/api/admin/tickets', async (req, res) => {
             let resolvedPhoneFromLid = null;
 
             if (isLid) {
-                // A. Buscar en userStates por si ya tiene un teléfono mapeado
+                // A. Buscar en userStates por si ya tiene un teléfono mapeado valido (no LID)
                 const stObj = typeof state === 'object' ? state : null;
                 if (stObj && stObj.realPhone) {
-                    resolvedPhoneFromLid = stObj.realPhone;
+                    const cleanRP = String(stObj.realPhone).replace(/\D/g, '');
+                    if (cleanRP.length >= 7 && cleanRP.length <= 12 && cleanRP !== cleanDigits) {
+                        resolvedPhoneFromLid = cleanRP;
+                    }
                 }
                 // B. Buscar en la tabla chats
                 if (!resolvedPhoneFromLid) {
                     try {
                         const [chatMapRows] = await pool.query(
-                            'SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1',
-                            [userId]
+                            'SELECT customer_phone FROM chats WHERE (chat_id = ? OR chat_id LIKE ?) AND customer_phone IS NOT NULL LIMIT 1',
+                            [userId, `%${cleanDigits}%`]
                         );
                         if (chatMapRows.length > 0 && chatMapRows[0].customer_phone) {
                             const cp = chatMapRows[0].customer_phone.replace(/\D/g, '');
-                            if (cp && cp.length >= 7 && cp.length <= 12 && cp !== userId.replace(/\D/g, '')) {
+                            if (cp && cp.length >= 7 && cp.length <= 12 && cp !== cleanDigits) {
                                 resolvedPhoneFromLid = cp;
                             }
                         }
