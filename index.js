@@ -10657,10 +10657,17 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             }
             break;
         case 'awaiting_code_account_selection':
-            const selectionIdx = parseInt((message.body || "").trim()) - 1;
+            const cleanTxt = (message.body || "").toLowerCase().trim();
+            const isClosingMsg = ['gracias', 'muchas gracias', 'listo', 'ok', 'vale', 'todo bien', 'ya pude', 'perfecto', 'excelente', 'chao', 'adios'].some(k => cleanTxt.includes(k));
+            if (isClosingMsg) {
+                await message.reply("¡Con mucho gusto! Me alegra que todo esté funcionando bien. ¡Que disfrutes tu servicio! 😊🎬");
+                userStates.delete(userId);
+                return;
+            }
+            const selectionIdx = parseInt(cleanTxt) - 1;
             const candidates = currentStateData.candidates || [];
             if (isNaN(selectionIdx) || selectionIdx < 0 || selectionIdx >= candidates.length) {
-                await message.reply("🤖 Por favor, responde únicamente con el número de la opción que deseas (ej. 1 o 2).");
+                await message.reply(`🤖 Por favor, responde con el número de la cuenta que deseas (1 a ${candidates.length}).`);
                 return;
             }
             const selectedAccount = candidates[selectionIdx];
