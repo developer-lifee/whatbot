@@ -1991,7 +1991,8 @@ app.get('/api/admin/tickets', async (req, res) => {
         const ticketsPromises = targetEntries.map(async ([userId, state]) => {
             // === Resolver LID a teléfono real ===
             let phone = userId.replace('@c.us', '').replace('@lid', '');
-            const isLid = userId.includes('@lid');
+            const cleanDigits = userId.replace(/\D/g, '');
+            const isLid = userId.includes('@lid') || (!cleanDigits.startsWith('57') && cleanDigits.length > 10) || cleanDigits.length > 12;
             let resolvedPhoneFromLid = null;
 
             if (isLid) {
@@ -2016,7 +2017,6 @@ app.get('/api/admin/tickets', async (req, res) => {
                     } catch (e) { }
                 }
                 // 3. Buscar en contactMap de WhatsApp Web
-                const cleanDigits = userId.replace(/\D/g, '');
                 const contactInfo = contactMap.get(cleanDigits);
                 if (!resolvedPhoneFromLid && contactInfo) {
                     if (contactInfo.pn) {
