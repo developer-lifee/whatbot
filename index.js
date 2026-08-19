@@ -1955,6 +1955,39 @@ app.get('/api/admin/tickets', async (req, res) => {
             }).filter(Boolean);
         }
 
+        // 1. Obtener dump de contactos de WhatsApp Web en UNA sola llamada Puppeteer
+        const contactMap = new Map();
+        if (client && client.pupPage) {
+            try {
+                const contacts = await Promise.race([
+                    client.pupPage.evaluate(() => {
+                        if (!window.Store || !window.Store.Contact) return [];
+                        const all = window.Store.Contact._models || (window.Store.Contact.getModelsArray ? window.Store.Contact.getModelsArray() : []);
+                        return all.map(c => {
+                            const id = (c.id && (c.id._serialized || c.id.user || c.id)) || '';
+                            const lid = (c.lid && (c.lid._serialized || c.lid.user || c.lid)) || '';
+                            const pn = (c.phoneNumber && (c.phoneNumber.user || c.phoneNumber._serialized || c.phoneNumber)) || 
+                                       (c.pn && (c.pn.user || c.pn._serialized || c.pn)) || '';
+                            const name = c.name || c.pushname || c.shortName || '';
+                            return { id, lid, pn, name };
+                        });
+                    }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout contacts dump")), 2000))
+                ]).catch(() => []);
+
+                for (const c of contacts) {
+                    const cleanLid = c.lid ? c.lid.split('@')[0].replace(/\D/g, '') : '';
+                    const cleanId = c.id ? c.id.split('@')[0].replace(/\D/g, '') : '';
+                    if (cleanLid) contactMap.set(cleanLid, c);
+                    if (cleanId) contactMap.set(cleanId, c);
+                }
+            } catch(e) {}
+        }
+
+        // 2. Obtener datos de Excel en memoria UNA sola vez
+        const { fetchRawData } = require('./apiService');
+        const excelRows = await fetchRawData().catch(() => []);
+
         const ticketsPromises = targetEntries.map(async ([userId, state]) => {
             // === Resolver LID a teléfono real ===
             let phone = userId.replace('@c.us', '').replace('@lid', '');
@@ -1967,7 +2000,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                 if (stObj && stObj.realPhone) {
                     resolvedPhoneFromLid = stObj.realPhone;
                 }
-                // 2. Buscar en la tabla chats (solo si es un teléfono real <= 12 dígitos, descartando LIDs)
+                // 2. Buscar en la tabla chats
                 if (!resolvedPhoneFromLid) {
                     try {
                         const [chatMapRows] = await pool.query(
@@ -1982,38 +2015,48 @@ app.get('/api/admin/tickets', async (req, res) => {
                         }
                     } catch (e) { }
                 }
-                // 3. Buscar nombre del contacto en WhatsApp Web para cruce
-                let contactName = typeof state === 'object' ? state.nombre : null;
-                if (!contactName && client && client.info) {
-                    try {
-                        const contact = await client.getContactById(userId).catch(() => null);
-                        if (contact) {
-                            if (contact.number && !contact.number.includes('lid') && contact.number.length <= 12) {
-                                resolvedPhoneFromLid = contact.number.replace(/\D/g, '');
-                            }
-                            contactName = contact.name || contact.pushname || contact.shortName;
+                // 3. Buscar en contactMap de WhatsApp Web
+                const cleanDigits = userId.replace(/\D/g, '');
+                const contactInfo = contactMap.get(cleanDigits);
+                if (!resolvedPhoneFromLid && contactInfo) {
+                    if (contactInfo.pn) {
+                        const cleanPn = contactInfo.pn.replace(/\D/g, '');
+                        if (cleanPn.length >= 7 && cleanPn.length <= 12) {
+                            resolvedPhoneFromLid = cleanPn;
                         }
-                    } catch (e) { }
+                    }
+                    if (!resolvedPhoneFromLid && contactInfo.id && !contactInfo.id.includes('lid')) {
+                        const cleanId = contactInfo.id.replace(/\D/g, '');
+                        if (cleanId.length >= 7 && cleanId.length <= 12) {
+                            resolvedPhoneFromLid = cleanId;
+                        }
+                    }
                 }
-                // 4. Buscar via resolveRealPhoneFromJid (Puppeteer Store Wid / Contact Models / Excel por nombre)
-                if (!resolvedPhoneFromLid) {
-                    try {
-                        const { resolveRealPhoneFromJid } = require('./billingService');
-                        const resolved = await resolveRealPhoneFromJid(userId, client, contactName);
-                        if (resolved && resolved.length >= 7 && resolved.length <= 12) {
-                            resolvedPhoneFromLid = resolved;
-                            // Guardar en DB para futuras consultas
-                            try {
-                                await pool.query(
-                                    'UPDATE chats SET customer_phone = ? WHERE chat_id = ?',
-                                    [resolved, userId]
-                                );
-                            } catch (e) { }
+                // 4. Cruzar nombre con Excel
+                const contactName = (typeof state === 'object' && state.nombre) || (contactInfo && contactInfo.name) || null;
+                if (!resolvedPhoneFromLid && contactName && contactName.length >= 3 && contactName !== 'Cliente WhatsApp' && contactName !== 'Cliente') {
+                    const { isNameMatch } = require('./billingService');
+                    if (typeof isNameMatch === 'function') {
+                        const matchRow = excelRows.find(r => {
+                            const rowName = `${r.Nombre || r.nombre || ''} ${r.apellido || r.Apellido || ''}`.trim();
+                            const rowWhatsapp = (r.whatsapp || r.WhatsApp || '').toString().trim();
+                            return isNameMatch(contactName, rowName) || isNameMatch(contactName, rowWhatsapp);
+                        });
+                        if (matchRow) {
+                            const rawNum = (matchRow.numero || matchRow.Numero || matchRow.whatsapp || '').toString().replace(/\D/g, '');
+                            if (rawNum && rawNum.length >= 7 && rawNum.length <= 12) {
+                                resolvedPhoneFromLid = rawNum;
+                            }
                         }
-                    } catch (e) { }
+                    }
                 }
 
-                const botNum = (client.info && client.info.wid) ? client.info.wid.user : '3118587974';
+                // 5. Guardar en base de datos para futuras consultas
+                if (resolvedPhoneFromLid) {
+                    pool.query('UPDATE chats SET customer_phone = ? WHERE chat_id = ?', [resolvedPhoneFromLid, userId]).catch(() => {});
+                }
+
+                const botNum = (client && client.info && client.info.wid) ? client.info.wid.user : '3118587974';
                 if (resolvedPhoneFromLid && resolvedPhoneFromLid !== '573118587974' && resolvedPhoneFromLid !== botNum) {
                     phone = String(resolvedPhoneFromLid).replace(/\D/g, '');
                     if (typeof state === 'object') {
