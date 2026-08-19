@@ -101,10 +101,10 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
 
 function isNameMatch(strA, strB) {
     if (!strA || !strB) return false;
-    const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim();
+    const normalize = (s) => (typeof s === 'string' ? s : String(s || '')).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim();
     const cleanA = normalize(strA);
     const cleanB = normalize(strB);
-    if (!cleanA || !cleanB) return false;
+    if (!cleanA || !cleanB || cleanA.length < 2 || cleanB.length < 2) return false;
     if (cleanA === cleanB) return true;
     if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
 
@@ -115,25 +115,27 @@ function isNameMatch(strA, strB) {
     const tokenMatch = (tA, tB) => {
         if (tA === tB) return true;
         if (tA.startsWith(tB) || tB.startsWith(tA)) return true;
-        if (Math.abs(tA.length - tB.length) <= 1) {
-            let common = 0;
+        if (Math.abs(tA.length - tB.length) <= 1 && tA.slice(0, 3) === tB.slice(0, 3)) {
+            let diff = 0;
             for (let i = 0; i < Math.min(tA.length, tB.length); i++) {
-                if (tA[i] === tB[i]) common++;
+                if (tA[i] !== tB[i]) diff++;
             }
-            if (common >= Math.min(tA.length, tB.length) - 1) return true;
+            if (diff <= 1) return true;
         }
         return false;
     };
 
-    let matches = 0;
-    for (const tA of tokensA) {
-        if (tokensB.some(tB => tokenMatch(tA, tB))) {
-            matches++;
-        }
-    }
+    const shorter = tokensA.length <= tokensB.length ? tokensA : tokensB;
+    const longer = tokensA.length <= tokensB.length ? tokensB : tokensA;
+    const allShortMatched = shorter.every(sTok => longer.some(lTok => tokenMatch(sTok, lTok)));
+    if (allShortMatched && shorter.length >= 1) return true;
 
-    if (matches >= 2) return true;
-    if (tokensA.length === 1 && tokensB.length >= 1 && tokensB.some(tB => tokenMatch(tokensA[0], tB))) return true;
+    if (tokenMatch(tokensA[0], tokensB[0])) {
+        if (tokensA.length === 1 || tokensB.length === 1) return true;
+        const restA = tokensA.slice(1);
+        const restB = tokensB.slice(1);
+        return restA.some(rA => restB.some(rB => tokenMatch(rA, rB)));
+    }
 
     return false;
 }

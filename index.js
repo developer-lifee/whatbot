@@ -2038,12 +2038,14 @@ app.get('/api/admin/tickets', async (req, res) => {
                     const { isNameMatch } = require('./billingService');
                     if (typeof isNameMatch === 'function') {
                         const matchRow = excelRows.find(r => {
+                            const rawNum = (r.numero || r.Numero || '').toString().replace(/\D/g, '');
+                            if (!rawNum || rawNum.length < 7 || rawNum.length > 12) return false;
                             const rowName = `${r.Nombre || r.nombre || ''} ${r.apellido || r.Apellido || ''}`.trim();
                             const rowWhatsapp = (r.whatsapp || r.WhatsApp || '').toString().trim();
                             return isNameMatch(contactName, rowName) || isNameMatch(contactName, rowWhatsapp);
                         });
                         if (matchRow) {
-                            const rawNum = (matchRow.numero || matchRow.Numero || matchRow.whatsapp || '').toString().replace(/\D/g, '');
+                            const rawNum = (matchRow.numero || matchRow.Numero || '').toString().replace(/\D/g, '');
                             if (rawNum && rawNum.length >= 7 && rawNum.length <= 12) {
                                 resolvedPhoneFromLid = rawNum;
                             }
