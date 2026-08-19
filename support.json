@@ -12,7 +12,7 @@
         "steps": [
           { "text": "Si estás en TV y te pide código, selecciona la opción 'Obtener ayuda ∨' en la parte inferior izquierda y elige 'Usar contraseña' para ingresar directo." },
           { "text": "Si te exige código numérico, selecciona la opción de enviar email." },
-          { "text": "Después entra desde tu celular a sheerit.co/actualizar y consulta tu correo asignado." },
+          { "text": "Después entra desde tu celular a https://sheerit.co/actualizar y consulta tu correo asignado." },
           { "text": "Copia el código reciente o presiona verificar." }
         ]
       },
@@ -22,10 +22,9 @@
         "image": "/errores_img/actualizacion_netflix.png",
         "whatsappMessage": "Hola, me aparece el mensaje de actualización de hogar en Netflix.",
         "steps": [
-          { "text": "Dale en la opción de actualizar hogar con Netflix hasta que te salga la opción de enviar email." },
-          { "text": "Después entras desde tu cel al enlace sheerit.co/actualizar." },
-          { "text": "Ya estando adentro, en el buscador escribes sheerit." },
-          { "text": "Listo, ya tienes a la mano el correo para actualizar hogar de Netflix, escoges la primera opción que te sale o la más reciente." }
+          { "text": "Dale en la opción de actualizar hogar con Netflix en tu pantalla hasta que te salga la opción de enviar email." },
+          { "text": "Después entra desde tu celular al enlace: https://sheerit.co/actualizar" },
+          { "text": "Ingresa tu número de WhatsApp y presiona 'Consultar' para ver el código o enlace de confirmación reciente." }
         ]
       },
       {

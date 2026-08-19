@@ -99,6 +99,45 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
     }
 }
 
+function isNameMatch(strA, strB) {
+    if (!strA || !strB) return false;
+    const normalize = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim();
+    const cleanA = normalize(strA);
+    const cleanB = normalize(strB);
+    if (!cleanA || !cleanB) return false;
+    if (cleanA === cleanB) return true;
+    if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
+
+    const tokensA = cleanA.split(/\s+/).filter(w => w.length > 2);
+    const tokensB = cleanB.split(/\s+/).filter(w => w.length > 2);
+    if (tokensA.length === 0 || tokensB.length === 0) return false;
+
+    const tokenMatch = (tA, tB) => {
+        if (tA === tB) return true;
+        if (tA.startsWith(tB) || tB.startsWith(tA)) return true;
+        if (Math.abs(tA.length - tB.length) <= 1) {
+            let common = 0;
+            for (let i = 0; i < Math.min(tA.length, tB.length); i++) {
+                if (tA[i] === tB[i]) common++;
+            }
+            if (common >= Math.min(tA.length, tB.length) - 1) return true;
+        }
+        return false;
+    };
+
+    let matches = 0;
+    for (const tA of tokensA) {
+        if (tokensB.some(tB => tokenMatch(tA, tB))) {
+            matches++;
+        }
+    }
+
+    if (matches >= 2) return true;
+    if (tokensA.length === 1 && tokensB.length >= 1 && tokensB.some(tB => tokenMatch(tokensA[0], tB))) return true;
+
+    return false;
+}
+
 async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
     if (!jid) return null;
     const clean = jid.replace(/\D/g, '');
@@ -198,17 +237,16 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
         } catch(e) {}
     }
 
-    // 5. Fallback por nombre conocido en Excel y Base de Datos
+    // 5. Fallback por nombre conocido en Excel y Base de Datos (con coincidencia flexible de nombres y apellidos)
     if (knownName && typeof knownName === 'string' && knownName.trim().length >= 3 && knownName !== 'Cliente WhatsApp' && knownName !== 'Cliente') {
         try {
             const { fetchRawData } = require('./apiService');
             const allRows = await fetchRawData().catch(() => []);
-            const cleanTargetName = knownName.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
             const matchRow = allRows.find(r => {
-                const rowName = ((r.Nombre || r.nombre || '') + ' ' + (r.apellido || r.Apellido || '')).toLowerCase().replace(/[^a-z0-9]/g, '').trim();
-                const rowWhatsapp = (r.whatsapp || r.WhatsApp || '').toLowerCase().replace(/[^a-z0-9]/g, '').trim();
-                return (rowName && (rowName === cleanTargetName || rowName.includes(cleanTargetName) || cleanTargetName.includes(rowName))) ||
-                       (rowWhatsapp && (rowWhatsapp === cleanTargetName || rowWhatsapp.includes(cleanTargetName) || cleanTargetName.includes(rowWhatsapp)));
+                const rowName = `${r.Nombre || r.nombre || ''} ${r.apellido || r.Apellido || ''}`.trim();
+                const rowWhatsapp = (r.whatsapp || r.WhatsApp || '').toString().trim();
+                const rowEmail = (r['customer mail'] || r.correo || '').toString().trim();
+                return isNameMatch(knownName, rowName) || isNameMatch(knownName, rowWhatsapp) || (knownName.startsWith('@') && rowEmail.toLowerCase().includes(knownName.replace('@', '').toLowerCase()));
             });
             if (matchRow) {
                 const rawNum = (matchRow.numero || matchRow.Numero || matchRow.whatsapp || '').toString().replace(/\D/g, '');
