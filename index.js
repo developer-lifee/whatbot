@@ -1988,20 +1988,58 @@ app.get('/api/admin/tickets', async (req, res) => {
         const { fetchRawData } = require('./apiService');
         const excelRows = await fetchRawData().catch(() => []);
 
+        const isInvalidName = (name) => {
+            if (!name) return true;
+            const clean = String(name).trim();
+            if (clean === "Cliente" || clean === "Cliente WhatsApp") return true;
+            if (clean.startsWith("Cliente ") && /^\d+$/.test(clean.substring(8).trim())) return true;
+            if (/^\+?\d[\d\s\-]+$/.test(clean)) return true;
+            return false;
+        };
+
         const ticketsPromises = targetEntries.map(async ([userId, state]) => {
-            // === Resolver LID a teléfono real ===
-            let phone = userId.replace('@c.us', '').replace('@lid', '');
             const cleanDigits = userId.replace(/\D/g, '');
             const isLid = userId.includes('@lid') || (!cleanDigits.startsWith('57') && cleanDigits.length > 10) || cleanDigits.length > 12;
+
+            // 1. Obtener y resolver el NOMBRE del contacto primero
+            let resolvedName = typeof state === 'object' ? state.nombre : null;
+            const contactInfo = contactMap.get(cleanDigits);
+
+            if (isInvalidName(resolvedName) && contactInfo) {
+                const nameCand = contactInfo.name || contactInfo.pushname || contactInfo.shortName;
+                if (!isInvalidName(nameCand)) resolvedName = nameCand;
+            }
+
+            if (isInvalidName(resolvedName) && client && client.info) {
+                try {
+                    const contact = await Promise.race([
+                        client.getContactById(userId),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 800))
+                    ]).catch(() => null);
+                    if (contact) {
+                        const nameCandidate = contact.name || contact.pushname;
+                        if (!isInvalidName(nameCandidate)) {
+                            resolvedName = nameCandidate;
+                        }
+                    }
+                } catch (e) { }
+            }
+
+            if (isInvalidName(resolvedName)) {
+                resolvedName = "Cliente";
+            }
+
+            // 2. === Resolver LID a teléfono real ===
+            let phone = userId.replace('@c.us', '').replace('@lid', '');
             let resolvedPhoneFromLid = null;
 
             if (isLid) {
-                // 1. Buscar en userStates por si tiene un teléfono mapeado
+                // A. Buscar en userStates por si ya tiene un teléfono mapeado
                 const stObj = typeof state === 'object' ? state : null;
                 if (stObj && stObj.realPhone) {
                     resolvedPhoneFromLid = stObj.realPhone;
                 }
-                // 2. Buscar en la tabla chats
+                // B. Buscar en la tabla chats
                 if (!resolvedPhoneFromLid) {
                     try {
                         const [chatMapRows] = await pool.query(
@@ -2016,8 +2054,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                         }
                     } catch (e) { }
                 }
-                // 3. Buscar en contactMap de WhatsApp Web
-                const contactInfo = contactMap.get(cleanDigits);
+                // C. Buscar en contactMap de WhatsApp Web
                 if (!resolvedPhoneFromLid && contactInfo) {
                     if (contactInfo.pn) {
                         const cleanPn = contactInfo.pn.replace(/\D/g, '');
@@ -2032,9 +2069,8 @@ app.get('/api/admin/tickets', async (req, res) => {
                         }
                     }
                 }
-                // 4. Cruzar nombre con Excel
-                const contactName = (typeof state === 'object' && state.nombre) || (contactInfo && contactInfo.name) || null;
-                if (!resolvedPhoneFromLid && contactName && contactName.length >= 3 && contactName !== 'Cliente WhatsApp' && contactName !== 'Cliente') {
+                // D. Cruzar nombre resuelto con Excel
+                if (!resolvedPhoneFromLid && !isInvalidName(resolvedName)) {
                     const { isNameMatch } = require('./billingService');
                     if (typeof isNameMatch === 'function') {
                         const matchRow = excelRows.find(r => {
@@ -2042,7 +2078,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                             if (!rawNum || rawNum.length < 7 || rawNum.length > 12) return false;
                             const rowName = `${r.Nombre || r.nombre || ''} ${r.apellido || r.Apellido || ''}`.trim();
                             const rowWhatsapp = (r.whatsapp || r.WhatsApp || '').toString().trim();
-                            return isNameMatch(contactName, rowName) || isNameMatch(contactName, rowWhatsapp);
+                            return isNameMatch(resolvedName, rowName) || isNameMatch(resolvedName, rowWhatsapp);
                         });
                         if (matchRow) {
                             const rawNum = (matchRow.numero || matchRow.Numero || '').toString().replace(/\D/g, '');
@@ -2053,7 +2089,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                     }
                 }
 
-                // 5. Guardar en base de datos para futuras consultas
+                // E. Guardar en base de datos para futuras consultas
                 if (resolvedPhoneFromLid) {
                     pool.query('UPDATE chats SET customer_phone = ? WHERE chat_id = ?', [resolvedPhoneFromLid, userId]).catch(() => {});
                 }
@@ -2097,16 +2133,6 @@ app.get('/api/admin/tickets', async (req, res) => {
             }
 
             let accounts = [];
-            let resolvedName = typeof state === 'object' ? state.nombre : "Cliente";
-
-            const isInvalidName = (name) => {
-                if (!name) return true;
-                const clean = name.trim();
-                if (clean === "Cliente" || clean === "Cliente WhatsApp") return true;
-                if (clean.startsWith("Cliente ") && /^\d+$/.test(clean.substring(8).trim())) return true;
-                if (/^\+?\d[\d\s\-]+$/.test(clean)) return true;
-                return false;
-            };
 
             if (isInvalidName(resolvedName)) {
                 try {
@@ -2133,35 +2159,6 @@ app.get('/api/admin/tickets', async (req, res) => {
                         }
                     }
                 } catch (err) { }
-            }
-
-            if (isInvalidName(resolvedName)) {
-                try {
-                    const { searchContactByPhone } = require('./googleContactsService');
-                    const contactName = await searchContactByPhone(displayPhone).catch(() => null);
-                    if (contactName && !isInvalidName(contactName)) {
-                        resolvedName = contactName;
-                    }
-                } catch (e) { }
-            }
-
-            if (isInvalidName(resolvedName)) {
-                try {
-                    if (client && client.info) {
-                        const contact = await Promise.race([
-                            client.getContactById(userId),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1000))
-                        ]);
-                        if (contact) {
-                            const nameCandidate = contact.name || contact.pushname;
-                            if (nameCandidate && !isInvalidName(nameCandidate)) {
-                                resolvedName = nameCandidate;
-                            } else if (contact.pushname && !isInvalidName(contact.pushname)) {
-                                resolvedName = contact.pushname;
-                            }
-                        }
-                    }
-                } catch (e) { }
             }
 
             if (!isInvalidName(resolvedName) && typeof state === 'object') {
