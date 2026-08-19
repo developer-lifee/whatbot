@@ -790,7 +790,7 @@ app.post('/api/bold/generate-token', async (req, res) => {
             description: `Suscripción a ${platform.name}`,
             tax: 'vat-19',
             integritySignature,
-            redirectionUrl: `https://sheerit.com.co/?orderId=${orderId}&payment=success`
+            redirectionUrl: `https://sheerit.co/?orderId=${orderId}&payment=success`
         });
     } catch (e) {
         console.error("Bold Generate Token Error:", e);
@@ -2869,7 +2869,7 @@ app.get('/api/public/platforms', async (req, res) => {
             platforms = JSON.parse(content);
         } else {
             const fetch = require('node-fetch');
-            const response = await fetch('https://sheerit.com.co/data/platforms.json');
+            const response = await fetch('https://sheerit.co/data/platforms.json');
             platforms = await response.json();
         }
 
@@ -7407,7 +7407,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         if (isFourDigitPin) {
                             response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                         }
-                        response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 https://sheerit.com.co/verificar?tel=${cleanPhone}\n\n`;
+                        response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 https://sheerit.co/verificar?tel=${cleanPhone}\n\n`;
                         response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
 
                     } else {
@@ -7484,7 +7484,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
         // D. Es Netflix pero no tiene token (dar el verificador web)
         if (streamingName.includes('NETFLIX')) {
-            await message.reply(`🤖 ¡Hola! Para generar tu código de hogar, ingresa a este enlace:\n\n👉 https://sheerit.com.co/verificar?tel=${realPhone}`);
+            await message.reply(`🤖 ¡Hola! Para generar tu código de hogar, ingresa a este enlace:\n\n👉 https://sheerit.co/verificar?tel=${realPhone}`);
             userStates.delete(userId);
             return;
         }
@@ -10308,7 +10308,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 await processCheckCredentials(userId, client, message.body, "", userStates);
                 return;
             } else if (detection.intent === 'catalogo') {
-                await message.reply("🤖 ¡Claro! Puedes ver nuestro catálogo actualizado con todos los precios y realizar tu compra directamente en nuestra página web: https://sheerit.com.co/ 🌐\n\nSi tienes alguna duda específica sobre un servicio, ¡cuéntame!");
+                await message.reply("🤖 ¡Claro! Puedes ver nuestro catálogo actualizado con todos los precios y realizar tu compra directamente en nuestra página web: https://sheerit.co/ 🌐\n\nSi tienes alguna duda específica sobre un servicio, ¡cuéntame!");
                 return;
             } else if (detection.intent === 'pagar') {
                 const stateData = userStates.get(userId) || {};

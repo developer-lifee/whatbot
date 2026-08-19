@@ -5,8 +5,8 @@ const path = require('path');
 const AZURE_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readexcelfunction";
 const AZURE_HISTORICO_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/readhistoricofunction";
 const AZURE_WRITE_API_URL = "https://jsondeexcel-c2f5befzdqgyfah9.canadaeast-01.azurewebsites.net/api/writeexcelfunction";
-const SUPPORT_API_URL = "https://sheerit.com.co/api/support.json";
-const PLATFORMS_URL = "https://sheerit.com.co/data/platforms.json";
+const SUPPORT_API_URL = "https://sheerit.co/api/support.json";
+const PLATFORMS_URL = "https://sheerit.co/data/platforms.json";
 
 /**
  * Llama a la API de Azure con lógica de reintentos (Retries).

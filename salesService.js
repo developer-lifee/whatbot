@@ -1,7 +1,7 @@
 const { parsePurchaseIntent, parsePlanSelection } = require('./aiService');
 const { fetchRawData, getPricingRules } = require('./apiService');
 
-const PLATFORMS_URL = 'https://sheerit.com.co/data/platforms.json';
+const PLATFORMS_URL = 'https://sheerit.co/data/platforms.json';
 const fs = require('fs');
 const path = require('path');
 
@@ -618,7 +618,7 @@ async function handleSelectingPlans(message, userId, userStates) {
     availablePlans.forEach((plan, idx) => {
       reply += `*${idx + 1}* - ${plan.name}: **$${plan.price}**\n`;
     });
-    reply += `\nRespóndeme únicamente con el **número del plan** (ej: *1*) para seleccionarlo.\n\n🌐 Si prefieres ver todo el catálogo y armar tu combo, ingresa a: https://sheerit.com.co`;
+    reply += `\nRespóndeme únicamente con el **número del plan** (ej: *1*) para seleccionarlo.\n\n🌐 Si prefieres ver todo el catálogo y armar tu combo, ingresa a: https://sheerit.co`;
     await message.reply(reply);
     return;
   }
@@ -861,7 +861,7 @@ function getDynamicPaymentMessage(hasManual = false) {
 
       msg += paymentLines.join('\n') + '\n';
       
-      const tcClause = "\n\n📝 Al transferir aceptas nuestros T&C, Políticas de Reembolso y Tratamiento de Datos. Consúltalos en https://sheerit.com.co 🌐";
+      const tcClause = "\n\n📝 Al transferir aceptas nuestros T&C, Políticas de Reembolso y Tratamiento de Datos. Consúltalos en https://sheerit.co 🌐";
       
       if (hasManual) {
         msg += `\n💡 *Nota:* Dado que tu pedido contiene servicios que requieren activación manual o están temporalmente sin cupos automáticos, el registro y la entrega de tus credenciales serán realizados de forma **manual por un asesor** tras verificar tu pago. ¡Agradecemos tu paciencia! 😊`;
@@ -872,7 +872,7 @@ function getDynamicPaymentMessage(hasManual = false) {
   } catch (e) {
     console.error("Error reading payment config in salesService:", e.message);
   }
-  const fallbackTc = "\n\n📝 Al transferir aceptas nuestros T&C, Políticas de Reembolso y Tratamiento de Datos. Consúltalos en https://sheerit.com.co 🌐";
+  const fallbackTc = "\n\n📝 Al transferir aceptas nuestros T&C, Políticas de Reembolso y Tratamiento de Datos. Consúltalos en https://sheerit.co 🌐";
   return hasManual
     ? "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ *Llave Bre-V:* *0087387259*\n\n💡 *Nota:* Dado que tu pedido requiere activación manual o está sin stock automático, un asesor verificará y entregará tu cuenta de forma manual. ¡Agradecemos tu paciencia! 😊" + fallbackTc
     : "\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?\n\n⭐ *Llave Bre-V:* *0087387259* (RECOMENDADO: entrega inmediata ⚡)\n\n💡 *Nota:* Si prefieres pagar por Daviplata, ten en cuenta que el registro será **manual** y un asesor tendrá que verificar tu comprobante cuando esté disponible. 😊" + fallbackTc;
