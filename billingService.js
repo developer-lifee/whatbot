@@ -1350,5 +1350,6 @@ module.exports = {
   handleAwaitingCobrosConfirmation,
   adjustDurationToMatchAmount,
   checkPendingWebSaleForPhone,
-  resolveRealPhoneFromJid
+  resolveRealPhoneFromJid,
+  isNameMatch
 };
