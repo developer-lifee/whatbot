@@ -264,7 +264,21 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
     return null;
 }
 
-function getPlatformPriceFromExcel(streamingName, platforms = []) {
+function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
+    if (!accountOrStreaming) return 0;
+    let streamingName = "";
+
+    // 0. Si se pasa el objeto de cuenta de Excel, priorizar el precio real ya registrado en "Ingreso Mensual2" o "precio"
+    if (typeof accountOrStreaming === 'object' && accountOrStreaming !== null) {
+        const rawP = accountOrStreaming['Ingreso Mensual2'] || accountOrStreaming['ingreso mensual'] || accountOrStreaming.precio || accountOrStreaming.Precio || accountOrStreaming['precio cobrado'];
+        if (rawP && !isNaN(Number(rawP)) && Number(rawP) >= 4000) {
+            return Number(rawP);
+        }
+        streamingName = accountOrStreaming.Streaming || accountOrStreaming.Plataforma || accountOrStreaming.name || "";
+    } else {
+        streamingName = String(accountOrStreaming || "");
+    }
+
     if (!streamingName) return 0;
     const cleanName = streamingName.toString().trim().toUpperCase();
     const aliasMap = {

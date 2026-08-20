@@ -7321,11 +7321,17 @@ client.on('message_create', async (msg) => {
 
         if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand && !isSystemResponse) {
             const cleanTargetJid = targetId.split('@')[0].split(':')[0].replace(/\D/g, '') + '@c.us';
-            const muteObj = (typeof st === 'object' && st.state === 'waiting_human') 
-                ? { ...st, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor', clientWaitingSince: null }
-                : { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'advisor', clientWaitingSince: null };
+            const existingSt = userStates.get(targetId) || userStates.get(cleanTargetJid) || (msg.to ? userStates.get(msg.to) : null) || {};
+            const muteObj = {
+                ...(typeof existingSt === 'object' ? existingSt : {}),
+                state: 'waiting_human',
+                waitingCount: 0,
+                lastHumanInteraction: Date.now(),
+                waiting_human_mode: 'advisor',
+                clientWaitingSince: null
+            };
 
-            console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot.`);
+            console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot estrictamente.`);
             userStates.set(targetId, muteObj);
             userStates.set(cleanTargetJid, muteObj);
             if (msg.to) userStates.set(msg.to, muteObj);
@@ -7334,6 +7340,8 @@ client.on('message_create', async (msg) => {
             if (global.supportQueue) {
                 const qIdx = global.supportQueue.indexOf(targetId);
                 if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
+                const qIdx2 = global.supportQueue.indexOf(cleanTargetJid);
+                if (qIdx2 !== -1) global.supportQueue.splice(qIdx2, 1);
             }
         }
     }
@@ -8129,17 +8137,21 @@ async function baseProcessIncomingMessage(messages) {
         const mode = (currentStateData && typeof currentStateData === 'object') ? (currentStateData.waiting_human_mode || 'bot') : 'bot';
         const cleanInput = (message.body || '').trim().toLowerCase();
 
-        // 0. FORCED SILENCE RULE: If the advisor interacted in the last 10 minutes, keep the bot strictly muted
-        const lastInteraction = (currentStateData && currentStateData.lastHumanInteraction) || 0;
+        // 0. FORCED SILENCE RULE: Si el asesor interactuó en las últimas 2 horas, mantener el bot estrictamente silenciado
+        const lastInteraction = Math.max(
+            (currentStateData && currentStateData.lastHumanInteraction) || 0,
+            (userStates.get(userId) && userStates.get(userId).lastHumanInteraction) || 0,
+            (userStates.get(cleanPhoneJid) && userStates.get(cleanPhoneJid).lastHumanInteraction) || 0
+        );
         const timeSinceLastHumanMs = Date.now() - lastInteraction;
         const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
 
-        if (minutesSinceLastHuman < 45) {
-            console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} porque el asesor interactuó hace ${minutesSinceLastHuman.toFixed(1)} minutos.`);
+        if (minutesSinceLastHuman < 120 || (currentStateData && currentStateData.agent) || mode === 'advisor') {
+            console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} (Asesor activo hace ${minutesSinceLastHuman.toFixed(1)} mins o asignado a ${currentStateData ? currentStateData.agent : 'humano'}).`);
             return;
         }
 
-        // 1. Evaluar de inmediato si es una intención resoluble para reactivar el bot (incluso si está en modo advisor/silenciado)
+        // 1. Evaluar si es una intención resoluble para reactivar el bot solo si NO hay asesor asignado ni charla reciente
         let isSolvable = false;
         let mediaData = null;
         if (message.hasMedia) {
@@ -8173,37 +8185,7 @@ async function baseProcessIncomingMessage(messages) {
                 'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación'
             ];
 
-            // Check if the message contains code request keywords
             let isCodeRequest = (wantsCodeKeywords.some(kw => cleanBody.toLowerCase().includes(kw)) && !cleanBody.toLowerCase().includes('qr') && !cleanBody.toLowerCase().includes('barras') && !cleanBody.toLowerCase().includes('pago')) || cleanBody === '?';
-
-            // Also check if Gemini's media description detects a Netflix/Disney code or home screen
-            if (mediaData && detection) {
-                const imgDesc = ((detection.explanation || "") + " " + (detection.mediaDescription || "")).toLowerCase();
-
-                const isWrongPassword = imgDesc.includes('contraseña incorrecta') ||
-                    imgDesc.includes('contraseña no es correcta') ||
-                    imgDesc.includes('clave incorrecta') ||
-                    imgDesc.includes('incorrect password') ||
-                    imgDesc.includes('wrong password') ||
-                    imgDesc.includes('password incorrect') ||
-                    imgDesc.includes('contraseña no coincide') ||
-                    imgDesc.includes('clave no coincide') ||
-                    imgDesc.includes('datos de acceso') ||
-                    imgDesc.includes('datos anteriores') ||
-                    imgDesc.includes('no me permite el ingreso') ||
-                    imgDesc.includes('no permite el ingreso');
-
-                const wantsImgCode = [
-                    'hogar', 'dispositivo', 'código', 'codigo', 'netflix', 'sesión', 'sesion', 'tv', 'televisor',
-                    'gpt', 'chatgpt', '2fa', 'authenticator', 'autenticación', 'openai', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
-                    'error', 'fallo', 'falla', 'pantalla', 'problema', 'cuenta', 'iniciar', 'bloqueo', 'límite', 'limite', 'suscripción', 'suscripcion', 'incorrecto', 'incorrecta', 'incorrect', 'warning', 'alert', 'failed', 'blocked'
-                ].some(kw => imgDesc.includes(kw));
-
-                if (wantsImgCode && !isWrongPassword) {
-                    isCodeRequest = true;
-                    console.log(`[BOT MEDIA OCR DETECTED] La imagen del cliente parece solicitar código de Netflix/Disney. Activando reactivación.`);
-                }
-            }
 
             const isProv = await isProviderSender(userId);
             if (isProv) {
@@ -8212,11 +8194,8 @@ async function baseProcessIncomingMessage(messages) {
                 return;
             }
 
-            const isAdvisorActive = (currentStateData && currentStateData.waiting_human_mode === 'advisor' && minutesSinceLastHuman < 60);
-
-            // Si el asesor humano está activo en el chat (menos de 60 mins), NO reactivar el bot por intenciones ni menús
-            if (!isAdvisorActive && (isMenuSelection || isCodeRequest || (detection && solvableIntents.includes(detection.intent)))) {
-                console.log(`[BOT MUTE REACTIVATE IMMEDIATE] Reactivando bot porque el mensaje de @${userId} es resoluble de inmediato (Menú/Código/Intención: ${detection ? detection.intent : 'desconocida'}). isCode=${isCodeRequest}`);
+            if (isMenuSelection || isCodeRequest || (detection && solvableIntents.includes(detection.intent))) {
+                console.log(`[BOT MUTE REACTIVATE IMMEDIATE] Reactivando bot para @${userId} por intención resoluble.`);
                 userStates.delete(userId);
                 currentState = undefined;
                 isSolvable = true;
@@ -9240,26 +9219,43 @@ async function baseProcessIncomingMessage(messages) {
             if (userAccounts.length > 0) {
                 let targetAccount = null;
 
-                // 1. Intentar buscar coincidencia directa por plataforma
-                const matchedPlatform = platformsSupported.find(p => lowerBody.includes(p));
-                if (matchedPlatform) {
-                    targetAccount = userAccounts.find(c => {
-                        const streamingName = (c.Streaming || "").toLowerCase();
-                        if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
-                            return streamingName.includes('hbo') || streamingName.includes('max');
-                        }
-                        if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
-                            return streamingName.includes('amazon') || streamingName.includes('prime');
-                        }
-                        return streamingName.includes(matchedPlatform);
-                    });
+                // 0. Si el usuario envió un correo explícito en su mensaje, buscar por ese correo directamente
+                const emailInMsg = lowerBody.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                if (emailInMsg) {
+                    const directEmail = emailInMsg[0].toLowerCase().trim();
+                    const accByEmail = userAccounts.find(a => (a.correo || "").toLowerCase().trim() === directEmail);
+                    if (accByEmail) {
+                        targetAccount = accByEmail;
+                    } else {
+                        targetAccount = {
+                            correo: directEmail,
+                            Streaming: matchedPlatform ? matchedPlatform.toUpperCase() : (userAccounts[0] ? userAccounts[0].Streaming : 'AMAZON')
+                        };
+                    }
                 }
 
-                // Si especificó una plataforma pero no está entre sus cuentas activas, no usar fallbacks
-                if (matchedPlatform && !targetAccount) {
-                    const activePlats = Array.from(new Set(userAccounts.map(a => (a.Streaming || "").toUpperCase()).filter(Boolean))).join(', ');
-                    await message.reply(`🤖 Veo que solicitas un código para *${matchedPlatform.toUpperCase()}*, pero no tienes una cuenta activa de esa plataforma vinculada a tu número de WhatsApp. ${activePlats ? `Actualmente solo tienes activo: *${activePlats}*` : 'No tienes servicios activos con nosotros'}.\n\nSi deseas renovar o adquirir tu cuenta de *${matchedPlatform.toUpperCase()}*, por favor indícalo para ayudarte. 😊`);
-                    return;
+                // 1. Intentar buscar coincidencia directa por plataforma si no se especificó correo
+                if (!targetAccount) {
+                    const matchedPlatform = platformsSupported.find(p => lowerBody.includes(p));
+                    if (matchedPlatform) {
+                        targetAccount = userAccounts.find(c => {
+                            const streamingName = (c.Streaming || "").toLowerCase();
+                            if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
+                                return streamingName.includes('hbo') || streamingName.includes('max');
+                            }
+                            if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
+                                return streamingName.includes('amazon') || streamingName.includes('prime');
+                            }
+                            return streamingName.includes(matchedPlatform);
+                        });
+                    }
+
+                    // Si especificó una plataforma pero no está entre sus cuentas activas, no usar fallbacks
+                    if (matchedPlatform && !targetAccount) {
+                        const activePlats = Array.from(new Set(userAccounts.map(a => (a.Streaming || "").toUpperCase()).filter(Boolean))).join(', ');
+                        await message.reply(`🤖 Veo que solicitas un código para *${matchedPlatform.toUpperCase()}*, pero no tienes una cuenta activa de esa plataforma vinculada a tu número de WhatsApp. ${activePlats ? `Actualmente solo tienes activo: *${activePlats}*` : 'No tienes servicios activos con nosotros'}.\n\nSi deseas renovar o adquirir tu cuenta de *${matchedPlatform.toUpperCase()}*, por favor indícalo para ayudarte. 😊`);
+                        return;
+                    }
                 }
 
                 // 2. Si no hay coincidencia directa (y no se especificó plataforma ajena), pero solo tiene 1 cuenta, usar esa
