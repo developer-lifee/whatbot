@@ -2479,6 +2479,16 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                 });
             } catch (e) { }
         }
+
+        // Emparejar todos los JIDs y LIDs en userStates que correspondan a este teléfono
+        for (const [sKey, sVal] of userStates.entries()) {
+            if (!sVal) continue;
+            const sClean = sKey.replace(/\D/g, '');
+            const sReal = sVal.realPhone ? String(sVal.realPhone).replace(/\D/g, '') : '';
+            if (sClean === cleanPhone || sReal === cleanPhone || (cleanPhone.length >= 10 && sClean.endsWith(cleanPhone.slice(-10)))) {
+                possibleJids.push(sKey);
+            }
+        }
         const uniqueJids = Array.from(new Set(possibleJids));
 
         // Obtener correos asociados a este teléfono
