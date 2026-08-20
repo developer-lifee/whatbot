@@ -206,26 +206,123 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
         const items = userState.items || [];
         const subscriptionType = userState.subscriptionType || 'mensual';
 
-        // Intentar obtener el nombre real
-        let name = userState.nombre;
-        if (!name || name === "Cliente WhatsApp") {
+        // 1. Resolver Teléfono Real (evitando guardar LIDs de 15 dígitos en Excel)
+        const cleanDigits = userId.replace(/\D/g, '');
+        const isLid = userId.includes('@lid') || (!cleanDigits.startsWith('57') && cleanDigits.length > 10) || cleanDigits.length > 12;
+        let realPhone = userState.realPhone || null;
+        let resolvedName = userState.nombre || null;
+
+        const activeClient = typeof global !== 'undefined' ? global.client : null;
+
+        if (isLid && !realPhone) {
+            // A. Buscar en tabla chats
             try {
-                const { searchContactByPhone } = require('./googleContactsService');
-                const contactName = await searchContactByPhone(userId.replace(/\D/g, ''));
-                if (contactName) {
-                    name = contactName;
-                } else {
-                    // Si no hay contacto, intentamos usar el pushname si está disponible en el estado
-                    name = userState.pushname || "Cliente WhatsApp";
+                const { pool } = require('./database');
+                const [chatRows] = await pool.query(
+                    'SELECT customer_phone FROM chats WHERE (chat_id = ? OR chat_id LIKE ?) AND customer_phone IS NOT NULL LIMIT 1',
+                    [userId, `%${cleanDigits}%`]
+                );
+                if (chatRows.length > 0 && chatRows[0].customer_phone) {
+                    const cp = chatRows[0].customer_phone.replace(/\D/g, '');
+                    if (cp && cp.length >= 7 && cp.length <= 12 && cp !== cleanDigits) {
+                        realPhone = cp;
+                    }
                 }
-            } catch (e) {
-                name = "Cliente WhatsApp";
+            } catch (e) { }
+
+            // B. Buscar vía Puppeteer / WhatsApp Web Contact
+            if (!realPhone && activeClient && activeClient.info) {
+                try {
+                    const contact = await Promise.race([
+                        activeClient.getContactById(userId),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1200))
+                    ]).catch(() => null);
+
+                    if (contact) {
+                        if (!resolvedName || resolvedName === 'Cliente WhatsApp' || resolvedName === 'Cliente') {
+                            resolvedName = contact.name || contact.pushname || resolvedName;
+                        }
+                        if (contact.number) {
+                            const cleanCNum = String(contact.number).replace(/\D/g, '');
+                            if (cleanCNum.length >= 7 && cleanCNum.length <= 12 && cleanCNum !== cleanDigits) {
+                                realPhone = cleanCNum;
+                            }
+                        }
+                        if (!realPhone && typeof contact.getFormattedNumber === 'function') {
+                            try {
+                                const formatted = await contact.getFormattedNumber();
+                                const cleanFNum = String(formatted).replace(/\D/g, '');
+                                if (cleanFNum.length >= 7 && cleanFNum.length <= 12 && cleanFNum !== cleanDigits) {
+                                    realPhone = cleanFNum;
+                                }
+                            } catch (e) { }
+                        }
+                    }
+                } catch (e) { }
+            }
+
+            // C. Si tenemos pupPage, buscar en Store.Contact y Store.Lid
+            if (!realPhone && activeClient && activeClient.pupPage) {
+                try {
+                    const storeInfo = await activeClient.pupPage.evaluate((targetId, cleanD) => {
+                        if (!window.Store || !window.Store.Contact) return null;
+                        const c = window.Store.Contact.get(targetId) || 
+                                  (window.Store.Contact._models && window.Store.Contact._models.find(m => (m.id && (m.id.user === cleanD || m.id._serialized === targetId)) || (m.lid && m.lid.user === cleanD)));
+                        if (!c) return null;
+                        let pn = '';
+                        if (c.phoneNumber) pn = typeof c.phoneNumber === 'object' ? (c.phoneNumber.user || c.phoneNumber._serialized) : c.phoneNumber;
+                        else if (c.pn) pn = typeof c.pn === 'object' ? (c.pn.user || c.pn._serialized) : c.pn;
+                        else if (c.number) pn = c.number;
+                        else if (c.formattedNumber) pn = c.formattedNumber;
+                        else if (c.userid && !String(c.userid).includes('lid') && String(c.userid).length <= 12) pn = c.userid;
+                        
+                        if (!pn && window.Store.Lid && typeof window.Store.Lid.getPhoneNumber === 'function') {
+                            try {
+                                const resL = window.Store.Lid.getPhoneNumber(c.lid || c.id);
+                                if (resL) pn = typeof resL === 'object' ? (resL.user || resL._serialized) : resL;
+                            } catch(e) {}
+                        }
+                        return { name: c.name || c.pushname || '', pn: String(pn || '') };
+                    }, userId, cleanDigits).catch(() => null);
+
+                    if (storeInfo) {
+                        if (storeInfo.name && (!resolvedName || resolvedName === 'Cliente WhatsApp' || resolvedName === 'Cliente')) {
+                            resolvedName = storeInfo.name;
+                        }
+                        if (storeInfo.pn) {
+                            const cleanP = storeInfo.pn.replace(/\D/g, '');
+                            if (cleanP.length >= 7 && cleanP.length <= 12 && cleanP !== cleanDigits) {
+                                realPhone = cleanP;
+                            }
+                        }
+                    }
+                } catch (e) { }
             }
         }
 
-        console.log(`[Sales Registry] Nombre resuelto para el registro: ${name}`);
-        // Limpiar el ID de WhatsApp para obtener solo el número (eliminar sufijos de multi-dispositivo como :12)
-        const phone = userId.split('@')[0].split(':')[0].replace(/\D/g, '');
+        const phoneToUse = realPhone || cleanDigits;
+        if (realPhone) {
+            userState.realPhone = realPhone;
+        }
+
+        // 2. Resolver Nombre Real
+        let name = resolvedName || userState.nombre || userState.pushname;
+        if (!name || name === "Cliente WhatsApp" || name === "Cliente") {
+            try {
+                const { searchContactByPhone } = require('./googleContactsService');
+                const contactName = await searchContactByPhone(phoneToUse);
+                if (contactName) {
+                    name = contactName;
+                } else {
+                    name = userState.pushname || "Cliente WhatsApp";
+                }
+            } catch (e) {
+                name = userState.pushname || "Cliente WhatsApp";
+            }
+        }
+
+        console.log(`[Sales Registry] Nombre resuelto para el registro: ${name} (Tel: ${phoneToUse})`);
+        const phone = phoneToUse;
         const formattedPhone = formatWhatsAppNumber(phone);
 
         // Obtener todos los datos crudos para buscar cupos o validar nombres reales en filas de Excel
