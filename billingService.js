@@ -278,7 +278,19 @@ function getPlatformPriceFromExcel(streamingName, platforms = []) {
     const targetAlphanum = cleanName.replace(/[^A-Z0-9]/g, '');
 
     if (Array.isArray(platforms)) {
-        // 1. Buscar coincidencia exacta o cercana en planes de todas las plataformas primero
+        // 1. Buscar coincidencia exacta en el nombre de la plataforma (ej: SPOTIFY vs SPOTIFY OWNER)
+        for (const p of platforms) {
+            const pName = (p.name || '').toUpperCase();
+            if (pName === targetName) {
+                if (targetName === 'SPOTIFY' && Array.isArray(p.plans)) {
+                    const indPlan = p.plans.find(pl => (pl.name || '').toLowerCase().includes('individual') || (pl.name || '').toLowerCase().includes('personal'));
+                    if (indPlan && indPlan.price) return indPlan.price;
+                }
+                if (p.price) return p.price;
+            }
+        }
+
+        // 2. Buscar coincidencia exacta o cercana en planes de todas las plataformas
         for (const p of platforms) {
             if (Array.isArray(p.plans)) {
                 for (const plan of p.plans) {
@@ -286,6 +298,11 @@ function getPlatformPriceFromExcel(streamingName, platforms = []) {
                     const fullPlanName = `${p.name || ''} ${plan.name || ''}`.toUpperCase();
                     const planNorm = normalizeStreamingName(`${p.name || ''} ${plan.name || ''}`);
                     const planAlphanum = fullPlanName.replace(/[^A-Z0-9]/g, '');
+
+                    // Evitar asignar plan Owner/Dueño si el registro del Excel no dice Owner
+                    if ((planName.includes('OWNER') || planName.includes('DUEÑO')) && !targetName.includes('OWNER') && !targetName.includes('DUEÑO')) {
+                        continue;
+                    }
 
                     if (targetName === planName || targetName === fullPlanName ||
                         targetAlphanum === planAlphanum ||
@@ -298,7 +315,7 @@ function getPlatformPriceFromExcel(streamingName, platforms = []) {
             }
         }
 
-        // 2. Si no coincide con ningún plan, buscar coincidencia en el nombre de la plataforma
+        // 3. Si no coincide con ningún plan, buscar coincidencia en el nombre de la plataforma
         for (const p of platforms) {
             const pName = (p.name || '').toUpperCase();
             const pNorm = normalizeStreamingName(p.name || '');

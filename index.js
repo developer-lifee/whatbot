@@ -9357,21 +9357,107 @@ async function baseProcessIncomingMessage(messages) {
                     stateData.intent === 'comprar' ||
                     stateData.state === 'awaiting_purchase_platforms';
 
-                // Si el carrito está vacío, intentar auto-rellenarlo
+                // Si el carrito está vacío, intentar auto-rellenarlo inteligentemente
                 if (!stateData.items || stateData.items.length === 0) {
+                    const { getPlatforms } = require('./salesService');
+                    let platforms = [];
+                    try { platforms = await getPlatforms(); } catch (e) { }
 
-                    if (check.inferredPlatform) {
-                        console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con: ${check.inferredPlatform}. isNewRequested=${isNewRequested}`);
+                    // 1. PRIORIDAD MÁXIMA: Si el usuario YA TIENE cuentas activas y no solicitó servicio nuevo
+                    if (userAccounts && userAccounts.length > 0 && !isNewRequested) {
+                        let totalAllAccountsPrice = 0;
+                        const accountsWithPrices = userAccounts.map(acc => {
+                            const accStreaming = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                            const matchedPlat = platforms.find(p => {
+                                const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                return accStreaming.includes(cleanPlat) || cleanPlat.includes(accStreaming);
+                            });
+                            let price = matchedPlat ? (matchedPlat.price || 0) : 0;
+                            if (matchedPlat && matchedPlat.plans && matchedPlat.plans.length > 0) {
+                                const cleanAccStreaming = acc.Streaming.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                const matchedPlan = matchedPlat.plans.find(plan => {
+                                    const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                    return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
+                                });
+                                if (matchedPlan) price = matchedPlan.price;
+                            }
+                            return { ...acc, calculatedPrice: price };
+                        });
 
-                        // Intentar obtener el precio real de la plataforma en el catálogo
-                        let catalogPrice = 0;
-                        let matchedItems = [];
-                        try {
-                            const { getPlatforms } = require('./salesService');
-                            const platforms = await getPlatforms();
+                        totalAllAccountsPrice = accountsWithPrices.reduce((sum, a) => sum + (a.calculatedPrice || 0), 0);
+                        if (userAccounts.length > 1) {
+                            totalAllAccountsPrice = Math.max(0, totalAllAccountsPrice - (1000 * (userAccounts.length - 1)));
+                        }
+
+                        // A. Si el monto transferido coincide exactamente con el combo total de todas sus cuentas
+                        if (check.amount && check.amount === totalAllAccountsPrice) {
+                            console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} coincide exactamente con el combo total de sus cuentas (${userAccounts.map(a => a.Streaming).join(', ')}).`);
+                            stateData.items = userAccounts;
+                            stateData.total = totalAllAccountsPrice;
+                            stateData.isRenewal = true;
+                            stateData.isAutoFilled = true;
+                            userStates.set(userId, stateData);
+                        }
+                        // B. Si el monto transferido coincide con una sola cuenta específica del usuario
+                        else if (check.amount && userAccounts.some(a => {
+                            const p = accountsWithPrices.find(ap => ap._rowNumber === a._rowNumber || ap.Streaming === a.Streaming);
+                            return p && p.calculatedPrice === check.amount;
+                        })) {
+                            const matchedAcc = userAccounts.find(a => {
+                                const p = accountsWithPrices.find(ap => ap._rowNumber === a._rowNumber || ap.Streaming === a.Streaming);
+                                return p && p.calculatedPrice === check.amount;
+                            });
+                            console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} coincide con la cuenta ${matchedAcc.Streaming} del usuario.`);
+                            stateData.items = [matchedAcc];
+                            stateData.total = check.amount;
+                            stateData.isRenewal = true;
+                            stateData.isAutoFilled = true;
+                            userStates.set(userId, stateData);
+                        }
+                        // C. Si solo tiene 1 cuenta activa, es renovación de esa cuenta
+                        else if (userAccounts.length === 1) {
+                            console.log(`[PAYMENT INTERCEPTOR] Usuario tiene 1 sola cuenta activa (${userAccounts[0].Streaming}). Renovando automáticamente.`);
+                            stateData.items = [userAccounts[0]];
+                            stateData.total = check.amount || accountsWithPrices[0].calculatedPrice;
+                            stateData.isRenewal = true;
+                            stateData.isAutoFilled = true;
+                            userStates.set(userId, stateData);
+                        }
+                        // D. Si tiene múltiples cuentas y el monto cubre el combo total
+                        else if (userAccounts.length > 1 && check.amount && check.amount >= totalAllAccountsPrice) {
+                            console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} cubre el combo completo de sus cuentas.`);
+                            stateData.items = userAccounts;
+                            stateData.total = totalAllAccountsPrice || check.amount;
+                            stateData.isRenewal = true;
+                            stateData.isAutoFilled = true;
+                            userStates.set(userId, stateData);
+                        }
+                        // E. Si se detectó una plataforma que coincide con alguna de sus cuentas
+                        else if (check.inferredPlatform) {
+                            const matchedAcc = userAccounts.find(acc => {
+                                const accStr = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+                                const infStr = check.inferredPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                return accStr.includes(infStr) || infStr.includes(accStr);
+                            });
+                            if (matchedAcc) {
+                                console.log(`[PAYMENT INTERCEPTOR] Plataforma detectada ${check.inferredPlatform} coincide con su cuenta ${matchedAcc.Streaming}.`);
+                                stateData.items = [matchedAcc];
+                                stateData.total = check.amount;
+                                stateData.isRenewal = true;
+                                stateData.isAutoFilled = true;
+                                userStates.set(userId, stateData);
+                            }
+                        }
+                    }
+
+                    // 2. Si todavía no se llenó (ej: compra nueva de cliente sin cuentas o con solicitud explícita)
+                    if (!stateData.items || stateData.items.length === 0) {
+                        if (check.inferredPlatform) {
+                            console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con inferredPlatform: ${check.inferredPlatform}. isNewRequested=${isNewRequested}`);
+                            let catalogPrice = 0;
+                            let matchedItems = [];
                             const lowerInferred = check.inferredPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-                            // Encontrar todas las plataformas mencionadas en inferredPlatform
                             const matchedPlats = platforms.filter(p => {
                                 const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
                                 return lowerInferred.includes(cleanPlat) || cleanPlat.includes(lowerInferred);
@@ -9381,50 +9467,19 @@ async function baseProcessIncomingMessage(messages) {
                                 let price = plat.price || 0;
                                 let planName = plat.name;
 
-                                // 1. Primero intentar encontrar coincidencia con las cuentas activas del usuario (si no solicita servicio nuevo)
-                                const userAccForPlat = isNewRequested ? null : userAccounts.find(acc => {
-                                    const accStreaming = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                                    const platName = plat.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                                    return accStreaming.includes(platName) || platName.includes(accStreaming);
-                                });
-
-                                if (userAccForPlat && plat.plans && plat.plans.length > 0) {
-                                    const cleanAccStreaming = userAccForPlat.Streaming.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                    let matchedPlan = plat.plans.find(plan => {
+                                if (plat.plans && plat.plans.length > 0) {
+                                    const specificPlan = plat.plans.find(plan => {
                                         const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                        return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
+                                        const cleanInferred = check.inferredPlatform.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                        return cleanInferred.includes(cleanPlan) || cleanPlan.includes(cleanInferred);
                                     }) || (check.amount ? plat.plans.find(plan => plan.price === check.amount) : null);
-                                    if (matchedPlan) {
-                                        price = matchedPlan.price;
-                                        planName = `${plat.name} - ${matchedPlan.name}`;
-                                    }
-                                }
 
-                                // 2. Si no coincide con ninguna cuenta del usuario, intentar coincidir con texto de inferredPlatform
-                                if (price === 0 || planName === plat.name) {
-                                    if (plat.name.toLowerCase().includes('spotify')) {
-                                        const matchedPlan = plat.plans.find(p => p.price === check.amount);
-                                        if (matchedPlan) {
-                                            price = matchedPlan.price;
-                                            planName = `${plat.name} - ${matchedPlan.name}`;
-                                        } else {
-                                            const individualPlan = plat.plans.find(p => p.name.toLowerCase().includes('individual'));
-                                            price = individualPlan ? individualPlan.price : 10000;
-                                            planName = individualPlan ? `${plat.name} - ${individualPlan.name}` : plat.name;
-                                        }
-                                    } else if (plat.plans && plat.plans.length > 0) {
-                                        const specificPlan = plat.plans.find(plan => {
-                                            const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                            const cleanInferred = check.inferredPlatform.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                            return cleanInferred.includes(cleanPlan) || cleanPlan.includes(cleanInferred);
-                                        });
-                                        if (specificPlan) {
-                                            price = specificPlan.price;
-                                            planName = `${plat.name} - ${specificPlan.name}`;
-                                        } else {
-                                            price = plat.plans[0].price;
-                                            planName = `${plat.name} - ${plat.plans[0].name}`;
-                                        }
+                                    if (specificPlan) {
+                                        price = specificPlan.price;
+                                        planName = `${plat.name} - ${specificPlan.name}`;
+                                    } else {
+                                        price = plat.plans[0].price;
+                                        planName = `${plat.name} - ${plat.plans[0].name}`;
                                     }
                                 }
 
@@ -9434,93 +9489,32 @@ async function baseProcessIncomingMessage(messages) {
                                     platform: { name: plat.name }
                                 });
                             }
-                        } catch (platErr) {
-                            console.error("[PAYMENT INTERCEPTOR] Error buscando precio de plataforma en catálogo:", platErr.message);
-                        }
 
-                        // Si encontramos múltiples plataformas, aplicar descuento por combo de ser aplicable
-                        if (matchedItems.length > 1) {
-                            catalogPrice = Math.max(0, catalogPrice - 1000);
-                        }
-
-                        if (matchedItems.length > 0) {
-                            stateData.items = matchedItems;
-                            const matchesUserAccount = userAccounts.length > 0 && userAccounts.some(acc => {
-                                const accStr = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                                return matchedItems.some(item => {
-                                    const itemStr = (item.Streaming || (item.platform ? item.platform.name : "") || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                                    return accStr.includes(itemStr) || itemStr.includes(accStr);
-                                });
-                            });
-                            if (matchesUserAccount || (userAccounts.length > 0 && !isNewRequested)) {
-                                stateData.isRenewal = true;
+                            if (matchedItems.length > 1) {
+                                catalogPrice = Math.max(0, catalogPrice - 1000);
                             }
-                        } else if (userAccounts.length > 0 && !isNewRequested) {
-                            stateData.items = userAccounts;
-                            stateData.isRenewal = true;
-                        } else {
-                            stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
-                        }
-                        stateData.total = catalogPrice || check.amount;
-                        stateData.isAutoFilled = true;
-                        userStates.set(userId, stateData); // Persistir el auto-llenado
-                    } else if (userAccounts.length === 1 && !isNewRequested) {
-                        const singleAcc = userAccounts[0];
-                        stateData.items = [singleAcc];
-                        stateData.total = check.amount;
-                        stateData.isAutoFilled = true;
-                        stateData.isImplicitFallback = true; // Flag para confirmación de precisión
-                        stateData.isRenewal = true; // Indicar que es renovación
-                        userStates.set(userId, stateData); // Persistir el auto-llenado
-                    } else if (userAccounts.length > 1 && !isNewRequested) {
-                        stateData.items = userAccounts.map(acc => ({
-                            ...acc,
-                            Streaming: acc.Streaming || acc.Plataforma
-                        }));
-                        stateData.isRenewal = true;
-                        stateData.isAutoFilled = true;
 
-                        try {
-                            const { getPlatforms } = require('./salesService');
-                            const platforms = await getPlatforms();
-                            let totalComboPrice = 0;
-
-                            userAccounts.forEach(acc => {
-                                const accStreaming = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                                const matchedPlat = platforms.find(p => {
-                                    const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                                    return accStreaming.includes(cleanPlat) || cleanPlat.includes(accStreaming);
-                                });
-
-                                if (matchedPlat) {
-                                    let platPrice = matchedPlat.price || 0;
-                                    if (matchedPlat.plans && matchedPlat.plans.length > 0) {
-                                        const cleanAccStreaming = acc.Streaming.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                        let matchedPlan = matchedPlat.plans.find(plan => {
-                                            const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                            return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
-                                        });
-                                        if (!matchedPlan && check.amount) {
-                                            matchedPlan = matchedPlat.plans.find(plan => plan.price === check.amount);
-                                        }
-                                        if (matchedPlan) {
-                                            platPrice = matchedPlan.price;
-                                        } else {
-                                            platPrice = matchedPlat.plans[0].price;
-                                        }
-                                    }
-                                    totalComboPrice += platPrice;
-                                }
-                            });
-
-                            if (userAccounts.length > 1) {
-                                totalComboPrice = Math.max(0, totalComboPrice - (1000 * (userAccounts.length - 1)));
+                            if (matchedItems.length > 0) {
+                                stateData.items = matchedItems;
+                            } else {
+                                stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
                             }
-                            stateData.total = totalComboPrice;
-                        } catch (e) {
+                            stateData.total = catalogPrice || check.amount;
+                            stateData.isAutoFilled = true;
+                            userStates.set(userId, stateData);
+                        } else if (userAccounts.length === 1 && !isNewRequested) {
+                            stateData.items = [userAccounts[0]];
                             stateData.total = check.amount;
+                            stateData.isAutoFilled = true;
+                            stateData.isRenewal = true;
+                            userStates.set(userId, stateData);
+                        } else if (userAccounts.length > 1 && !isNewRequested) {
+                            stateData.items = userAccounts;
+                            stateData.total = check.amount;
+                            stateData.isAutoFilled = true;
+                            stateData.isRenewal = true;
+                            userStates.set(userId, stateData);
                         }
-                        userStates.set(userId, stateData);
                     }
                 }
 

@@ -446,17 +446,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     }
 
                     if ((isPhoneMatch || isNameMatch) && isSamePlatformFamily(r.Streaming, platformName)) {
-                        // Solo consideramos renovable si la cuenta está VENCIDA o VENCE PRONTO (<= 15 días)
-                        // Si la cuenta vence en más de 15 días en el futuro, se asume que la compra actual es para una SEGUNDA CUENTA NUEVA
-                        const { getJsDateFromExcel } = require('./apiService');
-                        const dueDate = getJsDateFromExcel(r.deben || r.vencimiento);
-                        if (dueDate) {
-                            const diffDays = (dueDate - new Date()) / (1000 * 60 * 60 * 24);
-                            if (diffDays > 15) {
-                                console.log(`[Sales Registry] La cuenta existente de ${r.Streaming} para ${phone} vence en ${Math.round(diffDays)} días (>15 días). No se tratará como renovación, sino como VENTA NUEVA.`);
-                                return false;
-                            }
-                        }
+                        // Si el usuario ya tiene esta plataforma y no pidió explícitamente cuenta nueva, renovamos su fila existente
                         return true;
                     }
                     return false;
