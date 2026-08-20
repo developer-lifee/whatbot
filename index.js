@@ -12074,37 +12074,51 @@ process.on('unhandledRejection', (reason, promise) => {
     }
 });
 
-// Inicializar cliente de WhatsApp Web
-async function startClientWithRetries() {
-    try {
-        console.log('🤖 Inicializando cliente de WhatsApp Web...');
-        const fs = require('fs');
-        const path = require('path');
-        const sessionDirs = [
-            path.join(__dirname, 'wwebjs_auth', 'session'),
-            path.join(__dirname, 'wwebjs_auth', 'session', 'Default'),
-            path.join(__dirname, '.wwebjs_auth', 'session'),
-            path.join(__dirname, '.wwebjs_auth', 'session', 'Default')
-        ];
-        sessionDirs.forEach(dir => {
-            if (fs.existsSync(dir)) {
-                ['SingletonLock', 'SingletonSocket', 'SingletonCookie'].forEach(lockFile => {
-                    const lockPath = path.join(dir, lockFile);
-                    if (fs.existsSync(lockPath)) {
-                        try {
-                            fs.unlinkSync(lockPath);
-                            console.log(`🧹 [Startup Clean] ${lockFile} obsoleto eliminado en ${dir}`);
-                        } catch (e) { }
-                    }
-                });
-            }
-        });
+// Inicializar cliente de WhatsApp Web con reintentos inteligentes sin tumbar Express
+async function startClientWithRetries(maxRetries = 5) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            console.log(`🤖 Inicializando cliente de WhatsApp Web (Intento ${attempt}/${maxRetries})...`);
+            const fs = require('fs');
+            const path = require('path');
+            const sessionDirs = [
+                path.join(__dirname, 'wwebjs_auth', 'session'),
+                path.join(__dirname, 'wwebjs_auth', 'session', 'Default'),
+                path.join(__dirname, '.wwebjs_auth', 'session'),
+                path.join(__dirname, '.wwebjs_auth', 'session', 'Default')
+            ];
+            sessionDirs.forEach(dir => {
+                if (fs.existsSync(dir)) {
+                    ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'parent_singleton_lock'].forEach(lockFile => {
+                        const lockPath = path.join(dir, lockFile);
+                        if (fs.existsSync(lockPath)) {
+                            try {
+                                fs.unlinkSync(lockPath);
+                                console.log(`🧹 [Startup Clean] ${lockFile} obsoleto eliminado en ${dir}`);
+                            } catch (e) { }
+                        }
+                    });
+                }
+            });
 
-        await client.initialize();
-    } catch (err) {
-        console.error('❌ Error al inicializar cliente:', err.message);
-        console.error('🔥 Forzando salida para que PM2 reinicie con un cliente limpio...');
-        process.exit(1);
+            await client.initialize();
+            console.log('✅ Cliente de WhatsApp Web inicializado correctamente.');
+            return;
+        } catch (err) {
+            console.error(`❌ Error al inicializar cliente (Intento ${attempt}/${maxRetries}):`, err.message);
+            if (attempt < maxRetries) {
+                console.log('⏳ Reintentando inicialización de WhatsApp en 6 segundos manteniendo el backend encendido...');
+                try {
+                    if (client.pupBrowser) {
+                        await client.pupBrowser.close().catch(() => {});
+                    }
+                } catch(e) {}
+                await new Promise(r => setTimeout(r, 6000));
+            } else {
+                console.error('🔥 Se agotaron los reintentos de inicio. Forzando reinicio para PM2...');
+                process.exit(1);
+            }
+        }
     }
 }
 
