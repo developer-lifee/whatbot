@@ -1966,10 +1966,26 @@ app.get('/api/admin/tickets', async (req, res) => {
                         return all.map(c => {
                             const id = (c.id && (c.id._serialized || c.id.user || c.id)) || '';
                             const lid = (c.lid && (c.lid._serialized || c.lid.user || c.lid)) || '';
-                            const pn = (c.phoneNumber && (c.phoneNumber.user || c.phoneNumber._serialized || c.phoneNumber)) || 
-                                       (c.pn && (c.pn.user || c.pn._serialized || c.pn)) || '';
+                            
+                            let pn = '';
+                            if (c.phoneNumber) pn = typeof c.phoneNumber === 'object' ? (c.phoneNumber.user || c.phoneNumber._serialized || '') : c.phoneNumber;
+                            else if (c.pn) pn = typeof c.pn === 'object' ? (c.pn.user || c.pn._serialized || '') : c.pn;
+                            else if (c.number) pn = c.number;
+                            else if (c.formattedNumber) pn = c.formattedNumber;
+                            else if (c.userid && !String(c.userid).includes('lid') && String(c.userid).length <= 12) pn = c.userid;
+                            else if (c.__x_phoneNumber) pn = typeof c.__x_phoneNumber === 'object' ? (c.__x_phoneNumber.user || c.__x_phoneNumber._serialized || '') : c.__x_phoneNumber;
+                            else if (c.__x_pn) pn = typeof c.__x_pn === 'object' ? (c.__x_pn.user || c.__x_pn._serialized || '') : c.__x_pn;
+                            
+                            if (!pn && window.Store.Lid && typeof window.Store.Lid.getPhoneNumber === 'function') {
+                                try {
+                                    const lidObj = c.lid || c.id;
+                                    const resLid = window.Store.Lid.getPhoneNumber(lidObj);
+                                    if (resLid) pn = typeof resLid === 'object' ? (resLid.user || resLid._serialized || '') : resLid;
+                                } catch(e) {}
+                            }
+
                             const name = c.name || c.pushname || c.shortName || '';
-                            return { id, lid, pn, name };
+                            return { id, lid, pn: String(pn || ''), name };
                         });
                     }),
                     new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout contacts dump")), 2000))
@@ -2001,25 +2017,47 @@ app.get('/api/admin/tickets', async (req, res) => {
             const cleanDigits = userId.replace(/\D/g, '');
             const isLid = userId.includes('@lid') || (!cleanDigits.startsWith('57') && cleanDigits.length > 10) || cleanDigits.length > 12;
 
-            // 1. Obtener y resolver el NOMBRE del contacto primero
+            // 1. Obtener y resolver el NOMBRE y TELÉFONO del contacto
             let resolvedName = typeof state === 'object' ? state.nombre : null;
+            let resolvedPhoneFromLid = null;
             const contactInfo = contactMap.get(cleanDigits);
 
-            if (isInvalidName(resolvedName) && contactInfo) {
+            if (contactInfo) {
                 const nameCand = contactInfo.name || contactInfo.pushname || contactInfo.shortName;
                 if (!isInvalidName(nameCand)) resolvedName = nameCand;
+                if (contactInfo.pn) {
+                    const cleanPn = contactInfo.pn.replace(/\D/g, '');
+                    if (cleanPn.length >= 7 && cleanPn.length <= 12 && cleanPn !== cleanDigits) {
+                        resolvedPhoneFromLid = cleanPn;
+                    }
+                }
             }
 
-            if (isInvalidName(resolvedName) && client && client.info) {
+            if (client && client.info && (isInvalidName(resolvedName) || !resolvedPhoneFromLid)) {
                 try {
                     const contact = await Promise.race([
                         client.getContactById(userId),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 800))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 1000))
                     ]).catch(() => null);
                     if (contact) {
                         const nameCandidate = contact.name || contact.pushname;
                         if (!isInvalidName(nameCandidate)) {
                             resolvedName = nameCandidate;
+                        }
+                        if (!resolvedPhoneFromLid && contact.number) {
+                            const cleanCNum = String(contact.number).replace(/\D/g, '');
+                            if (cleanCNum.length >= 7 && cleanCNum.length <= 12 && cleanCNum !== cleanDigits) {
+                                resolvedPhoneFromLid = cleanCNum;
+                            }
+                        }
+                        if (!resolvedPhoneFromLid && typeof contact.getFormattedNumber === 'function') {
+                            try {
+                                const formatted = await contact.getFormattedNumber();
+                                const cleanFNum = String(formatted).replace(/\D/g, '');
+                                if (cleanFNum.length >= 7 && cleanFNum.length <= 12 && cleanFNum !== cleanDigits) {
+                                    resolvedPhoneFromLid = cleanFNum;
+                                }
+                            } catch (e) { }
                         }
                     }
                 } catch (e) { }
@@ -2031,7 +2069,6 @@ app.get('/api/admin/tickets', async (req, res) => {
 
             // 2. === Resolver LID a teléfono real ===
             let phone = userId.replace('@c.us', '').replace('@lid', '');
-            let resolvedPhoneFromLid = null;
 
             if (isLid) {
                 // A. Buscar en userStates por si ya tiene un teléfono mapeado valido (no LID)
