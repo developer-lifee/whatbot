@@ -2994,17 +2994,62 @@ app.post('/api/public/track-click', async (req, res) => {
     }
 });
 
+const getTimeframeFilter = (timeframe, dateCol) => {
+    if (timeframe === 'today') {
+        return `DATE(${dateCol}) = CURDATE()`;
+    } else if (timeframe === '7d') {
+        return `${dateCol} >= DATE_SUB(NOW(), INTERVAL 7 DAY)`;
+    } else if (timeframe === '30d') {
+        return `${dateCol} >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    }
+    return '1=1';
+};
+
 app.get('/api/admin/visit-stats', async (req, res) => {
     try {
-        const [totalVisitsRows] = await pool.query('SELECT COUNT(*) as count FROM page_visits');
-        const [uniqueVisitsRows] = await pool.query('SELECT COUNT(DISTINCT ip_address) as count FROM page_visits');
-        const [totalClicksRows] = await pool.query('SELECT COUNT(*) as count FROM page_clicks');
+        const { timeframe } = req.query;
+        const timeFilterVisits = getTimeframeFilter(timeframe, 'visited_at');
+        const timeFilterClicks = getTimeframeFilter(timeframe, 'clicked_at');
 
-        const [deviceBreakdown] = await pool.query('SELECT device_type as name, COUNT(*) as value FROM page_visits GROUP BY device_type');
-        const [topPages] = await pool.query('SELECT page_path as page, COUNT(*) as visits FROM page_visits GROUP BY page_path ORDER BY visits DESC LIMIT 10');
-        const [clicksByPage] = await pool.query('SELECT page_path as page, COUNT(*) as clicks FROM page_clicks GROUP BY page_path');
-        const [visitsHistory] = await pool.query('SELECT DATE_FORMAT(visited_at, "%Y-%m-%d") as date, COUNT(*) as count FROM page_visits GROUP BY DATE(visited_at) ORDER BY date DESC LIMIT 15');
-        const [topReferrers] = await pool.query('SELECT referrer as name, COUNT(*) as value FROM page_visits WHERE referrer IS NOT NULL AND referrer != "" GROUP BY referrer ORDER BY value DESC LIMIT 8');
+        const [totalVisitsRows] = await pool.query(`SELECT COUNT(*) as count FROM page_visits WHERE ${timeFilterVisits}`);
+        const [uniqueVisitsRows] = await pool.query(`SELECT COUNT(DISTINCT ip_address) as count FROM page_visits WHERE ${timeFilterVisits}`);
+        const [totalClicksRows] = await pool.query(`SELECT COUNT(*) as count FROM page_clicks WHERE ${timeFilterClicks}`);
+
+        const [deviceBreakdown] = await pool.query(`SELECT device_type as name, COUNT(*) as value FROM page_visits WHERE ${timeFilterVisits} GROUP BY device_type`);
+        const [topPages] = await pool.query(`SELECT page_path as page, COUNT(*) as visits FROM page_visits WHERE ${timeFilterVisits} GROUP BY page_path ORDER BY visits DESC LIMIT 10`);
+        const [clicksByPage] = await pool.query(`SELECT page_path as page, COUNT(*) as clicks FROM page_clicks WHERE ${timeFilterClicks} GROUP BY page_path`);
+        const [visitsHistory] = await pool.query(`SELECT DATE_FORMAT(visited_at, "%Y-%m-%d") as date, COUNT(*) as count FROM page_visits WHERE ${timeFilterVisits} GROUP BY DATE(visited_at) ORDER BY date DESC LIMIT 15`);
+        
+        // Excluir dominios propios del referrer para evitar falsos orígenes
+        const [rawReferrers] = await pool.query(`
+            SELECT referrer, COUNT(*) as count 
+            FROM page_visits 
+            WHERE referrer IS NOT NULL AND referrer != '' 
+              AND referrer NOT LIKE '%sheerit.com.co%' 
+              AND referrer NOT LIKE '%sheerit.co%' 
+              AND referrer NOT LIKE '%localhost%' 
+              AND referrer NOT LIKE '%127.0.0.1%'
+              AND ${timeFilterVisits}
+            GROUP BY referrer 
+            ORDER BY count DESC 
+            LIMIT 15
+        `);
+
+        const topReferrers = rawReferrers.map(r => {
+            let clean = r.referrer;
+            try {
+                const url = new URL(r.referrer.startsWith('http') ? r.referrer : `https://${r.referrer}`);
+                clean = url.hostname.replace(/^www\./, '');
+                if (clean.includes('google')) clean = 'Google Search';
+                else if (clean.includes('bold.co')) clean = 'Pasarela Bold';
+                else if (clean.includes('bing')) clean = 'Bing Search';
+                else if (clean.includes('instagram')) clean = 'Instagram';
+                else if (clean.includes('whatsapp') || clean.includes('wa.me')) clean = 'WhatsApp';
+                else if (clean.includes('facebook') || clean.includes('fb.com')) clean = 'Facebook';
+                else if (clean.includes('tiktok')) clean = 'TikTok';
+            } catch (e) { }
+            return { name: clean, value: r.count };
+        });
 
         res.json({
             summary: {
@@ -3015,7 +3060,7 @@ app.get('/api/admin/visit-stats', async (req, res) => {
             deviceBreakdown,
             topPages,
             clicksByPage,
-            visitsHistory: visitsHistory.reverse(), // chronologically ordered
+            visitsHistory: visitsHistory.reverse(),
             topReferrers
         });
     } catch (e) {
@@ -3026,9 +3071,10 @@ app.get('/api/admin/visit-stats', async (req, res) => {
 
 app.get('/api/admin/click-heatmap', async (req, res) => {
     try {
-        const { page, device } = req.query;
+        const { page, device, timeframe } = req.query;
         const pagePath = page || '/';
-        let query = 'SELECT x_pct, y_pct, element_selector, screen_width, screen_height, clicked_at FROM page_clicks WHERE page_path = ?';
+        const timeFilter = getTimeframeFilter(timeframe, 'clicked_at');
+        let query = `SELECT x_pct, y_pct, element_selector, screen_width, screen_height, clicked_at FROM page_clicks WHERE page_path = ? AND ${timeFilter}`;
         const params = [pagePath];
 
         if (device === 'mobile') {
@@ -3049,18 +3095,60 @@ app.get('/api/admin/click-heatmap', async (req, res) => {
 
 app.get('/api/admin/element-clicks', async (req, res) => {
     try {
+        const { timeframe } = req.query;
+        const timeFilter = getTimeframeFilter(timeframe, 'clicked_at');
+
         const [rows] = await pool.query(`
             SELECT 
-                COALESCE(element_selector, 'Área General de Página') as element,
+                COALESCE(element_selector, 'Área General de Página') as raw_element,
                 COUNT(*) as total_clicks,
                 SUM(CASE WHEN screen_width < 768 THEN 1 ELSE 0 END) as mobile_clicks,
                 SUM(CASE WHEN screen_width >= 768 THEN 1 ELSE 0 END) as desktop_clicks
             FROM page_clicks
-            GROUP BY element
+            WHERE ${timeFilter}
+            GROUP BY raw_element
             ORDER BY total_clicks DESC
-            LIMIT 15
+            LIMIT 40
         `);
-        res.json({ elements: rows });
+
+        const formatElementName = (raw) => {
+            if (!raw) return 'Área General de Página';
+            if (raw.startsWith('Botón:') || raw.startsWith('Enlace:') || raw.startsWith('Campo:') || raw.startsWith('Tarjeta:') || raw.startsWith('Selector:') || raw.startsWith('Texto:')) {
+                return raw;
+            }
+            const lower = raw.toLowerCase();
+            if (lower === 'button.w-full' || lower.includes('button.w-full')) return 'Botón Principal (Comprar / Acción)';
+            if (lower === 'button.px-2' || lower === 'button.p-1.5' || lower.includes('button.inline-flex')) return 'Botón Secundario / Opciones';
+            if (lower === 'input.w-full' || lower.includes('input')) return 'Buscador de Servicios';
+            if (lower === 'svg' || lower === 'path') return 'Ícono / Botón Interactivo';
+            if (lower === 'div.w-full' || lower === 'div.p-4' || lower.includes('div.flex') || lower.includes('div.absolute')) return 'Tarjeta de Servicio / Catálogo';
+            if (lower.startsWith('span') || lower === 'font' || lower.includes('span.text')) return 'Etiqueta / Detalles de Cuenta';
+            if (lower.startsWith('a.')) return 'Enlace de Navegación';
+            return raw;
+        };
+
+        const aggregated = new Map();
+        rows.forEach(r => {
+            const cleanName = formatElementName(r.raw_element);
+            if (!aggregated.has(cleanName)) {
+                aggregated.set(cleanName, {
+                    element: cleanName,
+                    total_clicks: 0,
+                    mobile_clicks: 0,
+                    desktop_clicks: 0
+                });
+            }
+            const item = aggregated.get(cleanName);
+            item.total_clicks += Number(r.total_clicks);
+            item.mobile_clicks += Number(r.mobile_clicks);
+            item.desktop_clicks += Number(r.desktop_clicks);
+        });
+
+        const elements = Array.from(aggregated.values())
+            .sort((a, b) => b.total_clicks - a.total_clicks)
+            .slice(0, 15);
+
+        res.json({ elements });
     } catch (e) {
         console.error('Error fetching element clicks:', e.message);
         res.status(500).json({ error: e.message });
@@ -3069,16 +3157,23 @@ app.get('/api/admin/element-clicks', async (req, res) => {
 
 app.get('/api/admin/purchase-funnel', async (req, res) => {
     try {
-        const [visits] = await pool.query('SELECT COUNT(*) as count FROM page_visits');
-        const [clicks] = await pool.query('SELECT COUNT(*) as count FROM page_clicks');
+        const { timeframe } = req.query;
+        const timeFilterVisits = getTimeframeFilter(timeframe, 'visited_at');
+        const timeFilterClicks = getTimeframeFilter(timeframe, 'clicked_at');
+        const timeFilterSales = getTimeframeFilter(timeframe, 'created_at');
+
+        const [visits] = await pool.query(`SELECT COUNT(*) as count FROM page_visits WHERE ${timeFilterVisits}`);
+        const [clicks] = await pool.query(`SELECT COUNT(*) as count FROM page_clicks WHERE ${timeFilterClicks}`);
         const [payClicks] = await pool.query(`
             SELECT COUNT(*) as count FROM page_clicks 
-            WHERE element_selector LIKE '%bold%' 
+            WHERE (element_selector LIKE '%bold%' 
                OR element_selector LIKE '%pagar%' 
                OR element_selector LIKE '%comprar%' 
                OR element_selector LIKE '%button%'
+               OR element_selector LIKE '%Botón%')
+              AND ${timeFilterClicks}
         `);
-        const [sales] = await pool.query('SELECT COUNT(*) as count FROM web_sales_approved');
+        const [sales] = await pool.query(`SELECT COUNT(*) as count FROM web_sales_approved WHERE ${timeFilterSales}`);
 
         const totalVisits = visits[0]?.count || 0;
         const totalClicks = clicks[0]?.count || 0;
