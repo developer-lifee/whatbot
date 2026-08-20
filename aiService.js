@@ -512,9 +512,10 @@ async function describeImageWithGemini(mediaData, chatHistory = "", accountSumma
 Realiza una extracción precisa (OCR) y describe detalladamente lo que se ve en la imagen:
 
 1. Si es un COMPROBANTE DE PAGO o transferencia:
-   - Extrae el nombre del banco (Nequi, Daviplata, Bancolombia, etc.).
-   - Extrae el monto de la transacción, fecha, hora y número de referencia/transacción.
-   - Detalla el nombre del remitente y del destinatario, y el estado (exitoso, rechazado, pendiente).
+   - Extrae el nombre del banco o medio (Nequi, Daviplata, Bancolombia, Bre-B, etc.).
+   - Extrae el monto exacto de la transacción (ej: "$ 33.000,00" -> 33000), fecha, hora y número de referencia (ej: M17954814).
+   - Extrae el nombre del destinatario ("Para: Sheerit Esteban Avila"), la Llave ("Llave: 0087387259") o cuenta destino.
+   - NOTA NEQUI/BRE-V: Si la imagen muestra un encabezado "Pago realizado" y un código QR arriba con el texto "¡Escanea este QR con Nequi para verificar tu envio al instante!", es el comprobante oficial de transferencia exitosa de Nequi / Bre-V. Extrae todos sus datos como comprobante de pago exitoso.
 
 2. Si es una pantalla de INICIO DE SESIÓN, CÓDIGO DE ACCESO o 2FA:
    - Identifica claramente la plataforma (Netflix, Disney+, Max/HBO, Prime Video, Spotify, ChatGPT, etc.).
@@ -951,7 +952,7 @@ DESCRIPCIÓN DE LA IMAGEN DE PAGO:
 Debes responder en formato JSON:
 {
   "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco con una transferencia exitosa.
-  "amount": number | null, // El valor EXACTO de la transferencia (solo números enteros) si es legible.
+  "amount": number | null, // El valor EXACTO de la transferencia (solo números enteros) si es legible. Ej: 33000 para $33.000.
   "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, etc.)
   "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
   "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, o destino al que se envió el dinero. Ej: "0087387259", "300 123 4567", "esteban@nequi.com". Extráelo aunque aparezca parcial. MUY IMPORTANTE.
@@ -962,8 +963,9 @@ Debes responder en formato JSON:
 
 Reglas:
 - Solo marca isReceipt: true si indica una confirmación de envío/transferencia exitosa.
-- Si indica ERROR, CUENTA SUSPENDIDA o fallo, marca isReceipt: false.
-- Sé muy riguroso con 'amount'. Busca el valor de la transferencia, no montos secundarios.
+- REGLA CRÍTICA (COMPROBANTES MODERNOS NEQUI / BRE-V CON QR): Los comprobantes de Nequi y Bre-V incluyen un código QR en la parte superior con el texto "¡Escanea este QR con Nequi para verificar tu envio al instante!" junto con "Pago realizado", "Para: Sheerit Esteban Avila", "Llave: 0087387259", "¿Cuánto?: $ ...", "Referencia: M...". ESTO ES UN COMPROBANTE DE PAGO EXITOSO Y VÁLIDO (isReceipt: true, confidence: 1.0). NUNCA lo consideres como factura pendiente ni como QR de cobro.
+- Si indica ERROR, TRANSACCIÓN RECHAZADA o CUENTA SUSPENDIDA, marca isReceipt: false.
+- Sé muy riguroso con 'amount'. Extrae el valor numérico entero limpio (ej: "$ 33.000,00" -> 33000).
 - Para 'destinationKey': busca cualquier número que sea la cuenta, llave, Llave Bre-V, número de celular destino o alias al que se envió. Puede aparecer como "A la llave", "Cuenta destino", "Para", "Número", etc.
 - Para 'inferredPlatform': Examina el [Historial reciente]. Si el cliente estuvo consultando o comprando una plataforma específica (ej: 'HBO', 'Max', 'Netflix', 'Disney', 'Spotify'), coloca esa plataforma EXACTA. Queda estrictamente PROHIBIDO inferir 'Apple One' o plataformas no discutidas cuando el cliente hablaba de HBO, Netflix o Disney. Si no hay mención en el historial, pon null.`;
 
@@ -994,8 +996,10 @@ Reglas:
       }
     }
 
+    const isVal = result.isReceipt === true && ((result.confidence && result.confidence >= 0.5) || (result.amount && result.amount > 0));
+
     return {
-      isReceipt: result.isReceipt && result.confidence > 0.7,
+      isReceipt: !!isVal,
       amount: result.amount,
       bank: result.bank,
       destinationKey: result.destinationKey || null,
