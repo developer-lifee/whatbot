@@ -213,12 +213,14 @@ try {
 }
 
 /**
- * Guarda los estados actuales en el disco.
+ * Guarda los estados actuales en el disco de forma atómica y segura.
  */
 function saveUserStates() {
     try {
         const obj = Object.fromEntries(userStates);
-        fs.writeFileSync(USER_STATES_FILE, JSON.stringify(obj, null, 2));
+        const tmpFile = `${USER_STATES_FILE}.tmp`;
+        fs.writeFileSync(tmpFile, JSON.stringify(obj, null, 2), 'utf8');
+        fs.renameSync(tmpFile, USER_STATES_FILE);
     } catch (e) {
         console.error("[System] Error guardando user_states.json:", e.message);
     }
@@ -1949,7 +1951,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             targetEntries = Array.from(userStates.entries()).map(([userId, state]) => {
                 if (!state || isBotSender(userId)) return null;
                 const stateStr = typeof state === 'object' ? state.state : state;
-                const pendingStates = ['waiting_human', 'waiting_admin_confirmation', 'resolved'];
+                const pendingStates = ['waiting_human', 'waiting_admin_confirmation'];
                 if (!pendingStates.includes(stateStr)) return null;
                 return [userId, state];
             }).filter(Boolean);
