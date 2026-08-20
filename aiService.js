@@ -1154,6 +1154,26 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     }
   }
 
+  let customerPhone = "";
+  if (userId) {
+    const cleanDigits = userId.replace(/\D/g, '');
+    const isLid = userId.includes('@lid') || (!cleanDigits.startsWith('57') && cleanDigits.length > 10) || cleanDigits.length > 12;
+    if (userStates && userStates.get(userId) && userStates.get(userId).realPhone) {
+      customerPhone = userStates.get(userId).realPhone;
+    } else if (!isLid && cleanDigits.length >= 7 && cleanDigits.length <= 12) {
+      customerPhone = cleanDigits;
+    } else if (userAccounts && userAccounts.length > 0) {
+      const accPhone = (userAccounts[0].numero || userAccounts[0].Numero || '').toString().replace(/\D/g, '');
+      if (accPhone && accPhone.length >= 7 && accPhone.length <= 12) {
+        customerPhone = accPhone;
+      }
+    }
+  }
+
+  const verificationLink = customerPhone 
+    ? `https://sheerit.co/verificar?tel=${customerPhone}` 
+    : `https://sheerit.co/verificar`;
+
   const prompt = template
     .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
     .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
@@ -1163,11 +1183,17 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
     .replace('{{CHAT_HISTORY}}', chatHistory)
     .replace('{{MESSAGE_CONTENT}}', messageContent)
+    .replace('{{VERIFICATION_LINK}}', verificationLink)
     .replace('{{MEDIA_STATUS}}', isMedia ? `[El usuario envió una imagen/archivo. Descripción visual de la imagen extraída por OCR: ${mediaDescription}]` : "");
 
   try {
     const response = await callDeepSeek(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false);
     let replyText = response.trim();
+
+    if (customerPhone) {
+      replyText = replyText.replace(/https:\/\/sheerit\.co\/(verificar|actualizar|hogar)(?!\?tel=)/g, `https://sheerit.co/verificar?tel=${customerPhone}`);
+    }
+
     if (!replyText.includes('🤖')) {
       replyText += ' 🤖';
     }
