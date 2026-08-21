@@ -93,14 +93,11 @@ const { saveMessage } = require('./messageLogger');
 function isCriticalBrowserError(err) {
     if (!err || !err.message) return false;
     const msg = err.message.toLowerCase();
-    return msg.includes('detached frame') ||
-        msg.includes('execution context was destroyed') ||
-        msg.includes('navigation failed') ||
-        msg.includes('connection closed') ||
-        msg.includes('cannot read properties of undefined') ||
-        msg.includes('getchats') ||
-        msg.trim() === 'r' ||
-        msg.includes('evaluate');
+    return msg.includes('target closed') ||
+        msg.includes('session closed') ||
+        msg.includes('browser has disconnected') ||
+        msg.includes('target crashed') ||
+        msg.includes('connection closed');
 }
 const { pool } = require('./database');
 
