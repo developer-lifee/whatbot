@@ -9361,22 +9361,10 @@ async function baseProcessIncomingMessage(messages) {
 
                     // 1. PRIORIDAD MÁXIMA: Si el usuario YA TIENE cuentas activas y no solicitó servicio nuevo
                     if (userAccounts && userAccounts.length > 0 && !isNewRequested) {
+                        const { getPlatformPriceFromExcel } = require('./billingService');
                         let totalAllAccountsPrice = 0;
                         const accountsWithPrices = userAccounts.map(acc => {
-                            const accStreaming = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                            const matchedPlat = platforms.find(p => {
-                                const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-                                return accStreaming.includes(cleanPlat) || cleanPlat.includes(accStreaming);
-                            });
-                            let price = matchedPlat ? (matchedPlat.price || 0) : 0;
-                            if (matchedPlat && matchedPlat.plans && matchedPlat.plans.length > 0) {
-                                const cleanAccStreaming = acc.Streaming.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                const matchedPlan = matchedPlat.plans.find(plan => {
-                                    const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                    return cleanAccStreaming.includes(cleanPlan) || cleanPlan.includes(cleanAccStreaming);
-                                });
-                                if (matchedPlan) price = matchedPlan.price;
-                            }
+                            const price = getPlatformPriceFromExcel(acc, platforms);
                             return { ...acc, calculatedPrice: price };
                         });
 
@@ -9395,15 +9383,9 @@ async function baseProcessIncomingMessage(messages) {
                             userStates.set(userId, stateData);
                         }
                         // B. Si el monto transferido coincide con una sola cuenta específica del usuario
-                        else if (check.amount && userAccounts.some(a => {
-                            const p = accountsWithPrices.find(ap => ap._rowNumber === a._rowNumber || ap.Streaming === a.Streaming);
-                            return p && p.calculatedPrice === check.amount;
-                        })) {
-                            const matchedAcc = userAccounts.find(a => {
-                                const p = accountsWithPrices.find(ap => ap._rowNumber === a._rowNumber || ap.Streaming === a.Streaming);
-                                return p && p.calculatedPrice === check.amount;
-                            });
-                            console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} coincide con la cuenta ${matchedAcc.Streaming} del usuario.`);
+                        else if (check.amount && accountsWithPrices.some(ap => ap.calculatedPrice === check.amount)) {
+                            const matchedAcc = accountsWithPrices.find(ap => ap.calculatedPrice === check.amount);
+                            console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} coincide con la cuenta ${matchedAcc.Streaming} (precio real: $${matchedAcc.calculatedPrice}) del usuario.`);
                             stateData.items = [matchedAcc];
                             stateData.total = check.amount;
                             stateData.isRenewal = true;
@@ -9508,6 +9490,22 @@ async function baseProcessIncomingMessage(messages) {
                             stateData.items = userAccounts;
                             stateData.total = check.amount;
                             stateData.isAutoFilled = true;
+                            stateData.isRenewal = true;
+                            userStates.set(userId, stateData);
+                        }
+                    }
+
+                    // Si el carrito contiene una plataforma que el usuario YA TIENE activa en Excel, es obligatoriamente una RENOVACIÓN
+                    if (userAccounts && userAccounts.length > 0 && !isNewRequested && stateData.items && stateData.items.length > 0) {
+                        const { isSamePlatformFamily } = require('./salesRegistryService');
+                        const existingForPlat = userAccounts.find(acc => {
+                            const itemPlat = (stateData.items[0].Streaming || (stateData.items[0].platform ? stateData.items[0].platform.name : '') || stateData.items[0].name || '').toUpperCase();
+                            const accPlat = (acc.Streaming || '').toUpperCase();
+                            return isSamePlatformFamily(itemPlat, accPlat);
+                        });
+                        if (existingForPlat) {
+                            console.log(`[PAYMENT INTERCEPTOR] Item ${existingForPlat.Streaming} coincide con cuenta activa existente de @${userId}. Marcado estrictamente como RENOVACIÓN.`);
+                            stateData.items = [existingForPlat];
                             stateData.isRenewal = true;
                             userStates.set(userId, stateData);
                         }
