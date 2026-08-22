@@ -97,6 +97,12 @@ function isCriticalBrowserError(err) {
         msg.includes('session closed') ||
         msg.includes('browser has disconnected') ||
         msg.includes('target crashed') ||
+        msg.includes('detached frame') ||
+        msg.includes('detached') ||
+        msg.includes('execution context was destroyed') ||
+        msg.includes('frame') ||
+        msg.includes('protocol error') ||
+        msg.includes('unresponsive') ||
         msg.includes('connection closed');
 }
 const { pool } = require('./database');
@@ -7278,9 +7284,9 @@ server.listen(port, () => {
                 nonConnectedHeartbeatCount++;
                 console.warn(`⚠️ Heartbeat: Cliente en estado NO-CONECTADO ('${state}'). Intento sin conexión #${nonConnectedHeartbeatCount}`);
 
-                // Si lleva 2 heartbeats seguidos (10 minutos) sin estar en CONNECTED (ej: atascado en OPENING), forzar reinicio
+                // Si lleva 2 heartbeats seguidos (4 minutos) sin estar en CONNECTED (ej: atascado en OPENING), forzar reinicio
                 if (nonConnectedHeartbeatCount >= 2) {
-                    console.error(`🔥 [ANTI-ZOMBIE] El cliente WhatsApp lleva ${nonConnectedHeartbeatCount * 5} minutos sin estar en estado CONNECTED (estado actual: '${state}'). Forzando reinicio para PM2...`);
+                    console.error(`🔥 [ANTI-ZOMBIE] El cliente WhatsApp lleva ${nonConnectedHeartbeatCount * 2} minutos sin estar en estado CONNECTED (estado actual: '${state}'). Forzando reinicio para PM2...`);
                     process.exit(1);
                 }
                 return;
@@ -7302,12 +7308,12 @@ server.listen(port, () => {
             }
         } catch (err) {
             console.error('⚠️ Heartbeat: Error de salud detectado:', err.message);
-            if (isCriticalBrowserError(err) || err.message.includes("Timeout") || err.message.includes("unresponsive") || err.message.includes("Protocol error")) {
+            if (isCriticalBrowserError(err) || err.message.toLowerCase().includes("timeout") || err.message.toLowerCase().includes("detached") || err.message.toLowerCase().includes("unresponsive") || err.message.toLowerCase().includes("protocol error")) {
                 console.error('🔥 [ANTI-ZOMBIE] Detectado estado crítico o zombie de Puppeteer. Forzando reinicio para PM2...');
                 process.exit(1);
             }
         }
-    }, 5 * 60 * 1000);
+    }, 2 * 60 * 1000);
 }).on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
         console.error(`🔥 ERROR: El puerto ${port} ya está en uso.`);
@@ -11493,11 +11499,16 @@ async function triggerGlobalQueueProcessing() {
         const item = globalMessageQueue.shift();
         try {
             console.log(`[Global Queue] Procesando lote para @${item.userId.replace('@c.us', '')}. Quedan en cola: ${globalMessageQueue.length}`);
-            await processIncomingMessage(item.batch);
+            
+            // Timeout de seguridad de 60s para que un mensaje trabado nunca bloquee al resto de clientes
+            await Promise.race([
+                processIncomingMessage(item.batch),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout procesando lote (60s)")), 60000))
+            ]);
 
-            // Si quedan elementos en la cola, esperamos un delay humano de seguridad (5 a 10 segundos) antes del siguiente
+            // Si quedan elementos en la cola, esperamos un delay humano de seguridad (2 a 5 segundos) antes del siguiente
             if (globalMessageQueue.length > 0) {
-                const delay = Math.floor(Math.random() * 5000) + 5000;
+                const delay = Math.floor(Math.random() * 3000) + 2000;
                 console.log(`[Global Queue] Esperando delay de seguridad de ${(delay / 1000).toFixed(1)}s antes de procesar el siguiente usuario...`);
                 await new Promise(resolve => setTimeout(resolve, delay));
             }
