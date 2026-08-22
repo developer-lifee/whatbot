@@ -9472,20 +9472,24 @@ async function baseProcessIncomingMessage(messages) {
         cleanBody = cleanBody.slice(1, -1).trim();
     }
 
-    // --- GENERAL CODE INTERCEPTOR (Netflix, Disney+, Max, Amazon, GPT, etc.) ---
+    // --- GENERAL CODE INTERCEPTOR (Netflix, Disney+, Max, Amazon, GPT, Apple, etc.) ---
     const lowerBody = cleanBody.toLowerCase();
 
     const wantsCodeKeywords = [
-        'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código',
+        'código', 'codigo', 'codigoo', 'codigooo', 'actualizar hogar', 'mi codigo', 'mi código',
         'enviar código', 'enviar codigo', 'el código', 'el codigo',
         'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación',
         'envia el codigo', 'envía el código', 'mandar codigo', 'mandar código'
     ];
-    const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify', 'paramount'];
+    const platformsSupported = [
+        'netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt',
+        'youtube', 'spotify', 'paramount', 'apple', 'claude', 'canva',
+        'crunchyroll', 'vix', 'gamma', 'iptv', 'magis', 'microsoft'
+    ];
     const isPaymentOrReceipt = lowerBody.includes('qr') || lowerBody.includes('barras') || lowerBody.includes('pago') || lowerBody.includes('comprobante') || lowerBody.includes('recibo') || lowerBody.includes('abono');
-    const hasCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) && !isPaymentOrReceipt;
+    const hasCodeKeyword = (wantsCodeKeywords.some(kw => lowerBody.includes(kw)) || /c[oó]dig[oó]+/i.test(lowerBody)) && !isPaymentOrReceipt;
     const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
-    const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw)) && !isPaymentOrReceipt;
+    const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw) || /c[oó]dig[oó]+/i.test(lowerBody)) && !isPaymentOrReceipt;
 
     if (hasCodeKeyword || (isQuestionOrCode && hasPlatformKeyword)) {
         try {
