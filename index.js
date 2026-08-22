@@ -7176,15 +7176,35 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
             body: `código de ${(targetAccount.Streaming || '').toUpperCase()}`,
             reply: async (text) => {
                 console.log(`[Web OTP Request Reply]: ${text}`);
-                if (client) await client.sendMessage(userJid, text);
+                if (client) {
+                    try { await client.sendMessage(userJid, text); } catch(e) {}
+                }
                 return text;
             }
         };
 
-        // Ejecutar extractor automático
-        await processAccountVerificationCode(mockMessage, userJid, targetAccount, isDemo ? ADMIN_DEMO_RECIPIENT_PHONE : cleanPhone, client, userStates);
+        // Ejecutar extractor automático y obtener el resultado estructurado
+        const extractionResult = await processAccountVerificationCode(mockMessage, userJid, targetAccount, isDemo ? ADMIN_DEMO_RECIPIENT_PHONE : cleanPhone, client, userStates);
 
-        res.json({ success: true, message: 'Solicitud de código 2FA enviada. El bot buscará el código y te lo enviará por WhatsApp.' });
+        if (extractionResult && (extractionResult.code || extractionResult.link)) {
+            return res.json({
+                success: true,
+                message: extractionResult.code ? `Código encontrado: ${extractionResult.code}` : (extractionResult.link ? 'Enlace de acceso listo' : 'Código o enlace extraído con éxito'),
+                code: extractionResult.code || null,
+                link: extractionResult.link || null,
+                snippet: extractionResult.snippet || null,
+                type: extractionResult.type || null,
+                account: targetAccount.correo
+            });
+        }
+
+        res.json({
+            success: extractionResult?.success || false,
+            message: extractionResult?.message || 'Buscando código en buzón... Si acabas de presionar enviar código en tu TV/App, presiona nuevamente en unos segundos.',
+            code: extractionResult?.code || null,
+            link: extractionResult?.link || null,
+            account: targetAccount.correo
+        });
     } catch (e) {
         console.error('Error al solicitar 2FA desde web:', e.message);
         res.status(500).json({ success: false, error: e.message });
@@ -7791,7 +7811,12 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 if (code) {
                     await message.reply(`🔐 *Tu código de acceso (2FA) para ${streamingName}:* 🚀\n\n🔢 Código: *${code}*\n\n_Este código cambia cada 30 segundos. Úsalo pronto._`);
                     userStates.delete(userId);
-                    return;
+                    return {
+                        success: true,
+                        code: code,
+                        type: 'totp',
+                        message: `Código 2FA generado: ${code}`
+                    };
                 }
             }
         }
@@ -7869,11 +7894,22 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     }
                     await safeReply(message, response, userId);
                     userStates.delete(userId);
-                    return;
+                    return {
+                        success: true,
+                        code: latest.code || null,
+                        link: latest.link || (nameLower.includes('netflix') ? validVerificationLink : null),
+                        snippet: latest.snippet || null,
+                        type: latest.link ? 'link' : (latest.code ? 'code' : 'general'),
+                        message: latest.code ? `Código encontrado: ${latest.code}` : (latest.link ? 'Enlace de acceso encontrado' : 'Código o enlace encontrado')
+                    };
                 } else {
-                    await safeReply(message, `🤖 No encontré códigos recientes en ${accountEmail} para ${streamingName}. Por favor, asegúrate de haber seleccionado la opción de enviar el código en tu pantalla hace menos de 10 minutos y vuelve a escribir *código*.`, userId);
+                    const notFoundText = `No encontré códigos recientes en ${accountEmail} para ${streamingName}. Por favor, asegúrate de presionar 'Enviar código' en tu pantalla y vuelve a intentarlo.`;
+                    await safeReply(message, `🤖 ${notFoundText}`, userId);
                     userStates.delete(userId);
-                    return;
+                    return {
+                        success: false,
+                        message: notFoundText
+                    };
                 }
             } catch (err) {
                 console.error(`Error al buscar códigos en Gmail para ${accountEmail}:`, err.message);
@@ -7883,7 +7919,10 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     await safeReply(message, `🤖 Hubo un inconveniente temporal al consultar los códigos en ${accountEmail}. Por favor, vuelve a intentarlo en un momento.`, userId);
                 }
                 userStates.delete(userId);
-                return;
+                return {
+                    success: false,
+                    message: `Error al consultar buzón: ${err.message}`
+                };
             }
         }
 
