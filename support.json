@@ -22,8 +22,8 @@
         "whatsappMessage": "Hola, me aparece el mensaje de actualización de hogar en Netflix.",
         "steps": [
           { "text": "Dale en la opción de actualizar hogar con Netflix en tu pantalla hasta que te salga la opción de enviar email." },
-          { "text": "Después entra desde tu celular al enlace: https://sheerit.co/actualizar" },
-          { "text": "Ingresa tu número de WhatsApp y presiona 'Consultar' para ver el código o enlace de confirmación reciente." }
+          { "text": "Después entra desde tu celular al enlace: https://sheerit.co/verificar" },
+          { "text": "Ingresa tu número de WhatsApp y presiona 'Confirmar Hogar / Actualizar IP' para ver el código o autorizar tu TV." }
         ]
       },
       {
