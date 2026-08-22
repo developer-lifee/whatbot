@@ -6832,6 +6832,201 @@ app.post('/api/admin/bot/toggle-sleep', express.json(), (req, res) => {
 // ==========================================
 
 const clientOtps = new Map(); // phone -> { code, expiresAt }
+const DEMO_PHONE_NUMBERS = ['000', '57000', '0000', '570000000000', '5700000000'];
+const ADMIN_DEMO_RECIPIENT_PHONE = '573133890800';
+
+const DEMO_ACCOUNTS_LIST = [
+    {
+        id: 9001,
+        platform: "NETFLIX",
+        Streaming: "NETFLIX",
+        email: "sheeritnetflixdemo@gmail.com",
+        correo: "sheeritnetflixdemo@gmail.com",
+        password: "SheeritNetflix2026*",
+        contraseña: "SheeritNetflix2026*",
+        profile: "Demo Esteban (PIN: 1234)",
+        Nombre: "Demo Esteban",
+        "pin perfil": "1234",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9002,
+        platform: "DISNEY+ PREMIUM",
+        Streaming: "DISNEY+ PREMIUM",
+        email: "sheeritdisneydemo@gmail.com",
+        correo: "sheeritdisneydemo@gmail.com",
+        password: "DisneySheerit2026*",
+        contraseña: "DisneySheerit2026*",
+        profile: "Demo Perfil 1 (PIN: 5678)",
+        Nombre: "Demo Perfil 1",
+        "pin perfil": "5678",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9003,
+        platform: "MAX / HBO PLATINO",
+        Streaming: "HBO",
+        email: "sheerithbodemo@gmail.com",
+        correo: "sheerithbodemo@gmail.com",
+        password: "MaxHBOSheerit2026*",
+        contraseña: "MaxHBOSheerit2026*",
+        profile: "Demo Esteban",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9004,
+        platform: "PRIME VIDEO",
+        Streaming: "AMAZON",
+        email: "itsheer266@gmail.com",
+        correo: "itsheer266@gmail.com",
+        password: "honesthe1",
+        contraseña: "honesthe1",
+        profile: "Demo Esteban",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9005,
+        platform: "SPOTIFY PREMIUM",
+        Streaming: "SPOTIFY",
+        email: "sheeritspotifydemo@gmail.com",
+        correo: "sheeritspotifydemo@gmail.com",
+        password: "SpotifySheerit2026*",
+        contraseña: "SpotifySheerit2026*",
+        profile: "Cuenta Personal Premium",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9006,
+        platform: "YOUTUBE PREMIUM",
+        Streaming: "YOUTUBE",
+        email: "sheeritytdemo@gmail.com",
+        correo: "sheeritytdemo@gmail.com",
+        password: "YouTubeSheerit2026*",
+        contraseña: "YouTubeSheerit2026*",
+        profile: "Familiar Invitación",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9007,
+        platform: "CHATGPT PLUS",
+        Streaming: "CHATGPT",
+        email: "chatgptplusparatodos12@gmail.com",
+        correo: "chatgptplusparatodos12@gmail.com",
+        password: "ChatGPTSheerit2026*",
+        contraseña: "ChatGPTSheerit2026*",
+        profile: "2FA TOTP Automático",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9008,
+        platform: "CLAUDE PRO",
+        Streaming: "CLAUDE",
+        email: "sheeritclaudedemo@gmail.com",
+        correo: "sheeritclaudedemo@gmail.com",
+        password: "Magic Link Acceso",
+        contraseña: "Magic Link Acceso",
+        profile: "Enlace Mágico",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9009,
+        platform: "APPLE TV+ / APPLE ONE",
+        Streaming: "APPLE TV",
+        email: "sheeritappledemo@gmail.com",
+        correo: "sheeritappledemo@gmail.com",
+        password: "AppleOneSheerit2026*",
+        contraseña: "AppleOneSheerit2026*",
+        profile: "Invitación Familiar",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9010,
+        platform: "CRUNCHYROLL MEGA FAN",
+        Streaming: "CRUNCHYROLL",
+        email: "sheeritcrunchydemo@gmail.com",
+        correo: "sheeritcrunchydemo@gmail.com",
+        password: "CrunchySheerit2026*",
+        contraseña: "CrunchySheerit2026*",
+        profile: "Perfil 1",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9011,
+        platform: "PARAMOUNT+",
+        Streaming: "PARAMOUNT",
+        email: "sheeritparamountdemo@gmail.com",
+        correo: "sheeritparamountdemo@gmail.com",
+        password: "ParamountSheerit2026*",
+        contraseña: "ParamountSheerit2026*",
+        profile: "Perfil 1 (PIN: 9999)",
+        Nombre: "Demo Esteban",
+        "pin perfil": "9999",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9012,
+        platform: "CANVA PRO",
+        Streaming: "CANVA",
+        email: "sheeritcanvademo@gmail.com",
+        correo: "sheeritcanvademo@gmail.com",
+        password: "CanvaSheerit2026*",
+        contraseña: "CanvaSheerit2026*",
+        profile: "Equipo Pro Sheerit",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9013,
+        platform: "GEMINI PRO",
+        Streaming: "GEMINI",
+        email: "discoveryrelesbiana@gmail.com",
+        correo: "discoveryrelesbiana@gmail.com",
+        password: "GeminiSheerit2026*",
+        contraseña: "GeminiSheerit2026*",
+        profile: "Cuenta Correo Propio",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    },
+    {
+        id: 9014,
+        platform: "MICROSOFT 365",
+        Streaming: "MICROSOFT 365",
+        email: "sheeritofficedemo@gmail.com",
+        correo: "sheeritofficedemo@gmail.com",
+        password: "OfficeSheerit2026*",
+        contraseña: "OfficeSheerit2026*",
+        profile: "Licencia Personal 1TB",
+        Nombre: "Demo Esteban",
+        vencimiento: "2026-12-31",
+        deben: "2026-12-31"
+    }
+];
+
+function isDemoClientPhone(phoneStr) {
+    const clean = String(phoneStr || '').replace(/\D/g, '');
+    return DEMO_PHONE_NUMBERS.includes(clean) || clean === '000' || clean === '57000' || clean.endsWith('000');
+}
 
 // POST Request Client OTP
 app.post('/api/client/request-otp', express.json(), async (req, res) => {
@@ -6840,24 +7035,36 @@ app.post('/api/client/request-otp', express.json(), async (req, res) => {
         if (!phone) return res.status(400).json({ success: false, message: 'Falta el número de teléfono' });
 
         const cleanPhone = phone.replace(/\D/g, '');
-        const userJid = cleanPhone + '@c.us';
+        const isDemo = isDemoClientPhone(cleanPhone);
+        const recipientJid = isDemo ? (ADMIN_DEMO_RECIPIENT_PHONE + '@c.us') : (cleanPhone + '@c.us');
 
-        const { pool } = require('./database');
-        const [rows] = await pool.query('SELECT fullname FROM customers WHERE phone = ?', [cleanPhone]);
-        if (!rows || rows.length === 0) {
-            return res.status(404).json({ success: false, message: 'No encontramos ningún cliente registrado con ese número de teléfono' });
+        let clientName = "Cliente";
+        if (!isDemo) {
+            const { pool } = require('./database');
+            const [rows] = await pool.query('SELECT fullname FROM customers WHERE phone = ?', [cleanPhone]);
+            if (!rows || rows.length === 0) {
+                return res.status(404).json({ success: false, message: 'No encontramos ningún cliente registrado con ese número de teléfono' });
+            }
+            clientName = rows[0].fullname;
+        } else {
+            clientName = "Esteban (Usuario Demo)";
         }
 
         const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
         const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutos
 
         clientOtps.set(cleanPhone, { code: otpCode, expiresAt });
+        if (isDemo) {
+            clientOtps.set('000', { code: otpCode, expiresAt });
+            clientOtps.set('57000', { code: otpCode, expiresAt });
+        }
 
         if (client && currentWhatsappStatus === 'CONNECTED') {
-            const msg = `🔑 *CÓDIGO DE ACCESO (SHEERIT)* 🔑\n\nHola *${rows[0].fullname}*,\n\nTu código OTP para iniciar sesión en nuestro portal de clientes es:\n\n🔢 *${otpCode}*\n\n_Este código es confidencial y vencerá en 5 minutos._ 🤖`;
-            await client.sendMessage(userJid, msg);
-            console.log(`[OTP] Enviado código ${otpCode} a @${cleanPhone}`);
-            return res.json({ success: true, message: 'Código OTP enviado con éxito a tu WhatsApp' });
+            const demoTag = isDemo ? " (DEMO TESTING)" : "";
+            const msg = `🔑 *CÓDIGO DE ACCESO (SHEERIT${demoTag})* 🔑\n\nHola *${clientName}*,\n\nTu código OTP para iniciar sesión en nuestro portal de clientes es:\n\n🔢 *${otpCode}*\n\n_Este código es confidencial y vencerá en 5 minutos._ 🤖`;
+            await client.sendMessage(recipientJid, msg);
+            console.log(`[OTP] Enviado código ${otpCode} a @${recipientJid} (Usuario: ${cleanPhone})`);
+            return res.json({ success: true, message: isDemo ? 'Código OTP enviado con éxito a tu WhatsApp (+57 313 3890800)' : 'Código OTP enviado con éxito a tu WhatsApp' });
         } else {
             return res.status(503).json({ success: false, message: 'El servicio de envío de códigos no está disponible en este momento' });
         }
@@ -6876,7 +7083,8 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
         }
 
         const cleanPhone = phone.replace(/\D/g, '');
-        const otpData = clientOtps.get(cleanPhone);
+        const isDemo = isDemoClientPhone(cleanPhone);
+        const otpData = clientOtps.get(cleanPhone) || (isDemo ? (clientOtps.get('000') || clientOtps.get('57000')) : null);
 
         if (!otpData) {
             return res.status(400).json({ success: false, message: 'No hay un código OTP activo para este número. Por favor solicita uno nuevo.' });
@@ -6893,6 +7101,14 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
 
         // OTP Válido - Limpiar
         clientOtps.delete(cleanPhone);
+
+        if (isDemo) {
+            return res.json({
+                success: true,
+                message: 'Verificación exitosa (Modo Demo)',
+                accounts: DEMO_ACCOUNTS_LIST
+            });
+        }
 
         const { getAccountsByPhone } = require('./apiService');
         const userAccounts = await getAccountsByPhone(cleanPhone);
@@ -6931,15 +7147,22 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
         }
 
         const cleanPhone = phone.replace(/\D/g, '');
-        const { getAccountsByPhone } = require('./apiService');
-        const userAccounts = await getAccountsByPhone(cleanPhone);
+        const isDemo = isDemoClientPhone(cleanPhone);
+        const userJid = isDemo ? (ADMIN_DEMO_RECIPIENT_PHONE + '@c.us') : (cleanPhone + '@c.us');
 
-        const targetAccount = userAccounts.find(a => (a.id || a._rowNumber) == accountId);
+        let targetAccount = null;
+        if (isDemo) {
+            targetAccount = DEMO_ACCOUNTS_LIST.find(a => a.id == accountId);
+        } else {
+            const { getAccountsByPhone } = require('./apiService');
+            const userAccounts = await getAccountsByPhone(cleanPhone);
+            targetAccount = userAccounts.find(a => (a.id || a._rowNumber) == accountId);
+        }
+
         if (!targetAccount) {
             return res.status(404).json({ success: false, message: 'Cuenta no encontrada o no vinculada a tu número' });
         }
 
-        const userJid = cleanPhone + '@c.us';
         const mockMessage = {
             id: { _serialized: `web_request_${Date.now()}` },
             from: userJid,
@@ -6953,7 +7176,7 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
         };
 
         // Ejecutar extractor automático
-        await processAccountVerificationCode(mockMessage, userJid, targetAccount, cleanPhone, client, userStates);
+        await processAccountVerificationCode(mockMessage, userJid, targetAccount, isDemo ? ADMIN_DEMO_RECIPIENT_PHONE : cleanPhone, client, userStates);
 
         res.json({ success: true, message: 'Solicitud de código 2FA enviada. El bot buscará el código y te lo enviará por WhatsApp.' });
     } catch (e) {
