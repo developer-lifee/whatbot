@@ -1751,7 +1751,8 @@ app.post('/api/admin/sales/create', async (req, res) => {
                 deben: it.deben || null
             })),
             subscriptionType,
-            nombre: name
+            nombre: name,
+            total: parseFloat(total) || 0
         };
 
         const phoneId = phone.includes('@') ? phone : `${phone}@c.us`;
