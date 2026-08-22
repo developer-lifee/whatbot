@@ -10,10 +10,9 @@
         "image": "/errores_img/codigo_netflix.png",
         "whatsappMessage": "Hola, necesito ayuda con un código de acceso para Netflix.",
         "steps": [
-          { "text": "Si estás en TV y te pide código, selecciona la opción 'Obtener ayuda ∨' en la parte inferior izquierda y elige 'Usar contraseña' para ingresar directo." },
-          { "text": "Si te exige código numérico, selecciona la opción de enviar email." },
-          { "text": "Después entra desde tu celular a https://sheerit.co/actualizar y consulta tu correo asignado." },
-          { "text": "Copia el código reciente o presiona verificar." }
+          { "text": "Selecciona en tu pantalla la opción de enviar código por email." },
+          { "text": "Entra desde tu celular a https://sheerit.co/verificar con tu número de WhatsApp." },
+          { "text": "Consulta el código reciente de 4 dígitos o presiona el enlace de confirmación." }
         ]
       },
       {

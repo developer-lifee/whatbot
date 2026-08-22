@@ -1108,13 +1108,6 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
       
       if (mediaDescription) {
         const descLower = mediaDescription.toLowerCase();
-        const isTvCodeOrHelpScreen = descLower.includes('ingresa el código') || descLower.includes('ingresar el código') || descLower.includes('código que enviamos') || descLower.includes('codigo que enviamos') || descLower.includes('enviamos a tu email') || descLower.includes('enviamos a tu correo') || descLower.includes('obtener ayuda') || descLower.includes('código de verificación') || descLower.includes('ingresa el codigo');
-        if (isTvCodeOrHelpScreen) {
-          return {
-            replyMessage: `🤖 *Tip de Inicio de Sesión / Acceso en TV:* 💡\n\nVeo que tu pantalla te está solicitando una verificación o código enviado al correo.\n\n*Por favor realiza los siguientes pasos en la pantalla de tu TV para ingresar de inmediato:*\n\n1. Selecciona el botón **"Obtener ayuda"** (ubicado abajo a la izquierda en tu pantalla de TV).\n2. Elige la opción **"Usar contraseña"** (o "Iniciar sesión con contraseña").\n3. Ingresa la contraseña que te proporcionamos para acceder directo.\n\n*(Si tu pantalla te exige obligatoriamente un código numérico, presiona "Enviar código" y pídenoslo de inmediato).* 😊 🤖`,
-            needsEscalation: false
-          };
-        }
 
         // DETECCIÓN DE PANTALLA DE ERROR/FALLA DE PAGO DEL PROVEEDOR EN NETFLIX/STREAMING
         const isPaymentErrorScreen = [
