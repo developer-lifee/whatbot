@@ -286,34 +286,36 @@ async function calculateDailyAccounting() {
     }
   });
 
-  // 2. Procesar egresos basados en costos de cuentas configurados (streaming_costs)
+  // 2. Procesar egresos e inventario necesario según costos de cuentas configurados (streaming_costs)
+  const costMap = {};
   costs.forEach(cost => {
     const plat = cost.platform.toUpperCase().trim();
-    if (!dailyAccounting[plat]) {
-      dailyAccounting[plat] = {
-        platform: cost.platform,
-        ingreso_total: 0,
-        egreso_total: 0,
-        ganancia_porcentaje: 0,
-        egreso_porcentaje: 0,
-        utilidad_total: 0,
-        indicador_gan: 0,
-        active_profiles: 0
-      };
-    }
+    costMap[plat] = {
+      total_cost: parseFloat(cost.total_cost) || 0,
+      profile_slots: cost.profile_slots || 1,
+      duration_days: cost.duration_days || 30
+    };
+  });
 
-    // Calcular costo diario de este perfil/cuenta
-    const totalCost = parseFloat(cost.total_cost);
-    const slots = cost.profile_slots || 1;
-    const duration = cost.duration_days || 30;
+  // Calcular egresos unitarios y egresos totales de inventario según perfiles activos
+  Object.keys(dailyAccounting).forEach(plat => {
+    const item = dailyAccounting[plat];
+    const costInfo = costMap[plat] || { total_cost: 1000, profile_slots: 1, duration_days: 30 };
     
-    // Si es cuenta de tipo owner/cupos de invitación que valen 1, el costo marginal es casi cero
-    const dailyCost = totalCost / slots / duration;
+    // Cuentas completas necesarias para suplir a todos los clientes activos
+    const slots = costInfo.profile_slots || 1;
+    const duration = costInfo.duration_days || 30;
+    const accountsNeeded = item.active_profiles > 0 ? Math.ceil(item.active_profiles / slots) : 1;
     
-    // Sumar al egreso total de la plataforma
-    // Multiplicamos por la cantidad de perfiles activos que tenemos en esta plataforma, o asignamos el costo total
-    // de la cuenta normalizada. Usemos el costo diario de la cuenta normalizada.
-    dailyAccounting[plat].egreso_total += dailyCost * slots;
+    // Egreso total mensual de compra de cuentas matriz necesarias
+    item.accounts_needed = accountsNeeded;
+    item.monthly_inventory_cost = accountsNeeded * costInfo.total_cost;
+    
+    // Egreso diario de inventario (fórmula Excel)
+    item.egreso_total = item.monthly_inventory_cost / duration;
+    
+    // Egreso unitario de 1 sola cuenta normalizada (para análisis unitario)
+    item.unit_daily_cost = (costInfo.total_cost / slots / duration) * slots;
   });
 
   // 3. Procesar egresos adicionales u otros registrados del día en cash_flow_entries (flujo de caja real)
@@ -334,16 +336,16 @@ async function calculateDailyAccounting() {
         egreso_porcentaje: 0,
         utilidad_total: 0,
         indicador_gan: 0,
-        active_profiles: 0
+        active_profiles: 0,
+        accounts_needed: 0,
+        monthly_inventory_cost: 0
       };
     }
 
     const amount = parseFloat(entry.amount);
     if (entry.type === 'income') {
-      // Si registramos ingresos directos del día (ej: ventas en efectivo)
       dailyAccounting[plat].ingreso_total += amount;
     } else {
-      // Egresos directos del día
       dailyAccounting[plat].egreso_total += amount;
     }
   });
@@ -352,10 +354,14 @@ async function calculateDailyAccounting() {
   const rows = Object.values(dailyAccounting);
   let globalIngresoTotal = 0;
   let globalEgresoTotal = 0;
+  let globalMonthlyIncome = 0;
+  let globalMonthlyCost = 0;
   
   rows.forEach(r => {
     globalIngresoTotal += r.ingreso_total;
     globalEgresoTotal += r.egreso_total;
+    globalMonthlyIncome += (r.ingreso_total * 30);
+    globalMonthlyCost += (r.monthly_inventory_cost || (r.egreso_total * 30));
   });
 
   rows.forEach(r => {
@@ -368,12 +374,12 @@ async function calculateDailyAccounting() {
     r.egreso_porcentaje = globalEgresoTotal > 0 ? (r.egreso_total / globalEgresoTotal) * 100 : 0;
     
     // Indicador Ganancia (Margen de utilidad sobre el costo de la propia plataforma)
-    // Formula: Utilidad / Egreso * 100
     r.indicador_gan = r.egreso_total > 0 ? (r.utilidad_total / r.egreso_total) * 100 : 0;
   });
 
   const globalUtilidadTotal = globalIngresoTotal - globalEgresoTotal;
   const globalPorcentajeUtilidad = globalIngresoTotal > 0 ? (globalUtilidadTotal / globalIngresoTotal) * 100 : 0;
+  const globalMonthlyProfit = globalMonthlyIncome - globalMonthlyCost;
 
   return {
     rows: rows.filter(r => r.ingreso_total > 0 || r.egreso_total > 0),
@@ -382,9 +388,9 @@ async function calculateDailyAccounting() {
       egreso_total: globalEgresoTotal,
       utilidad_total: globalUtilidadTotal,
       porcentaje_utilidad: globalPorcentajeUtilidad,
-      mensual_ingreso: globalIngresoTotal * 30,
-      mensual_egreso: globalEgresoTotal * 30,
-      mensual_utilidad: globalUtilidadTotal * 30
+      mensual_ingreso: globalMonthlyIncome,
+      mensual_egreso: globalMonthlyCost,
+      mensual_utilidad: globalMonthlyProfit
     }
   };
 }
