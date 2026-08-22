@@ -517,16 +517,22 @@ app.post('/api/netflix/verify', async (req, res) => {
         }
 
         const { getAccountsByPhone, updateExcelData } = require('./apiService');
-        const userAccounts = await getAccountsByPhone(phone);
+        let userAccounts = [];
+        const isDemo = (typeof isDemoClientPhone === 'function') ? isDemoClientPhone(phone) : (phone === '000' || phone === '57000');
+        if (isDemo && typeof DEMO_ACCOUNTS_LIST !== 'undefined') {
+            userAccounts = DEMO_ACCOUNTS_LIST.filter(a => (a.Streaming || '').toUpperCase().includes('NETFLIX'));
+        } else {
+            userAccounts = await getAccountsByPhone(phone);
+        }
 
         // Check if they have a non-extra Netflix account
         const netflixAcct = userAccounts.find(c => {
             const streamingName = (c.Streaming || "").toLowerCase();
             return streamingName.includes('netflix') && !streamingName.includes('extra');
-        });
+        }) || userAccounts[0];
 
         if (!netflixAcct) {
-            return res.status(404).json({ success: false, message: "No se encontró cuenta de Netflix principal asociada a este número." });
+            return res.status(404).json({ success: false, message: "No se encontró cuenta de Netflix asociada a este número." });
         }
 
         // Capture the IP natively into Microsoft Graph Excels (Operador column)
