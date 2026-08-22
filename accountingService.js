@@ -205,10 +205,58 @@ async function getTransactions(startDate, endDate) {
   return rows;
 }
 
+function normalizePlatformKey(raw) {
+  if (!raw) return 'OTROS';
+  const clean = raw.toUpperCase().trim();
+  if (clean.includes('AMAZON') || clean.includes('PRIME')) return 'AMAZON';
+  if (clean.includes('DISNEY')) return 'DISNEY';
+  if (clean.includes('HBO') || clean.includes('MAX')) {
+    if (clean.includes('PLATINO')) return 'HBO PLATINO';
+    return 'HBO';
+  }
+  if (clean.includes('NETFLIX')) {
+    if (clean.includes('EXTRA') || clean.includes('MIEMBRO')) return 'NETFLIX EXTRA';
+    return 'NETFLIX';
+  }
+  if (clean.includes('SPOTIFY')) {
+    if (clean.includes('OWNER') || clean.includes('DUEÑO') || clean.includes('FAMILIAR')) return 'SPOTIFY OWNER';
+    return 'SPOTIFY';
+  }
+  if (clean.includes('YOUTUBE')) {
+    if (clean.includes('OWNER') || clean.includes('FAMILIAR')) return 'YOUTUBE OWNER';
+    return 'YOUTUBE';
+  }
+  if (clean.includes('APPLE')) {
+    if (clean.includes('ONE')) return 'APPLE ONE';
+    return 'APPLE TV';
+  }
+  if (clean.includes('CRUNCHY')) return 'CRUNCHY ROLL';
+  if (clean.includes('VIX')) return 'VIX';
+  if (clean.includes('CANVA')) return 'CANVA';
+  if (clean.includes('MICROSOFT') || clean.includes('OFFICE') || clean.includes('365')) {
+    if (clean.includes('COMPARTIDA')) return 'MICROSOFT COMPARTIDA';
+    return 'MICROSOFT';
+  }
+  if (clean.includes('PLATZI')) {
+    if (clean.includes('COMPARTIDA')) return 'PLATZI COMPARTIDA';
+    return 'PLATZI';
+  }
+  if (clean.includes('GAMMA')) return 'GAMMA';
+  if (clean.includes('CLAUDE')) return 'CLAUDE';
+  if (clean.includes('GEMINI')) {
+    if (clean.includes('COMPARTIDA')) return 'GEMINI COMPARTIDA';
+    return 'GEMINI';
+  }
+  if (clean.includes('GPT') || clean.includes('CHATGPT')) return 'GPT';
+  if (clean.includes('IPTV')) return 'IPTV';
+  if (clean.includes('XBOX')) return 'XBOX';
+  return clean;
+}
+
 /**
- * Calcula la contabilidad diaria consolidando:
- * 1. Clientes activos (ingreso diario normalizado).
- * 2. Costos de perfiles/cuentas activas (egreso diario normalizado).
+ * Calcula la contabilidad consolidando:
+ * 1. Clientes activos (ingreso diario normalizado con combos reales).
+ * 2. Costos de perfiles/cuentas activas (egreso diario normalizado y modelo Excel).
  * 3. Transacciones reales de cash_flow_entries registradas en el día.
  */
 async function calculateDailyAccounting() {
@@ -221,6 +269,8 @@ async function calculateDailyAccounting() {
   // Crear mapas rápidos para búsqueda
   const priceMap = {};
   prices.forEach(p => {
+    const normKey = normalizePlatformKey(p.platform);
+    priceMap[normKey] = parseFloat(p.normal_price);
     priceMap[p.platform.toUpperCase().trim()] = parseFloat(p.normal_price);
   });
 
@@ -228,29 +278,10 @@ async function calculateDailyAccounting() {
 
   // Inicializar todas las plataformas conocidas con valores en cero
   prices.forEach(p => {
-    const plat = p.platform.toUpperCase().trim();
-    dailyAccounting[plat] = {
-      platform: p.platform,
-      ingreso_total: 0,
-      egreso_total: 0,
-      ganancia_porcentaje: 0,
-      egreso_porcentaje: 0,
-      utilidad_total: 0,
-      indicador_gan: 0,
-      active_profiles: 0
-    };
-  });
-
-  // 1. Procesar ingresos basados en suscripciones de clientes activos
-  clients.forEach(c => {
-    const rawPlat = (c.Streaming || 'OTROS').toUpperCase().trim();
-    // Encontrar la mejor coincidencia en priceMap
-    let matchedPlat = Object.keys(priceMap).find(p => rawPlat.includes(p)) || 'OTROS';
-    
-    // Si no está inicializado en la respuesta
-    if (!dailyAccounting[matchedPlat]) {
-      dailyAccounting[matchedPlat] = {
-        platform: matchedPlat,
+    const plat = normalizePlatformKey(p.platform);
+    if (!dailyAccounting[plat]) {
+      dailyAccounting[plat] = {
+        platform: plat,
         ingreso_total: 0,
         egreso_total: 0,
         ganancia_porcentaje: 0,
@@ -260,7 +291,11 @@ async function calculateDailyAccounting() {
         active_profiles: 0
       };
     }
+  });
 
+  // 1. Filtrar clientes activos
+  const activeClients = [];
+  clients.forEach(c => {
     const dateVal = c.deben || c.vencimiento;
     let isActive = false;
     if (dateVal) {
@@ -272,26 +307,61 @@ async function calculateDailyAccounting() {
         }
       }
     } else {
-      // Si no tiene fecha pero está en el listado, asumimos activo por defecto
       isActive = true;
     }
+    if (isActive) activeClients.push(c);
+  });
 
-    if (isActive) {
+  // 2. Agrupar por cliente para detectar combos reales
+  const clientGroups = {};
+  activeClients.forEach(c => {
+    const phone = String(c.whatsapp || c.numero || '').replace(/\D/g, '');
+    const key = phone.length >= 7 ? phone : (c.Nombre || c.nombre || 'cliente_general');
+    if (!clientGroups[key]) clientGroups[key] = [];
+    clientGroups[key].push(c);
+  });
+
+  // 3. Procesar cada grupo de cliente aplicando la regla de descuento de combo
+  Object.values(clientGroups).forEach(group => {
+    const isCombo = group.length > 1;
+    group.forEach((c, idx) => {
+      const platKey = normalizePlatformKey(c.Streaming);
+
       // Prioridad 1: Tomar precio individual de la fila del cliente si existe en Excel
       let rowPrice = 0;
       if (c.precio || c.Precio || c.valor || c.Valor) {
         const rawP = String(c.precio || c.Precio || c.valor || c.Valor).replace(/[^\d.]/g, '');
         rowPrice = parseFloat(rawP) || 0;
       }
-      
-      // Prioridad 2: Precio de catálogo configurado para la plataforma
-      const price = rowPrice > 0 ? rowPrice : (priceMap[matchedPlat] || (matchedPlat === 'AMAZON' ? 10000 : 10000));
-      
-      // Normalizado a diario (dividido por 30)
+
+      let price = rowPrice;
+      if (price <= 0) {
+        const basePrice = priceMap[platKey] || priceMap[c.Streaming] || 10000;
+        // Si el cliente tiene combo (2 o más plataformas juntas), las adicionales (idx > 0) tienen $1.000 COP de descuento
+        if (isCombo && idx > 0) {
+          price = Math.max(1000, basePrice - 1000);
+        } else {
+          price = basePrice;
+        }
+      }
+
+      if (!dailyAccounting[platKey]) {
+        dailyAccounting[platKey] = {
+          platform: platKey,
+          ingreso_total: 0,
+          egreso_total: 0,
+          ganancia_porcentaje: 0,
+          egreso_porcentaje: 0,
+          utilidad_total: 0,
+          indicador_gan: 0,
+          active_profiles: 0
+        };
+      }
+
       const dailyIncome = price / 30;
-      dailyAccounting[matchedPlat].ingreso_total += dailyIncome;
-      dailyAccounting[matchedPlat].active_profiles += 1;
-    }
+      dailyAccounting[platKey].ingreso_total += dailyIncome;
+      dailyAccounting[platKey].active_profiles += 1;
+    });
   });
 
   // 2. Procesar egresos e inventario necesario según costos de cuentas configurados (streaming_costs)
