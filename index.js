@@ -10191,26 +10191,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         const wantsImgCode = [
             'hogar', 'dispositivo', 'código', 'codigo', '2fa', 'authenticator', 'autenticación',
             'televisor', 'tv', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
-            'no forma parte', 'hogar con netflix', 'tu tv no forma parte'
+            'no forma parte', 'hogar con netflix', 'tu tv no forma parte', 'enviamos a tu email', 'ingresa el código',
+            'código vence en 15', 'codigo vence en 15', 'solicita el reenvio', 'solicita el reenvío'
         ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
-
-        const isGetHelpScreen = [
-            'obtener ayuda', 'enviamos a tu email', 'código vence en 15', 'codigo vence en 15', 'solicita el reenvio', 'solicita el reenvío'
-        ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
-
-        const isPasswordFocus = isIncorrectPassword || (detection && detection.intent === 'credenciales') ||
-            ['clave', 'contraseña', 'password', 'datos', 'ingresar', 'ingreso', 'acceso'].some(kw => bodyLower.includes(kw) || explanationLower.includes(kw));
-
-        if (isGetHelpScreen) {
-            console.log(`[BOT MEDIA OCR GET HELP SCREEN] Se detectó pantalla 'Obtener ayuda' / 'Enviamos a tu email' en @${userId}. Guiando para ingresar con contraseña.`);
-            await message.reply(`🤖 ¡Veo la pantalla de inicio de sesión en tu TV! 📺\n\n` +
-                `*Por favor realiza estos sencillos pasos en tu pantalla:*\n` +
-                `1. En esa misma pantalla, presiona la opción **"Obtener ayuda ∨"** en la parte inferior izquierda.\n` +
-                `2. Selecciona **"Iniciar sesión con contraseña"** (o **"Usar contraseña"**).\n` +
-                `3. Ingresa la contraseña asignada a tu cuenta para ingresar de inmediato. 🔑\n\n` +
-                `_(Si tu pantalla te exige obligatoriamente un código de 6 dígitos, presiona "Enviar código" y responde aquí con la palabra **código** para entregártelo)._`);
-            return;
-        }
 
         const isProfileSelectScreen = [
             'elige tu perfil', 'quién está viendo', 'quien esta viendo', 'quién va a ver', 'quien va a ver',
@@ -10251,21 +10234,32 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 let targetAccount = null;
                 const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify'];
 
-                // 1. Intentar buscar coincidencia por plataforma analizando el texto del usuario o la explicación de la imagen
-                const textForPlatform = (inputToUse + " " + detection.explanation).toLowerCase();
-                const matchedPlatform = platformsSupported.find(p => textForPlatform.includes(p));
+                // 0. Si la imagen contiene un correo explícito (ej: yulisadiagama@gmail.com), buscar primero por ese correo
+                const textForDetection = (inputToUse + " " + (detection.explanation || "") + " " + (detection.mediaDescription || "")).toLowerCase();
+                const emailInImage = textForDetection.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                if (emailInImage) {
+                    const extractedMail = emailInImage[0].trim();
+                    targetAccount = userAccounts.find(c => (c.correo || "").toLowerCase().trim() === extractedMail);
+                    if (targetAccount) {
+                        console.log(`[BOT MEDIA OCR MATCH EMAIL] Cuenta encontrada por correo extraído de la imagen: ${extractedMail}`);
+                    }
+                }
 
-                if (matchedPlatform) {
-                    targetAccount = userAccounts.find(c => {
-                        const streamingName = (c.Streaming || "").toLowerCase();
-                        if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
-                            return streamingName.includes('hbo') || streamingName.includes('max');
-                        }
-                        if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
-                            return streamingName.includes('amazon') || streamingName.includes('prime');
-                        }
-                        return streamingName.includes(matchedPlatform);
-                    });
+                // 1. Intentar buscar coincidencia por plataforma analizando el texto del usuario o la explicación de la imagen
+                if (!targetAccount) {
+                    const matchedPlatform = platformsSupported.find(p => textForDetection.includes(p));
+                    if (matchedPlatform) {
+                        targetAccount = userAccounts.find(c => {
+                            const streamingName = (c.Streaming || "").toLowerCase();
+                            if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
+                                return streamingName.includes('hbo') || streamingName.includes('max');
+                            }
+                            if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
+                                return streamingName.includes('amazon') || streamingName.includes('prime');
+                            }
+                            return streamingName.includes(matchedPlatform);
+                        });
+                    }
                 }
 
                 // 2. Si no hay coincidencia directa, pero solo tiene 1 cuenta, usar esa
