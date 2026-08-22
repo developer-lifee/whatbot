@@ -1,10 +1,136 @@
 const { pool } = require('./database');
 const { fetchCustomersData, getJsDateFromExcel } = require('./apiService');
 
+const SEED_STREAMING_COSTS = [
+  { platform: 'AMAZON', email: 'Alzap1479@gmail.com', total_cost: 14000, profile_slots: 6, duration_days: 30, expiration_date: '2024-06-15' },
+  { platform: 'CRUNCHY ROLL', email: 'gagwgwaggwf@spotinetshop.com', total_cost: 14900, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-16' },
+  { platform: 'DISNEY', email: 'combitds@spotinetonline.org', total_cost: 18000, profile_slots: 7, duration_days: 30, expiration_date: '2024-06-18' },
+  { platform: 'HBO', email: '2377eb6a@spotinetshop.com', total_cost: 15000, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-23' },
+  { platform: 'NETFLIX', email: 'bohrdavidaviladaza@gmail.com', total_cost: 64700, profile_slots: 7, duration_days: 30, expiration_date: '2024-06-30' },
+  { platform: 'SPOTIFY', email: 'alep2037@yopmail.com', total_cost: 30500, profile_slots: 5, duration_days: 30, expiration_date: '2024-07-18' },
+  { platform: 'VIX', email: 'combitds@spotinetonline.org', total_cost: 5000, profile_slots: 7, duration_days: 30, expiration_date: '2024-08-03' },
+  { platform: 'PARAMOUNT', email: 'spotinetparamoun919822@spotinetshop.com', total_cost: 23900, profile_slots: 3, duration_days: 30, expiration_date: '2024-07-05' },
+  { platform: 'XBOX', email: 'sheerit294@outlook.com', total_cost: 30800, profile_slots: 5, duration_days: 30, expiration_date: '2024-08-27' },
+  { platform: 'IPTV', email: 'http://tvpro.tech:8080', total_cost: 5000, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-16' },
+  { platform: 'GPT', email: 'Sheerstreaming@gmail.com', total_cost: 85000, profile_slots: 23, duration_days: 31, expiration_date: '2024-06-17' },
+  { platform: 'YOUTUBE', email: 'Sheerstreaming@gmail.com', total_cost: 41900, profile_slots: 6, duration_days: 32, expiration_date: '2024-06-18' },
+  { platform: 'APPLE ONE', email: '', total_cost: 83900, profile_slots: 5, duration_days: 30, expiration_date: null },
+  { platform: 'MICROSOFT', email: '', total_cost: 46000, profile_slots: 5, duration_days: 31, expiration_date: null },
+  { platform: 'GEMINI', email: '', total_cost: 79900, profile_slots: 6, duration_days: 32, expiration_date: null },
+  { platform: 'PLATZI', email: '', total_cost: 169154, profile_slots: 3, duration_days: 30, expiration_date: null },
+  { platform: 'NETFLIX EXTRA', email: '', total_cost: 9900, profile_slots: 1, duration_days: 30, expiration_date: null },
+  { platform: 'HBO PLATINO', email: '', total_cost: 30000, profile_slots: 5, duration_days: 30, expiration_date: null },
+  { platform: 'APPLE TV', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },
+  { platform: 'MICROSOFT COMPARTIDA', email: '', total_cost: 1, profile_slots: 1, duration_days: 31, expiration_date: null },
+  { platform: 'GEMINI COMPARTIDA', email: '', total_cost: 1, profile_slots: 1, duration_days: 31, expiration_date: null },
+  { platform: 'GAMMA', email: '', total_cost: 81000, profile_slots: 5, duration_days: 30, expiration_date: null },
+  { platform: 'CANVA', email: '', total_cost: 5000, profile_slots: 5, duration_days: 30, expiration_date: null },
+  { platform: 'SPOTIFY OWNER', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },
+  { platform: 'YOUTUBE OWNER', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },
+  { platform: 'CLAUDE', email: '', total_cost: 76000, profile_slots: 10, duration_days: 31, expiration_date: null },
+  { platform: 'PLATZI COMPARTIDA', email: '', total_cost: 1, profile_slots: 5, duration_days: 30, expiration_date: null }
+];
+
+const SEED_STREAMING_PRICES = [
+  { platform: 'NETFLIX', normal_price: 14000 },
+  { platform: 'DISNEY', normal_price: 10000 },
+  { platform: 'HBO', normal_price: 9000 },
+  { platform: 'HBO PLATINO', normal_price: 12000 },
+  { platform: 'AMAZON', normal_price: 9000 },
+  { platform: 'SPOTIFY', normal_price: 10000 },
+  { platform: 'SPOTIFY OWNER', normal_price: 15000 },
+  { platform: 'YOUTUBE', normal_price: 10000 },
+  { platform: 'YOUTUBE OWNER', normal_price: 15000 },
+  { platform: 'GPT', normal_price: 18000 },
+  { platform: 'CLAUDE', normal_price: 20000 },
+  { platform: 'GEMINI', normal_price: 18000 },
+  { platform: 'GEMINI COMPARTIDA', normal_price: 12000 },
+  { platform: 'APPLE ONE', normal_price: 25000 },
+  { platform: 'APPLE TV', normal_price: 8000 },
+  { platform: 'PARAMOUNT', normal_price: 9000 },
+  { platform: 'CRUNCHY ROLL', normal_price: 9000 },
+  { platform: 'VIX', normal_price: 8000 },
+  { platform: 'CANVA', normal_price: 8000 },
+  { platform: 'MICROSOFT', normal_price: 15000 },
+  { platform: 'MICROSOFT COMPARTIDA', normal_price: 10000 },
+  { platform: 'PLATZI', normal_price: 50000 },
+  { platform: 'PLATZI COMPARTIDA', normal_price: 25000 },
+  { platform: 'GAMMA', normal_price: 25000 },
+  { platform: 'XBOX', normal_price: 15000 },
+  { platform: 'IPTV', normal_price: 10000 },
+  { platform: 'NETFLIX EXTRA', normal_price: 16000 }
+];
+
+let tablesInitialized = false;
+async function initAccountingTables() {
+  if (tablesInitialized) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS streaming_prices (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        platform VARCHAR(100) UNIQUE NOT NULL,
+        normal_price DECIMAL(10,2) NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS streaming_costs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        platform VARCHAR(100) NOT NULL,
+        email VARCHAR(255),
+        total_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
+        profile_slots INT NOT NULL DEFAULT 1,
+        duration_days INT NOT NULL DEFAULT 30,
+        expiration_date DATE NULL,
+        payment_method VARCHAR(100) NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cash_flow_entries (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        type ENUM('income', 'expense') NOT NULL,
+        platform VARCHAR(100) NULL,
+        amount DECIMAL(12,2) NOT NULL,
+        description TEXT,
+        entry_date DATE NOT NULL,
+        is_automated TINYINT(1) DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Sembrar precios (upsert para tener todas las plataformas cubiertas)
+    for (const p of SEED_STREAMING_PRICES) {
+      await pool.query(
+        'INSERT INTO streaming_prices (platform, normal_price) VALUES (?, ?) ON DUPLICATE KEY UPDATE normal_price = ?',
+        [p.platform, p.normal_price, p.normal_price]
+      );
+    }
+
+    // Sembrar costos maestros de streaming si no existen
+    for (const c of SEED_STREAMING_COSTS) {
+      const [existing] = await pool.query('SELECT id FROM streaming_costs WHERE platform = ? LIMIT 1', [c.platform]);
+      if (existing.length === 0) {
+        await pool.query(
+          'INSERT INTO streaming_costs (platform, email, total_cost, profile_slots, duration_days, expiration_date) VALUES (?, ?, ?, ?, ?, ?)',
+          [c.platform, c.email || null, c.total_cost, c.profile_slots, c.duration_days, c.expiration_date || null]
+        );
+      }
+    }
+
+    tablesInitialized = true;
+  } catch (err) {
+    console.error('[Accounting Tables Init Error]:', err.message);
+  }
+}
+
 /**
  * Obtiene la lista de precios configurados
  */
 async function getPrices() {
+  await initAccountingTables();
   const [rows] = await pool.query('SELECT * FROM streaming_prices ORDER BY platform ASC');
   return rows;
 }
@@ -13,6 +139,7 @@ async function getPrices() {
  * Guarda o actualiza un precio
  */
 async function savePrice(platform, normalPrice) {
+  await initAccountingTables();
   await pool.query(
     'INSERT INTO streaming_prices (platform, normal_price) VALUES (?, ?) ON DUPLICATE KEY UPDATE normal_price = ?',
     [platform.toUpperCase(), normalPrice, normalPrice]
@@ -24,6 +151,7 @@ async function savePrice(platform, normalPrice) {
  * Obtiene la lista de costos configurados
  */
 async function getCosts() {
+  await initAccountingTables();
   const [rows] = await pool.query('SELECT * FROM streaming_costs ORDER BY platform ASC');
   return rows;
 }
