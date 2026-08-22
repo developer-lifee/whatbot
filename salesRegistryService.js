@@ -557,6 +557,21 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "customer mail": slot.rowData["customer mail"] || slot.rowData["Customer Mail"] || "",
                     customerMail: slot.rowData["customer mail"] || slot.rowData["Customer Mail"] || ""
                 });
+
+                // Registrar ingreso automático en Flujo de Caja Real si es pago por transferencia / Nequi / Bre-B / Admin
+                if (paymentMethod !== 'Bold Pagos' && !String(paymentMethod).toLowerCase().includes('bold')) {
+                    try {
+                        const { addCashFlowEntry } = require('./accountingService');
+                        const platName = slot.rowData.Streaming || platformName;
+                        const itemPrice = parseFloat(slot.rowData.precio || (item.platform ? item.platform.price : 0) || userState.total || 0);
+                        if (itemPrice > 0) {
+                            await addCashFlowEntry('income', platName, itemPrice, `Venta confirmada (${paymentMethod}): ${name}`, new Date(), true);
+                            console.log(`[Sales Registry] 💵 Ingreso de $${itemPrice} registrado en cash_flow_entries para ${platName}`);
+                        }
+                    } catch (cashErr) {
+                        console.warn("[Sales Registry] Error registrando flujo de caja:", cashErr.message);
+                    }
+                }
             } else {
                 console.log(`[Sales Registry] NO se encontró cupo disponible para ${platformName}.`);
                 results.push({ name: platformName, status: 'no_slots_found' });

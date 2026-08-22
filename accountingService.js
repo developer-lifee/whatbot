@@ -435,12 +435,25 @@ async function calculateRealCashFlow() {
 
   sales.forEach(s => {
     const dayStr = s.sale_date;
-    const amount = parseFloat(s.amount || 0);
+    const grossAmount = parseFloat(s.amount || 0);
+    
+    // Aplicar fórmula inversa de la comisión de pasarela Bold (3.49% + 0.414% ReteICA + $900 COP fijo)
+    // para obtener el dinero neto que realmente ingresa a la cuenta bancaria.
+    const totalPercentageDecimal = 0.0349 + 0.00414; // 0.03904
+    const fixedFee = 900;
+    let netAmount = grossAmount;
+    if (grossAmount > fixedFee) {
+      const calculatedNet = Math.round((grossAmount * (1 - totalPercentageDecimal)) - fixedFee);
+      if (calculatedNet > 0) {
+        netAmount = calculatedNet;
+      }
+    }
+
     if (dailyData[dayStr]) {
-      dailyData[dayStr].income += amount;
+      dailyData[dayStr].income += netAmount;
     }
     const plat = (s.platformName || 'OTROS').toUpperCase().trim();
-    platformIncomeBreakdown[plat] = (platformIncomeBreakdown[plat] || 0) + amount;
+    platformIncomeBreakdown[plat] = (platformIncomeBreakdown[plat] || 0) + netAmount;
   });
 
   entries.forEach(e => {
