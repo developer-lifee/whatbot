@@ -8090,10 +8090,13 @@ async function baseProcessIncomingMessage(messages) {
     // realPhone se mantiene como el ID del chat para búsqueda de cuentas etc.
     let realPhone = userId.replace('@c.us', '').replace(/\D/g, '');
 
-    // --- PRIORIDAD JEFE (3133890800) ---
-    if (isFromAdmin && !userId.includes('@g.us')) {
+    const combinedAdminBody = messages.map(m => m.body || "").join(' ').trim();
+    const hasExplicitBotCall = combinedAdminBody.toLowerCase().includes('@bot');
+    const isAdminPrivateChat = userId.replace('@c.us', '') === ADMIN_RAW_PHONE || userId.replace('@c.us', '') === '573133890800' || userId.replace('@c.us', '') === '3133890800';
+
+    // --- PRIORIDAD JEFE (SOLO SI ES EN CHAT PRIVADO DEL JEFE O SI INVOCA EXPLÍCITAMENTE @bot) ---
+    if (isFromAdmin && !userId.includes('@g.us') && (hasExplicitBotCall || isAdminPrivateChat)) {
         const { detectAdminIntent } = require('./aiService');
-        const combinedAdminBody = messages.map(m => m.body).join(' ');
         const adminAI = await detectAdminIntent(combinedAdminBody);
 
         console.log(`[Chief Mode] Intención detectada: ${adminAI.intent} para ${adminAI.target_user || adminAI.target}`);
@@ -8104,10 +8107,9 @@ async function baseProcessIncomingMessage(messages) {
             return;
         } else if (adminAI.intent === 'confirmar_pago') {
             const { handleAdminPaymentConfirmation } = require('./adminService');
-            // Pasamos el texto original para que extraiga el número del cliente y los meses, y null para que no se auto-asigne el número del admin
             await handleAdminPaymentConfirmation(firstMsg, firstMsg.body, client, userStates, null);
             return;
-        } else if (adminAI.intent === 'liberar_bot') {
+        } else if (adminAI.intent === 'liberar_bot' && hasExplicitBotCall) {
             userStates.delete(userId);
             const isAdminPrivate = userId.replace('@c.us', '') === ADMIN_RAW_PHONE;
             if (isAdminPrivate) {
@@ -8115,7 +8117,7 @@ async function baseProcessIncomingMessage(messages) {
             } else {
                 // Lectura prematura del chat para llegar ayudando
                 const { generateReactivationResponse } = require('./aiService');
-                const chatHistory = await getChatHistoryText(firstMsg, 10); // Leer últimos 10 mensajes
+                const chatHistory = await getChatHistoryText(firstMsg, 10);
                 const reactivationMsg = await generateReactivationResponse(chatHistory);
                 await firstMsg.reply(reactivationMsg);
             }
