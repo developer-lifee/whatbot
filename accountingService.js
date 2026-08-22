@@ -78,7 +78,7 @@ async function initAccountingTables() {
       CREATE TABLE IF NOT EXISTS streaming_costs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         platform VARCHAR(100) NOT NULL,
-        email VARCHAR(255),
+        email VARCHAR(255) NULL DEFAULT '',
         total_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
         profile_slots INT NOT NULL DEFAULT 1,
         duration_days INT NOT NULL DEFAULT 30,
@@ -87,6 +87,10 @@ async function initAccountingTables() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    try {
+      await pool.query('ALTER TABLE streaming_costs MODIFY COLUMN email VARCHAR(255) NULL DEFAULT \'\'');
+    } catch (alterErr) { /* ya es nullable */ }
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cash_flow_entries (
@@ -115,7 +119,7 @@ async function initAccountingTables() {
       if (existing.length === 0) {
         await pool.query(
           'INSERT INTO streaming_costs (platform, email, total_cost, profile_slots, duration_days, expiration_date) VALUES (?, ?, ?, ?, ?, ?)',
-          [c.platform, c.email || null, c.total_cost, c.profile_slots, c.duration_days, c.expiration_date || null]
+          [c.platform, c.email || '', c.total_cost, c.profile_slots, c.duration_days, c.expiration_date || null]
         );
       }
     }
