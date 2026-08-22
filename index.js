@@ -760,18 +760,14 @@ app.post('/api/bold/generate-token', async (req, res) => {
 
         const apiKey = process.env.BOLD_IDENTITY_KEY;
         const secretKey = process.env.BOLD_SECRET_KEY;
-        if (!apiKey || !secretKey) throw new Error("Llaves de Bold no configuradas en .env");
+        if (!apiKey) throw new Error("Llave BOLD_IDENTITY_KEY no configurada en .env");
 
-        const timestamp = Date.now();
         const random = Math.floor(1000 + Math.random() * 9000);
         const orderId = `inv${random}`;
-        const amount = platform.price;
+        const amountNum = Math.round(Number(String(platform.price).replace(/\D/g, '')));
         const currency = 'COP';
 
-        const concatenated = `${orderId}${amount}${currency}${secretKey}`;
-        const integritySignature = crypto.createHash('sha256').update(concatenated).digest('hex');
-
-        // Guardar estado en base de datos.
+        // Guardar estado pendiente en base de datos.
         const { pool } = require('./database');
         await pool.query(
             'INSERT INTO web_sales_pending (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -782,19 +778,57 @@ app.post('/api/bold/generate-token', async (req, res) => {
                 customer.email || '',
                 customer.whatsapp || '',
                 platform.name,
-                amount,
+                amountNum,
                 numbers.join(',')
             ]
         );
 
+        // Crear Link de Pago oficial de Bold vía API v1
+        let paymentUrl = null;
+        try {
+            const cleanDescription = `Suscripcion a ${platform.name}`.replace(/[^\w\s-]/gi, '').substring(0, 50);
+            const boldRes = await fetch('https://integrations.api.bold.co/online/link/v1', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `x-api-key ${apiKey}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    amount_type: 'CLOSE',
+                    reference_id: orderId,
+                    amount: {
+                        total_amount: amountNum,
+                        currency: currency
+                    },
+                    description: cleanDescription,
+                    callback_url: `https://sheerit.co/?orderId=${orderId}&payment=success`
+                })
+            });
+
+            const boldData = await boldRes.json();
+            if (boldData && boldData.payload && boldData.payload.url) {
+                paymentUrl = boldData.payload.url;
+                console.log(`[Bold API] ✅ Link de pago creado exitosamente para orden ${orderId}: ${paymentUrl}`);
+            } else {
+                console.error("[Bold API] Error en respuesta de Bold:", boldData);
+            }
+        } catch (boldErr) {
+            console.error("[Bold API] Error conectando con API de Bold:", boldErr.message);
+        }
+
+        const concatenated = `${orderId}${amountNum}${currency}${secretKey || ''}`;
+        const integritySignature = secretKey ? crypto.createHash('sha256').update(concatenated).digest('hex') : '';
+
         res.json({
             orderId,
             apiKey,
-            amount: amount.toString(),
+            amount: amountNum.toString(),
             currency,
             description: `Suscripción a ${platform.name}`,
             tax: 'vat-19',
             integritySignature,
+            paymentUrl,
+            url: paymentUrl,
             redirectionUrl: `https://sheerit.co/?orderId=${orderId}&payment=success`
         });
     } catch (e) {
