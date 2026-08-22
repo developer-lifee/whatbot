@@ -7830,14 +7830,23 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
                     } else if (nameLower.includes('netflix')) {
                         // 3. NETFLIX (CÓDIGO DE 4 DÍGITOS + ENLACE DE HOGAR SHEERIT)
-                        const cleanPhone = realPhone || userId.replace(/\D/g, '');
+                        let cleanPhone = realPhone ? String(realPhone).replace(/\D/g, '') : '';
+                        if (!cleanPhone || cleanPhone.length > 13 || cleanPhone.length < 10) {
+                            if (targetAccount && (targetAccount.numero || targetAccount.Numero || targetAccount.telefono || targetAccount.Telefono || targetAccount.celular)) {
+                                cleanPhone = String(targetAccount.numero || targetAccount.Numero || targetAccount.telefono || targetAccount.Telefono || targetAccount.celular).replace(/\D/g, '');
+                            }
+                        }
+                        const validVerificationLink = (cleanPhone && cleanPhone.length >= 10 && cleanPhone.length <= 13) 
+                            ? `https://sheerit.co/verificar?tel=${cleanPhone}` 
+                            : `https://sheerit.co/verificar`;
+
                         const isFourDigitPin = latest.code && /^\d{4}$/.test(latest.code.toString().trim());
 
                         response = `🤖 *${isFourDigitPin ? 'Código y Enlace' : 'Enlace de acceso'} de NETFLIX Encontrado* 🚀\n\n`;
                         if (isFourDigitPin) {
                             response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                         }
-                        response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 https://sheerit.co/verificar?tel=${cleanPhone}\n\n`;
+                        response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 ${validVerificationLink}\n\n`;
                         response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
 
                     } else {

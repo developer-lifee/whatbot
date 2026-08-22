@@ -1154,20 +1154,24 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
   let customerPhone = "";
   if (userId) {
     const cleanDigits = userId.replace(/\D/g, '');
-    const isLid = userId.includes('@lid') || (!cleanDigits.startsWith('57') && cleanDigits.length > 10) || cleanDigits.length > 12;
+    const isLid = userId.includes('@lid') || cleanDigits.length > 12 || (!cleanDigits.startsWith('57') && cleanDigits.length > 10);
     if (userStates && userStates.get(userId) && userStates.get(userId).realPhone) {
-      customerPhone = userStates.get(userId).realPhone;
-    } else if (!isLid && cleanDigits.length >= 7 && cleanDigits.length <= 12) {
-      customerPhone = cleanDigits;
+      customerPhone = String(userStates.get(userId).realPhone).replace(/\D/g, '');
     } else if (userAccounts && userAccounts.length > 0) {
-      const accPhone = (userAccounts[0].numero || userAccounts[0].Numero || '').toString().replace(/\D/g, '');
-      if (accPhone && accPhone.length >= 7 && accPhone.length <= 12) {
-        customerPhone = accPhone;
+      for (const acc of userAccounts) {
+        const p = String(acc.numero || acc.Numero || acc.telefono || acc.Telefono || acc.celular || '').replace(/\D/g, '');
+        if (p && p.length >= 10 && p.length <= 13) {
+          customerPhone = p;
+          break;
+        }
       }
+    } else if (!isLid && cleanDigits.length >= 10 && cleanDigits.length <= 12) {
+      customerPhone = cleanDigits;
     }
   }
 
-  const verificationLink = customerPhone 
+  const isValidPhone = customerPhone && customerPhone.length >= 10 && customerPhone.length <= 13;
+  const verificationLink = isValidPhone 
     ? `https://sheerit.co/verificar?tel=${customerPhone}` 
     : `https://sheerit.co/verificar`;
 
@@ -1187,8 +1191,10 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     const response = await callDeepSeek(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false);
     let replyText = response.trim();
 
-    if (customerPhone) {
-      replyText = replyText.replace(/https:\/\/sheerit\.co\/(verificar|actualizar|hogar)(?!\?tel=)/g, `https://sheerit.co/verificar?tel=${customerPhone}`);
+    if (isValidPhone) {
+      replyText = replyText.replace(/https:\/\/sheerit\.co\/(verificar|actualizar|hogar)(?:\?tel=[^\s\)\*\"'>]*)?/g, `https://sheerit.co/verificar?tel=${customerPhone}`);
+    } else {
+      replyText = replyText.replace(/https:\/\/sheerit\.co\/(verificar|actualizar|hogar)(?:\?tel=[^\s\)\*\"'>]*)?/g, `https://sheerit.co/verificar`);
     }
 
     if (!replyText.includes('🤖')) {
