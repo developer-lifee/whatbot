@@ -1187,15 +1187,38 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     .replace('{{VERIFICATION_LINK}}', verificationLink)
     .replace('{{MEDIA_STATUS}}', isMedia ? `[El usuario envió una imagen/archivo. Descripción visual de la imagen extraída por OCR: ${mediaDescription}]` : "");
 
+function cleanWhatsAppFormatting(text) {
+  if (!text) return text;
+  let formatted = text;
+
+  // 1. Limpiar asteriscos o formato Markdown alrededor de URLs
+  // e.g. **https://sheerit.co/verificar** -> https://sheerit.co/verificar
+  // e.g. *https://sheerit.co/verificar* -> https://sheerit.co/verificar
+  formatted = formatted.replace(/\*+(https?:\/\/[^\s*]+)\*+/gi, '$1');
+
+  // 2. Limpiar enlaces markdown [Texto](url) -> Texto: url
+  formatted = formatted.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/gi, '$1: $2');
+
+  // 3. Convertir negrita estándar de Markdown (**texto**) a negrita de WhatsApp (*texto*)
+  formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '*$1*');
+
+  // 4. Limpiar cualquier asterisco residual antes o después de emojis con links
+  formatted = formatted.replace(/(👉\s*)\*+(https?:\/\/[^\s*]+)\*+/gi, '$1$2');
+
+  return formatted;
+}
+
   try {
     const response = await callDeepSeek(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false);
-    let replyText = response.trim();
+    let replyText = cleanWhatsAppFormatting(response.trim());
 
     if (isValidPhone) {
       replyText = replyText.replace(/https:\/\/sheerit\.co\/(verificar|actualizar|hogar)(?:\?tel=[^\s\)\*\"'>]*)?/g, `https://sheerit.co/verificar?tel=${customerPhone}`);
     } else {
       replyText = replyText.replace(/https:\/\/sheerit\.co\/(verificar|actualizar|hogar)(?:\?tel=[^\s\)\*\"'>]*)?/g, `https://sheerit.co/verificar`);
     }
+
+    replyText = cleanWhatsAppFormatting(replyText);
 
     if (!replyText.includes('🤖')) {
       replyText += ' 🤖';
@@ -1799,5 +1822,6 @@ module.exports = {
   getMaskedAccessData,
   callGemini,
   callDeepSeek,
-  analyzeRenewalModification
+  analyzeRenewalModification,
+  cleanWhatsAppFormatting
 };
