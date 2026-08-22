@@ -36,7 +36,7 @@ const SEED_STREAMING_PRICES = [
   { platform: 'DISNEY', normal_price: 10000 },
   { platform: 'HBO', normal_price: 9000 },
   { platform: 'HBO PLATINO', normal_price: 12000 },
-  { platform: 'AMAZON', normal_price: 9000 },
+  { platform: 'AMAZON', normal_price: 10000 },
   { platform: 'SPOTIFY', normal_price: 10000 },
   { platform: 'SPOTIFY OWNER', normal_price: 15000 },
   { platform: 'YOUTUBE', normal_price: 10000 },
@@ -277,8 +277,16 @@ async function calculateDailyAccounting() {
     }
 
     if (isActive) {
-      // Ingreso mensual estimado
-      const price = priceMap[matchedPlat] || 10000;
+      // Prioridad 1: Tomar precio individual de la fila del cliente si existe en Excel
+      let rowPrice = 0;
+      if (c.precio || c.Precio || c.valor || c.Valor) {
+        const rawP = String(c.precio || c.Precio || c.valor || c.Valor).replace(/[^\d.]/g, '');
+        rowPrice = parseFloat(rawP) || 0;
+      }
+      
+      // Prioridad 2: Precio de catálogo configurado para la plataforma
+      const price = rowPrice > 0 ? rowPrice : (priceMap[matchedPlat] || (matchedPlat === 'AMAZON' ? 10000 : 10000));
+      
       // Normalizado a diario (dividido por 30)
       const dailyIncome = price / 30;
       dailyAccounting[matchedPlat].ingreso_total += dailyIncome;
