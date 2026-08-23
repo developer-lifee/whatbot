@@ -10420,11 +10420,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     }
                 }
 
-                // 1. Intentar buscar coincidencia por plataforma analizando el texto del usuario o la explicación de la imagen
+                // 1. Filtrar todas las cuentas de la plataforma solicitada
                 if (!targetAccount) {
                     const matchedPlatform = platformsSupported.find(p => textForDetection.includes(p));
                     if (matchedPlatform) {
-                        targetAccount = userAccounts.find(c => {
+                        const matchingAccounts = userAccounts.filter(c => {
                             const streamingName = (c.Streaming || "").toLowerCase();
                             if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
                                 return streamingName.includes('hbo') || streamingName.includes('max');
@@ -10434,15 +10434,49 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             }
                             return streamingName.includes(matchedPlatform);
                         });
+
+                        if (matchingAccounts.length === 1) {
+                            targetAccount = matchingAccounts[0];
+                        } else if (matchingAccounts.length > 1) {
+                            // Si el usuario mencionó parte del correo en el mensaje o imagen (ej: sheerit6)
+                            const specificMatch = matchingAccounts.find(c => {
+                                const mail = (c.correo || "").toLowerCase().trim();
+                                const mailUser = mail.split('@')[0];
+                                return textForDetection.includes(mail) || (mailUser.length > 3 && textForDetection.includes(mailUser));
+                            });
+
+                            if (specificMatch) {
+                                targetAccount = specificMatch;
+                            } else {
+                                let msg = `🤖 Veo que tienes registradas múltiples cuentas activas de *${matchedPlatform.toUpperCase()}*. ¿De cuál de ellas necesitas el código?\n\n`;
+                                matchingAccounts.forEach((acc, idx) => {
+                                    const email = (acc.correo || "").trim().toLowerCase();
+                                    const profile = acc['pin perfil'] || acc['Nombre'] || "";
+                                    const profileStr = profile ? ` (Perfil: ${profile})` : "";
+                                    msg += `${idx + 1} - ${email}${profileStr}\n`;
+                                });
+                                msg += `\n*Responde únicamente con el número de la opción que deseas.* 📲`;
+
+                                await message.reply(msg);
+
+                                userStates.set(userId, {
+                                    state: 'awaiting_code_account_selection',
+                                    candidates: matchingAccounts,
+                                    timestamp: Date.now(),
+                                    nombre: foundName
+                                });
+                                return;
+                            }
+                        }
                     }
                 }
 
-                // 2. Si no hay coincidencia directa, pero solo tiene 1 cuenta, usar esa
+                // 2. Si no hay coincidencia por plataforma, pero solo tiene 1 cuenta en total, usar esa
                 if (!targetAccount && userAccounts.length === 1) {
                     targetAccount = userAccounts[0];
                 }
 
-                // 3. Si tiene varias, presentar opciones
+                // 3. Si tiene varias cuentas de plataformas diferentes y no especificó cuál
                 if (!targetAccount && userAccounts.length > 1) {
                     let msg = `🤖 Veo que tienes registradas múltiples cuentas activas. ¿De cuál de ellas necesitas el código de verificación?\n\n`;
                     userAccounts.forEach((acc, idx) => {
@@ -10909,7 +10943,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
                     if (userAccounts.length > 0) {
                         const targetPlatformLower = platform.toLowerCase();
-                        let targetAccount = userAccounts.find(c => {
+                        const matchingAccounts = userAccounts.filter(c => {
                             const streamingName = (c.Streaming || "").toLowerCase();
                             if (targetPlatformLower.includes('hbo') || targetPlatformLower.includes('max')) {
                                 return streamingName.includes('hbo') || streamingName.includes('max');
@@ -10920,14 +10954,51 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             return streamingName.includes(targetPlatformLower) || targetPlatformLower.includes(streamingName);
                         });
 
+                        let targetAccount = null;
+                        const fullText = ((message.body || "") + " " + (detection.explanation || "")).toLowerCase();
+
+                        if (matchingAccounts.length === 1) {
+                            targetAccount = matchingAccounts[0];
+                        } else if (matchingAccounts.length > 1) {
+                            // Buscar si mencionó el correo o fragmento del correo
+                            const specificMatch = matchingAccounts.find(c => {
+                                const mail = (c.correo || "").toLowerCase().trim();
+                                const mailUser = mail.split('@')[0];
+                                return fullText.includes(mail) || (mailUser.length > 3 && fullText.includes(mailUser));
+                            });
+
+                            if (specificMatch) {
+                                targetAccount = specificMatch;
+                            } else {
+                                let msg = `🤖 Hola, detecté que necesitas un código para *${platform.toUpperCase()}*.\n\nVeo que tienes registradas múltiples cuentas de esta plataforma. ¿Para cuál de ellas lo necesitas?\n\n`;
+                                matchingAccounts.forEach((acc, idx) => {
+                                    const email = (acc.correo || "").trim().toLowerCase();
+                                    const profile = acc['pin perfil'] || acc['Nombre'] || "";
+                                    const profileStr = profile ? ` (Perfil: ${profile})` : "";
+                                    msg += `${idx + 1} - ${email}${profileStr}\n`;
+                                });
+                                msg += `\n*Responde únicamente con el número de la opción que deseas.* 📲`;
+
+                                await message.reply(msg);
+
+                                userStates.set(userId, {
+                                    state: 'awaiting_code_account_selection',
+                                    candidates: matchingAccounts,
+                                    timestamp: Date.now(),
+                                    nombre: foundName
+                                });
+                                return;
+                            }
+                        }
+
                         // Si no hay coincidencia directa pero solo tiene 1 cuenta, usar esa
                         if (!targetAccount && userAccounts.length === 1) {
                             targetAccount = userAccounts[0];
                         }
 
-                        // Si tiene varias, presentar opciones
+                        // Si tiene varias de otras plataformas y no especificó
                         if (!targetAccount && userAccounts.length > 1) {
-                            let msg = `🤖 Hola, detecté que enviaste una captura de pantalla solicitando un código para *${platform.toUpperCase()}*.\n\nVeo que tienes registradas múltiples cuentas activas. ¿De cuál de ellas necesitas el código de verificación?\n\n`;
+                            let msg = `🤖 Hola, detecté que necesitas un código para *${platform.toUpperCase()}*.\n\nVeo que tienes registradas múltiples cuentas activas. ¿De cuál de ellas necesitas el código de verificación?\n\n`;
                             userAccounts.forEach((acc, idx) => {
                                 const platName = (acc.Streaming || "").toUpperCase();
                                 const email = (acc.correo || "").trim().toLowerCase();
