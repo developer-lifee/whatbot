@@ -8350,6 +8350,30 @@ async function baseProcessIncomingMessage(messages) {
         }
     }
 
+    // RESOLUCIÓN LID POR NOMBRE: Si el número es un LID (>12 dígitos) y tenemos el nombre de contacto, buscar en Excel para vincular su teléfono real
+    if (foundName && (userId.includes('@lid') || (realPhone && realPhone.length > 12))) {
+        try {
+            const { getAccountsByPhone } = require('./apiService');
+            const userAccounts = await getAccountsByPhone(realPhone, foundName);
+            if (userAccounts && userAccounts.length > 0) {
+                const rowPhone = (userAccounts[0].numero || userAccounts[0].Numero || userAccounts[0].whatsapp || userAccounts[0].WhatsApp || '').toString().replace(/\D/g, '');
+                if (rowPhone && rowPhone.length >= 10 && rowPhone.length <= 13) {
+                    realPhone = rowPhone;
+                    console.log(`[LID Resolution by Name/Sheet] @${userId} resuelto a teléfono real ${realPhone} (${foundName})`);
+                    try {
+                        const { pool } = require('./database');
+                        await pool.query(
+                            'UPDATE chats SET customer_phone = ? WHERE chat_id = ?',
+                            [realPhone, userId]
+                        );
+                    } catch (e) { }
+                }
+            }
+        } catch (e) {
+            console.warn('[LID Resolution] Error:', e.message);
+        }
+    }
+
 
     // 2. ESTADO ACTUAL
     const cleanPhoneJid = realPhone ? (realPhone + '@c.us') : userId.split('@')[0].split(':')[0].replace(/\D/g, '') + '@c.us';
@@ -10255,10 +10279,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     const inputToUse = combinedBody || message.body || "";
 
     // --- CONTEXTO DE CLIENTE ---
-    const phoneNumber = userId.replace('@c.us', '').replace(/\D/g, '');
+    const phoneNumber = (realPhone || userId).replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
     let userAccounts = [];
     try {
-        userAccounts = await getAccountsByPhone(phoneNumber);
+        userAccounts = await getAccountsByPhone(realPhone || phoneNumber, foundName);
     } catch (e) {
         console.warn("[Context] Error fetching accounts for AI context:", e.message);
     }
