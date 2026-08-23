@@ -606,6 +606,7 @@ module.exports = {
   saveCost,
   deleteCost,
   addTransaction,
+  addCashFlowEntry: addTransaction,
   getTransactions,
   calculateDailyAccounting,
   calculateRealCashFlow

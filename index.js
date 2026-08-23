@@ -1011,6 +1011,10 @@ async function approveBoldOrder(orderId) {
                     if (groupChat) {
                         let ticketTag = "";
                         try {
+                            await pool.query(
+                                'INSERT INTO chats (chat_id, customer_phone, last_message_text, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE updated_at = NOW()',
+                                [phoneId, phoneId.replace(/\D/g, ''), `Activación Manual Bold: ${platformsStr}`]
+                            );
                             const [tRes] = await pool.query(
                                 'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
                                 [
@@ -4148,7 +4152,10 @@ async function downloadMediaWithRetry(msg, retries = 3, delay = 1500) {
     if (!msg || !msg.hasMedia) return null;
     for (let i = 0; i < retries; i++) {
         try {
-            const media = await msg.downloadMedia();
+            const media = await Promise.race([
+                msg.downloadMedia(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout (25s)")), 25000))
+            ]);
             if (media && media.data) {
                 return media;
             }
@@ -7341,10 +7348,12 @@ const client = new Client({
             '--no-first-run',
             '--disable-gpu',
             '--disable-extensions',
-            '--disable-blink-features=AutomationControlled' // Oculta navigator.webdriver
+            '--disable-blink-features=AutomationControlled', // Oculta navigator.webdriver
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--disable-site-isolation-trials'
         ],
         timeout: 60000,
-        protocolTimeout: 120000,
+        protocolTimeout: 180000,
     },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36', // User-Agent real
     authStrategy: new LocalAuth({ dataPath: path.join(__dirname, 'wwebjs_auth') }),
@@ -7779,6 +7788,10 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                 let ticketTag = "";
                 try {
                     const { pool } = require('./database');
+                    await pool.query(
+                        'INSERT INTO chats (chat_id, customer_name, customer_phone, last_message_text, updated_at) VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE updated_at = NOW()',
+                        [userId, contactName || null, cleanNum || null, (message.body || '').substring(0, 500)]
+                    );
                     const [tRes] = await pool.query(
                         'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
                         [
