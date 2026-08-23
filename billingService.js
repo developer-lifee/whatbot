@@ -267,12 +267,18 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
 function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     if (!accountOrStreaming) return 0;
     let streamingName = "";
+    let isPersonal = false;
 
     // 0. Si se pasa el objeto de cuenta de Excel, priorizar el precio real ya registrado en "Ingreso Mensual2" o "precio"
     if (typeof accountOrStreaming === 'object' && accountOrStreaming !== null) {
         const rawP = accountOrStreaming['Ingreso Mensual2'] || accountOrStreaming['ingreso mensual'] || accountOrStreaming.precio || accountOrStreaming.Precio || accountOrStreaming['precio cobrado'];
         if (rawP && !isNaN(Number(rawP)) && Number(rawP) >= 4000) {
             return Number(rawP);
+        }
+        const cMail = (accountOrStreaming['customer mail'] || accountOrStreaming['Customer Mail'] || '').toString().trim();
+        const pinText = (accountOrStreaming['pin perfil'] || accountOrStreaming.pin || '').toString().toLowerCase();
+        if (cMail || pinText.includes('invite') || pinText.includes('spotify.com') || pinText.includes('join')) {
+            isPersonal = true;
         }
         streamingName = accountOrStreaming.Streaming || accountOrStreaming.Plataforma || accountOrStreaming.name || "";
     } else {
@@ -281,6 +287,9 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
 
     if (!streamingName) return 0;
     const cleanName = streamingName.toString().trim().toUpperCase();
+    if (cleanName.includes('PERSONAL') || cleanName.includes('TU CORREO')) {
+        isPersonal = true;
+    }
     const aliasMap = {
         'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE TV+',
         'HBO': 'HBOMAX', 'MAX': 'HBOMAX', 'DISNEY': 'DISNEY+ PREMIUM',
@@ -292,13 +301,18 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     const targetAlphanum = cleanName.replace(/[^A-Z0-9]/g, '');
 
     if (Array.isArray(platforms)) {
-        // 1. Buscar coincidencia exacta en el nombre de la plataforma (ej: SPOTIFY vs SPOTIFY OWNER)
+        // 1. Buscar coincidencia exacta en el nombre de la plataforma y seleccionar plan según tipo (Personal vs Compartida)
         for (const p of platforms) {
             const pName = (p.name || '').toUpperCase();
-            if (pName === targetName) {
-                if (targetName === 'SPOTIFY' && Array.isArray(p.plans)) {
-                    const indPlan = p.plans.find(pl => (pl.name || '').toLowerCase().includes('individual') || (pl.name || '').toLowerCase().includes('personal'));
-                    if (indPlan && indPlan.price) return indPlan.price;
+            if (pName === targetName || pName.includes(targetName) || targetName.includes(pName)) {
+                if (Array.isArray(p.plans) && p.plans.length > 0) {
+                    if (isPersonal) {
+                        const persPlan = p.plans.find(pl => pl.isPersonalEmail || (pl.name && (pl.name.toLowerCase().includes('personal') || pl.name.toLowerCase().includes('tu correo'))));
+                        if (persPlan && persPlan.price) return persPlan.price;
+                    } else {
+                        const sharedPlan = p.plans.find(pl => !pl.isPersonalEmail && (pl.name && (pl.name.toLowerCase().includes('compartida') || pl.name.toLowerCase().includes('cuenta nueva'))));
+                        if (sharedPlan && sharedPlan.price) return sharedPlan.price;
+                    }
                 }
                 if (p.price) return p.price;
             }
