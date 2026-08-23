@@ -823,12 +823,17 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
       return;
     }
 
+    const customPrice = acc['Ingreso Mensual2'] || acc['ingreso mensual'] || acc.precio || acc.Precio || '';
+    const priceStr = (customPrice && !isNaN(Number(customPrice)) && Number(customPrice) > 0) 
+      ? `\nPRECIO MENSUAL / RENOVACIÓN REGISTRADO: $${Number(customPrice).toLocaleString('es-CO')} COP` 
+      : '';
+
     if (isFamily) {
       const msgFamily = isExpired
         ? `⚠️ *SERVICIO VENCIDO*: Este servicio (${streamingName}) requiere renovación para seguir funcionando.`
         : `ℹ️ *NOTA*: Para este servicio, recibirás una invitación por correo o usarás tu perfil propio. La contraseña la manejas tú mismo. Un asesor te contactará si necesitas ayuda adicional.`;
 
-      formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nPERFIL: ${perfilDisplay}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+      formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nPERFIL: ${perfilDisplay}${priceStr}\n\n${msgFamily}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
       return;
     }
 
@@ -837,7 +842,7 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
     if (customerMail.toLowerCase().includes("@yopmail.com")) {
       displayClave = "(La configuras tú mismo siguiendo los pasos abajo)";
       const yopInstructions = `\n\n🔑 *PASOS PARA CONFIGURAR TU CLAVE:*\n1. Ve a www.yopmail.com\n2. Ingresa el correo: *${customerMail}*\n3. En la app de ${streamingName}, pide 'Olvidé mi contraseña' a ese correo.\n4. Revisa el código en Yopmail y activa tu cuenta. 📝`;
-      formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+      formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}${priceStr}${yopInstructions}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
       return;
     }
 
@@ -845,7 +850,7 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
       displayClave = "(OCULTA PORQUE LA CUENTA ESTÁ VENCIDA)";
     }
 
-    formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
+    formattedAccounts.push(`*${streamingName}*\n\nCORREO: ${correo}\nCONTRASEÑA: ${displayClave}\nPERFIL: ${perfilDisplay}${priceStr}\n\nEL SERVICIO VENCERÁ EL DÍA: ${fechaVencimiento}`);
   });
 
   return formattedAccounts.join('\n\n-------------------\n\n');

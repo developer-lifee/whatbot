@@ -157,7 +157,7 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
 
     // FALLBACK: Si no hay cuentas asociadas al número y tenemos el nombre de contacto (útil para LIDs o números desactualizados)
     if (userAccounts.length === 0 && contactName) {
-      const getLevenshtein = (a, b) => {
+      const getLevenshteinDistance = (a, b) => {
         if (a.length === 0) return b.length;
         if (b.length === 0) return a.length;
         const matrix = [];
@@ -172,55 +172,84 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
         return matrix[b.length][a.length];
       };
 
-      const cleanContactName = contactName.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (cleanContactName.length > 2) {
+      const normalizeStr = (s) => (s || "").toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim();
+      const cleanContactNorm = normalizeStr(contactName);
+      const contactTokens = cleanContactNorm.split(/\s+/).filter(t => t.length >= 3);
+
+      if (contactTokens.length > 0) {
         userAccounts = clientes.filter(c => {
           const whatsappVal = (c.whatsapp || "").toString().trim();
           const whatsappDigits = whatsappVal.replace(/\D/g, '');
-          if (whatsappVal && !whatsappDigits) {
-            const cleanWhatsapp = whatsappVal.toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (cleanWhatsapp.length >= 3) {
-              if (cleanWhatsapp === cleanContactName || cleanWhatsapp.includes(cleanContactName) || cleanContactName.includes(cleanWhatsapp)) {
-                return true;
-              }
-            }
-          }
-          const nameVal = (c.Nombre || c.nombre || "").toString().trim().toLowerCase();
-          const lastNameVal = (c.Apellido || c.apellido || "").toString().trim().toLowerCase();
-          const fullName = `${nameVal} ${lastNameVal}`.replace(/[^a-z0-9]/g, '').trim();
-          
-          if (!fullName || fullName.length < 3) return false;
-          
-          // Descartar si es una fila marcada como libre o disponible
-          if (fullName.includes('libre') || fullName.includes('vacio') || fullName.includes('disponible')) {
+          const cleanWhatsappNorm = normalizeStr(whatsappVal);
+
+          const nameVal = (c.Nombre || c.nombre || "").toString().trim();
+          const lastNameVal = (c.Apellido || c.apellido || "").toString().trim();
+          const fullClientName = normalizeStr(`${nameVal} ${lastNameVal}`);
+
+          if (!fullClientName || fullClientName.length < 3) return false;
+          if (fullClientName.includes('libre') || fullClientName.includes('vacio') || fullClientName.includes('disponible') || fullClientName.includes('reservado')) {
             return false;
           }
 
-          const getLevenshteinDistance = (a, b) => {
-            if (a.length === 0) return b.length;
-            if (b.length === 0) return a.length;
-            const matrix = [];
-            for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-            for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-            for (let i = 1; i <= b.length; i++) {
-              for (let j = 1; j <= a.length; j++) {
-                if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
-                else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
-              }
-            }
-            return matrix[b.length][a.length];
-          };
+          // A. Si el contacto de WhatsApp tiene solo 1 palabra/apellido (ej. "López", "Daniel"):
+          // EXIGIMOS coincidencia exacta en el campo whatsapp o nombre del cliente. NUNCA subcadena genérica de apellido.
+          if (contactTokens.length === 1) {
+            const singleToken = contactTokens[0];
+            if (cleanWhatsappNorm === singleToken) return true;
+            if (fullClientName === singleToken) return true;
+            if (normalizeStr(nameVal) === singleToken && !lastNameVal) return true;
+            return false;
+          }
 
-          // Coincidencia estricta de nombre completo (distancia Levenshtein <= 2)
-          const dist = getLevenshteinDistance(fullName, cleanContactName);
-          if (dist <= 2 || fullName.includes(cleanContactName) || cleanContactName.includes(fullName)) {
-            return true;
+          // B. Si el contacto tiene 2 o más palabras (ej. "Hugo Avila", "Santiago Duque Mora", "Daniel López"):
+          // Debe coincidir el primer nombre Y el apellido con los del registro del cliente
+          const clientTokens = fullClientName.split(/\s+/).filter(t => t.length >= 3);
+          if (clientTokens.length >= 2) {
+            const hasFirstNameMatch = contactTokens.some(ct => clientTokens.some(clt => clt === ct || getLevenshteinDistance(clt, ct) <= 1));
+            const hasLastNameMatch = contactTokens.slice(1).some(ct => clientTokens.slice(1).some(clt => clt === ct || getLevenshteinDistance(clt, ct) <= 1));
+            if (hasFirstNameMatch && hasLastNameMatch) {
+              return true;
+            }
+          }
+
+          // Coincidencia estricta en campo WhatsApp (nombre completo en celda D)
+          if (cleanWhatsappNorm && !whatsappDigits) {
+            if (cleanWhatsappNorm === cleanContactNorm || getLevenshteinDistance(cleanWhatsappNorm, cleanContactNorm) <= 2) {
+              return true;
+            }
           }
 
           return false;
         });
+
+        // FILTRO DE SEGURIDAD ADICIONAL: Si las cuentas encontradas pertenecen a diferentes números de teléfono en el Excel,
+        // no mezclarlas (solo quedarnos con el grupo mayoritario o más relevante para evitar fugas de cuentas ajenas).
+        if (userAccounts.length > 1) {
+          const phonesMap = new Map();
+          userAccounts.forEach(acc => {
+            const rawP = (acc.numero || acc.Numero || acc.whatsapp || acc.WhatsApp || '').toString().replace(/\D/g, '');
+            const pKey = rawP.length >= 10 ? rawP.slice(-10) : 'no_phone';
+            phonesMap.set(pKey, (phonesMap.get(pKey) || []).concat(acc));
+          });
+
+          if (phonesMap.size > 1 && !phonesMap.has('no_phone')) {
+            // Quedarse con el teléfono con más cuentas asociadas
+            let bestPhone = null;
+            let maxCount = 0;
+            for (const [pKey, accs] of phonesMap.entries()) {
+              if (accs.length > maxCount) {
+                maxCount = accs.length;
+                bestPhone = pKey;
+              }
+            }
+            if (bestPhone) {
+              userAccounts = phonesMap.get(bestPhone) || [];
+            }
+          }
+        }
+
         if (userAccounts.length > 0) {
-          console.log(`[getAccountsByPhone] Fallback por nombre exitoso (Fuzzy): "${contactName}" asoció ${userAccounts.length} cuentas.`);
+          console.log(`[getAccountsByPhone] Fallback por nombre exitoso: "${contactName}" asoció ${userAccounts.length} cuentas.`);
         }
       }
     }

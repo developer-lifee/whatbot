@@ -7921,13 +7921,14 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                                 cleanPhone = String(targetAccount.numero || targetAccount.Numero || targetAccount.telefono || targetAccount.Telefono || targetAccount.celular).replace(/\D/g, '');
                             }
                         }
+                        const emailParam = accountEmail ? `&email=${encodeURIComponent(accountEmail)}` : '';
                         const validVerificationLink = (cleanPhone && cleanPhone.length >= 10 && cleanPhone.length <= 13) 
-                            ? `https://sheerit.co/verificar?tel=${cleanPhone}` 
-                            : `https://sheerit.co/verificar`;
+                            ? `https://sheerit.co/verificar?tel=${cleanPhone}${emailParam}` 
+                            : (accountEmail ? `https://sheerit.co/verificar?email=${encodeURIComponent(accountEmail)}` : `https://sheerit.co/verificar`);
 
                         const isFourDigitPin = latest.code && /^\d{4}$/.test(latest.code.toString().trim());
 
-                        response = `🤖 *${isFourDigitPin ? 'Código y Enlace' : 'Enlace de acceso'} de NETFLIX Encontrado* 🚀\n\n`;
+                        response = `🤖 *${isFourDigitPin ? 'Código y Enlace' : 'Enlace de acceso'} de NETFLIX (${accountEmail || 'Tu cuenta'}) Encontrado* 🚀\n\n`;
                         if (isFourDigitPin) {
                             response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                         }

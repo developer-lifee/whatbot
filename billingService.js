@@ -618,7 +618,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
             let totalWithoutDiscount = 0;
 
             userAccounts.forEach(acc => {
-                const price = getPlatformPriceFromExcel(acc.Streaming, platforms);
+                const price = getPlatformPriceFromExcel(acc, platforms);
                 totalWithDiscount += price * m;
                 totalWithoutDiscount += price * m;
             });
@@ -640,7 +640,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
 
         // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta del usuario por M meses
         for (const acc of userAccounts) {
-            const price = getPlatformPriceFromExcel(acc.Streaming, platforms);
+            const price = getPlatformPriceFromExcel(acc, platforms);
 
             for (let m = 1; m <= 12; m++) {
                 if (price > 0 && Math.abs((price * m) - paidAmount) < 500) {
@@ -758,8 +758,8 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             const vencimientoRaw = acc.deben || acc.vencimiento;
             const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
             
-            // Buscar precio estrictamente en el catálogo de la página (platforms.json)
-            let price = getPlatformPriceFromExcel(streaming, platforms);
+            // Buscar precio priorizando el precio del cliente en Excel y luego catálogo de la página
+            let price = getPlatformPriceFromExcel(acc, platforms);
             if (price === 0) hasZeroPrice = true;
             
             const isExpired = vencimientoDate && vencimientoDate < today;
@@ -951,7 +951,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
         targetAccounts.forEach(acc => {
           const streaming = (acc.Streaming || "").toUpperCase();
           if (streaming) billedServicesList.push(streaming);
-          const price = getPlatformPriceFromExcel(acc.Streaming, platforms);
+          const price = getPlatformPriceFromExcel(acc, platforms);
           totalSum += price;
         });
 
