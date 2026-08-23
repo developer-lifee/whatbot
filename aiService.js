@@ -1056,6 +1056,16 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
     };
   }
 
+  // Si en el historial reciente aparece un Asesor Humano hablando activamente, NO interrumpir la conversación
+  if (chatHistory && chatHistory.includes('Asesor Humano (Atención Manual)')) {
+    const lines = chatHistory.split('\n').filter(l => l.trim().length > 0);
+    const lastLines = lines.slice(-5).join(' ');
+    if (lastLines.includes('Asesor Humano (Atención Manual)') && !messageContent?.toLowerCase()?.includes('@bot') && messageContent?.trim()?.toLowerCase() !== 'menu') {
+      console.log(`[AI Empathetic Fallback] Asesor humano detectado en la última interacción del historial. Silenciando bot para no interrumpir.`);
+      return { replyMessage: null, needsEscalation: false };
+    }
+  }
+
   let accountSummary = summarizeAccounts(userAccounts);
 
   if (userAccounts && userAccounts.length > 0) {

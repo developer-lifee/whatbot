@@ -8488,6 +8488,41 @@ async function baseProcessIncomingMessage(messages) {
         currentState = currentStateData.state;
     }
 
+    // --- DETECCIÓN DIRECTA DE ASESOR HUMANO EN EL HISTORIAL DEL CHAT (ANTI-INTERRUPCIÓN) ---
+    // Si un asesor humano habló en el chat en los últimos 45 minutos (sin emoji 🤖), silenciar de inmediato
+    let hasRecentHuman = false;
+    try {
+        const chat = await message.getChat().catch(() => null);
+        if (chat) {
+            const recentMsgs = await chat.fetchMessages({ limit: 8 }).catch(() => []);
+            const nowSec = Math.floor(Date.now() / 1000);
+            for (const m of recentMsgs) {
+                if (m.fromMe && m.body && !m.body.includes('🤖')) {
+                    const ageMinutes = (nowSec - m.timestamp) / 60;
+                    if (ageMinutes <= 45) {
+                        hasRecentHuman = true;
+                        break;
+                    }
+                }
+            }
+        }
+    } catch (e) { }
+
+    if (hasRecentHuman && !message.body?.toLowerCase().includes('@bot') && message.body?.trim().toLowerCase() !== 'menu') {
+        console.log(`[BOT MUTE ACTIVE] Intervención humana reciente (<45 min) detectada en el chat de @${userId}. Bot silenciado estrictamente.`);
+        const muteObj = {
+            ...(typeof currentStateData === 'object' ? currentStateData : {}),
+            state: 'waiting_human',
+            waitingCount: 0,
+            lastHumanInteraction: Date.now(),
+            waiting_human_mode: 'advisor',
+            nombre: foundName
+        };
+        userStates.set(userId, muteObj);
+        userStates.set(cleanPhoneJid, muteObj);
+        return;
+    }
+
     if (currentState === 'waiting_human') {
         const mode = (currentStateData && typeof currentStateData === 'object') ? (currentStateData.waiting_human_mode || 'bot') : 'bot';
         const cleanInput = (message.body || '').trim().toLowerCase();
