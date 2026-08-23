@@ -10354,7 +10354,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
     // --- OCR/IMAGE CODE REQUEST INTERCEPTOR via Gemini ---
     let isCodeRequestFromImage = false;
-    if (detection && mediaData && mediaData.length > 0) {
+    const imageMediaData = (mediaData || []).filter(m => m.mimeType && m.mimeType.startsWith('image/'));
+    if (detection && imageMediaData.length > 0) {
         const explanationLower = (detection.explanation || "").toLowerCase();
         const bodyLower = inputToUse.toLowerCase();
         const isIncorrectPassword = [
