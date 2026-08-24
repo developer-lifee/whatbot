@@ -149,7 +149,7 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
     const activeClient = client || (typeof global !== 'undefined' ? global.client : null);
     if (activeClient && activeClient.pupPage) {
         try {
-            const phone = await activeClient.pupPage.evaluate((targetJid) => {
+            const result = await activeClient.pupPage.evaluate((targetJid) => {
                 try {
                     const cleanJid = targetJid.split('@')[0];
                     let wid = null;
@@ -163,34 +163,36 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
                             const res = (wid && window.Store.Lid.getPnForLid(wid)) || window.Store.Lid.getPnForLid(targetJid) || window.Store.Lid.getPnForLid(cleanJid + '@lid');
                             if (res) {
                                 const pStr = typeof res === 'string' ? res : (res.user || res._serialized || '');
-                                if (pStr && pStr.replace(/\D/g, '').length <= 13 && pStr.replace(/\D/g, '').length >= 7) return pStr;
+                                if (pStr && pStr.replace(/\D/g, '').length <= 13 && pStr.replace(/\D/g, '').length >= 7) return { phone: pStr };
                             }
                         }
                         if (typeof window.Store.Lid.getLidForPn === 'function' && typeof window.Store.Lid.getPhoneNumber === 'function') {
                             const res = window.Store.Lid.getPhoneNumber(wid || targetJid);
                             if (res) {
                                 const pStr = typeof res === 'string' ? res : (res.user || res._serialized || '');
-                                if (pStr && pStr.replace(/\D/g, '').length <= 13 && pStr.replace(/\D/g, '').length >= 7) return pStr;
+                                if (pStr && pStr.replace(/\D/g, '').length <= 13 && pStr.replace(/\D/g, '').length >= 7) return { phone: pStr };
                             }
                         }
                     }
 
                     // 2. window.Store.Contact
+                    let contactName = null;
                     if (window.Store && window.Store.Contact) {
                         const jidsToTry = [wid, targetJid, cleanJid + '@lid', cleanJid + '@c.us', cleanJid + '@s.whatsapp.net'].filter(Boolean);
                         for (const tryJid of jidsToTry) {
                             const c = window.Store.Contact.get(tryJid);
                             if (c) {
+                                if (!contactName) contactName = c.name || c.pushname || c.shortName || c.formattedTitle;
                                 if (c.phoneNumber) {
                                     const pNum = typeof c.phoneNumber === 'string' ? c.phoneNumber : (c.phoneNumber.user || c.phoneNumber._serialized);
-                                    if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7) return pNum;
+                                    if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7 && !pNum.includes('lid')) return { phone: pNum };
                                 }
                                 if (c.pn) {
                                     const pNum = typeof c.pn === 'string' ? c.pn : (c.pn.user || c.pn._serialized);
-                                    if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7) return pNum;
+                                    if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7 && !pNum.includes('lid')) return { phone: pNum };
                                 }
-                                if (c.number && !String(c.number).includes('lid') && String(c.number).replace(/\D/g, '').length <= 13 && String(c.number).replace(/\D/g, '').length >= 7) return c.number;
-                                if (c.id && c.id.user && !c.id._serialized.includes('@lid') && c.id.user.replace(/\D/g, '').length <= 13 && c.id.user.replace(/\D/g, '').length >= 7) return c.id.user;
+                                if (c.number && !String(c.number).includes('lid') && String(c.number).replace(/\D/g, '').length <= 13 && String(c.number).replace(/\D/g, '').length >= 7) return { phone: c.number };
+                                if (c.id && c.id.user && !c.id._serialized.includes('@lid') && c.id.user.replace(/\D/g, '').length <= 13 && c.id.user.replace(/\D/g, '').length >= 7) return { phone: c.id.user };
                             }
                         }
 
@@ -202,15 +204,16 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
                             return String(cLid).includes(cleanJid) || (c.id && c.id.user === cleanJid);
                         });
                         if (match) {
+                            if (!contactName) contactName = match.name || match.pushname || match.shortName || match.formattedTitle;
                             if (match.phoneNumber) {
                                 const pNum = typeof match.phoneNumber === 'string' ? match.phoneNumber : (match.phoneNumber.user || match.phoneNumber._serialized);
-                                if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7) return pNum;
+                                if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7 && !pNum.includes('lid')) return { phone: pNum };
                             }
                             if (match.pn) {
                                 const pNum = typeof match.pn === 'string' ? match.pn : (match.pn.user || match.pn._serialized);
-                                if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7) return pNum;
+                                if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7 && !pNum.includes('lid')) return { phone: pNum };
                             }
-                            if (match.id && match.id.user && !match.id._serialized.includes('@lid') && match.id.user.replace(/\D/g, '').length <= 13 && match.id.user.replace(/\D/g, '').length >= 7) return match.id.user;
+                            if (match.id && match.id.user && !match.id._serialized.includes('@lid') && match.id.user.replace(/\D/g, '').length <= 13 && match.id.user.replace(/\D/g, '').length >= 7) return { phone: match.id.user };
                         }
                     }
 
@@ -218,23 +221,28 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
                     if (window.Store && window.Store.Chat) {
                         const chat = (wid && window.Store.Chat.get(wid)) || window.Store.Chat.get(targetJid) || window.Store.Chat.get(cleanJid + '@c.us');
                         if (chat) {
-                            if (chat.phoneNumber && chat.phoneNumber.replace(/\D/g, '').length <= 13 && chat.phoneNumber.replace(/\D/g, '').length >= 7) return chat.phoneNumber;
+                            if (chat.phoneNumber && chat.phoneNumber.replace(/\D/g, '').length <= 13 && chat.phoneNumber.replace(/\D/g, '').length >= 7) return { phone: chat.phoneNumber };
                             if (chat.contact && chat.contact.phoneNumber) {
                                 const pNum = typeof chat.contact.phoneNumber === 'string' ? chat.contact.phoneNumber : (chat.contact.phoneNumber.user || chat.contact.phoneNumber._serialized);
-                                if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7) return pNum;
+                                if (pNum && pNum.replace(/\D/g, '').length <= 13 && pNum.replace(/\D/g, '').length >= 7 && !pNum.includes('lid')) return { phone: pNum };
                             }
-                            if (chat.id && chat.id.user && !chat.id._serialized.includes('@lid') && chat.id.user.replace(/\D/g, '').length <= 13 && chat.id.user.replace(/\D/g, '').length >= 7) return chat.id.user;
+                            if (chat.id && chat.id.user && !chat.id._serialized.includes('@lid') && chat.id.user.replace(/\D/g, '').length <= 13 && chat.id.user.replace(/\D/g, '').length >= 7) return { phone: chat.id.user };
                         }
                     }
+
+                    return { name: contactName };
                 } catch(e) {}
                 return null;
             }, jid).catch(() => null);
 
-            if (phone) {
-                const cleanPhone = phone.replace(/\D/g, '');
+            if (result && result.phone) {
+                const cleanPhone = result.phone.replace(/\D/g, '');
                 if (cleanPhone.length >= 7 && cleanPhone.length <= 13) {
                     return cleanPhone;
                 }
+            }
+            if (result && result.name && !knownName) {
+                knownName = result.name;
             }
         } catch(e) {}
     }
