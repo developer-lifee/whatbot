@@ -11545,6 +11545,28 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const currentSt = userStates.get(userId) || {};
             const count = currentSt.waitingCount || 0;
 
+            // Filtro para detectar mensajes casuales, citas/versículos, agradecimientos o cierres
+            const msgText = (message.body || "").toLowerCase().trim();
+            const isCasualOrClosing = [
+                'gracias', 'muchas gracias', 'dios te bendiga', 'dios los bendiga',
+                'ok', 'vale', 'listo', 'perfecto', 'excelente', 'proverbios',
+                'salmos', 'juan', 'mateo', 'lucas', 'amén', 'amen', 'bendiciones',
+                'chao', 'hasta luego', 'buen dia', 'buen día', 'buenas noches'
+            ].some(kw => msgText.includes(kw)) || msgText.startsWith('proverbios') || msgText.startsWith('salmos');
+
+            const isTechnicalError = msgText.includes('error') || msgText.includes('fallo') || msgText.includes('falla') || msgText.includes('no me deja') || msgText.includes('no puedo') || msgText.includes('clave') || msgText.includes('contraseña') || msgText.includes('bloqueo') || msgText.includes('hogar') || msgText.includes('pantalla') || msgText.includes('no sirve') || message.hasMedia;
+
+            if (isCasualOrClosing && !isTechnicalError) {
+                userStates.delete(userId);
+                console.log(`[Waiting Human Cleanup] Limpiado estado waiting_human para @${userId} por mensaje casual/cierre ("${msgText}").`);
+                if (msgText.includes('dios') || msgText.includes('bendig') || msgText.includes('proverbios') || msgText.includes('salmos') || msgText.includes('amen')) {
+                    await message.reply("¡Amén y muchas gracias! Que tengas un día muy bendecido. 🙏😊");
+                } else if (msgText.includes('gracias') || msgText.includes('excelente') || msgText.includes('perfecto')) {
+                    await message.reply("¡Con mucho gusto! Me alegra poder ayudarte. ¡Que disfrutes tu servicio! 😊🎬");
+                }
+                break;
+            }
+
             // Update user state first so they are placed at the end of the queue
             userStates.set(userId, { ...currentSt, waitingCount: count + 1, waitingTimestamp: Date.now() });
 

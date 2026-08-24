@@ -428,6 +428,8 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                         userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     }
                     await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
+                    userStates.delete(userId);
+                    if (targetJid && targetJid !== userId) userStates.delete(targetJid);
                     return { success: true };
                 }
             } else {
