@@ -2419,11 +2419,11 @@ app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
         const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
         const userId = phone.includes('@') ? phone : (cleanPhone ? (cleanPhone.length === 10 ? '57' + cleanPhone : cleanPhone) + '@c.us' : phone);
 
-        // Resetear estado del bot para este cliente
-        userStates.delete(userId);
+        // Resetear estado del bot y marcar isForceBot para procesar el contexto conversacional sin bloqueo por horario
+        userStates.set(userId, { state: 'idle', isForceBot: true });
         if (cleanPhone) {
-            userStates.delete(`57${cleanPhone}@c.us`);
-            userStates.delete(`${cleanPhone}@c.us`);
+            userStates.set(`57${cleanPhone}@c.us`, { state: 'idle', isForceBot: true });
+            userStates.set(`${cleanPhone}@c.us`, { state: 'idle', isForceBot: true });
         }
 
         let rawMessages = [];
@@ -7746,7 +7746,10 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
         // Registrar primero la espera humana para que el usuario sea contado en la cola
         userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
 
-        if (!supportStatus.open) {
+        const existingSt = userStates.get(userId) || {};
+        const isForced = existingSt.isForceBot;
+
+        if (!supportStatus.open && !isForced) {
             const { getOfflineReplyMessage } = require('./supportScheduleService');
             const offlineMsg = await getOfflineReplyMessage(userId, userStates);
             await safeReply(message, offlineMsg, userId);
