@@ -10084,38 +10084,52 @@ async function baseProcessIncomingMessage(messages) {
                                     }
                                 }
 
-                                // EN CASO DE MÚLTIPLES CUENTAS ACTIVAS, MOSTRAR MENÚ CON CADA SERVICIO Y OPCIÓN DE RENOVACIÓN TOTAL
+                                // EN CASO DE MÚLTIPLES CUENTAS ACTIVAS: Si el pago cubre la totalidad del cobro, renovar automáticamente sin preguntar
                                 if (stateData.isRenewal && stateData.items && stateData.items.length > 1) {
-                                    const allPlatsStr = stateData.items.map(item => (item.Streaming || item.name || "Servicio").toUpperCase()).join(', ');
-                                    let msg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
-                                        `Veo que tienes varias cuentas activas (*${allPlatsStr}*). Por favor indica a cuáles deseas aplicar tu pago: 😊\n\n` +
-                                        `1 - Renovar TODAS mis cuentas activas (${allPlatsStr}) ✅\n`;
+                                    const itemsSum = stateData.items.reduce((sum, item) => {
+                                        const itemPrice = item.price || (item.platform ? item.platform.price : 0) || 0;
+                                        return sum + itemPrice;
+                                    }, 0);
 
-                                    stateData.items.forEach((acc, idx) => {
-                                        const platName = (acc.Streaming || acc.name || "Servicio").toUpperCase();
-                                        const mail = (acc.correo || "").trim().toLowerCase();
-                                        const profileStr = acc['pin perfil'] ? ` (Perfil: ${acc['pin perfil']})` : "";
-                                        msg += `${idx + 2} - Renovar solo ${platName}${mail ? ` [${mail}]` : ''}${profileStr}\n`;
-                                    });
+                                    const targetTotal = stateData.total || itemsSum;
+                                    const isFullPayment = targetTotal > 0 ? (check.amount >= (targetTotal - 1000)) : true;
 
-                                    const otherOptIdx = stateData.items.length + 2;
-                                    msg += `${otherOptIdx} - Servicio nuevo u otro motivo ❌\n\n` +
-                                        `*Responde únicamente con el número de la opción elegida.* 📲`;
+                                    if (isFullPayment) {
+                                        console.log(`[PAYMENT AUTO-RENEW] 🚀 El pago ($${check.amount}) cubre la totalidad del cobro ($${targetTotal}) para @${userId}. Renovando todas las cuentas automáticamente sin preguntar.`);
+                                        // Continúa el flujo directo a executePaymentValidation
+                                    } else {
+                                        // Si el pago es parcial (menor al total de todas las cuentas), preguntar a cuáles aplicarlo
+                                        const allPlatsStr = stateData.items.map(item => (item.Streaming || item.name || "Servicio").toUpperCase()).join(', ');
+                                        let msg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
+                                            `Veo que tienes varias cuentas activas (*${allPlatsStr}*). Tu pago cubre parcialmente algunas de tus cuentas. Por favor indica a cuáles deseas aplicar tu pago: 😊\n\n` +
+                                            `1 - Renovar TODAS mis cuentas activas (${allPlatsStr}) ✅\n`;
 
-                                    await message.reply(msg);
+                                        stateData.items.forEach((acc, idx) => {
+                                            const platName = (acc.Streaming || acc.name || "Servicio").toUpperCase();
+                                            const mail = (acc.correo || "").trim().toLowerCase();
+                                            const profileStr = acc['pin perfil'] ? ` (Perfil: ${acc['pin perfil']})` : "";
+                                            msg += `${idx + 2} - Renovar solo ${platName}${mail ? ` [${mail}]` : ''}${profileStr}\n`;
+                                        });
 
-                                    userStates.set(userId, {
-                                        state: 'awaiting_payment_multi_renewal_selection',
-                                        candidateAccounts: stateData.items,
-                                        amount: check.amount,
-                                        bank: check.bank,
-                                        matchId: match.id,
-                                        subject: match.subject,
-                                        chatJid: originalChatJid,
-                                        nombre: foundName,
-                                        leftoverAmount: leftoverAmount
-                                    });
-                                    return;
+                                        const otherOptIdx = stateData.items.length + 2;
+                                        msg += `${otherOptIdx} - Servicio nuevo u otro motivo ❌\n\n` +
+                                            `*Responde únicamente con el número de la opción elegida.* 📲`;
+
+                                        await message.reply(msg);
+
+                                        userStates.set(userId, {
+                                            state: 'awaiting_payment_multi_renewal_selection',
+                                            candidateAccounts: stateData.items,
+                                            amount: check.amount,
+                                            bank: check.bank,
+                                            matchId: match.id,
+                                            subject: match.subject,
+                                            chatJid: originalChatJid,
+                                            nombre: foundName,
+                                            leftoverAmount: leftoverAmount
+                                        });
+                                        return;
+                                    }
                                 }
 
                                 // SI LA PLATAFORMA FUE AUTO-RELLENADA DE FORMA IMPLÍCITA (PORQUE EL RECIBO NO TENÍA LA PLATAFORMA), PEDIR CONFIRMACIÓN
