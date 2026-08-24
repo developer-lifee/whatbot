@@ -8089,7 +8089,7 @@ async function hasRecentHumanMessage(message, limit = 15) {
         for (const m of msgs) {
             if (m.fromMe && !m.body.includes('🤖')) {
                 const diffHours = (nowSec - m.timestamp) / 3600;
-                if (diffHours <= 6) {
+                if (diffHours <= 1.5) {
                     return true;
                 }
             }
@@ -8110,6 +8110,17 @@ async function processIncomingMessage(messages) {
 
     if (firstMsg.fromMe && firstMsg.to && firstMsg.to !== (client.info ? client.info.wid._serialized : '')) {
         userId = firstMsg.to;
+    }
+
+    // Auto-expirar estados de espera humana antiguos de más de 1.5 horas
+    const existingSt = userStates.get(userId);
+    if (existingSt && (existingSt.state === 'waiting_human' || existingSt.state === 'awaiting_support_details')) {
+        const lastTime = existingSt.lastHumanInteraction || existingSt.timestamp || existingSt.waitingTimestamp || 0;
+        const ageHours = lastTime ? (Date.now() - lastTime) / (1000 * 3600) : 999;
+        if (ageHours > 1.5) {
+            console.log(`[Auto-Expire] Limpiado estado de espera humano antiguo (${ageHours.toFixed(1)}h) para @${userId}.`);
+            userStates.delete(userId);
+        }
     }
 
     try {

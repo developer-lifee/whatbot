@@ -1331,10 +1331,10 @@ Nunca analices el "Mensaje actual" de forma aislada. Debes deducir estrictamente
 2. Si el Asistente (especialmente si es humano sin 🤖) acaba de hacer una pregunta o pedir un dato (ej: "¿Qué operador tienes?", "Confírmame tu correo", "Pásame el comprobante") y el cliente responde con ese dato (ej: "Claro", "Engativa", "Mi correo es..."), ES UNA CONTINUACIÓN DIRECTA.
 3. En este caso de continuación directa de una charla humana (donde el humano acaba de preguntar algo hace poco), puedes devolver "recoveredState": "waiting_human" para no estorbar. Sin embargo, si el usuario reporta una falla técnica clara, prioriza ayudarlo si el humano no ha respondido en más de 20-30 minutos.
 4. Si el bot 🤖 estaba a la mitad de un flujo (ej: esperando método de pago) y el cliente responde a eso, recupera el estado correspondiente. ¡El contexto manda!
-5. **RELEVANCIA TEMPORAL Y REANUDACIÓN:** 
-   - Si han pasado más de 2 horas (compara la hora actual del sistema vs la del historial) desde el último mensaje del "Asistente" humano, NO devuelvas "waiting_human" a menos que el usuario esté respondiendo a una pregunta muy específica que aún tenga sentido. 
-   - Si el "Mensaje actual" es una queja técnica clara (intent: "soporte" o "credenciales") y han pasado más de 30 minutos desde la última intervención humana, el bot DEBE retomar la ayuda si tiene la respuesta técnica. No dejes al cliente esperando si el humano ya no está activamente en el chat.
-   - Si el mensaje del humano fue solo un "gracias", "listo" o un cierre, no bloquees el bot para futuras dudas del usuario.
+5. **RELEVANCIA TEMPORAL Y REANUDACIÓN (MÁXIMA STRICTNESS):** 
+   - Compara las fechas y horas (timestamps) de cada mensaje en el historial vs la hora actual del sistema.
+   - Si la última intervención del "Asistente Humano" ocurrió HACE MÁS DE 2 HORAS o fue en una FECHA ANTERIOR (por ejemplo, el día de ayer), esa conversación humana YA FINALIZÓ. Queda ESTRICTAMENTE PROHIBIDO devolver "waiting_human" o "recoveredState: waiting_human". El bot debe tomar el control y atender al cliente inmediatamente.
+   - Si el "Mensaje actual" es una solicitud de "credenciales" o reporte de clave/contraseña, NUNCA devuelvas "waiting_human".
 
 Salida esperada JSON:
 {
