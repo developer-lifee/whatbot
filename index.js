@@ -9852,7 +9852,7 @@ async function baseProcessIncomingMessage(messages) {
                             stateData.isAutoFilled = true;
                             userStates.set(userId, stateData);
                         }
-                        // E. Si se detectó una plataforma que coincide con alguna de sus cuentas
+                        // E. Si se detectó una plataforma que coincide con alguna de sus cuentas o corregir plataforma inferida errónea
                         else if (check.inferredPlatform) {
                             const matchedAcc = userAccounts.find(acc => {
                                 const accStr = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -9862,6 +9862,13 @@ async function baseProcessIncomingMessage(messages) {
                             if (matchedAcc) {
                                 console.log(`[PAYMENT INTERCEPTOR] Plataforma detectada ${check.inferredPlatform} coincide con su cuenta ${matchedAcc.Streaming}.`);
                                 stateData.items = [matchedAcc];
+                                stateData.total = check.amount;
+                                stateData.isRenewal = true;
+                                stateData.isAutoFilled = true;
+                                userStates.set(userId, stateData);
+                            } else if (userAccounts.length === 1) {
+                                console.log(`[PAYMENT INTERCEPTOR] Corrigiendo plataforma inferida (${check.inferredPlatform}) a la única cuenta activa real del cliente: ${userAccounts[0].Streaming}.`);
+                                stateData.items = [userAccounts[0]];
                                 stateData.total = check.amount;
                                 stateData.isRenewal = true;
                                 stateData.isAutoFilled = true;

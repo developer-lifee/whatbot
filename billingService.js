@@ -372,8 +372,12 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         'gpt': 20000,
         'canva': 10000,
         'vix': 10000,
-        'appletv': 10000,
-        'appleone': 18000,
+        'appletv': 8000,
+        'appleone': 22000,
+        'apple_one': 22000,
+        'apple': 22000,
+        'apple tv': 8000,
+        'apple one': 22000,
         'microsoft': 15000,
         'claude_pro': 25000
     };
