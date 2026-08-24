@@ -1498,11 +1498,13 @@ app.get('/api/admin/client-history', async (req, res) => {
 
                         if (!streaming || !emailAcct || !cutDate) continue;
 
-                        // Parse amount_paid (deben)
+                        // Parse amount_paid (deben) - Ignorar si la casilla contiene una fecha (ej: 29/04/2026 -> 29042026)
                         let amountPaid = 0;
                         if (hist.deben) {
                             const parsed = parseInt(hist.deben.toString().replace(/\D/g, ''));
-                            if (!isNaN(parsed)) amountPaid = parsed;
+                            if (!isNaN(parsed) && parsed < 200000) {
+                                amountPaid = parsed;
+                            }
                         }
 
                         // Format vencimiento
