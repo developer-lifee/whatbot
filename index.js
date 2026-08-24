@@ -7748,22 +7748,24 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
 
         const existingSt = userStates.get(userId) || {};
         const isForced = existingSt.isForceBot;
+        let replyText = fallbackResult.replyMessage || "";
 
         if (!supportStatus.open && !isForced) {
-            const { getOfflineReplyMessage } = require('./supportScheduleService');
-            const offlineMsg = await getOfflineReplyMessage(userId, userStates);
-            await safeReply(message, offlineMsg, userId);
+            if (!replyText) {
+                const { getOfflineReplyMessage } = require('./supportScheduleService');
+                replyText = await getOfflineReplyMessage(userId, userStates);
+            } else {
+                replyText += `\n\n📌 *Nota:* Nuestro horario de atención con asesor humano en vivo se ha completado por hoy. He dejado tu caso registrado para que un asesor lo verifique si necesitas asistencia adicional. 😊`;
+            }
         } else {
-            let replyText = fallbackResult.replyMessage || "";
             const queuePos = getQueuePosition(userId, userStates);
-            if (queuePos) {
-                if (!replyText.includes('turno') && !replyText.includes('cola')) {
-                    replyText += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}. Te atenderemos lo antes posible. ¡Gracias por tu paciencia!`;
-                }
+            if (queuePos && !replyText.includes('turno') && !replyText.includes('cola')) {
+                replyText += `\n\n📌 *Tu turno en la cola de espera:* #${queuePos}. Te atenderemos lo antes posible. ¡Gracias por tu paciencia!`;
             }
-            if (replyText) {
-                await safeReply(message, replyText, userId);
-            }
+        }
+
+        if (replyText) {
+            await safeReply(message, replyText, userId);
         }
 
         try {
