@@ -10092,12 +10092,20 @@ async function baseProcessIncomingMessage(messages) {
                                     return;
                                 }
 
-                                // Si el usuario ya tiene una cuenta activa de Netflix en Excel para este teléfono, es una RENOVACIÓN
-                                const userHasActiveNetflix = userAccounts && userAccounts.some(acc => {
+                                // Si el usuario ya tiene una cuenta activa en Excel/DB para este teléfono en la plataforma comprada, es una RENOVACIÓN
+                                const { isSamePlatformFamily } = require('./salesRegistryService');
+                                const targetPlatformName = (stateData.items && stateData.items[0])
+                                    ? (stateData.items[0].Streaming || (stateData.items[0].platform ? stateData.items[0].platform.name : "") || stateData.items[0].name || "").toLowerCase()
+                                    : "";
+
+                                const userHasActiveAccount = userAccounts && Array.isArray(userAccounts) && userAccounts.some(acc => {
                                     const s = (acc.Streaming || "").toLowerCase();
-                                    return s.includes('netflix') && !s.includes('extra');
+                                    if (!s) return false;
+                                    if (!targetPlatformName) return true;
+                                    return isSamePlatformFamily(s, targetPlatformName) || s.includes(targetPlatformName) || targetPlatformName.includes(s);
                                 });
-                                if (userHasActiveNetflix) {
+
+                                if (userHasActiveAccount) {
                                     stateData.isRenewal = true;
                                 }
 
@@ -10125,12 +10133,15 @@ async function baseProcessIncomingMessage(messages) {
                                 }
 
                                 // SI EL CARRITO FUE AUTO-RELLENADO DESDE LA IA / HISTORIAL (CARRITO VACÍO PREVIO), CONFIRMAR CON EL USUARIO ANTES DE ENTREGAR
-                                if (stateData.isAutoFilled && !stateData.isRenewal && stateData.items && stateData.items.length > 0) {
+                                if (stateData.isAutoFilled && stateData.items && stateData.items.length > 0) {
                                     const item = stateData.items[0];
                                     const targetPlat = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "Servicio").toUpperCase();
+                                    const actionWord = stateData.isRenewal ? "renovar tu" : "activar tu";
+                                    const buttonWord = stateData.isRenewal ? "renovar" : "activar";
+
                                     let msg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
-                                        `Veo que deseas activar tu servicio de *${targetPlat}*, ¿es correcto para proceder con la entrega de tus credenciales? 😊\n\n` +
-                                        `1 - Sí, activar ${targetPlat} ✅\n` +
+                                        `Veo que deseas ${actionWord} servicio de *${targetPlat}*, ¿es correcto para proceder con la ${stateData.isRenewal ? 'renovación' : 'entrega de tus credenciales'}? 😊\n\n` +
+                                        `1 - Sí, ${buttonWord} ${targetPlat} ✅\n` +
                                         `2 - No, es para otra plataforma u otro motivo ❌`;
                                     await message.reply(msg);
 
