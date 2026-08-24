@@ -9942,13 +9942,14 @@ async function baseProcessIncomingMessage(messages) {
                             try {
                                 const groupChat = await client.getChatById(GROUP_ID);
                                 if (groupChat) {
-                                    let adminMsg = `🚨 *COMPROBANTE DETECTADO INCOMPLETO* (@${userId.replace('@c.us', '')})\n` +
+                                    const displayTarget = realPhone || userId.replace('@c.us', '').replace('@lid', '');
+                                    let adminMsg = `🚨 *COMPROBANTE DETECTADO INCOMPLETO* (@${displayTarget})\n` +
                                         `⚠️ *PAGO INCOMPLETO ACCUMULADO* (Faltan $${diff})\n` +
                                         `Banco: ${check.bank || 'No identificado'}\n` +
                                         `Monto Recibido: $${check.amount}\n` +
                                         `Total Acumulado: $${totalPaidSoFar}\n` +
                                         `Monto Esperado: $${expectedTotal}\n\n` +
-                                        `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
+                                        `Valida el pago y confirma usando:\n*confirmar ${displayTarget}*`;
 
                                     await groupChat.sendMessage(adminMsg);
                                     const mediaToForward = await message.downloadMedia();
@@ -10255,7 +10256,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 try {
                     const groupChat = await client.getChatById(GROUP_ID);
                     if (groupChat) {
-                        let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${userId.replace('@c.us', '')})\n` +
+                        const displayTarget = realPhone || userId.replace('@c.us', '').replace('@lid', '');
+                        let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${displayTarget})\n` +
                             `Banco: ${check.bank || 'No identificado'}\n` +
                             `Monto: ${check.amount || 'No legible'}\n\n`;
 
@@ -10263,7 +10265,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             adminMsg += `💰 *EXCEDENTE DETECTADO:* Sobran *$${leftoverAmount.toLocaleString('es-CO')}* COP.\n\n`;
                         }
 
-                        adminMsg += `Valida el pago y confirma usando:\n*confirmar ${userId.replace('@c.us', '')}*`;
+                        adminMsg += `Valida el pago y confirma usando:\n*confirmar ${displayTarget}*`;
 
                         await groupChat.sendMessage(adminMsg);
                         const mediaToForward = await message.downloadMedia();

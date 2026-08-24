@@ -734,22 +734,42 @@ async function handleAdminSuggestions(message, userStates) {
 async function handleAdminPaymentConfirmation(message, command, client, userStates, overridePhone = null) {
     let phone = overridePhone;
     if (!phone) {
-        const regex = /57\s*3\d{2}\s*\d{7}|3\d{9}/g;
-        const matches = command.match(regex);
-        if (matches && matches.length > 0) {
-            phone = matches[0].replace(/\s+/g, '');
+        // 1. Buscar primero número celular colombiano estándar
+        const regexStandard = /57\s*3\d{2}\s*\d{7}|3\d{9}/g;
+        const standardMatches = command.match(regexStandard);
+        if (standardMatches && standardMatches.length > 0) {
+            phone = standardMatches[0].replace(/\s+/g, '');
             if (!phone.startsWith('57') && phone.length === 10) phone = '57' + phone;
+        } else {
+            // 2. Si no hay celular estándar, capturar cualquier ID numérico largo (LID de 10 a 16 dígitos)
+            const regexLid = /\b\d{10,16}\b/g;
+            const lidMatches = command.match(regexLid);
+            if (lidMatches && lidMatches.length > 0) {
+                phone = lidMatches[0].trim();
+            }
         }
     }
 
     if (!phone) {
-        await message.reply('❌ No pude identificar el número de teléfono en el comando.');
+        await message.reply('❌ No pude identificar el número de teléfono o ID en el comando.');
         return;
     }
 
-    const userId = phone.includes('@') ? phone : phone + '@c.us';
-    const displayPhone = userId.replace('@c.us', '');
-    const stateData = userStates.get(userId);
+    // Resolver LID si aplica
+    let realPhoneResolved = null;
+    const cleanPhoneDigits = phone.replace(/\D/g, '');
+    const isLid = phone.includes('@lid') || (!cleanPhoneDigits.startsWith('57') && cleanPhoneDigits.length > 10) || cleanPhoneDigits.length > 12;
+    if (isLid) {
+        try {
+            const { resolveRealPhoneFromJid } = require('./billingService');
+            realPhoneResolved = await resolveRealPhoneFromJid(phone.includes('@') ? phone : phone + '@lid');
+        } catch (e) { }
+    }
+
+    const userId = phone.includes('@') ? phone : (isLid ? phone + '@lid' : phone + '@c.us');
+    const realPhoneJid = realPhoneResolved ? (realPhoneResolved + '@c.us') : null;
+    const displayPhone = (realPhoneResolved || userId.replace('@c.us', '').replace('@lid', ''));
+    const stateData = userStates.get(userId) || (realPhoneJid ? userStates.get(realPhoneJid) : null) || userStates.get(cleanPhoneDigits);
 
     // Detectar si el admin especificó una plataforma en el comando (ej: "confirmar 57... netflix")
     const platformWords = ['netflix', 'spotify', 'amazon', 'prime', 'hbo', 'max', 'disney', 'star', 'microsoft', 'crunchyroll', 'paramount', 'vix', 'apple', 'youtube', 'canva', 'magis', 'iptv', 'plex'];
