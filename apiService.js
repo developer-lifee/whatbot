@@ -202,12 +202,12 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
           }
 
           // B. Si el contacto tiene 2 o más palabras (ej. "Hugo Avila", "Santiago Duque Mora", "Daniel López"):
-          // Debe coincidir el primer nombre Y el apellido con los del registro del cliente
+          // Debe coincidir el primer nombre (contactTokens[0] vs clientTokens[0]) Y al menos un apellido
           const clientTokens = fullClientName.split(/\s+/).filter(t => t.length >= 3);
           if (clientTokens.length >= 2) {
-            const hasFirstNameMatch = contactTokens.some(ct => clientTokens.some(clt => clt === ct || getLevenshteinDistance(clt, ct) <= 1));
-            const hasLastNameMatch = contactTokens.slice(1).some(ct => clientTokens.slice(1).some(clt => clt === ct || getLevenshteinDistance(clt, ct) <= 1));
-            if (hasFirstNameMatch && hasLastNameMatch) {
+            const firstNameMatch = (contactTokens[0] === clientTokens[0] || getLevenshteinDistance(contactTokens[0], clientTokens[0]) <= 1);
+            const lastNameMatch = contactTokens.slice(1).some(ct => clientTokens.slice(1).some(clt => clt === ct || getLevenshteinDistance(clt, ct) <= 1));
+            if (firstNameMatch && lastNameMatch) {
               return true;
             }
           }
