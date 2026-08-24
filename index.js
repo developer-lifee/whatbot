@@ -2167,21 +2167,36 @@ app.get('/api/admin/tickets', async (req, res) => {
                         }
                     }
                 }
-                // D. Cruzar nombre resuelto con Excel
+                // D. Cruzar nombre resuelto con base de datos customers y Excel
                 if (!resolvedPhoneFromLid && !isInvalidName(resolvedName)) {
-                    const { isNameMatch } = require('./billingService');
-                    if (typeof isNameMatch === 'function') {
-                        const matchRow = excelRows.find(r => {
-                            const rawNum = (r.numero || r.Numero || '').toString().replace(/\D/g, '');
-                            if (!rawNum || rawNum.length < 7 || rawNum.length > 12) return false;
-                            const rowName = `${r.Nombre || r.nombre || ''} ${r.apellido || r.Apellido || ''}`.trim();
-                            const rowWhatsapp = (r.whatsapp || r.WhatsApp || '').toString().trim();
-                            return isNameMatch(resolvedName, rowName) || isNameMatch(resolvedName, rowWhatsapp);
-                        });
-                        if (matchRow) {
-                            const rawNum = (matchRow.numero || matchRow.Numero || '').toString().replace(/\D/g, '');
-                            if (rawNum && rawNum.length >= 7 && rawNum.length <= 12) {
-                                resolvedPhoneFromLid = rawNum;
+                    try {
+                        const [custMatch] = await pool.query(
+                            "SELECT phone FROM customers WHERE (fullname LIKE ? OR fullname = ?) AND phone NOT LIKE '%@lid' LIMIT 1",
+                            [`%${resolvedName}%`, resolvedName]
+                        );
+                        if (custMatch && custMatch.length > 0 && custMatch[0].phone) {
+                            const cleanP = custMatch[0].phone.replace(/\D/g, '');
+                            if (cleanP.length >= 7 && cleanP.length <= 13) {
+                                resolvedPhoneFromLid = cleanP;
+                            }
+                        }
+                    } catch (e) {}
+
+                    if (!resolvedPhoneFromLid) {
+                        const { isNameMatch } = require('./billingService');
+                        if (typeof isNameMatch === 'function') {
+                            const matchRow = excelRows.find(r => {
+                                const rawNum = (r.numero || r.Numero || r.whatsapp || r.WhatsApp || '').toString().replace(/\D/g, '');
+                                if (!rawNum || rawNum.length < 7 || rawNum.length > 13) return false;
+                                const rowName = `${r.Nombre || r.nombre || ''} ${r.apellido || r.Apellido || ''}`.trim();
+                                const rowWhatsapp = (r.whatsapp || r.WhatsApp || '').toString().trim();
+                                return isNameMatch(resolvedName, rowName) || isNameMatch(resolvedName, rowWhatsapp);
+                            });
+                            if (matchRow) {
+                                const rawNum = (matchRow.numero || matchRow.Numero || matchRow.whatsapp || '').toString().replace(/\D/g, '');
+                                if (rawNum && rawNum.length >= 7 && rawNum.length <= 13) {
+                                    resolvedPhoneFromLid = rawNum;
+                                }
                             }
                         }
                     }
@@ -2337,10 +2352,29 @@ app.get('/api/admin/tickets', async (req, res) => {
 
         const resolvedTickets = await Promise.all(ticketsPromises);
 
-        // Deduplicar tarjetas para que el mismo cliente no aparezca dos veces (LID y +573...)
+        // Deduplicar tarjetas por teléfono y por nombre exacto del cliente
         const uniqueMap = new Map();
+        const nameToPhoneMap = new Map();
+
+        // 1. Mapear nombres a números de teléfono reales
         for (const t of resolvedTickets.filter(Boolean)) {
-            const cleanP = t.phone ? t.phone.replace(/\D/g, '') : t.userId;
+            const cleanP = t.phone ? t.phone.replace(/\D/g, '') : '';
+            if (cleanP && !t.userId.includes('@lid') && cleanP.length >= 10 && t.nombre && t.nombre !== 'Cliente') {
+                nameToPhoneMap.set(t.nombre.toLowerCase().trim(), cleanP);
+            }
+        }
+
+        // 2. Deduplicar
+        for (const t of resolvedTickets.filter(Boolean)) {
+            let cleanP = t.phone ? t.phone.replace(/\D/g, '') : t.userId;
+            const normName = (t.nombre || '').toLowerCase().trim();
+
+            if (t.userId.includes('@lid') && normName && nameToPhoneMap.has(normName)) {
+                cleanP = nameToPhoneMap.get(normName);
+                t.phone = cleanP;
+                pool.query('UPDATE chats SET customer_phone = ? WHERE chat_id = ?', [cleanP, t.userId]).catch(() => {});
+            }
+
             if (!uniqueMap.has(cleanP)) {
                 uniqueMap.set(cleanP, t);
             } else {
