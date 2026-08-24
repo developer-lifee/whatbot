@@ -2587,6 +2587,16 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
             console.error('[Resolved Log] Error logging resolved ticket:', logErr.message);
         }
 
+        // Actualizar el estado de los tickets en la base de datos MariaDB
+        try {
+            await pool.query(
+                'UPDATE tickets SET status = "resolved", updated_at = NOW() WHERE chat_id IN (?) OR chat_id LIKE ?',
+                [uniqueJids, `%${cleanPhone}%`]
+            );
+        } catch (dbErr) {
+            console.error('[Tickets DB Resolve] Error actualizando tabla tickets en MariaDB:', dbErr.message);
+        }
+
         for (const targetJid of uniqueJids) {
             const stateData = userStates.get(targetJid) || {};
             userStates.set(targetJid, {
@@ -7792,16 +7802,33 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                         'INSERT INTO chats (chat_id, customer_name, customer_phone, last_message_text, updated_at) VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE updated_at = NOW()',
                         [userId, contactName || null, cleanNum || null, (message.body || '').substring(0, 500)]
                     );
-                    const [tRes] = await pool.query(
-                        'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
-                        [
-                            userId,
-                            `Escalamiento IA: ${fallbackResult.escalationSummary || 'Atención de Asesor'}`,
-                            (message.body || 'Revisión de soporte requerida').substring(0, 500),
-                            'open',
-                            'high'
-                        ]
+                    // Evitar duplicar tickets abiertos para la misma conversación
+                    const [existingTickets] = await pool.query(
+                        'SELECT id FROM tickets WHERE chat_id = ? AND status = "open" LIMIT 1',
+                        [userId]
                     );
+
+                    let tRes = null;
+                    if (existingTickets && existingTickets.length > 0) {
+                        const existingId = existingTickets[0].id;
+                        await pool.query(
+                            'UPDATE tickets SET description = ?, updated_at = NOW() WHERE id = ?',
+                            [(message.body || 'Revisión de soporte requerida').substring(0, 500), existingId]
+                        );
+                        tRes = { insertId: existingId };
+                    } else {
+                        const [insRes] = await pool.query(
+                            'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
+                            [
+                                userId,
+                                `Escalamiento IA: ${fallbackResult.escalationSummary || 'Atención de Asesor'}`,
+                                (message.body || 'Revisión de soporte requerida').substring(0, 500),
+                                'open',
+                                'high'
+                            ]
+                        );
+                        tRes = insRes;
+                    }
                     if (tRes && tRes.insertId) {
                         ticketTag = ` (#TK-${tRes.insertId})`;
                     }
@@ -9889,17 +9916,19 @@ async function baseProcessIncomingMessage(messages) {
                         }
                     }
 
-                    // Si el carrito contiene una plataforma que el usuario YA TIENE activa en Excel, es obligatoriamente una RENOVACIÓN
+                    // Si el carrito contiene plataformas que el usuario YA TIENE activas en Excel/DB, es obligatoriamente una RENOVACIÓN
                     if (userAccounts && userAccounts.length > 0 && !isNewRequested && stateData.items && stateData.items.length > 0) {
                         const { isSamePlatformFamily } = require('./salesRegistryService');
-                        const existingForPlat = userAccounts.find(acc => {
-                            const itemPlat = (stateData.items[0].Streaming || (stateData.items[0].platform ? stateData.items[0].platform.name : '') || stateData.items[0].name || '').toUpperCase();
-                            const accPlat = (acc.Streaming || '').toUpperCase();
-                            return isSamePlatformFamily(itemPlat, accPlat);
+                        const matchingActiveAccounts = userAccounts.filter(acc => {
+                            return stateData.items.some(item => {
+                                const itemPlat = (item.Streaming || (item.platform ? item.platform.name : '') || item.name || '').toUpperCase();
+                                const accPlat = (acc.Streaming || '').toUpperCase();
+                                return isSamePlatformFamily(itemPlat, accPlat) || itemPlat.includes(accPlat) || accPlat.includes(itemPlat);
+                            });
                         });
-                        if (existingForPlat) {
-                            console.log(`[PAYMENT INTERCEPTOR] Item ${existingForPlat.Streaming} coincide con cuenta activa existente de @${userId}. Marcado estrictamente como RENOVACIÓN.`);
-                            stateData.items = [existingForPlat];
+                        if (matchingActiveAccounts.length > 0) {
+                            console.log(`[PAYMENT INTERCEPTOR] Encontradas ${matchingActiveAccounts.length} cuentas activas existentes para @${userId}. Marcadas estrictamente como RENOVACIÓN.`);
+                            stateData.items = matchingActiveAccounts;
                             stateData.isRenewal = true;
                             userStates.set(userId, stateData);
                         }
@@ -10044,20 +10073,29 @@ async function baseProcessIncomingMessage(messages) {
                                     }
                                 }
 
-                                // EN CASO DE MÚLTIPLES CUENTAS (COMO LAURA MEJÍA), PREGUNTAR AL USUARIO SI DESEA RENOVAR SUS SERVICIOS ACTIVOS
+                                // EN CASO DE MÚLTIPLES CUENTAS ACTIVAS, MOSTRAR MENÚ CON CADA SERVICIO Y OPCIÓN DE RENOVACIÓN TOTAL
                                 if (stateData.isRenewal && stateData.items && stateData.items.length > 1) {
-                                    const platformsList = stateData.items.map(item => (item.Streaming || item.name || "Servicio").toUpperCase());
-                                    const uniquePlats = [...new Set(platformsList)];
-                                    const platformsStr = uniquePlats.join(', ');
+                                    const allPlatsStr = stateData.items.map(item => (item.Streaming || item.name || "Servicio").toUpperCase()).join(', ');
                                     let msg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
-                                        `Veo que tienes cuentas activas de *${platformsStr}*. ¿Deseas renovar tus servicios de *${platformsStr}* para que el pago se aplique a estos? 😊\n\n` +
-                                        `1 - Sí, renovar mis servicios ✅\n` +
-                                        `2 - No, es para un servicio nuevo u otro motivo ❌`;
+                                        `Veo que tienes varias cuentas activas (*${allPlatsStr}*). Por favor indica a cuáles deseas aplicar tu pago: 😊\n\n` +
+                                        `1 - Renovar TODAS mis cuentas activas (${allPlatsStr}) ✅\n`;
+
+                                    stateData.items.forEach((acc, idx) => {
+                                        const platName = (acc.Streaming || acc.name || "Servicio").toUpperCase();
+                                        const mail = (acc.correo || "").trim().toLowerCase();
+                                        const profileStr = acc['pin perfil'] ? ` (Perfil: ${acc['pin perfil']})` : "";
+                                        msg += `${idx + 2} - Renovar solo ${platName}${mail ? ` [${mail}]` : ''}${profileStr}\n`;
+                                    });
+
+                                    const otherOptIdx = stateData.items.length + 2;
+                                    msg += `${otherOptIdx} - Servicio nuevo u otro motivo ❌\n\n` +
+                                        `*Responde únicamente con el número de la opción elegida.* 📲`;
+
                                     await message.reply(msg);
 
                                     userStates.set(userId, {
-                                        state: 'awaiting_payment_multi_renewal_confirmation',
-                                        matchedAccounts: stateData.items,
+                                        state: 'awaiting_payment_multi_renewal_selection',
+                                        candidateAccounts: stateData.items,
                                         amount: check.amount,
                                         bank: check.bank,
                                         matchId: match.id,

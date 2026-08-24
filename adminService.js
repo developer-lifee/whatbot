@@ -361,9 +361,10 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     } else {
         try {
             let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n";
-            if (userState.leftoverAmount && userState.leftoverAmount > 0) {
-                const originalTotal = (userState.total || 0) - userState.leftoverAmount;
-                credentialsMsg += `💰 *Nota:* Tu transferencia fue por *$${(userState.total || 0).toLocaleString('es-CO')}*, superando el total del pedido que era de *$${originalTotal.toLocaleString('es-CO')}*. Te quedó un *saldo a favor de *$${userState.leftoverAmount.toLocaleString('es-CO')}* COP*. Un asesor revisará esto más tarde. 😊\n\n`;
+            if (userState.leftoverAmount && userState.leftoverAmount >= 2000) {
+                const totalPaid = userState.total || 0;
+                const originalTotal = Math.max(0, totalPaid - userState.leftoverAmount);
+                credentialsMsg += `💰 *Nota:* Tu transferencia fue por *$${totalPaid.toLocaleString('es-CO')}*, superando el total del pedido que era de *$${originalTotal.toLocaleString('es-CO')}*. Te quedó un *saldo a favor de *$${userState.leftoverAmount.toLocaleString('es-CO')}* COP*. Un asesor revisará esto más tarde. 😊\n\n`;
             }
             credentialsMsg += "Aquí tienes tus credenciales:\n\n";
             let hasAnyCredentials = false;
