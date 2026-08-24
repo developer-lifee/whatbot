@@ -10381,10 +10381,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             console.log(`[BOT MEDIA OCR PROFILE SELECT SCREEN] Se detectó pantalla de selección de perfil en @${userId}.`);
             await message.reply(`🤖 ¡Veo la pantalla de perfiles en tu dispositivo! 📺\n\n` +
                 `💡 *Instrucciones para ingresar a tu perfil:*\n\n` +
-                `1. Si no ves un perfil con tu nombre pre-creado, selecciona la opción **"Añadir perfil"** (o **"+"**).\n` +
-                `2. O si ves un perfil libre sin candado/pin, puedes seleccionarlo y cambiarle el nombre.\n` +
-                `3. Asígnale a tu perfil **tu nombre exacto** (tal como estás registrado con nosotros) para llevar el control de tu suscripción. 😊\n\n` +
-                `_Si todos los perfiles tienen candado o están ocupados, avísanos y con gusto te reasignamos uno de inmediato._`);
+                `1. Si no ves un perfil con tu nombre, selecciona la opción **"Añadir perfil"** (o botón **"+"**).\n` +
+                `2. Asígnale a tu nuevo perfil **tu nombre exacto** (tal como estás registrado con nosotros) para llevar el control de tu suscripción. 😊\n\n` +
+                `⚠️ *Importante:* Por favor **no tomes ni modifiques los perfiles de otros usuarios** (como perfiles que ya tengan otros nombres creados).\n\n` +
+                `_Si la plataforma no te deja crear un perfil nuevo porque alcanzó el límite máximo de perfiles, avísanos y te reasignamos una cuenta de inmediato._`);
             return;
         }
 

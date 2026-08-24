@@ -53,9 +53,9 @@
         "image": "/errores_img/perfiles_netflix.png",
         "whatsappMessage": "Hola, no encuentro mi perfil en la cuenta de Netflix.",
         "steps": [
-          { "text": "Si al ingresar a la cuenta no ves tu nombre, presiona 'Añadir perfil' (o selecciona uno libre sin candado)." },
-          { "text": "Asígnale exactamente tu nombre (tal como estás registrado en nuestro sistema) para llevar el control de tu cuenta." },
-          { "text": "Si todos los perfiles tienen candado o están ocupados, avísanos para reasignarte uno inmediatamente." }
+          { "text": "Si al ingresar a la cuenta no ves un perfil con tu nombre, presiona 'Añadir perfil' (o '+')." },
+          { "text": "Crea tu perfil colocándole exactamente tu nombre registrado en nuestro sistema. NUNCA tomes ni modifiques perfiles existentes de otros usuarios." },
+          { "text": "Si la plataforma no te permite crear un perfil nuevo por límite de perfiles, avísanos para reasignarte una cuenta inmediatamente." }
         ]
       },
       {
