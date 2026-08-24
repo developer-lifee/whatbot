@@ -331,10 +331,11 @@ async function calculateDailyAccounting() {
     group.forEach((c, idx) => {
       const platKey = normalizePlatformKey(c.Streaming);
 
-      // Prioridad 1: Tomar precio individual de la fila del cliente si existe en Excel
+      // Prioridad 1: Tomar precio individual de la fila del cliente si existe en Excel (Ingreso Mensual2)
       let rowPrice = 0;
-      if (c.precio || c.Precio || c.valor || c.Valor) {
-        const rawP = String(c.precio || c.Precio || c.valor || c.Valor).replace(/[^\d.]/g, '');
+      const rawPriceVal = c['Ingreso Mensual2'] || c['ingreso mensual'] || c.precio || c.Precio || c.valor || c.Valor || c['precio cobrado'];
+      if (rawPriceVal) {
+        const rawP = String(rawPriceVal).replace(/[^\d.]/g, '');
         rowPrice = parseFloat(rawP) || 0;
       }
 
