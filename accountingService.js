@@ -47,7 +47,7 @@ const SEED_STREAMING_PRICES = [
   { platform: 'GEMINI COMPARTIDA', normal_price: 12000 },
   { platform: 'APPLE ONE', normal_price: 25000 },
   { platform: 'APPLE TV', normal_price: 8000 },
-  { platform: 'PARAMOUNT', normal_price: 9000 },
+  { platform: 'PARAMOUNT', normal_price: 8000 },
   { platform: 'CRUNCHY ROLL', normal_price: 9000 },
   { platform: 'VIX', normal_price: 8000 },
   { platform: 'CANVA', normal_price: 8000 },
