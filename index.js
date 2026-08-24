@@ -1431,8 +1431,12 @@ app.get('/api/admin/client-history', async (req, res) => {
         const { phone } = req.query;
         if (!phone) return res.status(400).json({ error: 'Falta el número de teléfono' });
 
+        const { resolveRealPhoneFromJid } = require('./billingService');
+        const resolvedPhone = await resolveRealPhoneFromJid(phone.toString());
+        const targetPhone = resolvedPhone || phone.toString();
+
         const { pool } = require('./database');
-        const cleanPhone = phone.toString().replace(/\D/g, '');
+        const cleanPhone = targetPhone.replace(/\D/g, '');
         const targetTail = cleanPhone.slice(-10);
 
         if (cleanPhone.length < 7) {
@@ -1594,8 +1598,12 @@ app.post('/api/admin/client-history/save-notes', express.json(), async (req, res
         const { phone, notes, fullname, email } = req.body;
         if (!phone) return res.status(400).json({ success: false, message: 'Falta el teléfono' });
 
+        const { resolveRealPhoneFromJid } = require('./billingService');
+        const resolvedPhone = await resolveRealPhoneFromJid(phone.toString());
+        const targetPhone = resolvedPhone || phone.toString();
+
         const { pool } = require('./database');
-        const cleanPhone = phone.toString().replace(/\D/g, '');
+        const cleanPhone = targetPhone.replace(/\D/g, '');
 
         await pool.query(`
             INSERT INTO customers (phone, fullname, email, notes)
