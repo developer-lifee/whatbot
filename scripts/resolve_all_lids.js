@@ -20,6 +20,7 @@ async function main() {
             // 2. Resolver con algoritmo flexible
             const resolved = await resolveRealPhoneFromJid(jid, null, null);
             if (resolved) {
+                await pool.query("INSERT IGNORE INTO customers (phone, fullname) VALUES (?, ?)", [resolved, 'Cliente WhatsApp']).catch(() => {});
                 await pool.query("UPDATE chats SET customer_phone = ? WHERE chat_id = ?", [resolved, jid]);
                 console.log(`✅ Chat ${jid} resuelto a teléfono: ${resolved}`);
                 updated++;

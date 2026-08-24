@@ -259,6 +259,25 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
         } catch (e) {}
     }
 
+    // 6. Extraer número de teléfono de 10 dígitos (ej: 3227922392) directamente del texto de mensajes en MariaDB
+    try {
+        const { pool } = require('./database');
+        const [msgs] = await pool.query(
+            "SELECT body FROM messages WHERE (chat_id = ? OR sender_id = ?) AND body REGEXP '3[0-9]{9}' ORDER BY created_at DESC LIMIT 10",
+            [jid, jid]
+        );
+        if (msgs && msgs.length > 0) {
+            for (const m of msgs) {
+                const phoneMatch = (m.body || '').match(/3\d{9}/);
+                if (phoneMatch) {
+                    const extracted = '57' + phoneMatch[0];
+                    console.log(`[LID Resolver] 📱 Número +${extracted} extraído del texto de los mensajes en BD para LID ${jid}`);
+                    return extracted;
+                }
+            }
+        }
+    } catch (dbErr) {}
+
     if (clean.length >= 7 && clean.length <= 13 && !isLid) return clean;
 
     return null;

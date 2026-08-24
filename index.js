@@ -2179,6 +2179,27 @@ app.get('/api/admin/tickets', async (req, res) => {
                     }
                 }
 
+                // E.2 Extraer teléfono de 10 dígitos (ej: 3227922392) directamente del texto de los mensajes recientes en BD
+                if (!resolvedPhoneFromLid) {
+                    try {
+                        const [msgTextRows] = await pool.query(
+                            "SELECT body FROM messages WHERE (chat_id = ? OR sender_id = ?) AND body REGEXP '3[0-9]{9}' ORDER BY created_at DESC LIMIT 5",
+                            [userId, userId]
+                        );
+                        if (msgTextRows && msgTextRows.length > 0) {
+                            for (const mRow of msgTextRows) {
+                                const pMatch = (mRow.body || '').match(/3\d{9}/);
+                                if (pMatch) {
+                                    const extracted = '57' + pMatch[0];
+                                    console.log(`[LID Resolution API] 📱 Número +${extracted} extraído del texto de los mensajes para ${userId}`);
+                                    resolvedPhoneFromLid = extracted;
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (e) {}
+                }
+
                 // E. Guardar en base de datos para futuras consultas
                 if (resolvedPhoneFromLid) {
                     pool.query('UPDATE chats SET customer_phone = ? WHERE chat_id = ?', [resolvedPhoneFromLid, userId]).catch(() => {});
@@ -2307,7 +2328,22 @@ app.get('/api/admin/tickets', async (req, res) => {
         });
 
         const resolvedTickets = await Promise.all(ticketsPromises);
-        res.json(resolvedTickets.filter(Boolean));
+
+        // Deduplicar tarjetas para que el mismo cliente no aparezca dos veces (LID y +573...)
+        const uniqueMap = new Map();
+        for (const t of resolvedTickets.filter(Boolean)) {
+            const cleanP = t.phone ? t.phone.replace(/\D/g, '') : t.userId;
+            if (!uniqueMap.has(cleanP)) {
+                uniqueMap.set(cleanP, t);
+            } else {
+                const prev = uniqueMap.get(cleanP);
+                if ((prev.userId.includes('@lid') || prev.nombre === 'Cliente') && (!t.userId.includes('@lid') || t.nombre !== 'Cliente')) {
+                    uniqueMap.set(cleanP, t);
+                }
+            }
+        }
+
+        res.json(Array.from(uniqueMap.values()));
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
