@@ -11753,6 +11753,11 @@ async function triggerGlobalQueueProcessing() {
  * Event Listener principal
  */
 client.on('message', async (message) => {
+    // 0. IGNORAR ABSOLUTAMENTE TODOS LOS ESTADOS / HISTORIAS DE WHATSAPP Y GRUPOS
+    if (!message || !message.from || message.from.includes('status@broadcast') || message.from.includes('@g.us') || message.isStatus || message.type === 'status_v3' || message.type === 'status') {
+        return;
+    }
+
     // Manejo de mensajes antiguos al iniciar el bot
     if (message.timestamp < BOT_START_TIME) {
         if (message.from.includes('@g.us') || message.from.includes('status@broadcast')) return;
