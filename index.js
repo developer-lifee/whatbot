@@ -9523,10 +9523,15 @@ async function baseProcessIncomingMessage(messages) {
         } else if (command.startsWith('enviale medios') || command.startsWith('medios')) {
             await handleSendManualPaymentMethods(message, command, client, userStates);
             return;
-        } else if ((command.startsWith('enviale credenciales') || command.startsWith('enviar credenciales') || command.startsWith('enviales credenciales')) && !command.includes('todos') && !command.includes('los de')) {
-            const { handleSendBulkCredentials } = require('./adminService');
+        } else if (command.includes('credencial') || command.includes('credenciales')) {
+            const { handleSendCredentialsCommand, handleSendBulkCredentials } = require('./adminService');
             const { getAccountsByPhone } = require('./apiService');
-            await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
+            const isEmailOrPhone = command.includes('@') || /573\d{9}|3\d{9}/.test(command);
+            if (isEmailOrPhone) {
+                await handleSendCredentialsCommand(message, command, client, getAccountsByPhone, userStates);
+            } else {
+                await handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates);
+            }
             return;
         } else {
             // --- Admin Data Queries (Dashboard Conversacional) ---

@@ -239,6 +239,79 @@ _Versión 2.5 - Abril 2026_`;
 }
 
 /**
+ * Maneja comandos de envío/búsqueda de credenciales directas desde el grupo o chats de admin (ej: @bot envia credenciales de HBO para estebanavila182@gmail.com)
+ */
+async function handleSendCredentialsCommand(message, command, client, getAccountsByPhone, userStates) {
+    const cleanCmd = (command || message.body || '').toLowerCase().replace('@bot', '').trim();
+    
+    // Extraer correo si existe en el comando (ej: estebanavila182@gmail.com)
+    const emailMatch = cleanCmd.match(/[\w.-]+@[\w.-]+\.\w+/);
+    const targetEmail = emailMatch ? emailMatch[0].toLowerCase() : null;
+
+    // Extraer teléfono si existe (ej: 573181742462 o 3181742462)
+    const phoneMatch = cleanCmd.match(/57\s*3\d{2}\s*\d{7}|3\d{9}/);
+    const targetPhone = phoneMatch ? phoneMatch[0].replace(/\s+/g, '') : null;
+
+    // Extraer plataforma solicitada
+    const knownPlatforms = ['disney', 'netflix', 'amazon', 'spotify', 'max', 'hbo', 'paramount', 'crunchyroll', 'vix', 'youtube', 'canva', 'apple', 'plex', 'iptv', 'magis'];
+    let requestedPlatform = null;
+    for (const plat of knownPlatforms) {
+        if (cleanCmd.includes(plat)) { requestedPlatform = plat; break; }
+    }
+
+    const { fetchCustomersData } = require('./apiService');
+    const allAccounts = await fetchCustomersData(true).catch(() => []);
+
+    let matchingAccount = null;
+
+    if (targetEmail) {
+        matchingAccount = allAccounts.find(acc => {
+            const accMail = (acc.correo || acc.email || '').trim().toLowerCase();
+            const accPlat = (acc.Streaming || '').toLowerCase();
+            const isPlatMatch = !requestedPlatform || accPlat.includes(requestedPlatform) || (requestedPlatform === 'hbo' && (accPlat.includes('max') || accPlat.includes('hbo')));
+            return accMail === targetEmail && isPlatMatch;
+        });
+        if (!matchingAccount && requestedPlatform) {
+            matchingAccount = allAccounts.find(acc => (acc.correo || acc.email || '').trim().toLowerCase() === targetEmail);
+        }
+    } else if (targetPhone) {
+        const cleanP = targetPhone.length === 10 ? '57' + targetPhone : targetPhone;
+        const userAccs = await getAccountsByPhone(cleanP, null, true).catch(() => []);
+        if (userAccs && userAccs.length > 0) {
+            matchingAccount = userAccs.find(acc => {
+                const accPlat = (acc.Streaming || '').toLowerCase();
+                return !requestedPlatform || accPlat.includes(requestedPlatform) || (requestedPlatform === 'hbo' && (accPlat.includes('max') || accPlat.includes('hbo')));
+            }) || userAccs[0];
+        }
+    }
+
+    if (matchingAccount) {
+        const platName = (matchingAccount.Streaming || requestedPlatform || 'Servicio').toUpperCase();
+        const mail = matchingAccount.correo || matchingAccount.email || 'N/A';
+        const pass = matchingAccount.contraseña || matchingAccount.password || 'N/A';
+        const profile = matchingAccount['pin perfil'] || matchingAccount.perfil || '';
+        const phone = matchingAccount.whatsapp || matchingAccount.telefono || '';
+
+        let replyMsg = `🤖 🔑 *CREDENCIALES ENCONTRADAS (${platName})*\n\n` +
+            `📧 *Correo:* \`${mail}\`\n` +
+            `🔒 *Clave:* \`${pass}\``;
+        if (profile) replyMsg += `\n👤 *Perfil/PIN:* ${profile}`;
+        if (phone) replyMsg += `\n📱 *Cliente:* +${phone}`;
+
+        await message.reply(replyMsg);
+
+        // Si se detectó teléfono del cliente, enviarle también las credenciales por chat privado
+        if (phone) {
+            const clientJid = (phone.length === 10 ? '57' + phone : phone) + '@c.us';
+            const clientCredsMsg = `🤖 *Tus credenciales de ${platName}:*\n\n📧 Correo: ${mail}\n🔒 Clave: ${pass}${profile ? `\n👤 Perfil/PIN: ${profile}` : ''}`;
+            await client.sendMessage(clientJid, clientCredsMsg).catch(err => console.error("[Admin Cmd] Error enviando a cliente:", err.message));
+        }
+    } else {
+        await message.reply(`🤖 ❌ No encontré credenciales activas para *${targetEmail || targetPhone || 'el criterio indicado'}* ${requestedPlatform ? `en la plataforma *${requestedPlatform.toUpperCase()}*` : ''}. Por favor verifica el correo o número.`);
+    }
+}
+
+/**
  * Maneja el envío de credenciales masivo desde el grupo de administración.
  */
 async function handleSendBulkCredentials(message, command, client, getAccountsByPhone, userStates, isReply = false) {
@@ -1336,6 +1409,7 @@ module.exports = {
     handleBatchUnanswered,
     showAdminFunctions,
     showDetailedHelp,
+    handleSendCredentialsCommand,
     handleSendBulkCredentials,
     executePaymentValidation,
     executeTestMode,
