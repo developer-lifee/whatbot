@@ -563,7 +563,9 @@ async function showPlanSelection(message, userId, userStates) {
   }
 
   availablePlans.forEach((plan, idx) => {
-      reply += `${idx + 1}. ${plan.name} - $${plan.price}\n  ${plan.characteristics.join('\n  ')}\n`;
+      const numPrice = parseInt(plan.price) || 0;
+      const formattedPrice = numPrice > 0 ? `$${numPrice.toLocaleString('es-CO')} COP` : `$${plan.price}`;
+      reply += `*${idx + 1}.* ${plan.name} - ${formattedPrice}\n`;
   });
   
   if (warnings.length > 0) {
