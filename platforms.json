@@ -19,8 +19,7 @@
           "Alta definición 4K + HDR con su lista exclusiva",
           "Entrega en tiempo real"
         ],
-        "detalles": "Perfil en una cuenta compartida de Sheerit. Sujeto a restricciones de hogar de Netflix si se usa en TV.",
-        "isPersonalEmail": false
+        "detalles": "Perfil en una cuenta compartida de Sheerit. Sujeto a restricciones de hogar de Netflix si se usa en TV."
       },
       {
         "id": 102,
@@ -31,8 +30,7 @@
           "Alta definición 4K + HDR con su lista exclusiva",
           "Correo personalizado, ideal para diferentes locaciones"
         ],
-        "detalles": "Perfil individual con tu propio correo y clave. Ideal para evitar el bloqueo de 'Hogar Netflix' en cualquier ciudad u operador.",
-        "isPersonalEmail": true
+        "detalles": "Perfil individual con tu propio correo y clave. Ideal para evitar el bloqueo de 'Hogar Netflix' en cualquier ciudad u operador."
       }
     ]
   },
@@ -56,8 +54,7 @@
           "IA actualizada y límites amplios",
           "Entrega en tiempo real"
         ],
-        "detalles": "Te entregamos correo y clave. Cuenta compartida. Se recomienda desactivar la 'Memoria' en ajustes para privacidad.",
-        "isPersonalEmail": false
+        "detalles": "Te entregamos correo y clave. Cuenta compartida. Se recomienda desactivar la 'Memoria' en ajustes para privacidad."
       }
     ]
   },
@@ -65,7 +62,7 @@
     "id": 15,
     "name": "Microsoft 365",
     "image": "https://th.bing.com/th/id/OIP.9vkItxSZEt6JEXNQy_sVcQHaEJ?cb=iwc2&rs=1&pid=ImgDetMain",
-    "price": 13000,
+    "price": 5000,
     "characteristics": [
       "Cuenta compartida con nuestro correo",
       "Ideal para tener Office original a menor costo",
@@ -81,8 +78,7 @@
           "Ideal para tener Office original a menor costo",
           "Almacenamiento en OneDrive"
         ],
-        "detalles": "Acceso mediante un correo de Sheerit. Recomendado solo para uso básico de Office.",
-        "isPersonalEmail": false
+        "detalles": "Acceso mediante un correo de Sheerit. Recomendado solo para uso básico de Office."
       },
       {
         "id": 1502,
@@ -93,8 +89,7 @@
           "Suite de Office (Word, Excel, PowerPoint)",
           "Usa tu propio correo de Microsoft"
         ],
-        "detalles": "Se activa en tu propio correo personal. Incluye 1TB de OneDrive y suite completa con privacidad total.",
-        "isPersonalEmail": true
+        "detalles": "Se activa en tu propio correo personal. Incluye 1TB de OneDrive y suite completa con privacidad total."
       }
     ]
   },
@@ -117,8 +112,7 @@
           "Cuenta estable, con ESPN (champions y conmebol libertadores)",
           "Clasificación de cine: 18+/R21/TV-MA",
           "Entrega en tiempo real"
-        ],
-        "isPersonalEmail": false
+        ]
       }
     ]
   },
@@ -142,8 +136,7 @@
           "Precio económico",
           "Probables indisponibilidades ocasionales",
           "Entrega en tiempo real"
-        ],
-        "isPersonalEmail": false
+        ]
       },
       {
         "id": 302,
@@ -154,8 +147,7 @@
           "Máxima estabilidad (Sin caídas)",
           "Contenido HDR y Dolby Atmos",
           "Entrega en tiempo real"
-        ],
-        "isPersonalEmail": false
+        ]
       }
     ]
   },
@@ -164,14 +156,23 @@
     "name": "Prime Video",
     "image": "https://th.bing.com/th/id/OIP.hOyeETmfMNoeV9ThyQMNBQHaHa?cb=iwc2&rs=1&pid=ImgDetMain",
     "price": 10000,
-    "characteristics": [],
+    "characteristics": [
+      "Cuenta estable y garantizada",
+      "Calidad 4K Ultra HD + HDR",
+      "Acceso limitado a todo el catálogo",
+      "Entrega en tiempo real"
+    ],
     "plans": [
       {
         "id": 401,
         "name": "Suscripción",
         "price": 10000,
-        "characteristics": [],
-        "isPersonalEmail": false
+        "characteristics": [
+          "Cuenta estable y garantizada",
+          "Calidad 4K Ultra HD + HDR",
+          "Acceso ilimitado a todo el catálogo",
+          "Entrega en tiempo real"
+        ]
       }
     ]
   },
@@ -180,14 +181,23 @@
     "name": "Vix Premium",
     "image": "https://th.bing.com/th/id/OIP.fpsYx-rEZwqdPUUznf2I8QHaD4?cb=iwc2&rs=1&pid=ImgDetMain",
     "price": 7000,
-    "characteristics": [],
+    "characteristics": [
+      "Transmisiones de fútbol en vivo (Liga MX)",
+      "Todo el contenido en español",
+      "Series, películas y novelas exclusivas",
+      "Entrega en tiempo real"
+    ],
     "plans": [
       {
         "id": 1301,
         "name": "Suscripción",
         "price": 7000,
-        "characteristics": [],
-        "isPersonalEmail": false
+        "characteristics": [
+          "Transmisiones de fútbol en vivo (Liga MX)",
+          "Todo el contenido en español",
+          "Series, películas y novelas exclusivas",
+          "Entrega en tiempo real"
+        ]
       }
     ]
   },
@@ -212,8 +222,7 @@
           "Incluye TV, Music, Fitness y Arcade",
           "Acceso Familiar"
         ],
-        "detalles": "Se activa en tu propio Apple ID vía invitación familiar. Incluye Music, TV+, Arcade, Fitness+ y 345GB de iCloud.",
-        "isPersonalEmail": true
+        "detalles": "Se activa en tu propio Apple ID vía invitación familiar. Incluye Music, TV+, Arcade, Fitness+ y 345GB de iCloud."
       },
       {
         "id": 1402,
@@ -225,8 +234,7 @@
           "acceso garantizado por nosotros",
           "Producciones originales"
         ],
-        "detalles": "Acceso a una cuenta con el servicio de streaming Apple TV+. Calidad 4K y producciones originales.",
-        "isPersonalEmail": false
+        "detalles": "Acceso a una cuenta con el servicio de streaming Apple TV+. Calidad 4K y producciones originales."
       }
     ]
   },
@@ -250,8 +258,7 @@
           "Usa tu cuenta personal",
           "Reproducción segundo plano",
           "Incluye YouTube Music"
-        ],
-        "isPersonalEmail": true
+        ]
       }
     ]
   },
@@ -276,8 +283,7 @@
           "1 perfil individual",
           "Transmisión en vivo y catálogo completo",
           "Entrega en tiempo real"
-        ],
-        "isPersonalEmail": false
+        ]
       }
     ]
   },
@@ -301,8 +307,7 @@
           "Uso personal, no compartida",
           "Cuenta estable"
         ],
-        "detalles": "Se entrega una cuenta nueva o se renueva una cuenta que ya te hayamos proporcionado antes.",
-        "isPersonalEmail": false
+        "detalles": "Se entrega una cuenta nueva o se renueva una cuenta que ya te hayamos proporcionado antes."
       },
       {
         "id": 1002,
@@ -313,8 +318,7 @@
           "Uso personal, no compartida",
           "Mantén tus listas y favoritos"
         ],
-        "detalles": "Activamos el premium en tu propia cuenta de Spotify con tu mismo correo. Privacidad total.",
-        "isPersonalEmail": true
+        "detalles": "Activamos el premium en tu propia cuenta de Spotify con tu mismo correo. Privacidad total."
       }
     ]
   },
@@ -337,8 +341,7 @@
           "Cuenta estable 12 meses",
           "Clasificación 18+/R21/TV-MA",
           "Todo el anime disponible"
-        ],
-        "isPersonalEmail": false
+        ]
       }
     ]
   },
@@ -363,8 +366,7 @@
           "Rutas de aprendizaje",
           "Certificados profesionales",
           "Comunidad y eventos"
-        ],
-        "isPersonalEmail": false
+        ]
       },
       {
         "id": 1602,
@@ -375,8 +377,7 @@
           "Precio total $150.000",
           "Certificados a tu nombre",
           "Acceso Expert completo"
-        ],
-        "isPersonalEmail": true
+        ]
       }
     ]
   },
@@ -401,8 +402,7 @@
           "VOD actualizado",
           "HD/FHD/4K",
           "Multi dispositivo"
-        ],
-        "isPersonalEmail": false
+        ]
       }
     ]
   },
@@ -430,8 +430,7 @@
           "Modelo 3.1 Pro (Uso básico)",
           "La opción más económica"
         ],
-        "detalles": "Cuenta compartida (Login de Sheerit). Créditos de IA y uso de modelos avanzados compartidos con otros.",
-        "isPersonalEmail": false
+        "detalles": "Cuenta compartida (Login de Sheerit). Créditos de IA y uso de modelos avanzados compartidos con otros."
       },
       {
         "id": 1902,
@@ -444,15 +443,14 @@
           "Privacidad total (Nadie ve tus archivos/chats)",
           "Gemini en Workspace (Gmail, Docs, etc.)"
         ],
-        "detalles": "Se activa en tu propio correo personal. 1TB de espacio, 200 créditos de IA propios al mes y privacidad total.",
-        "isPersonalEmail": true
+        "detalles": "Se activa en tu propio correo personal. 1TB de espacio, 200 créditos de IA propios al mes y privacidad total."
       }
     ]
   },
   {
     "id": 21,
     "name": "Canva Pro",
-    "image": "https://www.nintenderos.com/wp-content/uploads/2024/10/Canva.jpg.webp",
+    "image": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR3nqOKvDhnZ1n_LVEIWBM7xfWlk9LLEWtcXQ&s",
     "price": 7000,
     "characteristics": [
       "Especialistas en creación de contenido",
@@ -470,8 +468,7 @@
           "Acceso completo a Canva Pro",
           "Todas las herramientas premium",
           "100GB de almacenamiento"
-        ],
-        "isPersonalEmail": true
+        ]
       },
       {
         "id": 2102,
@@ -481,15 +478,14 @@
           "Acceso completo a Canva Pro",
           "Todas las herramientas premium",
           "Ahorro frente al plan mensual"
-        ],
-        "isPersonalEmail": true
+        ]
       }
     ]
   },
   {
     "id": 23,
     "name": "Claude Pro & Claude Max",
-    "image": "/plataform/claude.svg",
+    "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Claude-ai-icon.svg/960px-Claude-ai-icon.svg.png?_=20250728014952",
     "price": 20000,
     "characteristics": [
       "Planes Pro y Claude Max para desarrollo e investigación",

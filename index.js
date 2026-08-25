@@ -3277,6 +3277,107 @@ app.get('/api/admin/prices', async (req, res) => {
     }
 });
 
+function syncPlatformPrices(platforms, dbPrices) {
+    const priceMap = {};
+    dbPrices.forEach(p => {
+        const clean = p.platform.toUpperCase().trim();
+        priceMap[clean] = parseFloat(p.normal_price);
+    });
+
+    return platforms.map(p => {
+        const nameUpper = (p.name || '').toUpperCase().trim();
+        
+        // Mapeo de precio base de la plataforma
+        if (nameUpper.includes('NETFLIX') && priceMap['NETFLIX'] !== undefined) p.price = priceMap['NETFLIX'];
+        else if (nameUpper.includes('DISNEY') && priceMap['DISNEY'] !== undefined) p.price = priceMap['DISNEY'];
+        else if ((nameUpper.includes('HBO') || nameUpper.includes('MAX')) && priceMap['HBO'] !== undefined) p.price = priceMap['HBO'];
+        else if ((nameUpper.includes('PRIME') || nameUpper.includes('AMAZON')) && priceMap['AMAZON'] !== undefined) p.price = priceMap['AMAZON'];
+        else if (nameUpper.includes('VIX') && priceMap['VIX'] !== undefined) p.price = priceMap['VIX'];
+        else if (nameUpper.includes('APPLE') && priceMap['APPLE TV'] !== undefined) p.price = priceMap['APPLE TV'];
+        else if (nameUpper.includes('YOUTUBE') && priceMap['YOUTUBE'] !== undefined) p.price = priceMap['YOUTUBE'];
+        else if (nameUpper.includes('PARAMOUNT') && priceMap['PARAMOUNT'] !== undefined) p.price = priceMap['PARAMOUNT'];
+        else if (nameUpper.includes('SPOTIFY') && priceMap['SPOTIFY'] !== undefined) p.price = priceMap['SPOTIFY'];
+        else if (nameUpper.includes('CRUNCHY') && priceMap['CRUNCHY ROLL'] !== undefined) p.price = priceMap['CRUNCHY ROLL'];
+        else if (nameUpper.includes('PLATZI') && priceMap['PLATZI COMPARTIDA'] !== undefined) p.price = priceMap['PLATZI COMPARTIDA'];
+        else if (nameUpper.includes('IPTV') && priceMap['IPTV'] !== undefined) p.price = priceMap['IPTV'];
+        else if (nameUpper.includes('GEMINI') && priceMap['GEMINI COMPARTIDA'] !== undefined) p.price = priceMap['GEMINI COMPARTIDA'];
+        else if (nameUpper.includes('CANVA') && priceMap['CANVA'] !== undefined) p.price = priceMap['CANVA'];
+        else if (nameUpper.includes('CLAUDE') && priceMap['CLAUDE'] !== undefined) p.price = priceMap['CLAUDE'];
+        else if (nameUpper.includes('CHATGPT') || nameUpper.includes('GPT')) {
+            if (priceMap['GPT'] !== undefined) p.price = priceMap['GPT'];
+        } else if (nameUpper.includes('MICROSOFT')) {
+            if (priceMap['MICROSOFT COMPARTIDA'] !== undefined) p.price = priceMap['MICROSOFT COMPARTIDA'];
+        }
+
+        // Mapeo detallado de planes individuales
+        if (p.plans && p.plans.length > 0) {
+            p.plans = p.plans.map(plan => {
+                const planUpper = (plan.name || '').toUpperCase().trim();
+                
+                // Netflix
+                if (nameUpper.includes('NETFLIX')) {
+                    if (planUpper.includes('EXTRA') && priceMap['NETFLIX EXTRA'] !== undefined) plan.price = priceMap['NETFLIX EXTRA'];
+                    else if (priceMap['NETFLIX'] !== undefined) plan.price = priceMap['NETFLIX'];
+                }
+                // HBO / Max
+                else if (nameUpper.includes('HBO') || nameUpper.includes('MAX')) {
+                    if (planUpper.includes('PLATINO') && priceMap['HBO PLATINO'] !== undefined) plan.price = priceMap['HBO PLATINO'];
+                    else if (priceMap['HBO'] !== undefined) plan.price = priceMap['HBO'];
+                }
+                // Microsoft
+                else if (nameUpper.includes('MICROSOFT')) {
+                    if (planUpper.includes('PERSONAL') && priceMap['MICROSOFT'] !== undefined) plan.price = priceMap['MICROSOFT'];
+                    else if (priceMap['MICROSOFT COMPARTIDA'] !== undefined) plan.price = priceMap['MICROSOFT COMPARTIDA'];
+                }
+                // Spotify
+                else if (nameUpper.includes('SPOTIFY')) {
+                    if ((planUpper.includes('PERSONAL') || planUpper.includes('TU CORREO') || planUpper.includes('OWNER')) && priceMap['SPOTIFY OWNER'] !== undefined) plan.price = priceMap['SPOTIFY OWNER'];
+                    else if (priceMap['SPOTIFY'] !== undefined) plan.price = priceMap['SPOTIFY'];
+                }
+                // YouTube
+                else if (nameUpper.includes('YOUTUBE')) {
+                    if (planUpper.includes('OWNER') && priceMap['YOUTUBE OWNER'] !== undefined) plan.price = priceMap['YOUTUBE OWNER'];
+                    else if (priceMap['YOUTUBE'] !== undefined) plan.price = priceMap['YOUTUBE'];
+                }
+                // Apple
+                else if (nameUpper.includes('APPLE')) {
+                    if (planUpper.includes('ONE') && priceMap['APPLE ONE'] !== undefined) plan.price = priceMap['APPLE ONE'];
+                    else if (planUpper.includes('TV') && priceMap['APPLE TV'] !== undefined) plan.price = priceMap['APPLE TV'];
+                }
+                // Gemini
+                else if (nameUpper.includes('GEMINI')) {
+                    if ((planUpper.includes('CORREO PROPIO') || planUpper.includes('PERSONAL')) && priceMap['GEMINI'] !== undefined) plan.price = priceMap['GEMINI'];
+                    else if (priceMap['GEMINI COMPARTIDA'] !== undefined) plan.price = priceMap['GEMINI COMPARTIDA'];
+                }
+                // Platzi
+                else if (nameUpper.includes('PLATZI')) {
+                    if ((planUpper.includes('TRIMESTRAL') || planUpper.includes('PERSONAL')) && priceMap['PLATZI'] !== undefined) plan.price = priceMap['PLATZI'];
+                    else if (priceMap['PLATZI COMPARTIDA'] !== undefined) plan.price = priceMap['PLATZI COMPARTIDA'];
+                }
+                // Canva
+                else if (nameUpper.includes('CANVA')) {
+                    if (planUpper.includes('MENSUAL') && priceMap['CANVA'] !== undefined) plan.price = priceMap['CANVA'];
+                }
+                // Claude
+                else if (nameUpper.includes('CLAUDE')) {
+                    if (planUpper.includes('ESTÁNDAR') && priceMap['CLAUDE'] !== undefined) plan.price = priceMap['CLAUDE'];
+                }
+                // Disney / Prime / Vix / IPTV / Paramount
+                else if (nameUpper.includes('DISNEY') && priceMap['DISNEY'] !== undefined) plan.price = priceMap['DISNEY'];
+                else if ((nameUpper.includes('PRIME') || nameUpper.includes('AMAZON')) && priceMap['AMAZON'] !== undefined) plan.price = priceMap['AMAZON'];
+                else if (nameUpper.includes('VIX') && priceMap['VIX'] !== undefined) plan.price = priceMap['VIX'];
+                else if (nameUpper.includes('PARAMOUNT') && priceMap['PARAMOUNT'] !== undefined) plan.price = priceMap['PARAMOUNT'];
+                else if (nameUpper.includes('CRUNCHY') && priceMap['CRUNCHY ROLL'] !== undefined) plan.price = priceMap['CRUNCHY ROLL'];
+                else if (nameUpper.includes('IPTV') && priceMap['IPTV'] !== undefined) plan.price = priceMap['IPTV'];
+                else if ((nameUpper.includes('CHATGPT') || nameUpper.includes('GPT')) && priceMap['GPT'] !== undefined) plan.price = priceMap['GPT'];
+
+                return plan;
+            });
+        }
+        return p;
+    });
+}
+
 app.get('/api/public/platforms', async (req, res) => {
     try {
         const fs = require('fs');
@@ -3295,26 +3396,7 @@ app.get('/api/public/platforms', async (req, res) => {
         }
 
         const [dbPrices] = await pool.query('SELECT * FROM streaming_prices');
-        const priceMap = {};
-        dbPrices.forEach(p => {
-            priceMap[p.platform.toLowerCase().replace(/[^a-z0-9]/g, '')] = parseFloat(p.normal_price);
-        });
-
-        platforms = platforms.map(p => {
-            const cleanName = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-            if (priceMap[cleanName] !== undefined) {
-                p.price = priceMap[cleanName];
-                if (p.plans && p.plans.length > 0) {
-                    p.plans = p.plans.map(plan => {
-                        if (p.plans.length === 1) {
-                            plan.price = priceMap[cleanName];
-                        }
-                        return plan;
-                    });
-                }
-            }
-            return p;
-        });
+        platforms = syncPlatformPrices(platforms, dbPrices);
 
         res.json(platforms);
     } catch (e) {
@@ -3563,6 +3645,33 @@ app.post('/api/admin/prices/save', async (req, res) => {
         const { platform, price, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         await accountingService.savePrice(platform, price);
+
+        // Auto-sincronizar platforms.json en disco
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const localPath = path.join(__dirname, 'platforms.json');
+            const webPath = '/var/www/sheerit.com.co/data/platforms.json';
+            const [dbPrices] = await pool.query('SELECT * FROM streaming_prices');
+
+            let basePlatforms = [];
+            if (fs.existsSync(localPath)) {
+                basePlatforms = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+            } else if (fs.existsSync(webPath)) {
+                basePlatforms = JSON.parse(fs.readFileSync(webPath, 'utf8'));
+            }
+
+            if (basePlatforms.length > 0) {
+                const synced = syncPlatformPrices(basePlatforms, dbPrices);
+                fs.writeFileSync(localPath, JSON.stringify(synced, null, 2), 'utf8');
+                if (fs.existsSync('/var/www/sheerit.com.co/data')) {
+                    fs.writeFileSync(webPath, JSON.stringify(synced, null, 2), 'utf8');
+                }
+            }
+        } catch (syncErr) {
+            console.error('[Price Save Sync Error]', syncErr.message);
+        }
+
         res.json({ success: true, message: 'Precio actualizado con éxito' });
     } catch (e) {
         res.status(500).json({ error: e.message });
