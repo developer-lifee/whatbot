@@ -1835,6 +1835,45 @@ let classifiedTicketsCache = new Map(); // phone -> { lastMessage, state, summar
 let lastAiClassificationTime = 0;
 const AI_CLASSIFICATION_INTERVAL = 45 * 1000; // run classification every 45 seconds
 
+const AI_CACHE_FILE = path.join(__dirname, 'ticket_ai_cache.json');
+
+function loadAiClassificationCache() {
+    try {
+        if (fs.existsSync(AI_CACHE_FILE)) {
+            const raw = fs.readFileSync(AI_CACHE_FILE, 'utf8');
+            const data = JSON.parse(raw);
+            if (Array.isArray(data.probablyFinished)) {
+                probablyFinishedTickets = new Set(data.probablyFinished);
+            }
+            if (data.summaries && typeof data.summaries === 'object') {
+                aiTicketsSummaries = new Map(Object.entries(data.summaries));
+            }
+            if (data.cache && typeof data.cache === 'object') {
+                classifiedTicketsCache = new Map(Object.entries(data.cache));
+            }
+            console.log(`[AI Cache] 💾 ${classifiedTicketsCache.size} tickets cargados desde memoria persistente (disco).`);
+        }
+    } catch (err) {
+        console.error('[AI Cache] Error cargando caché desde disco:', err.message);
+    }
+}
+
+function saveAiClassificationCache() {
+    try {
+        const payload = {
+            probablyFinished: Array.from(probablyFinishedTickets),
+            summaries: Object.fromEntries(aiTicketsSummaries),
+            cache: Object.fromEntries(classifiedTicketsCache)
+        };
+        fs.writeFileSync(AI_CACHE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+    } catch (err) {
+        console.error('[AI Cache] Error guardando caché en disco:', err.message);
+    }
+}
+
+// Cargar caché de tickets al inicializar el servidor
+loadAiClassificationCache();
+
 async function updateAiTicketsClassification() {
     try {
         if (!client || currentWhatsappStatus !== 'CONNECTED') {
@@ -1894,15 +1933,18 @@ async function updateAiTicketsClassification() {
         }
 
         // Clean up stale cache items
+        let cacheDirty = false;
         for (const cachedPhone of classifiedTicketsCache.keys()) {
             if (!currentActivePhones.has(cachedPhone)) {
                 classifiedTicketsCache.delete(cachedPhone);
                 probablyFinishedTickets.delete(cachedPhone);
                 aiTicketsSummaries.delete(cachedPhone);
+                cacheDirty = true;
             }
         }
 
         if (ticketsToClassify.length === 0) {
+            if (cacheDirty) saveAiClassificationCache();
             console.log(`[AI Classification Cache] No changes in active tickets. Skipping LLM classification call.`);
             return;
         }
@@ -1956,6 +1998,7 @@ Devuelve **únicamente** un objeto JSON estructurado así (sin marcas markdown d
                 });
             });
 
+            saveAiClassificationCache();
             console.log(`[AI Classification Cache] Re-classified ${ticketsToClassify.length} tickets. Cache size: ${classifiedTicketsCache.size}. Probably finished total: ${probablyFinishedTickets.size}`);
         }
     } catch (err) {
