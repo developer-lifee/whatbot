@@ -44,12 +44,12 @@ async function getSystemPromptTemplate() {
   return "Responde de forma amable a: {{MESSAGE_CONTENT}}";
 }
 
-// Supported API Keys array for automated rotation and failover
-const GEMINI_KEYS = [
-  process.env.GEMINI_API_KEY_182,
-  process.env.GEMINI_API_KEY_6324,
-  process.env.GEMINI_API_KEY
-].filter(Boolean);
+// Supported API Keys array for automated rotation and failover (detecta dinámicamente cualquier GEMINI_API_KEY* o GOOGLE_API_KEY*)
+const GEMINI_KEYS = Array.from(new Set(
+  Object.entries(process.env)
+    .filter(([key, val]) => (key.startsWith('GEMINI_API_KEY') || key.startsWith('GOOGLE_API_KEY')) && val && val.trim().length > 10)
+    .map(([_, val]) => val.trim())
+));
 
 let currentKeyIndex = 0;
 
@@ -170,7 +170,8 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-3.1-flash-lite" // Solo el modelo Lite ultra económico y rápido
+  "gemini-flash-lite-latest", // Modelo rápido y ultra económico
+  "gemini-flash-latest"       // Backup estándar
 ];
 
 /**
