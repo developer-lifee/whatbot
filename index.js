@@ -229,6 +229,41 @@ function saveUserStates() {
     }
 }
 
+/**
+ * Consolida todos los registros LID en una sola identidad canónica (número real @c.us).
+ * Elimina duplicados de memoria y de disco.
+ */
+function consolidateCanonicalUserStates() {
+    let mergedCount = 0;
+    for (const [key, state] of Array.from(userStates.entries())) {
+        if (!state) continue;
+        const cleanKey = key.replace(/\D/g, '');
+        const isLidKey = key.includes('@lid') || cleanKey.length > 12;
+        const realPhone = state.realPhone ? String(state.realPhone).replace(/\D/g, '') : '';
+
+        if (isLidKey && realPhone && realPhone !== cleanKey) {
+            const canonicalKey = realPhone + '@c.us';
+            const existingCanonical = userStates.get(canonicalKey) || {};
+
+            userStates.set(canonicalKey, {
+                ...existingCanonical,
+                ...state,
+                realPhone,
+                chatJid: key.includes('@lid') ? key : (state.chatJid || `${cleanKey}@lid`)
+            });
+            userStates.delete(key);
+            mergedCount++;
+        }
+    }
+    if (mergedCount > 0) {
+        console.log(`[Canonical Identity] 🔄 Consolidados ${mergedCount} estados LID duplicados en sus identidades canónicas reales.`);
+        saveUserStates();
+    }
+}
+
+// Ejecutar consolidación inicial
+consolidateCanonicalUserStates();
+
 // Sobrescribir Map.set y Map.delete para auto-guardar
 const originalSet = userStates.set.bind(userStates);
 userStates.set = function (key, value) {
