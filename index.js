@@ -2651,12 +2651,20 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
             } catch (e) { }
         }
 
+        const last10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+
         // Emparejar todos los JIDs y LIDs en userStates que correspondan a este teléfono
         for (const [sKey, sVal] of userStates.entries()) {
             if (!sVal) continue;
             const sClean = sKey.replace(/\D/g, '');
             const sReal = sVal.realPhone ? String(sVal.realPhone).replace(/\D/g, '') : '';
-            if (sClean === cleanPhone || sReal === cleanPhone || (cleanPhone.length >= 10 && sClean.endsWith(cleanPhone.slice(-10)))) {
+            const sPhone = sVal.phone ? String(sVal.phone).replace(/\D/g, '') : '';
+            if (
+                sClean === cleanPhone || 
+                sReal === cleanPhone || 
+                sPhone === cleanPhone ||
+                (last10.length >= 7 && (sClean.includes(last10) || sReal.includes(last10) || sPhone.includes(last10)))
+            ) {
                 possibleJids.push(sKey);
             }
         }
@@ -2714,20 +2722,28 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         try {
             await pool.query(
                 'UPDATE tickets SET status = "resolved", updated_at = NOW() WHERE chat_id IN (?) OR chat_id LIKE ?',
-                [uniqueJids, `%${cleanPhone}%`]
+                [uniqueJids, `%${last10}%`]
+            );
+            await pool.query(
+                'UPDATE chats SET status = "bot", updated_at = NOW() WHERE chat_id IN (?) OR customer_phone LIKE ?',
+                [uniqueJids, `%${last10}%`]
             );
         } catch (dbErr) {
             console.error('[Tickets DB Resolve] Error actualizando tabla tickets en MariaDB:', dbErr.message);
         }
 
         for (const targetJid of uniqueJids) {
-            const stateData = userStates.get(targetJid) || {};
+            const curState = userStates.get(targetJid) || {};
             userStates.set(targetJid, {
-                ...(typeof stateData === 'object' ? stateData : { state: stateData }),
+                ...(typeof curState === 'object' ? curState : { state: curState }),
                 state: 'resolved',
                 agent: agentName,
-                resolvedAt: Date.now()
+                resolvedAt: Date.now(),
+                botMuted: false
             });
+            const cleanTarget = targetJid.replace('@c.us', '').replace('@lid', '');
+            probablyFinishedTickets.delete(cleanTarget);
+            probablyFinishedTickets.delete(cleanPhone);
         }
 
         // Auto-resolver tickets de otras personas que tengan las mismas cuentas/correos
@@ -2761,7 +2777,8 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                                 ...otherStateData,
                                 state: 'resolved',
                                 agent: otherAgentName,
-                                resolvedAt: Date.now()
+                                resolvedAt: Date.now(),
+                                botMuted: false
                             });
                             resolvedOthersCount++;
                         }
@@ -2771,6 +2788,9 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                 }
             }
         }
+
+        saveUserStates();
+        console.log(`[Tickets Resolve] ✅ Ticket para ${cleanPhone} (y ${uniqueJids.length} JIDs asociados) resuelto exitosamente.`);
 
         let message = 'Ticket resuelto y bot reactivado';
         if (resolvedOthersCount > 0) {
