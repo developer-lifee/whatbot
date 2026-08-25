@@ -1909,7 +1909,7 @@ async function updateAiTicketsClassification() {
 
         console.log(`[AI Classification Cache] Classifying ${ticketsToClassify.length} new/changed tickets out of ${activeTickets.length} total active.`);
 
-        const { callDeepSeek } = require('./aiService');
+        const { callGemini } = require('./aiService');
         const prompt = `Analiza la siguiente lista de tickets de soporte técnico y ventas en formato JSON:
 ${JSON.stringify(ticketsToClassify, null, 2)}
 
@@ -1929,8 +1929,8 @@ Devuelve **únicamente** un objeto JSON estructurado así (sin marcas markdown d
   }
 }`;
 
-        const responseJson = await callDeepSeek(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras.", true);
-        const parsed = JSON.parse(responseJson);
+        const responseJson = await callGemini(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras.", true);
+        const parsed = typeof responseJson === 'object' ? responseJson : JSON.parse(responseJson.replace(/```json/g, '').replace(/```/g, '').trim());
 
         if (parsed) {
             // Remove previous finished status for reclassified tickets before merging new results
