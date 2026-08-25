@@ -2624,6 +2624,7 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
 
         const cleanPhone = phone.replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
         const userId = cleanPhone + '@c.us';
+        const last10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
 
         // 1. Obtener estado previo del ticket que se está resolviendo
         const targetState = userStates.get(userId) || userStates.get(cleanPhone + '@lid') || userStates.get(cleanPhone + '@c.us') || {};
