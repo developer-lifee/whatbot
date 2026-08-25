@@ -231,15 +231,50 @@ function saveUserStates() {
 
 /**
  * Consolida todos los registros LID en una sola identidad canónica (número real @c.us).
- * Elimina duplicados de memoria y de disco.
+ * Elimina duplicados de memoria y de disco usando la tabla chats de MariaDB y userStates.
  */
-function consolidateCanonicalUserStates() {
+async function consolidateCanonicalUserStates() {
     let mergedCount = 0;
+    const lidToPhoneMap = new Map();
+
+    // 1. Obtener mapeos desde MariaDB
+    try {
+        const [rows] = await pool.query("SELECT chat_id, customer_phone FROM chats WHERE customer_phone IS NOT NULL AND customer_phone != ''");
+        rows.forEach(r => {
+            const cleanPhone = r.customer_phone.replace(/\D/g, '');
+            if (cleanPhone && cleanPhone.length >= 10) {
+                const cleanLid = r.chat_id.replace(/\D/g, '');
+                lidToPhoneMap.set(cleanLid, cleanPhone);
+                lidToPhoneMap.set(r.chat_id, cleanPhone);
+            }
+        });
+    } catch (e) { }
+
+    // 2. Obtener mapeos desde userStates existentes
+    for (const [key, state] of userStates.entries()) {
+        if (!state) continue;
+        const cleanKey = key.replace(/\D/g, '');
+        const realPhone = state.realPhone ? String(state.realPhone).replace(/\D/g, '') : '';
+        const chatJid = state.chatJid ? String(state.chatJid).replace(/\D/g, '') : '';
+        
+        if (cleanKey.length >= 10 && cleanKey.length <= 12 && chatJid && chatJid.length > 12) {
+            lidToPhoneMap.set(chatJid, cleanKey);
+        }
+        if (realPhone && realPhone.length >= 10 && realPhone.length <= 12 && cleanKey.length > 12) {
+            lidToPhoneMap.set(cleanKey, realPhone);
+        }
+    }
+
+    // 3. Consolidar todas las entradas de userStates
     for (const [key, state] of Array.from(userStates.entries())) {
         if (!state) continue;
         const cleanKey = key.replace(/\D/g, '');
         const isLidKey = key.includes('@lid') || cleanKey.length > 12;
-        const realPhone = state.realPhone ? String(state.realPhone).replace(/\D/g, '') : '';
+
+        let realPhone = state.realPhone ? String(state.realPhone).replace(/\D/g, '') : '';
+        if ((!realPhone || realPhone === cleanKey) && isLidKey) {
+            realPhone = lidToPhoneMap.get(cleanKey) || lidToPhoneMap.get(key) || '';
+        }
 
         if (isLidKey && realPhone && realPhone !== cleanKey) {
             const canonicalKey = realPhone + '@c.us';
@@ -255,6 +290,7 @@ function consolidateCanonicalUserStates() {
             mergedCount++;
         }
     }
+
     if (mergedCount > 0) {
         console.log(`[Canonical Identity] 🔄 Consolidados ${mergedCount} estados LID duplicados en sus identidades canónicas reales.`);
         saveUserStates();
@@ -262,7 +298,7 @@ function consolidateCanonicalUserStates() {
 }
 
 // Ejecutar consolidación inicial
-consolidateCanonicalUserStates();
+consolidateCanonicalUserStates().catch(err => console.error("[Canonical Identity Init]", err));
 
 // Sobrescribir Map.set y Map.delete para auto-guardar
 const originalSet = userStates.set.bind(userStates);
@@ -2672,6 +2708,7 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
             possibleJids.push(targetRealPhone + '@c.us', targetRealPhone + '@lid');
         }
 
+        let resolvedDbPhone = '';
         const isLid = cleanPhone.length > 12 || (!cleanPhone.startsWith('57') && cleanPhone.length > 10);
         if (isLid) {
             try {
@@ -2680,8 +2717,8 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                     [cleanPhone + '@lid', cleanPhone + '@c.us']
                 );
                 if (chatRows.length > 0 && chatRows[0].customer_phone) {
-                    const real = chatRows[0].customer_phone.replace(/\D/g, '');
-                    possibleJids.push(real + '@c.us', real + '@lid');
+                    resolvedDbPhone = chatRows[0].customer_phone.replace(/\D/g, '');
+                    possibleJids.push(resolvedDbPhone + '@c.us', resolvedDbPhone + '@lid');
                 }
             } catch (e) { }
         } else {
@@ -2696,22 +2733,31 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
             } catch (e) { }
         }
 
-        const phoneVariants = new Set([cleanPhone, targetRealPhone].filter(Boolean));
+        const canonicalPhone = resolvedDbPhone || (targetRealPhone.length >= 10 && targetRealPhone.length <= 12 ? targetRealPhone : '') || (cleanPhone.length >= 10 && cleanPhone.length <= 12 ? cleanPhone : '');
+
+        const phoneVariants = new Set([cleanPhone, targetRealPhone, resolvedDbPhone, canonicalPhone].filter(Boolean));
         phoneVariants.forEach(p => {
             if (p.length >= 10) phoneVariants.add(p.slice(-10));
         });
 
         // Emparejar todos los JIDs y LIDs en userStates que correspondan a este teléfono O nombre
-        for (const [sKey, sVal] of userStates.entries()) {
+        for (const [sKey, sVal] of Array.from(userStates.entries())) {
             if (!sVal) continue;
             const sClean = sKey.replace(/\D/g, '');
             const sReal = sVal.realPhone ? String(sVal.realPhone).replace(/\D/g, '') : '';
             const sPhone = sVal.phone ? String(sVal.phone).replace(/\D/g, '') : '';
+            const sChatJid = sVal.chatJid ? String(sVal.chatJid).replace(/\D/g, '') : '';
             const sNombre = (sVal.nombre || '').toLowerCase().trim();
 
             let matched = false;
             for (const pVar of phoneVariants) {
-                if (sClean === pVar || sReal === pVar || sPhone === pVar || (pVar.length >= 7 && (sClean.includes(pVar) || sReal.includes(pVar) || sPhone.includes(pVar)))) {
+                if (
+                    sClean === pVar || 
+                    sReal === pVar || 
+                    sPhone === pVar || 
+                    sChatJid === pVar ||
+                    (pVar.length >= 7 && (sClean.includes(pVar) || sReal.includes(pVar) || sPhone.includes(pVar) || sChatJid.includes(pVar)))
+                ) {
                     matched = true;
                     break;
                 }
@@ -2726,7 +2772,14 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
 
             if (matched) {
                 possibleJids.push(sKey);
+                // Si es una clave LID o duplicada huérfana, eliminarla de inmediato
+                if (sKey.includes('@lid') || sClean.length > 12) {
+                    userStates.delete(sKey);
+                }
             }
+        }
+        if (canonicalPhone) {
+            possibleJids.push(canonicalPhone + '@c.us');
         }
         const uniqueJids = Array.from(new Set(possibleJids));
 
