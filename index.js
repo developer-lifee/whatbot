@@ -2625,8 +2625,17 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         const cleanPhone = phone.replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
         const userId = cleanPhone + '@c.us';
 
+        // 1. Obtener estado previo del ticket que se está resolviendo
+        const targetState = userStates.get(userId) || userStates.get(cleanPhone + '@lid') || userStates.get(cleanPhone + '@c.us') || {};
+        const targetRealPhone = targetState.realPhone ? String(targetState.realPhone).replace(/\D/g, '') : '';
+        const targetNombre = (targetState.nombre || '').toLowerCase().trim();
+
         // Obtener todos los posibles JIDs asociados a este teléfono (LID y teléfono real)
         const possibleJids = [cleanPhone + '@c.us', cleanPhone + '@lid'];
+        if (targetRealPhone) {
+            possibleJids.push(targetRealPhone + '@c.us', targetRealPhone + '@lid');
+        }
+
         const isLid = cleanPhone.length > 12 || (!cleanPhone.startsWith('57') && cleanPhone.length > 10);
         if (isLid) {
             try {
@@ -2635,15 +2644,15 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                     [cleanPhone + '@lid', cleanPhone + '@c.us']
                 );
                 if (chatRows.length > 0 && chatRows[0].customer_phone) {
-                    const real = chatRows[0].customer_phone;
-                    possibleJids.push(real + '@c.us');
+                    const real = chatRows[0].customer_phone.replace(/\D/g, '');
+                    possibleJids.push(real + '@c.us', real + '@lid');
                 }
             } catch (e) { }
         } else {
             try {
                 const [chatRows] = await pool.query(
-                    'SELECT chat_id FROM chats WHERE customer_phone = ?',
-                    [cleanPhone]
+                    'SELECT chat_id FROM chats WHERE customer_phone = ? OR customer_phone LIKE ?',
+                    [cleanPhone, `%${cleanPhone.slice(-10)}%`]
                 );
                 chatRows.forEach(row => {
                     if (row.chat_id) possibleJids.push(row.chat_id);
@@ -2651,20 +2660,35 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
             } catch (e) { }
         }
 
-        const last10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+        const phoneVariants = new Set([cleanPhone, targetRealPhone].filter(Boolean));
+        phoneVariants.forEach(p => {
+            if (p.length >= 10) phoneVariants.add(p.slice(-10));
+        });
 
-        // Emparejar todos los JIDs y LIDs en userStates que correspondan a este teléfono
+        // Emparejar todos los JIDs y LIDs en userStates que correspondan a este teléfono O nombre
         for (const [sKey, sVal] of userStates.entries()) {
             if (!sVal) continue;
             const sClean = sKey.replace(/\D/g, '');
             const sReal = sVal.realPhone ? String(sVal.realPhone).replace(/\D/g, '') : '';
             const sPhone = sVal.phone ? String(sVal.phone).replace(/\D/g, '') : '';
-            if (
-                sClean === cleanPhone || 
-                sReal === cleanPhone || 
-                sPhone === cleanPhone ||
-                (last10.length >= 7 && (sClean.includes(last10) || sReal.includes(last10) || sPhone.includes(last10)))
-            ) {
+            const sNombre = (sVal.nombre || '').toLowerCase().trim();
+
+            let matched = false;
+            for (const pVar of phoneVariants) {
+                if (sClean === pVar || sReal === pVar || sPhone === pVar || (pVar.length >= 7 && (sClean.includes(pVar) || sReal.includes(pVar) || sPhone.includes(pVar)))) {
+                    matched = true;
+                    break;
+                }
+            }
+
+            // Coincidencia por nombre exacto si el nombre no es genérico
+            if (!matched && targetNombre && targetNombre !== 'cliente' && targetNombre !== 'cliente whatsapp') {
+                if (sNombre === targetNombre) {
+                    matched = true;
+                }
+            }
+
+            if (matched) {
                 possibleJids.push(sKey);
             }
         }
