@@ -295,12 +295,12 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     if (!accountOrStreaming) return 0;
     let streamingName = "";
     let isPersonal = false;
+    let fallbackExcelPrice = 0;
 
-    // 0. Si se pasa el objeto de cuenta de Excel, priorizar el precio real ya registrado en "Ingreso Mensual2" o "precio"
     if (typeof accountOrStreaming === 'object' && accountOrStreaming !== null) {
         const rawP = accountOrStreaming['Ingreso Mensual2'] || accountOrStreaming['ingreso mensual'] || accountOrStreaming.precio || accountOrStreaming.Precio || accountOrStreaming['precio cobrado'];
         if (rawP && !isNaN(Number(rawP)) && Number(rawP) >= 4000) {
-            return Number(rawP);
+            fallbackExcelPrice = Number(rawP);
         }
         const cMail = (accountOrStreaming['customer mail'] || accountOrStreaming['Customer Mail'] || '').toString().trim();
         const pinText = (accountOrStreaming['pin perfil'] || accountOrStreaming.pin || '').toString().toLowerCase();
@@ -312,7 +312,7 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         streamingName = String(accountOrStreaming || "");
     }
 
-    if (!streamingName) return 0;
+    if (!streamingName) return fallbackExcelPrice;
     const cleanName = streamingName.toString().trim().toUpperCase();
     if (cleanName.includes('PERSONAL') || cleanName.includes('TU CORREO')) {
         isPersonal = true;
@@ -324,10 +324,8 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         'NETFLIX EXTRA': 'NETFLIX EXTRA', 'EXTRA': 'NETFLIX EXTRA'
     };
     const targetName = aliasMap[cleanName] || cleanName;
-    const targetNorm = normalizeStreamingName(streamingName);
-    const targetAlphanum = cleanName.replace(/[^A-Z0-9]/g, '');
 
-    if (Array.isArray(platforms)) {
+    if (Array.isArray(platforms) && platforms.length > 0) {
         // 1. Buscar coincidencia exacta en el nombre de la plataforma y seleccionar plan según tipo (Personal vs Compartida)
         for (const p of platforms) {
             const pName = (p.name || '').toUpperCase();
@@ -337,7 +335,7 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
                         const persPlan = p.plans.find(pl => pl.isPersonalEmail || (pl.name && (pl.name.toLowerCase().includes('personal') || pl.name.toLowerCase().includes('tu correo'))));
                         if (persPlan && persPlan.price) return persPlan.price;
                     } else {
-                        const sharedPlan = p.plans.find(pl => !pl.isPersonalEmail && (pl.name && (pl.name.toLowerCase().includes('compartida') || pl.name.toLowerCase().includes('cuenta nueva'))));
+                        const sharedPlan = p.plans.find(pl => !pl.isPersonalEmail && (pl.name && (pl.name.toLowerCase().includes('compartida') || pl.name.toLowerCase().includes('cuenta nueva') || pl.name.toLowerCase().includes('apple one'))));
                         if (sharedPlan && sharedPlan.price) return sharedPlan.price;
                     }
                 }
@@ -345,34 +343,21 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
             }
         }
 
-        // 2. Buscar coincidencia exacta o cercana en planes de todas las plataformas
+        // 2. Buscar coincidencia en planes de todas las plataformas
         for (const p of platforms) {
             if (Array.isArray(p.plans)) {
-                for (const plan of p.plans) {
-                    const planName = (plan.name || '').toUpperCase();
-                    const fullPlanName = `${p.name || ''} ${plan.name || ''}`.toUpperCase();
-                    const planNorm = normalizeStreamingName(`${p.name || ''} ${plan.name || ''}`);
-                    const planAlphanum = fullPlanName.replace(/[^A-Z0-9]/g, '');
-
-                    // Evitar asignar plan Owner/Dueño si el registro del Excel no dice Owner
-                    if ((planName.includes('OWNER') || planName.includes('DUEÑO')) && !targetName.includes('OWNER') && !targetName.includes('DUEÑO')) {
-                        continue;
-                    }
-
-                    if (targetName === planName || targetName === fullPlanName ||
-                        targetAlphanum === planAlphanum ||
-                        (targetNorm && planNorm && targetNorm === planNorm) ||
-                        planName.includes(targetName) || targetName.includes(planName) ||
-                        fullPlanName.includes(targetName) || targetName.includes(fullPlanName)) {
-                        return plan.price || 0;
+                for (const pl of p.plans) {
+                    const plName = (pl.name || '').toUpperCase();
+                    if (plName === targetName || plName.includes(targetName) || targetName.includes(plName)) {
+                        if (pl.price) return pl.price;
                     }
                 }
             }
         }
+    }
 
-        // 3. Si no coincide con ningún plan, buscar coincidencia en el nombre de la plataforma
-        for (const p of platforms) {
-            const pName = (p.name || '').toUpperCase();
+    return fallbackExcelPrice;
+}
             const pNorm = normalizeStreamingName(p.name || '');
             const pAlphanum = pName.replace(/[^A-Z0-9]/g, '');
 

@@ -2129,6 +2129,13 @@ app.get('/api/admin/tickets', async (req, res) => {
                 const stateStr = typeof state === 'object' ? state.state : state;
                 const pendingStates = ['waiting_human', 'waiting_admin_confirmation'];
                 if (!pendingStates.includes(stateStr)) return null;
+
+                // Si el estado fue puesto por mensaje saliente del asesor (recordatorio/cobro manual)
+                // y el cliente aun NO ha respondido (clientWaitingSince es null), no se suma a Tickets Libres
+                if (typeof state === 'object' && state.waiting_human_mode === 'advisor' && !state.clientWaitingSince) {
+                    return null;
+                }
+
                 return [userId, state];
             }).filter(Boolean);
         }
