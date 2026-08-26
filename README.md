@@ -499,4 +499,20 @@ Para evitar bloqueos por parte de los sistemas automatizados de WhatsApp y asegu
 
 ### 4. 🧠 Autonomía Resolutiva de IA sin Bloqueos Rígidos
 - **Remoción de Filtros Hardcoded**: Se eliminó la lista de patrones de texto fijos (`isExplicitFailure`) que forzaba escalaciones erróneas ante frases como *"se me cerró la sesión de ChatGPT"*.
-- **Autoservicio Inteligente**: La IA (DeepSeek Chat) consulta las credenciales vigentes en `ACCOUNT_SUMMARY` y resuelve directamente consultas de contraseña o cierres de sesión sin crear tickets innecesarios.
+- **Autoservicio Inteligente**: La IA (DeepSeek Chat / Gemini Flash) consulta las credenciales vigentes en `ACCOUNT_SUMMARY` y resuelve directamente consultas de contraseña o cierres de sesión sin crear tickets innecesarios.
+
+---
+
+## 🧠 Arquitectura RAG Semántica y Búsqueda Vectorial (`ragKnowledgeService.js`) (Agosto 2026)
+
+Para eliminar la fragilidad de listas de palabras clave (`if (body.includes(...))`) y resolver problemas de modismos y falsos positivos en WhatsApp, el bot incorpora un **Motor RAG (Retrieval-Augmented Generation)** impulsado por **Google Gemini Embeddings**:
+
+### 1. Vectorización de Conocimiento con Gemini (`gemini-embedding-001`)
+* **Indexación Exhaustiva**: Al iniciar, el bot lee y fragmenta semánticamente `support.json`, `knowledge_base.json`, `policies.json` y `platforms.json` en fragmentos de alta granularidad.
+* **Caché Vectorial Local**: Almacena los vectores en `knowledge_embeddings_cache.json` junto con un hash MD5 de los archivos fuente para cargar en **<5 milisegundos** sin consumir peticiones redundantes.
+* **Similitud de Coseno en Memoria**: Búsqueda ultrarrápida que devuelve los 2 o 3 fragmentos con mayor afinidad conceptual ante cualquier duda del cliente (*"no me da el pin"*, *"me salió lo de viaje en el tele"*, *"no veo mi nombre en los perfiles"*).
+
+### 2. Guardrails y Reglas de Negocio Estrictas
+* 🚫 **Prohibición de Claves Inventadas**: La IA tiene prohibido inventar o alucinar contraseñas temporales (ej: `sheerit2026*`). Si el cliente reporta clave incorrecta, el sistema consulta de inmediato las credenciales reales en MariaDB.
+* 📅 **Coherencia Temporal**: Regla de cálculo estricto de fechas (si vence hoy, decir *"vence hoy"*, nunca *"venció el día de ayer"*).
+* 🔓 **Bypass Prioritario de Códigos 2FA**: Las solicitudes de códigos 2FA y verificación de Hogar Netflix tienen prioridad absoluta y saltan el silencio del bot (`hasRecentHuman` / `BOT MUTE`) para entregar el código en segundos.

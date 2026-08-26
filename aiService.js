@@ -1232,12 +1232,24 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     ? `https://sheerit.co/verificar?tel=${customerPhone}` 
     : `https://sheerit.co/verificar`;
 
+  let ragContext = "";
+  try {
+    const { searchKnowledge, formatRagContext } = require('./ragKnowledgeService');
+    const queryForRag = `${messageContent || ''} ${mediaDescription || ''}`.trim();
+    if (queryForRag) {
+      const ragResults = await searchKnowledge(queryForRag, 3);
+      ragContext = formatRagContext(ragResults);
+    }
+  } catch (ragErr) {
+    console.error("[RAG Fallback Error]:", ragErr.message);
+  }
+
   const prompt = template
     .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
     .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
     .replace('{{WISDOM_CONTEXT}}', wisdomContext + "\n" + paymentContext + (activeIncidents ? "\n" + activeIncidents : "") + (specificAccountIncidents ? "\n" + specificAccountIncidents : "") + "\n" + supportStatusText + "\n" + warrantyNotice)
     .replace('{{PLATFORM_CONTEXT}}', platformContext)
-    .replace('{{SUPPORT_CONTEXT}}', supportContext)
+    .replace('{{SUPPORT_CONTEXT}}', supportContext + (ragContext ? "\n\n" + ragContext : ""))
     .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
     .replace('{{CHAT_HISTORY}}', chatHistory)
     .replace('{{MESSAGE_CONTENT}}', messageContent)

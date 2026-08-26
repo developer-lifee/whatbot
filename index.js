@@ -146,6 +146,10 @@ const { searchContactByPhone, addNewContact } = require('./googleContactsService
 const { getChatHistoryText } = require('./salesService');
 const { checkNewPayments, findMatchingPayment } = require('./gmailService');
 const { processCheckCredentials } = require('./billingService');
+const { initKnowledgeVectors } = require('./ragKnowledgeService');
+
+// Inicialización de la base de conocimiento vectorial RAG
+initKnowledgeVectors().catch(e => console.error('[RAG Startup Error]:', e.message));
 
 const PENDING_SALES_FILE = path.join(__dirname, 'pending_sales.json');
 
