@@ -1,6 +1,6 @@
-# 🤖 Sheerit WhatBot - Documentación Integral de Arquitectura
+# 🤖 Sheerit WhatBot - Documentación Integral del Sistema (2026)
 
-Este repositorio contiene el código fuente del ecosistema de automatización de WhatsApp para **Sheerit Store / PueblApp**, encargado de orquestar ventas en línea, atención al cliente con IA generativa, búsqueda semántica vectorial (RAG), validación automática de pagos bancarios (Bre-V / Nequi / PSE / Bold), asignación y renovación de suscripciones de streaming y panel multi-agente para asesores humanos.
+Este repositorio contiene el código fuente del ecosistema de automatización de WhatsApp para **Sheerit Store / PueblApp**, encargado de orquestar ventas en línea, atención al cliente con IA generativa, búsqueda semántica vectorial (RAG), validación automática de pagos bancarios (Bre-V / Nequi / Bancolombia / Bold), asignación y renovación de suscripciones de streaming, contabilidad en tiempo real y bandeja de entrada multi-agente para asesores humanos.
 
 ---
 
@@ -73,7 +73,204 @@ flowchart TD
 
 ---
 
-## 📂 Arquitectura de Módulos
+## 📊 Base de Datos y Diagrama ER (MariaDB / MySQL)
+
+La base de datos relacional del sistema (`whatbot`) soporta toda la plataforma multi-agente, la contabilidad, auditoría, analítica web y sincronización:
+
+```mermaid
+erDiagram
+    agents ||--o{ agent_schedules : "cumple horario"
+    agents ||--o{ agent_bonuses : "recibe bonos"
+    agents ||--o{ agent_contract_history : "tiene contratos"
+    agents ||--o{ monthly_payroll : "se liquida en"
+    agents ||--o{ tickets : "atiende"
+    agents ||--o{ heavy_tickets : "escala"
+    
+    customers ||--o{ subscriptions : "posee"
+    customers ||--o{ chats : "mantiene chat"
+    
+    chats ||--o{ messages : "contiene"
+    chats ||--o{ tickets : "origina"
+    
+    heavy_tickets ||--o{ heavy_ticket_comments : "tiene notas"
+    
+    tasks ||--o{ task_completions : "se completa en"
+    
+    agents {
+        int id PK
+        string username
+        string fullname
+        string email
+        string role "admin, agent, supervisor, trial"
+        string status "active, inactive, busy"
+        decimal max_weekly_hours
+        boolean exclude_from_payroll
+        decimal current_hourly_rate
+        decimal base_monthly_salary
+        datetime created_at
+    }
+    
+    customers {
+        string phone PK
+        string fullname
+        string email
+        text notes
+        datetime created_at
+    }
+    
+    subscriptions {
+        int id PK
+        string customer_phone FK
+        string streaming_platform
+        string account_email
+        string account_password
+        string profile_pin
+        date expiration_date
+        string status "active, expired, cancelled"
+        boolean is_provider
+        string provider_name
+        string payment_method
+    }
+    
+    chats {
+        string chat_id PK
+        string customer_name
+        string customer_phone
+        text last_message_text
+        datetime last_message_time
+        datetime updated_at
+    }
+    
+    messages {
+        string id PK
+        string chat_id FK
+        string sender_id
+        text body
+        boolean from_me
+        datetime timestamp
+    }
+    
+    tickets {
+        int id PK
+        string chat_id FK
+        int agent_id FK
+        string title
+        text description
+        string status "open, in_progress, resolved, closed"
+        string priority "low, medium, high, critical"
+        datetime created_at
+        datetime updated_at
+    }
+    
+    heavy_tickets {
+        int id PK
+        string customer_name
+        string customer_phone
+        string platform
+        text issue_description
+        string status "open, in_progress, resolved, closed"
+        int assigned_agent_id FK
+        datetime created_at
+        datetime updated_at
+    }
+    
+    heavy_ticket_comments {
+        int id PK
+        int ticket_id FK
+        int agent_id FK
+        text comment
+        datetime created_at
+    }
+    
+    streaming_prices {
+        int id PK
+        string platform_name
+        decimal price
+        decimal cost
+        datetime updated_at
+    }
+    
+    streaming_costs {
+        int id PK
+        string platform_name
+        string provider_email
+        decimal cost_per_slot
+        int total_slots
+        datetime updated_at
+    }
+    
+    cash_flow_entries {
+        int id PK
+        string type "income, expense"
+        decimal amount
+        string category
+        string description
+        date entry_date
+    }
+    
+    web_sales_pending {
+        string order_id PK
+        string customer_name
+        string customer_phone
+        string platform
+        decimal amount
+        string status "pending, approved, rejected"
+        datetime created_at
+    }
+    
+    web_sales_approved {
+        string order_id PK
+        string customer_name
+        string customer_phone
+        string platform
+        decimal amount
+        string payment_method
+        datetime approved_at
+    }
+    
+    system_configs {
+        string cfg_key PK
+        text cfg_value
+        string description
+        datetime updated_at
+    }
+    
+    rpa_recipes {
+        int id PK
+        string recipe_name
+        text recipe_steps
+        string target_platform
+        datetime created_at
+    }
+    
+    page_visits {
+        int id PK
+        string ip_address
+        string path
+        string user_agent
+        datetime visited_at
+    }
+    
+    page_clicks {
+        int id PK
+        string element_id
+        string element_text
+        string path
+        datetime clicked_at
+    }
+    
+    drive_backups {
+        int id PK
+        string filename
+        string file_id
+        string status
+        datetime created_at
+    }
+```
+
+---
+
+## 📂 Estructura Detallada de Módulos
 
 | Archivo | Responsabilidad Principal |
 | :--- | :--- |
@@ -86,6 +283,31 @@ flowchart TD
 | [`availabilityService.js`](file:///Users/estebanavila/desarrollo/whatbot/availabilityService.js) | **Normalización y Stock:** Validación de disponibilidad de cuentas y normalización de nombres de plataformas. |
 | [`scheduledMessageService.js`](file:///Users/estebanavila/desarrollo/whatbot/scheduledMessageService.js) | **Mensajería Programada:** Planificador de recordatorios y avisos diferidos para clientes. |
 | [`googleContactsService.js`](file:///Users/estebanavila/desarrollo/whatbot/googleContactsService.js) | **Sincronización de Contactos:** Creación y búsqueda automática de clientes en Google Contacts. |
+| [`accountingService.js`](file:///Users/estebanavila/desarrollo/whatbot/accountingService.js) | **Contabilidad:** Cálculo de costos de streaming, flujo de caja y sincronización de precios de venta. |
+
+---
+
+## 🛡️ Medidas de Estabilidad y Anti-Detección (WhatsApp Web / Puppeteer)
+
+Para evitar bloqueos por parte de los sistemas automatizados de WhatsApp y asegurar que el bot no entre en bucle infinito de reinicios, el constructor de `Client` en [`index.js`](file:///Users/estebanavila/desarrollo/whatbot/index.js) está configurado bajo estrictas pautas de seguridad:
+
+### 1. Camuflaje Anti-Detección (Anti-Bot)
+* **User-Agent de Escritorio Real:** Cabecera de navegador real en el constructor para evitar el User-Agent headless de Chromium:
+  `userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'`
+* **Bandera de Evasión de WebDriver:** Se inyecta la bandera `--disable-blink-features=AutomationControlled` en los argumentos de Puppeteer, deshabilitando la propiedad `navigator.webdriver` en la página.
+
+### 2. Control de Versiones Web de WhatsApp (`webVersionCache`)
+* **Uso de Versión Remota Validada:**
+  ```javascript
+  webVersionCache: {
+      type: 'remote',
+      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2413.51-pre.html',
+      strict: false
+  }
+  ```
+
+### 3. Protección contra Bucles de Reinicio Rápido
+* **Desconexiones en Frío:** Si el bot se desconecta antes de estar en estado `CONNECTED`, espera **15 segundos** antes de ejecutar `process.exit(1)`, previniendo bucles de reinicio rápidos y protegiendo la IP del servidor contra el rate-limiting de WhatsApp.
 
 ---
 
