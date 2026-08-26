@@ -10832,7 +10832,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     const imageMediaData = (mediaData || []).filter(m => m.mimeType && m.mimeType.startsWith('image/'));
     if (detection && imageMediaData.length > 0) {
         const explanationLower = (detection.explanation || "").toLowerCase();
+        const mediaDescLower = (detection.mediaDescription || "").toLowerCase();
+        const extractedDetailsLower = (detection.extractedDetails || "").toLowerCase();
         const bodyLower = inputToUse.toLowerCase();
+        const fullOcrContext = `${bodyLower} ${explanationLower} ${mediaDescLower} ${extractedDetailsLower}`;
+
         const isIncorrectPassword = [
             'incorrecta', 'incorrecto', 'no son correctos', 'contraseña incorrecta', 'clave incorrecta', 'credenciales incorrectas',
             'datos de acceso', 'datos anteriores', 'clave antigua', 'contraseña antigua', 'no me permite el ingreso', 'no permite el ingreso'
@@ -10842,13 +10846,15 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'hogar', 'dispositivo', 'código', 'codigo', '2fa', 'authenticator', 'autenticación',
             'televisor', 'tv', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
             'no forma parte', 'hogar con netflix', 'tu tv no forma parte', 'enviamos a tu email', 'ingresa el código',
-            'código vence en 15', 'codigo vence en 15', 'solicita el reenvio', 'solicita el reenvío'
-        ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
+            'código vence en 15', 'codigo vence en 15', 'solicita el reenvio', 'solicita el reenvío',
+            'ver temporalmente', 'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'entendimos mal',
+            'obtener un código para ver netflix temporalmente', 'crea tu propia cuenta para disfrutar de netflix'
+        ].some(kw => fullOcrContext.includes(kw));
 
         const isProfileSelectScreen = [
             'elige tu perfil', 'quién está viendo', 'quien esta viendo', 'quién va a ver', 'quien va a ver',
             'no sale mi nombre', 'cuál perfil', 'cual perfil', 'cuál es mi perfil', 'cual es mi perfil', 'mi nombre'
-        ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
+        ].some(kw => fullOcrContext.includes(kw));
 
         if (isProfileSelectScreen) {
             console.log(`[BOT MEDIA OCR PROFILE SELECT SCREEN] Se detectó pantalla de selección de perfil en @${userId}.`);
@@ -10864,12 +10870,20 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         if (wantsImgCode && !isIncorrectPassword) {
             const isOptionsScreen = [
                 'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'estoy de viaje',
-                'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte'
-            ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
+                'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte', 'ver temporalmente',
+                'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'código para ver netflix temporalmente',
+                'crea tu propia cuenta para disfrutar de netflix'
+            ].some(kw => fullOcrContext.includes(kw));
 
             if (isOptionsScreen) {
-                console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones de Netflix/TV en @${userId}. Guiando al usuario.`);
-                await message.reply(`🤖 ¡Veo la pantalla de opciones de Netflix en tu TV! 📺\n\nPor favor selecciona con el control remoto de tu televisor la opción **"Actualizar Hogar con Netflix"** (o **"Estoy de viaje"**).\n\nUna vez la selecciones en tu pantalla, escríbeme la palabra *código* aquí para consultarlo y enviártelo de inmediato. 🚀`);
+                console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones/hogar de Netflix/TV en @${userId}. Guiando al usuario.`);
+                const phoneDigits = userId.replace(/\D/g, '');
+                const phoneParam = phoneDigits && phoneDigits.length >= 10 && phoneDigits.length <= 13 ? `?tel=${phoneDigits}` : '';
+                await message.reply(`🤖 ¡Hola! Veo la pantalla de confirmación de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
+                    `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
+                    `1️⃣ Con el control remoto de tu TV, selecciona el botón **"Ver temporalmente"** (o *"Actualizar Hogar con Netflix"*).\n` +
+                    `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
+                    `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos para que sigas viendo sin problema. 🚀`);
                 return;
             }
 

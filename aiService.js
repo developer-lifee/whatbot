@@ -1162,6 +1162,26 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
             needsEscalation: true
           };
         }
+        // DETECCIÓN DE PANTALLA DE HOGAR / VER TEMPORALMENTE / CÓDIGO DE VIAJE NETFLIX
+        const isNetflixHouseholdScreen = [
+          'ver temporalmente', 'entendimos mal', 'si estás de viaje', 'si estas de viaje', 'fuera de casa',
+          'obtener un código para ver netflix', 'obtener un codigo para ver netflix',
+          'crea tu propia cuenta para disfrutar de netflix', 'no forma parte del hogar',
+          'actualizar hogar', 'hogar con netflix', 'hogar de netflix', 'tu tv no forma parte'
+        ].some(kw => descLower.includes(kw));
+
+        if (isNetflixHouseholdScreen) {
+          console.log("[AI Fallback Media] Detectada pantalla de Hogar / Ver temporalmente de Netflix en TV. Guiando al usuario de inmediato.");
+          const phoneParam = isValidPhone ? `?tel=${customerPhone}` : '';
+          return {
+            replyMessage: `🤖 ¡Hola! Veo en tu pantalla el aviso de Hogar / Ver temporalmente de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
+              `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
+              `1️⃣ Con el control remoto de tu TV, selecciona **"Ver temporalmente"** (o *"Actualizar Hogar"*).\n` +
+              `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
+              `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos para que sigas viendo. 🚀`,
+            needsEscalation: false
+          };
+        }
       }
     } catch (e) {
       console.error("Error generating media description in fallback:", e);
