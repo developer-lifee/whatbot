@@ -1,518 +1,119 @@
-# 🤖 Sheerit WhatBot Documentation
+# 🤖 Sheerit WhatBot - Documentación Integral de Arquitectura
 
-Este repositorio contiene el código fuente del bot de WhatsApp para **Sheerit**, encargado de automatizar ventas, gestión de credenciales y cobranza de servicios de streaming.
-
-## 🌟 Características Principales
-
-### 1. 🧠 Inteligencia Artificial (Gemini Powered)
-El bot utiliza modelos de Google Gemini (`gemini-2.0-flash`, `gemini-3-flash`, etc.) para entender el lenguaje natural del usuario en puntos clave:
-- **Intención de Compra**: Detecta qué plataformas, planes y periodos (mensual, anual) desea el usuario, incluso si lo escribe de forma coloquial (ej: _"Quiero netfi y disni por un año"_).
-- **Métodos de Pago**: Identifica dinámicamente el banco o billetera que el usuario quiere usar (Nequi, Daviplata, Bancolombia, etc.).
-- **Fallback Automático**: Si un modelo de IA falla o excede la cuota de uso, el sistema rota automáticamente a otro modelo disponible.
-
-### 2. 🛒 Flujo de Compra Automatizado
-- **Activación**: Opción 1 del menú o frase "Hola, estoy interesado en...".
-- **Selección Inteligente**:
-    1. El usuario dice qué quiere.
-    2. La IA extrae los items (Plataformas/Planes).
-    3. El bot valida contra `data/platforms.json`.
-    4. Se calculan precios, descuentos por combo y ajustes por periodo (anual/semestral).
-- **Proceso de Pago**: El bot entrega los datos de la cuenta bancaria correcta según la elección del usuario.
-
-### 3. 🔐 Consulta de Credenciales
-- **Activación**: Opción 2 del menú.
-- **Funcionamiento**: Consulta la base de datos MySQL (`datos_de_cliente`, `perfil`, `datosCuenta`) usando el número de teléfono del usuario.
-- **Resultado**: Entrega correo, contraseña, perfil, PIN y fecha de vencimiento de las cuentas activas.
-
-### 4. 💰 Sistema de Cobranza (Modo Operador)
-Comandos especiales para el administrador (definido en `OPERATOR_NUMBER`):
-- **Calculadora de Cobros**: Enviando `@bot porfa haz los cobros para hoy de: <lista>`, el bot parsea la lista, contacta a los usuarios individualmente y gestiona las confirmaciones.
-- **Liberar Sesión**: `liberar 3001234567` para desconectar al bot de un usuario y permitir atención humana. Se puede usar `liberar masivo` para reactivar a todos los que estaban en espera.
-- **Atención de Pendientes (NUEVO)**: `@bot contesta los que estan sin contestar` o `@bot atiende pendientes`. El bot escanea a los usuarios en espera de un humano y les responde automáticamente con ayuda de la IA para retomar el servicio.
-- **Confirmar Cobros**: `confirmar_cobros 3001234567` para registrar pagos manualmente.
-
-### 5. 🤖 Inteligencia Colaborativa Avanzada (Actualizado - Mayo 2026)
-- **Interceptor Global de Pagos & Vision**: Uso de **Gemini Vision** para detectar comprobantes bancarios, notificando al admin y confirmando al cliente automáticamente.
-- **Validación Automática Gmail (Bre-B/QR)**: El bot monitorea en tiempo real la cuenta `jordimemes...` buscando correos de "Venta exitosa por Bre-B". Si el monto coincide con el comprobante enviado por el cliente en un margen de 60 min, el bot **valida y entrega el servicio automáticamente** sin intervención humana.
-- **Auditoría de Pagos**: Las notificaciones administrativas incluyen el **Asunto** del correo y el ID de Gmail para una verificación rápida.
-- **Deduplicación de Mensajes**: Sistema de caché global para evitar el procesamiento doble de mensajes en ráfagas (Race Conditions).
-
-### 6. 📊 Dashboard Administrativo & Masivos (NUEVO)
-- **Difusión Contextual Inteligente**: El bot recuerda de qué cuenta se está hablando. Puedes decir: *"Pasa esta cuenta a todos"* y luego refinar con *"Descarta los extra"* o *"Solo a los activos"*.
-- **Reglas de Envío Inteligente**:
-    - **Netflix Extra**: Se excluyen de recibir la clave principal por defecto (seguridad).
-    - **Filtro de Vencimiento**: No se envían credenciales a clientes con más de 3 días de vencimiento (evita spam a churns).
-    - **Enmascaramiento de Credenciales**: Los usuarios vencidos o "Extras" reciben la notificación pero con las claves ocultas (`[Oculto por falta de pago]`), incentivando la renovación.
-- **Detector de Fallos Prematuros**: Identifica frases como *"mira lo que sale"* o *"no funciona"* en reportes de fallas técnicas, alertando al grupo de soporte de inmediato si la cuenta aún tiene días vigentes.
-
-### 7. 📅 Programación Inteligente de Mensajes (NUEVO - Mayo 2026)
-Permite al administrador programar envíos de mensajes de forma natural a cualquier cliente:
-- **Lógica Natural (Español)**: Soporta formatos de tiempo cotidianos como:
-    - `"en 10 minutos"`, `"en 2 horas"`, `"en 15 mins"`
-    - `"a las 8 am"`, `"a las 15:30"`, `"a las 3:15 pm"`
-    - `"mañana"`, `"mañana a las 10 am"`, `"mañana a las 8:30 pm"`
-- **Persistencia Anticaídas**: Los mensajes programados se guardan localmente en `scheduled_messages.json`. Si el servidor se apaga o reinicia, las tareas se vuelven a cargar y programar automáticamente en `node-schedule` en el arranque.
-- **Flexibilidad de Entrada**:
-    - Si se especifica una hora/tiempo, el bot lo agenda y envía una confirmación estructurada al administrador con la hora exacta en zona Bogotá.
-    - Si **no** se especifica tiempo, se asume envío inmediato (enviándolo de una vez y confirmando el éxito).
-
-## 📂 Estructura del Proyecto
-
-- `index.js`: **Cerebro Principal**. Maneja la conexión, orquesta estados y el sistema de de-duplicación.
-- `aiService.js`: **Módulo de IA**. Lógica de Gemini (Vision, Clasificación de intención, Refinamiento de Masivos).
-- `adminQueries.js`: **Motor Analítico**. Procesa las consultas a la base de datos y aplica filtros de masivos.
-- `scheduledMessageService.js`: **Gestor de Mensajería Programada**. Maneja la persistencia y la calendarización en tiempo real.
-- `gmailService.js`: Integración con la API de Gmail para validación de pagos y códigos.
-- `apiService.js`: Integración con Azure Functions para el registro en Excel.
-
-## 🚀 Comandos Administrativos (Desde el Grupo o Directos)
-
-- `@bot confirmar [Número] [Plataforma]`: Valida un pago manualmente (rellena el carrito si estaba vacío).
-- `@bot notifica a los de [Cuenta] que [Mensaje]`: Inicia el flujo de envío masivo con pre-visualización.
-- `@bot descarta los [Palabra Clave]`: Filtra la lista de envío masivo actual.
-- `@bot solo los activos`: Filtra la lista para incluir solo cuentas no vencidas.
-- `@bot dile a [Nombre/Número] [Mensaje] [Tiempo]`: Agenda un mensaje para el cliente (ej: `@bot dile a Juan Perez hola cómo estás en 10 minutos`). Si no especificas el tiempo, se envía inmediatamente.
-- `@bot dile [Mensaje] [Tiempo]`: En un chat individual de cliente, agenda un mensaje para ese cliente (ej: `@bot dile hola en 15 minutos`).
-
-## 🚀 Cómo Iniciar
-
-1. **Instalar dependencias**: `npm install`
-2. **Configurar entorno**: Asegúrate de tener el archivo `.env` y las credenciales en `/tokens`.
-3. **Iniciar**: `npm start` o `pm2 start index.js --name whatbot`.
+Este repositorio contiene el código fuente del ecosistema de automatización de WhatsApp para **Sheerit Store / PueblApp**, encargado de orquestar ventas en línea, atención al cliente con IA generativa, búsqueda semántica vectorial (RAG), validación automática de pagos bancarios (Bre-V / Nequi / PSE / Bold), asignación y renovación de suscripciones de streaming y panel multi-agente para asesores humanos.
 
 ---
 
-## 📊 Base de Datos y Diagrama ER (Entidad-Relación)
-
-Para soportar la bandeja de entrada multi-agente, la gestión de tickets, checklist de tareas y la auditoría de copias de seguridad en Google Drive, el sistema utiliza una base de datos relacional local (MariaDB) estructurada bajo el siguiente modelo:
+## 🌟 Características Principales del Sistema
 
 ```mermaid
-erDiagram
-    agents {
-        int id PK
-        string username
-        string fullname
-        string email
-        enum role "admin, agent, supervisor, trial"
-        enum status "active, inactive, busy"
-        decimal max_weekly_hours
-        boolean exclude_from_payroll
-    }
-    customers {
-        string phone PK
-        string fullname
-        string email
-        text notes
-    }
-    subscriptions {
-        int id PK
-        string customer_phone FK
-        string streaming_platform
-        string account_email
-        string account_password
-        string profile_pin
-        date expiration_date
-        enum status "active, expired, cancelled"
-        boolean is_provider
-        string provider_name
-        string payment_method
-    }
-    chats {
-        string chat_id PK
-        string customer_phone FK
-        enum status "bot, waiting_human, advisor, closed"
-        int assigned_agent_id FK
-        int unread_count
-        text last_message_text
-        timestamp last_message_time
-    }
-    messages {
-        int id PK
-        string message_id UK
-        string chat_id FK
-        string sender_id
-        string sender_name
-        text body
-        text media_path
-        string media_mime
-        boolean is_from_me
-        string bot_intent
-    }
-    tickets {
-        int id PK
-        string chat_id FK
-        string title
-        text description
-        enum status "open, assigned, resolved, pending_customer"
-        enum priority "low, medium, high, critical"
-        int assigned_agent_id FK
-        timestamp resolved_at
-    }
-    tasks {
-        int id PK
-        int ticket_id FK
-        string chat_id FK
-        string title
-        text description
-        enum status "pending, in_progress, completed, cancelled"
-        int assigned_agent_id FK
-        timestamp due_date
-        timestamp completed_at
-    }
-    heavy_tickets {
-        int id PK
-        string title
-        text description
-        enum status "pending, in_progress, completed, cancelled"
-        enum priority "low, medium, high, critical"
-        string assigned_agent
-    }
-    heavy_ticket_comments {
-        int id PK
-        int ticket_id FK
-        string agent_name
-        text comment
-    }
-    monthly_payroll {
-        int id PK
-        int agent_id FK
-        string payroll_month
-        date start_date
-        date end_date
-        decimal total_hours
-        decimal trial_hours
-        decimal normal_hours
-        decimal hourly_rate
-        decimal total_bonuses
-        decimal total_payment
-        string status "draft, paid"
-    }
-    agent_bonuses {
-        int id PK
-        int agent_id FK
-        string payroll_month
-        decimal amount
-        string reason
-        string created_by
-    }
-    agent_schedules {
-        int id PK
-        int agent_id FK
-        string week_start
-        int day_of_week
-        time start_time
-        time end_time
-        enum break_type
-        time break_start
-    }
-    system_configs {
-        string cfg_key PK
-        text cfg_value
-    }
-    rpa_recipes {
-        int id PK
-        string name
-        string platform
-        longtext recipe_json
-    }
-    drive_backups {
-        int id PK
-        string file_name
-        text file_path
-        string drive_file_id
-        text drive_url
-        int file_size
-    }
-    web_sales_pending {
-        string order_id PK
-        string firstName
-        string lastName
-        string email
-        string whatsapp
-        string platformName
-        int amount
-    }
-    web_sales_approved {
-        string order_id PK
-        string firstName
-        string lastName
-        string email
-        string whatsapp
-        string platformName
-        int amount
-        timestamp approvedAt
-    }
-
-    agents ||--o{ chats : "assigned"
-    agents ||--o{ tickets : "assigned"
-    agents ||--o{ tasks : "assigned"
-    agents ||--o{ monthly_payroll : "has"
-    agents ||--o{ agent_bonuses : "has"
-    agents ||--o{ agent_schedules : "has"
-    customers ||--o{ subscriptions : "has"
-    customers ||--o{ chats : "has"
-    chats ||--o{ messages : "contains"
-    chats ||--o{ tickets : "has"
-    chats ||--o{ tasks : "has"
-    heavy_tickets ||--o{ heavy_ticket_comments : "has_comments"
+flowchart TD
+    A["📱 Mensaje de WhatsApp (Cliente)"] --> B["⚡ Deduplicador & Batch Processor (index.js)"]
+    B --> C{"¿Es Comprobante / Imagen?"}
+    C -->|Sí| D["👁️ Gemini Vision OCR & Gmail Bre-B Matcher"]
+    C -->|No| E["🔍 Gemini Embeddings RAG (ragKnowledgeService.js)"]
+    E --> F["🧠 DeepSeek V3 / Gemini 2.0 Flash (aiService.js)"]
+    F --> G{"¿Tipo de Acción?"}
+    G -->|Consulta Credenciales| H["🔐 Consulta MariaDB / Excel (billingService.js)"]
+    G -->|Solicitud 2FA / Hogar| I["📬 Búsqueda Automática en Gmail (gmailService.js)"]
+    G -->|Compra / Renovación| J["💳 Auto-Registro & Asignación (salesRegistryService.js)"]
+    G -->|Atención Compleja| K["🎟️ Ticket Asignado a Asesor (Multi-Agent Inbox)"]
 ```
 
 ---
 
-# 🚀 Roadmap de Modernización
-
-
-## 📌 Estado del Proyecto
-- [x] **Fase 1:** Estabilización y Deduplicación (Completado)
-- [x] **Fase 2:** Automatización de Pagos Gmail/Bre-B (Completado)
-- [x] **Fase 3:** Dashboard Administrativo Contextual (Completado)
-- [x] **Fase 4:** Programación Persistente de Mensajes con IA (Completado)
-- [ ] **Fase 5:** Autenticación Web & Redis (OTP)
-- [x] **Fase 6:** Panel Web de Gestión Directa (Completado - Junio 2026)
+### 1. 🧠 Motor RAG Semántico y Búsqueda Vectorial (`ragKnowledgeService.js`)
+* **Modelo Vectorial:** Google Gemini `gemini-embedding-001` (vectores densos de 3072 dimensiones).
+* **Indexación Exhaustiva:** Al arrancar el bot, se fragmenta y vectoriza el contenido de `support.json`, `knowledge_base.json`, `policies.json` y `platforms.json`.
+* **Caché Vectorial Local:** Los vectores se guardan en `knowledge_embeddings_cache.json` con hash criptográfico MD5 para arrancar en **<5 ms** sin llamadas redundantes a la API.
+* **Similitud de Coseno en Memoria:** Ante cada mensaje del cliente (*"no me agarra el pin"*, *"me salió lo de viaje en el tele"*, *"no veo mi nombre en los perfiles"*), el bot recupera en <2 ms los artículos exactos de soporte e inyecta únicamente ese contexto en el prompt.
+* **Ahorro de Costos:** Reduce el consumo de tokens de entrada en DeepSeek en un **70%**, haciendo que el saldo rinda meses completos.
 
 ---
 
-## 🔒 API de Administración (Servidor Express)
-
-El backend de `whatbot` expone un servidor de Express en el puerto `3000` (por defecto) con los siguientes endpoints para el panel administrativo (`/aiuda/admin` en el frontend):
-
-### Seguridad & Autenticación
-Los endpoints que ejecutan acciones de escritura o envío de mensajes de WhatsApp requieren enviar en el body el parámetro `password` configurado como `"admin123"`.
-
-### Endpoints Disponibles
-
-#### 📩 Tickets de Soporte
-*   `GET /api/admin/tickets`: Retorna los usuarios en espera de atención humana (`waiting_human`). Resuelve dinámicamente el nombre, fecha del reporte y el último mensaje real del chat en WhatsApp.
-*   `POST /api/admin/tickets/claim`: Asigna un asesor (ej. `"Katherine"`) a un ticket para evitar colisiones.
-*   `POST /api/admin/tickets/resolve`: Libera la conversación de la memoria del bot para que la IA retome el control automático.
-
-#### 🔑 Cuentas 2FA / TOTP (GPT, Amazon, etc.)
-*   `GET /api/admin/gpt-accounts`: Lista las cuentas que usan 2FA y genera sus códigos TOTP activos con los segundos restantes para expirar.
-*   `POST /api/admin/gpt-accounts/save`: Agrega o actualiza una clave secreta (semilla/seed TOTP) para un correo.
-*   `POST /api/admin/gpt-accounts/delete`: Elimina una cuenta y su semilla del archivo `gpt_secrets.json`.
-
-#### 📧 Correos Gestionados
-*   `GET /api/admin/managed-emails`: Retorna la lista de correos autorizados en el archivo `managed_emails.json`.
-*   `POST /api/admin/managed-emails/save`: Agrega un nuevo correo al listado.
-*   `POST /api/admin/managed-emails/delete`: Remueve un correo del listado.
-
-#### 👥 Clientes & Ventas
-*   `GET /api/admin/clients`: Obtiene y mapea los datos de los clientes desde la base de datos o Excel Graph.
-*   `POST /api/admin/sales/create`: Registra una nueva venta directamente en el Excel.
-*   `GET /api/admin/stats`: Genera estadísticas financieras y de vencimiento (clientes activos, vencidos, alertas y proyecciones a 7, 15 y 30 días, además del cálculo cruzado de clientes Nuevos, Renovaciones y Desistidos/Churn).
-*   `POST /api/admin/actions/send-info`: Envía credenciales (`credentials`) o recordatorios de pago (`payment`) de forma manual por WhatsApp.
-*   `GET /api/admin/client-history`: Obtiene la línea de tiempo de compras e historial completo de un número celular desde el histórico.
-
-#### 📦 Disponibilidad de Stock
-*   `GET /api/admin/availability`: Retorna el estado actual de los bloqueos manuales de entrega inmediata para plataformas y planes.
-*   `POST /api/admin/availability/save`: Guarda la configuración de disponibilidad manual (requiere `password`).
+### 2. 🔄 Sistema Inteligente de Renovaciones y Asignación de Cupos (`salesRegistryService.js`)
+* **Detección Automática de Renovación:** Cuando un cliente paga (por Bre-V, QR o web), el sistema busca si el cliente ya tiene una fila activa o vencida para esa plataforma por su número de teléfono o nombre.
+* **Preservación de Invitaciones Familiares:** En plataformas como **Apple One, Spotify Familiar, YouTube Premium o Crunchyroll**, si es una renovación, el bot extiende la fecha de vencimiento (`deben`) y confirma el acceso inmediatamente **sin volver a pedirle el correo de Apple ID ni invitaciones innecesarias**.
+* **Prioridad de Precios Oficiales:** Los precios de renovación se calculan consultando siempre el catálogo oficial vigente en `platforms.json` / `streaming_prices`, evitando desactualizaciones por valores históricos en hojas de cálculo.
 
 ---
 
-## 🛠️ Actualizaciones Recientes (21 de Junio de 2026)
-
-### 1. 🛡️ Robustez en Gestión de Llamadas (whatsapp-web.js)
-- **Aislamiento de Errores de Colgado**: Se reestructuraron los manejadores de eventos `call` e `incoming_call` envolviendo el método inestable `call.reject()` en un bloque try-catch independiente.
-- **Garantía de Envío de Aviso**: Si el colgado de llamada activa falla debido a limitaciones de la librería en WhatsApp Web, el bot ya no aborta la ejecución y continúa enviando exitosamente el aviso de chat al usuario:
-  > *"🤖 AVISO DE SOPORTE: Hola... Te informamos que nuestro soporte y atención es exclusivamente por CHAT..."*
-
-### 2. ❓ Interceptor de Mensajes de Símbolos/Interrogación (`?????`)
-- **Filtro de Signos**: Se implementó una detección directa en `generateEmpatheticFallback` para interceptar mensajes compuestos únicamente de signos de interrogación o caracteres especiales (`?`, `?????`, `¿?`).
-- **Clarificación de Dudas**: El bot responde con un mensaje amigable guiando al usuario a detallar su consulta en lugar de llamar a la IA, la cual solía confundirse o alucinar basándose en el historial de cobros de forma ciega.
-
-### 3. 📸 Detección Automática de Capturas de Pantalla 2FA (Disney+, Netflix, etc.)
-- **OCR General Mejorado**: El lector de imágenes de Gemini se actualizó para no solo analizar comprobantes de pago, sino también detectar capturas de inicio de sesión/2FA y extraer el correo mostrado y el tipo de código requerido.
-- **Flujo de Soporte Inteligente**: Al recibir una captura de 2FA, el bot detecta automáticamente que es una solicitud de código, busca el servicio en las cuentas del cliente e inicia el flujo de extracción automática (TOTP o Gmail), en lugar de transferir inmediatamente al cliente a la cola de espera de asesores humanos.
-
-### 4. 🌐 Portal SaaS y RPA con Scribe
-- **Vinculación de WhatsApp sin Terminal (QR/OTP)**: Se crearon endpoints de Server-Sent Events (SSE) `/api/whatsapp/status-stream` y de solicitud de código de emparejamiento `/api/whatsapp/request-pairing-code` (OTP de 8 caracteres). Esto permite a los clientes de la plataforma SaaS vincular sus números oficiales y visualizar el estado del bot en tiempo real desde la web.
-- **Configurador de Prompts**: Se crearon endpoints `/api/config/prompts` y `/api/config/prompts/save` integrados con una nueva tabla `system_configs` en la base de datos MySQL, permitiendo ajustar los prompts de la IA de forma persistente y dinámica.
-- **RPA Builder de Scribe a Puppeteer**: Nueva lógica que permite subir el PDF exportado de Scribe al endpoint `/api/admin/rpa/import-scribe`, interpretarlo por medio del modelo multimodal de Gemini y convertirlo automáticamente en una receta JSON ejecutable paso a paso en Puppeteer (hacer clics, rellenar campos, esperar selectores y extraer códigos OTP de paneles de proveedores de terceros).
+### 3. 👁️ Visión por Computadora (OCR) e Interceptor de Fallas
+* **Detección de Pantallas de Televisor:** Reconoce fotos de errores comunes:
+  * **Netflix Hogar / Viaje:** Identifica pantallas de *"¿Entendimos mal? Si estás de viaje o fuera de casa..."* y guía al cliente paso a paso a presionar *"Ver temporalmente"* y solicitar el código de 4 dígitos o ingresar a [https://sheerit.co/actualizar](https://sheerit.co/actualizar).
+  * **Disney 2FA / Códigos de Acceso:** Extrae los correos y solicita el código de 6 dígitos automáticamente.
+  * **Asignación de Perfiles:** Guía al usuario a presionar el botón `+` o *"Añadir perfil"* con su nombre registrado.
+* **Validación de Comprobantes:** Extrae fecha, hora, monto y código de transacción de comprobantes de Nequi, Daviplata, Bancolombia, dale!, Lulo y Bre-V.
 
 ---
 
-## 🪵 Formato de Logueo del Servidor (Logs)
-
-El backend de `whatbot` cuenta con un sistema de sobreescritura de consola (`console.log`) integrado al arranque:
-1.  **Estampa de Tiempo Local:** Todos los logs generados en el servidor imprimen automáticamente un prefijo con la hora de Colombia (`America/Bogota`), ej: `[02/06/2026 18:40:00] [System] Estado cargado...`.
-2.  **Monitoreo del Navegador (Heartbeat):** Cada 5 minutos se ejecuta y registra un reporte de salud del navegador (Puppeteer) para detectar cuelgues (estados zombies), reiniciando el proceso en caso de fallo crítico para que PM2 lo levante de nuevo.
-
-*(Documentación actualizada al 21 de Junio de 2026)*
-
----
-
-## 🛠️ Actualizaciones Recientes (24 de Junio de 2026)
-
-### 1. 🧠 Sub-intenciones y Flujo de Paréntesis (`duda_contexto`)
-- **Flujos de Interrupción**: Se implementó una lógica de paréntesis conversacional para preguntas que rompen el flujo principal (ej: *"¿de quién es la cuenta de Nequi?"*, *"¿manual cómo así?"*, *"¿qué características tiene el plan?"*).
-- **Mantener Estado del Funnel**: La IA intercepta estas dudas contextuales, las responde con precisión revisando el historial ampliado y la base de conocimiento, pero **mantiene intacto el estado actual del usuario** en el embudo (como `awaiting_payment_method` o `selecting_plans`), evitando reiniciar o romper su flujo de compra.
-- **Historial Ampliado**: El historial reciente pasado a la IA se amplió de 6 a **15 mensajes** por defecto, evitando la pérdida de contexto en conversaciones rápidas.
-
-### 2. 📅 Panel de Pagos y Horarios de Colaboradores
-- **Reorganización de Vista**: En el panel administrativo se colocó la gestión de horarios y franjas de disponibilidad al inicio y la configuración de métodos de pago al final.
-- **Visualización Unificada ("Vista General")**: Se integró una cuadrícula en el panel que muestra los turnos de todos los colaboradores asignados (Camilo, Katherine, Esclépides) en un solo lugar.
-- **Gestión de Descansos (Lunch/Break)**: Cada franja permite configurar almuerzos (1 hora 🍱) o descansos (30 minutos ☕). Estas franjas se restan del cálculo de horas laborales netas.
-
-### 3. 🟢 Estado Dinámico del Soporte Técnico de Sheerit
-- **Detección Activa de Asesores**: El bot determina en tiempo real si el canal de soporte humano está **ONLINE** u **OFFLINE** analizando las franjas horarias y descansos de los colaboradores.
-- **Desactivación del Bot**: Si hay al menos un colaborador activo y fuera de su break, el soporte se considera online. Si todos están offline o en hora de almuerzo, el canal se marca automáticamente como cerrado y el bot responde amablemente informando los horarios.
+### 4. ⚡ Validación Automática de Pagos en Tiempo Real (Gmail Bre-V / Bold)
+* **Monitoreo Continuo:** Monitorea la bandeja de entrada de Gmail buscando notificaciones de *"Venta exitosa por Bre-B"*.
+* **Match Inmediato:** Si el monto y la hora coinciden con la solicitud del cliente en un margen de 60 minutos:
+  1. Marca el pago como aprobado.
+  2. Registra la venta en la hoja de control en Azure / MariaDB.
+  3. Entrega las credenciales o renueva la suscripción en el chat de WhatsApp en menos de 5 segundos.
+* **Pasarela Bold Web:** Integración con `/api/bold/check-status/:orderId` para redireccionar al portal de autoservicio `/verificar?tel=57300...` tras el pago exitoso.
 
 ---
 
-## 🛠️ Actualizaciones Recientes (30 de Junio de 2026)
-
-### 1. 📅 Calendario de Horarios Persistente y Paginable
-- **Persistencia de Fechas**: Los horarios ahora se registran con base en fechas de calendario reales mediante la combinación de `week_start` (Lunes de la semana en curso) y `day_of_week`. Esto asegura que los datos no se sobreescriban semana a semana, habilitando el análisis histórico y cálculo de nómina.
-- **Paginador de Semanas**: Se implementó una barra de navegación que permite revisar y planificar turnos o asegurar descansos en semanas futuras. Si una semana no tiene turnos específicos, el sistema hereda automáticamente la **Plantilla Base (Default)** del colaborador.
-- **Unificación de Vistas**: Admins y asesores utilizan la misma cuadrícula de turnos de todo el equipo. Los asesores comunes solo pueden editar su propio horario, mientras que el administrador puede editar el de todos.
-
-### 2. 💸 Gestión de Nómina Mensual y Bonos (Panel de Esteban)
-- **Acceso Restringido**: Nueva pestaña **"Nómina y Pagos"** visible únicamente para el usuario `estebanavila182@outlook.com`.
-- **Cálculo Automático**: Muestra el total de horas netas acumuladas por asesor en el mes y estima el total a pagar en tiempo real.
-- **Módulo de Bonificaciones**: Permite registrar y eliminar bonos o incentivos detallados con motivo para cada colaborador.
-- **Cierre de Nómina**: Permite archivar/cerrar los registros mensuales de nómina persistiendo los totales en la tabla `monthly_payroll` para contabilidad.
-- **Valor Hora Configurable**: Ajuste del valor de la hora de soporte (por defecto `$8,333` COP) editable por el administrador.
-
-### 3. 🛡️ Control de Horas Extras, Relojito y Cuidado de Salud Mental
-- **Bloqueo de Horas Extras**: Interruptor administrativo `allow_overtime`. Si se desactiva, restringe a un máximo de 8.0 horas netas de trabajo diario por colaborador (se valida en frontend y backend).
-- **Dropdowns del Minutero Exacto**: Los selectores de hora de inicio, fin y break ahora son dropdowns en pasos de 30 minutos (ej. `09:30`), impidiendo el ingreso de minutos arbitrarios.
-- **Regla de Salud Mental (Separación de Break)**: La hora del almuerzo/break no puede ubicarse al extremo de la franja. El sistema calcula y exige una separación mínima de **1.5 horas (90 minutos)** respecto a la hora de entrada y la hora de salida de la franja.
-
-### 4. 🚨 Alerta de Huecos de Cobertura en WhatsApp
-- **Cron de Cobertura (6:00 PM)**: Un trabajo programado analiza diariamente a las 18:00 si el día de mañana tiene huecos (tiempos desatendidos dentro de la jornada de atención). Si se detectan brechas libres sin asesores asignados, envía de forma automática un mensaje detallado de alerta al grupo de WhatsApp de administración.
+### 5. 🎟️ Bandeja de Entrada Multi-Agente y Gestión de Tickets
+* **Filtrado Inteligente de Tickets Libres:** Los mensajes salientes enviados por los propios asesores (ej: difusiones masivas o avisos manuales de corte *"Buen día, estamos en proceso de corte..."*) **no ensucian la bandeja de Tickets Libres**. Un chat solo se convierte en ticket pendiente cuando el cliente responde y requiere atención.
+* **Bypass de Códigos en Modo Silencio:** Si un asesor intervino manualmente en un chat, el bot se silencia para respetar la conversación humana; sin embargo, si el cliente pide un código OTP o 2FA, el bot responde de inmediato porque los códigos caducan en 15 minutos.
+* **Horarios Dinámicos de Asesores:** Mensajes de expectativa ajustados según el turno laboral activo (Lunes a Viernes 10 AM a 10 PM, Fines de semana 4 PM a 10 PM).
 
 ---
 
-## 🛠️ Actualizaciones Recientes (3 de Julio de 2026)
-
-### 1. 🧠 Clasificación de Tickets Optimizada (DeepSeek + Caché Delta)
-- **Migración a DeepSeek**: Se cambió el motor de clasificación masiva de tickets de Gemini Lite a DeepSeek Chat (`callDeepSeek`), logrando una estructuración JSON y análisis de intenciones conversacionales infinitamente superior y sin alucinaciones.
-- **Sistema de Caché Delta**: Se implementó `classifiedTicketsCache` en memoria. El bot ahora realiza la validación contra el último mensaje y estado de cada chat. Si no hay novedades en los chats, **cancela la llamada a la IA de inmediato** (0 consumo de API). Si hay cambios, **envía únicamente el ticket modificado a clasificar**, reduciendo el uso de tokens en un 95% y eliminando la latencia en las consultas del panel de soporte técnico.
-- **Contexto de Estado de Tickets**: Se le pasa a DeepSeek el estado en vivo del chat (`waiting_human`, `awaiting_payment_confirmation`, etc.) junto con reglas estrictas de flujo para impedir que clasifique erróneamente en "Probablemente Terminados" a usuarios que están esperando activamente en cola.
-
-### 2. 📸 Auto-Entrega de Códigos 2FA / ChatGPT por Imagen
-- **OCR Multi-Intenciones**: Se expandió el detector visual de imágenes de Gemini (`wantsImgCode`) agregando palabras clave amplias de errores técnicos (`'error', 'fallo', 'falla', 'bloqueo', 'limite'`, etc.) e inicios de sesión 2FA (`'gpt', 'chatgpt', '2fa', 'authenticator', 'openai'`).
-- **Entrega Inmediata**: Si un cliente envía una captura de pantalla solicitando el código de su cuenta de ChatGPT o alguna plataforma de streaming con doble factor, el bot la detecta mediante OCR, se reactiva automáticamente, calcula el código TOTP offline desde `gpt_secrets.json` y se lo responde en segundos sin intervención del asesor.
-
-### 3. 👤 Resolución Directa de Nombres de Clientes
-- **Búsqueda por BD local**: Si el cliente no tiene suscripciones de streaming activas vinculadas (lo que impedía traer su nombre desde el Excel), ahora el endpoint `/api/admin/tickets` consulta directamente la tabla local de MariaDB `customers` usando el número de teléfono del chat.
-- **Visualización Limpia**: Esto garantiza que nombres registrados (como en el caso de *Aldren Nobles*) se muestren correctamente en el Dashboard administrativo en lugar de mostrar su número telefónico genérico.
-
-### 4. 🛡️ Estabilidad Conversacional y Anticaídas (Anti-Spam)
-- **Evitar Spam de Bienvenida**: En el escaneo de mensajes pendientes al iniciar el bot, se implementó un filtro de tiempo de máximo 2 horas. Si el mensaje sin leer tiene más antigüedad, el bot lo ignora, previniendo que se disparen saludos automáticos de forma masiva a clientes con chats viejos tras una desconexión.
-- **Cierre Limpio de Clientes Zombies**: Si la conexión de Puppeteer falla críticamente al inicializar (ej. `Execution context was destroyed`), el bot realiza un cierre limpio forzado (`process.exit(1)`). Esto activa el ciclo de auto-recuperación de PM2 para reintentar la conexión de WhatsApp Web de forma transparente en segundos.
-- **Optimización Gmail en Tiempo Real**: Se eliminó el parámetro de búsqueda indexada `q` de la API de Gmail (el cual sufría retrasos de indexación de hasta 3 minutos). Ahora el bot recupera los últimos correos del Inbox directamente y los filtra en memoria, permitiendo que los códigos OTP de Amazon/Prime Video, Netflix y demás plataformas se extraigan e informen al instante.
+### 6. 📅 Programación de Mensajes y Difusiones Contextuales
+* **Lenguaje Natural en Español:** Permite al administrador agendar envíos:
+  * `@bot dile a Juan Perez hola cómo estás en 10 minutos`
+  * `@bot dile tu servicio ya está activo mañana a las 8 am`
+  * `@bot notifica a los de Netflix que la clave cambió`
+* **Persistencia Anticaídas:** Los mensajes agendados se guardan en `scheduled_messages.json` y se re-programan automáticamente en `node-schedule` ante reinicios del servidor.
 
 ---
 
-## 🛠️ Actualizaciones Recientes (13 de Julio de 2026)
+## 📂 Arquitectura de Módulos
 
-### 1. 📂 Bandeja de Entrada Unificada con Filtros de Pestañas
-- **Pestañas de Navegación**: Se rediseñó la barra lateral izquierda del panel administrativo agregando pestañas de acceso rápido:
-  *   **Mis Tickets**: Muestra una lista limpia con los chats asignados al asesor en sesión.
-  *   **Tickets Activos**: Muestra la vista categorizada clásica de acordeones (Mis Tickets, Libres, Otros, Probablemente Terminados, Archivados y agrupados).
-  *   **Todos los Chats**: Permite acceder al histórico de las últimas 150 conversaciones en la base de datos de manera cronológica plana, permitiendo a los asesores monitorear qué responde el bot o reclamar cualquier chat en cualquier momento.
-
-### 2. 🛡️ Filtro Estricto de Credenciales por Plataforma (Prevención de Alucinaciones)
-- **Extracción de Plataforma**: Se implementó una lógica de parseo en `billingService.js` (`processCheckCredentials`) para identificar la plataforma exacta solicitada por el usuario en lenguaje natural.
-- **Aislamiento de Cuentas**: Si el usuario tiene la plataforma activa, el bot le expone a Gemini únicamente los datos de ese servicio, evitando alucinaciones de claves cruzadas (ej: entregar datos de Prime Video haciéndolos pasar por Netflix). Si el usuario no la tiene activa, el bot le ofrece comprarla, pasa el chat a `waiting_human` y lo etiqueta para revisión humana.
-
-### 3. 👥 Auto-Asociación y Confirmación Interactiva Multi-Cuenta (Laura Mejía Fallback)
-- **Fallback Multi-Cuenta**: Al interceptar un pago genérico (`"Sheerit"`) de un usuario que posee múltiples servicios activos, el bot ahora autollena de manera implícita su carrito de transacciones con **todas sus cuentas activas** en lugar de crear un servicio genérico `"Sheerit"`.
-- **Confirmación Interactiva**: El bot preguntará de forma interactiva al usuario si desea renovar todos sus servicios activos. Si el usuario responde "1" (Sí), renovará todos sus servicios en el Excel simultáneamente al procesar la validación. Si responde "2" (No), se pausará el proceso automático y se notificará al grupo de soporte.
-
-### 4. 📊 Agrupación del Historial de Cortes de Excel
-- **Corte por Mes Legible**: Se optimizó la función `procesarHistoricoArray` para agrupar los bloques del Excel Histórico por su nombre de mes general (ej: `"Julio de 2026"`, `"Junio de 2026"`), evitando que se muestren fechas arbitrarias o de celdas vacías (`"hoy"`) como títulos de corte.
-- **Mapeo Seguro**: Mantiene el mapeo de la fecha de renovación del servicio desde la columna `"deben"` y su vencimiento real.
+| Archivo | Responsabilidad Principal |
+| :--- | :--- |
+| [`index.js`](file:///Users/estebanavila/desarrollo/whatbot/index.js) | **Cerebro y Servidor Express:** Orquestación de WhatsApp Web (`wppconnect`), rutas de API REST, filtros de tickets y webhook de mensajes. |
+| [`ragKnowledgeService.js`](file:///Users/estebanavila/desarrollo/whatbot/ragKnowledgeService.js) | **Motor RAG:** Generación de embeddings con `gemini-embedding-001`, indexación de documentos, caché local MD5 y búsqueda semántica de coseno. |
+| [`aiService.js`](file:///Users/estebanavila/desarrollo/whatbot/aiService.js) | **Módulo de Inteligencia Artificial:** Integración de DeepSeek V3, Gemini Flash, análisis de visión OCR, enmascaramiento de datos y guardrails de seguridad. |
+| [`salesRegistryService.js`](file:///Users/estebanavila/desarrollo/whatbot/salesRegistryService.js) | **Registro de Ventas:** Auto-detección de renovaciones, asignación de cupos libres en Excel/MariaDB y cálculo de fechas de corte. |
+| [`billingService.js`](file:///Users/estebanavila/desarrollo/whatbot/billingService.js) | **Facturación y Credenciales:** Consulta de precios por catálogo, entrega de contraseñas de MariaDB y generador de estados de cuenta. |
+| [`gmailService.js`](file:///Users/estebanavila/desarrollo/whatbot/gmailService.js) | **Integración Gmail:** Lectura de códigos de acceso (Netflix, Disney, Max, Amazon, Claude) y auto-validación de pagos Bre-B. |
+| [`availabilityService.js`](file:///Users/estebanavila/desarrollo/whatbot/availabilityService.js) | **Normalización y Stock:** Validación de disponibilidad de cuentas y normalización de nombres de plataformas. |
+| [`scheduledMessageService.js`](file:///Users/estebanavila/desarrollo/whatbot/scheduledMessageService.js) | **Mensajería Programada:** Planificador de recordatorios y avisos diferidos para clientes. |
+| [`googleContactsService.js`](file:///Users/estebanavila/desarrollo/whatbot/googleContactsService.js) | **Sincronización de Contactos:** Creación y búsqueda automática de clientes en Google Contacts. |
 
 ---
 
-## 🛠️ Actualizaciones Recientes (25-26 de Julio de 2026)
+## 🚀 Comandos Administrativos (Desde WhatsApp)
 
-### 1. 🚀 Integración y Aprobación Automática con Pasarela Bold (`webhooks`)
-- **Pasarela de Pago Bold**: Integración del endpoint `/api/bold/webhook` y `/api/bold/generate-token` para cobros automatizados con tarjetas y PSE.
-- **Detección Flexible de Transacciones**: Parseo inteligente de referenciales (`metadata.reference`, `reference`, `orderId`, `subject`) y eventos de aprobación (`SALE_APPROVED`, `SALE.APPROVED`, `PAYMENT_SUCCESS`, `status: APPROVED`, `PAID`).
-- **Persistencia en Base de Datos & Excel**: Las órdenes aprobadas se registran automáticamente en la hoja de Excel en Azure y se trasladan de `web_sales_pending` a la tabla de base de datos `web_sales_approved`.
-
-### 2. 📅 Edición Manual Directa de Vencimientos en Panel Web
-- **Endpoint Administrativo**: Implementación de `POST /api/admin/client/update-expiration` para modificar la fecha de vencimiento (`deben`) de cualquier cliente desde la web.
-- **Date Picker en Tabla de Clientes**: Integración de un selector de fecha interactivo (**Date Picker inline**) en la columna *Vencimiento* de la vista `Base de Datos`, actualizando al instante los días vigentes, insignias de estado y la base de datos de Microsoft Graph / Excel.
-
-### 3. 📺 Verificación de Hogar Netflix Ultra-Rápida y Precisa
-- **Extracción de Enlaces de Acción CTA**: Optimización de `extractBestLink` en `gmailService.js` para priorizar los enlaces de autorización directa (`update-primary-location`, `update-household`, `travel/verify`, `nftoken=`) sobre enlaces de navegación general de logo (`URL_LOGO` / `netflix.com/browse`).
-- **Fix Redirección a Login**: Eliminación del fallo que enviaba a los clientes a la pantalla de inicio de sesión (`netflix.com/login`) al hacer clic en *"Actualizar Hogar en Netflix"*.
-- **Decodificación Limpia Quoted-Printable**: Corrección de sintaxis QP (`=3D`, `=26`, `=3F`, `=2F`, `=3A`) evitando la corrupción de tokens de acceso `nftoken=`.
-- **Carga Veloz (<1s)**: Búsqueda indexada directa en la API de Gmail con el filtro `q: 'netflix'` y lecturas asíncronas paralelas mediante `Promise.all`.
-
-### 4. 🏷️ Difusión Masiva Personalizada por Plataforma
-- **Variables Dinámicas Formateadas**: La etiqueta `{Servicio}` en la vista de masivos expande los datos específicos completos según el tipo de servicio (plataforma, correo, clave y PIN para perfiles estándar, o correo de cliente con estado para invitaciones familiares).
-- **Filtro Estricto de Credenciales por Servicio**: Al realizar envíos masivos filtrados por plataforma (ej. Disney), el backend procesa y entrega únicamente las credenciales de esa plataforma concreta, protegiendo otros datos del usuario.
-
-### 5. 🧾 Manejo de Fallas Prematuras de Pago de Proveedores & Regla 17
-- **OCR de Pantallas de Error**: Detección visual mediante Gemini para capturas con mensajes como *"No pudimos procesar tu pago"* o *"Actualizar info de pago"*.
-- **Regla 17 de Fallback**: Prohíbe estrictamente pedir al cliente tarjetas de crédito/débito personales y escala el caso directamente al canal humano de soporte técnico.
-
-### 6. 🔄 Renovación vs. Compra Nueva y Normalización de Alias
-- **Inteligencia de Renovación Familiar**: Separación de `newManualItems` y `renewalItems` para plataformas familiares (Apple One, Gemini Pro, YouTube, Microsoft 365), renovando membresías sin solicitar nuevamente correos de ID o invitaciones.
-- **Ignorar Filtro de Operador en Renovaciones**: Verificación de suscripciones activas en Excel para forzar `isRenewal = true`, evitando interrumpir auto-validaciones preguntando por el operador de internet (`suba-movistar`).
-- **Normalización de Alias Comerciales**: Mejora de `findPlatformByName` en `salesService.js` mapeando términos como *"Disney Plus"*, *"Disney+"*, *"Star+"*, *"Office 365"*, *"Apple TV"*, etc.
+* `@bot confirmar [Número] [Plataforma]`: Valida un pago manualmente y activa el servicio.
+* `@bot notifica a los de [Cuenta] que [Mensaje]`: Inicia un flujo de difusión con confirmación previa.
+* `@bot descarta los [Filtro]`: Refina la lista del mensaje masivo antes de enviar.
+* `@bot solo los activos`: Filtra el envío para incluir únicamente usuarios con suscripciones vigentes.
+* `@bot dile a [Nombre/Número] [Mensaje] [Tiempo]`: Agenda un mensaje para el cliente especificado.
+* `@bot libera [Número]`: Desbloquea el silencio del bot en un chat individual.
+* `@bot duérmete`: Desactiva temporalmente las respuestas automáticas globales.
+* `@bot despiértate`: Reactiva las respuestas automáticas globales.
 
 ---
 
-## 🛡️ Medidas de Estabilidad y Anti-Detección (WhatsApp Web / Puppeteer)
+## 🛠️ Puesta en Marcha y Despliegue
 
-Para evitar bloqueos por parte de los sistemas automatizados de WhatsApp y asegurar que el bot no entre en bucle infinito de reinicios, el constructor de `Client` en [index.js](file:///Users/estebanavila/desarrollo/whatbot/index.js) debe configurarse estrictamente bajo las siguientes pautas de seguridad:
+```bash
+# 1. Instalar dependencias
+npm install
 
-### 1. Camuflaje Anti-Detección (Anti-Bot)
-* **User-Agent de Escritorio Real:** Siempre se debe pasar una cabecera de navegador real en el constructor para evitar el User-Agent headless por defecto de Chromium:
-  `userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'`
-* **Bandera de Evasión de webdriver:** Se debe inyectar la bandera `--disable-blink-features=AutomationControlled` dentro de la sección `args` de `puppeteer`. Esto deshabilita la propiedad `navigator.webdriver` en la página, haciendo que el navegador de Puppeteer sea indistinguible de un Chrome humano ante los scripts de telemetría de WhatsApp Web.
+# 2. Iniciar en desarrollo
+npm start
 
-### 2. Control de Versiones Web de WhatsApp (webVersionCache)
-* **Uso de Versión Remota Validada:** No utilizar versiones locales o Alfa no probadas que puedan causar el rechazo de WebSocket de WhatsApp Web. Utilizar una versión compatible y pre-validada desde la caché remota:
-  ```javascript
-  webVersionCache: {
-      type: 'remote',
-      remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2413.51-pre.html',
-      strict: false
-  }
-  ```
+# 3. Iniciar en producción con PM2
+pm2 start index.js --name whatbot
 
-### 3. Protección contra Bucles de Reinicio Rápido
-* **Desconexiones en Frío:** En el handler `disconnected`, el bot detecta el estado actual a través de `currentWhatsappStatus`. Si el bot se desconecta antes de estar logueado (`CONNECTED`), el bot esperará **15 segundos** antes de ejecutar `process.exit(1)`. Esto previene bucles de reinicio rápidos y protege la dirección IP del servidor contra el rate-limiting de WhatsApp.
-
----
-
-## 🛠️ Actualizaciones Recientes (28-29 de Julio de 2026)
-
-### 1. ⚡ Redirección Instantánea al Panel de Cliente / Portal OTP tras Pago en Bold
-- **Navegación sin Esperas**: Al completar el pago en la pasarela Bold / PSE, el cliente es redirigido a `https://sheerit.com.co/?orderId=${orderId}&payment=success`.
-- **Integración con Portal de Verificación (`/verificar`)**: El frontend (`sheeritpage/src/App.tsx`) consulta la API de validación inmediata `/api/bold/check-status/:orderId` y traslada automáticamente al usuario al **Panel de Cliente / Verificación de Códigos OTP** prellenado con su número WhatsApp (`/?tel=57300XXXXXX`), permitiéndole ver sus credenciales y solicitar códigos en tiempo real.
-
-### 2. 🎟️ Generación de Tickets de Soporte en MariaDB (`#TK-xxxx`)
-- **Gestión Relacional en MariaDB**: Toda solicitud que requiere intervención humana (activación de invitaciones familiares de YouTube Premium, Apple One o escalaciones de la IA) crea automáticamente un registro en la tabla `tickets` de MariaDB (`status: open`, `priority: high`).
-- **Trazabilidad en WhatsApp**: Las alertas enviadas al grupo administrativo incluyen el ID único de ticket generado (ej: `🚨 ACTIVACIÓN MANUAL REQUERIDA (#TK-1042)`).
-
-### 3. 🔕 Silenciamiento de Notificaciones de Pagos Autovalidados
-- Para eliminar el ruido en el grupo principal de WhatsApp, los pagos **100% autovalidados por el bot** ya no envían mensajes al chat del grupo.
-- Las ventas se registran de forma transparente en la base de datos `web_sales_approved`, la hoja de Excel en Azure y las vistas administrativas (`WebSalesView` / Contabilidad).
-
-### 4. 🧠 Autonomía Resolutiva de IA sin Bloqueos Rígidos
-- **Remoción de Filtros Hardcoded**: Se eliminó la lista de patrones de texto fijos (`isExplicitFailure`) que forzaba escalaciones erróneas ante frases como *"se me cerró la sesión de ChatGPT"*.
-- **Autoservicio Inteligente**: La IA (DeepSeek Chat / Gemini Flash) consulta las credenciales vigentes en `ACCOUNT_SUMMARY` y resuelve directamente consultas de contraseña o cierres de sesión sin crear tickets innecesarios.
-
----
-
-## 🧠 Arquitectura RAG Semántica y Búsqueda Vectorial (`ragKnowledgeService.js`) (Agosto 2026)
-
-Para eliminar la fragilidad de listas de palabras clave (`if (body.includes(...))`) y resolver problemas de modismos y falsos positivos en WhatsApp, el bot incorpora un **Motor RAG (Retrieval-Augmented Generation)** impulsado por **Google Gemini Embeddings**:
-
-### 1. Vectorización de Conocimiento con Gemini (`gemini-embedding-001`)
-* **Indexación Exhaustiva**: Al iniciar, el bot lee y fragmenta semánticamente `support.json`, `knowledge_base.json`, `policies.json` y `platforms.json` en fragmentos de alta granularidad.
-* **Caché Vectorial Local**: Almacena los vectores en `knowledge_embeddings_cache.json` junto con un hash MD5 de los archivos fuente para cargar en **<5 milisegundos** sin consumir peticiones redundantes.
-* **Similitud de Coseno en Memoria**: Búsqueda ultrarrápida que devuelve los 2 o 3 fragmentos con mayor afinidad conceptual ante cualquier duda del cliente (*"no me da el pin"*, *"me salió lo de viaje en el tele"*, *"no veo mi nombre en los perfiles"*).
-
-### 2. Guardrails y Reglas de Negocio Estrictas
-* 🚫 **Prohibición de Claves Inventadas**: La IA tiene prohibido inventar o alucinar contraseñas temporales (ej: `sheerit2026*`). Si el cliente reporta clave incorrecta, el sistema consulta de inmediato las credenciales reales en MariaDB.
-* 📅 **Coherencia Temporal**: Regla de cálculo estricto de fechas (si vence hoy, decir *"vence hoy"*, nunca *"venció el día de ayer"*).
-* 🔓 **Bypass Prioritario de Códigos 2FA**: Las solicitudes de códigos 2FA y verificación de Hogar Netflix tienen prioridad absoluta y saltan el silencio del bot (`hasRecentHuman` / `BOT MUTE`) para entregar el código en segundos.
+# 4. Ver logs en tiempo real
+pm2 logs whatbot
+```

@@ -45,33 +45,20 @@ function isSamePlatformFamily(name1, name2) {
     const isExtra2 = n2.includes('extra') || name2.toLowerCase().includes('extra');
     if (isExtra1 !== isExtra2) return false;
 
-    // REGLA CRÍTICA 4: Tiers específicos (ej: netflix_extra, hbo_platino, spotify_owner, youtube_owner) no deben cruzarse entre sí
-    if (n1 !== n2) {
-        if ((n1 === 'disney' && n2 === 'disney_premium') || (n1 === 'disney_premium' && n2 === 'disney')) {
-            return true;
-        }
-        const specificTiers = ['hbo_platino', 'netflix_extra', 'spotify_owner', 'youtube_owner', 'appletv', 'appleone'];
-        if (specificTiers.includes(n1) || specificTiers.includes(n2)) {
-            return false;
-        }
+    if (n1 === n2) return true;
+
+    // Equivalencias directas de alias
+    if ((n1 === 'disney' && n2 === 'disney_premium') || (n1 === 'disney_premium' && n2 === 'disney')) return true;
+    if ((n1 === 'appleone' && n2 === 'apple_one') || (n1 === 'apple_one' && n2 === 'appleone')) return true;
+    if ((n1 === 'crunchyroll' && n2 === 'crunchy_roll') || (n1 === 'crunchy_roll' && n2 === 'crunchyroll')) return true;
+
+    // REGLA CRÍTICA 4: Tiers específicos que NO deben cruzarse con planes estándar
+    const specificTiers = ['hbo_platino', 'netflix_extra', 'spotify_owner', 'youtube_owner', 'appletv'];
+    if (specificTiers.includes(n1) || specificTiers.includes(n2)) {
+        return false;
     }
 
-    if (n1 === n2) return true;
-    
-    const families = [
-        ['hbo', 'hbo_platino', 'max'],
-        ['netflix', 'netflix_extra'],
-        ['spotify', 'spotify_familiar', 'spotify_personal', 'spotify_individual'],
-        ['disney', 'disney_premium', 'disney_standard'],
-        ['apple', 'apple_one', 'apple_tv', 'appletv'],
-        ['gemini', 'gemini_pro', 'gemini_pro_compartida'],
-        ['youtube', 'youtube_premium', 'youtube_familiar', 'youtube_individual'],
-        ['microsoft', 'microsoft_365', 'office', 'office_365', 'outlook'],
-        ['prime', 'amazon_prime', 'prime_video'],
-        ['vix', 'vix_premium']
-    ];
-    
-    const mainRoots = ['gemini', 'apple', 'youtube', 'spotify', 'disney', 'hbo', 'netflix', 'microsoft', 'office', 'prime', 'vix', 'crunchyroll', 'claude', 'chatgpt', 'gpt'];
+    const mainRoots = ['gemini', 'apple', 'youtube', 'spotify', 'disney', 'hbo', 'netflix', 'microsoft', 'office', 'prime', 'vix', 'crunchyroll', 'crunchy', 'claude', 'chatgpt', 'gpt', 'paramount'];
     for (const root of mainRoots) {
         let normalizedN1 = n1.replace(/chatgpt|chat gpt/g, 'gpt');
         let normalizedN2 = n2.replace(/chatgpt|chat gpt/g, 'gpt');
