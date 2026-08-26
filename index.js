@@ -10859,23 +10859,6 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     if (cleanDigits) lastResponseTimestamps.set(cleanDigits, now);
     if (originalChatJid) lastResponseTimestamps.set(originalChatJid, now);
 
-    // --- INTERCEPTOR RÁPIDO PARA ERRORES O CONSULTAS DE CONTRASEÑA / CLAVE ---
-    const inputLower = (inputToUse || "").toLowerCase().trim();
-    const isPasswordQuery = [
-        'error de contraseña', 'error de clave', 'contraseña incorrecta', 'clave incorrecta',
-        'la cambiaste', 'cambiaste la clave', 'cambiaste la contraseña', 'me sale error de contraseña',
-        'no entra la clave', 'no entra la contraseña', 'no me sirve la clave', 'no me sirve la contraseña',
-        'cual es la clave', 'cuál es la clave', 'cual es la contraseña', 'cuál es la contraseña',
-        'olvide la clave', 'olvidé la clave', 'olvide la contraseña', 'olvidé la contraseña'
-    ].some(kw => inputLower.includes(kw));
-
-    if (isPasswordQuery) {
-        console.log(`[Fast-Track Password] Interceptado reporte de clave/contraseña para @${userId}`);
-        const { processCheckCredentials } = require('./billingService');
-        await processCheckCredentials(userId, client, inputToUse, "", userStates);
-        return;
-    }
-
     const timedHist = `[ESTE MENSAJE LLEGÓ HACE ${messageAgeMinutes} MINUTOS]\n${hist}`;
     const detection = await detectInitialIntent(inputToUse, timedHist, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
 
