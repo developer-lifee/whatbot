@@ -356,18 +356,8 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         }
     }
 
-    return fallbackExcelPrice;
-}
-            const pNorm = normalizeStreamingName(p.name || '');
-            const pAlphanum = pName.replace(/[^A-Z0-9]/g, '');
-
-            if (pName === targetName || pAlphanum === targetAlphanum ||
-                (targetNorm && pNorm && targetNorm === pNorm) ||
-                pName.includes(targetName) || targetName.includes(pName) ||
-                (targetAlphanum && pAlphanum && (targetAlphanum.includes(pAlphanum) || pAlphanum.includes(targetAlphanum)))) {
-                return p.price || 0;
-            }
-        }
+    if (fallbackExcelPrice > 0) {
+        return fallbackExcelPrice;
     }
 
     // 3. Diccionario de respaldo por si platforms no cargó o hay variantes
@@ -394,6 +384,7 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         'claude_pro': 25000
     };
 
+    const targetNorm = normalizeStreamingName(streamingName);
     if (targetNorm && fallbackPrices[targetNorm]) {
         return fallbackPrices[targetNorm];
     }
