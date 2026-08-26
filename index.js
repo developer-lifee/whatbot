@@ -8916,7 +8916,14 @@ async function baseProcessIncomingMessage(messages) {
         }
     } catch (e) { }
 
-    if (hasRecentHuman && !message.body?.toLowerCase().includes('@bot') && message.body?.trim().toLowerCase() !== 'menu') {
+    const bodyMsgLower = (message.body || '').trim().toLowerCase();
+    const isDirectCodeOrCredentialsReq = [
+        'código', 'codigo', 'código de verificación', 'codigo de verificacion',
+        'código de acceso', 'codigo de acceso', '2fa', 'authenticator', 'hogar',
+        'actualizar hogar', 'contraseña', 'clave'
+    ].some(kw => bodyMsgLower.includes(kw));
+
+    if (hasRecentHuman && !message.body?.toLowerCase().includes('@bot') && message.body?.trim().toLowerCase() !== 'menu' && !isDirectCodeOrCredentialsReq) {
         console.log(`[BOT MUTE ACTIVE] Intervención humana reciente (<45 min) detectada en el chat de @${userId}. Bot silenciado estrictamente.`);
         const muteObj = {
             ...(typeof currentStateData === 'object' ? currentStateData : {}),
@@ -10784,6 +10791,40 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     // 2. DETECCIÓN DE INTENCIÓN Y NOMBRE (Global para todos los estados)
     const hist = await getChatHistoryText(message, 25);
     const messageAgeMinutes = Math.floor((Date.now() / 1000 - message.timestamp) / 60);
+
+    // --- INTERCEPTOR RÁPIDO PARA CLAVE/CONTRASEÑA/PERFIL ---
+    const inputLower = (inputToUse || "").toLowerCase().trim();
+    
+    const isPasswordQuery = [
+        'no entra la clave', 'no entra la contraseña', 'no me sirve la clave', 'no me sirve la contraseña',
+        'cual es la clave', 'cuál es la clave', 'cual es la contraseña', 'cuál es la contraseña',
+        'olvide la clave', 'olvidé la clave', 'olvide la contraseña', 'olvidé la contraseña',
+        'contraseña incorrecta', 'contraseñas incorrectas', 'clave incorrecta', 'claves incorrectas',
+        'contraseña invalida', 'contraseña inválida', 'clave invalida', 'clave inválida',
+        'error de contraseña', 'error de clave', 'no da la clave', 'no da la contraseña'
+    ].some(kw => inputLower.includes(kw));
+
+    if (isPasswordQuery) {
+        console.log(`[Fast-Track Password] Interceptado reporte de clave/contraseña para @${userId}`);
+        const { processCheckCredentials } = require('./billingService');
+        await processCheckCredentials(userId, client, inputToUse, "", userStates);
+        return;
+    }
+
+    const isProfileQuery = [
+        'no hay perfil', 'no hay perfiles', 'no está mi perfil', 'no esta mi perfil', 'no sale mi perfil',
+        'no sale mi nombre', 'no encuentro mi perfil', 'a cual puedo ingresar', 'a cuál puedo ingresar',
+        'a que perfil entro', 'a qué perfil entro', 'cuál es mi perfil', 'cual es mi perfil', 'en cual perfil entro',
+        'cual perfil', 'cuál perfil'
+    ].some(kw => inputLower.includes(kw));
+
+    if (isProfileQuery) {
+        console.log(`[Fast-Track Profile Query] Interceptada duda de perfil por texto para @${userId}`);
+        await message.reply(`🤖 ¡Hola! En tu pantalla puedes seleccionar la opción **"Añadir perfil"** (o el botón **"+"**). 📺\n\n` +
+            `Crea tu perfil colocándole **tu nombre** para que tengas tu propio espacio y lista personal. 😊\n\n` +
+            `⚠️ *Recuerda:* No modifiques los perfiles de otros usuarios para evitar confusiones.`);
+        return;
+    }
 
     // Construimos el contexto del lote actual para que la IA entienda la ráfaga de mensajes
     const batchContext = messages.length > 1
