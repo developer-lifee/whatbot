@@ -168,15 +168,27 @@ async function isSupportOpen() {
  */
 function getQueuePosition(userId, userStates) {
   if (!userStates) return null;
+  const now = Date.now();
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
   const queue = [];
+  
   for (const [id, state] of userStates.entries()) {
+    if (!state) continue;
     const stateStr = typeof state === 'object' ? state.state : state;
-    if (stateStr === 'waiting_human') {
-      // Use waitingTimestamp or fall back to lastHumanInteraction, or 0
-      const ts = (typeof state === 'object' && state.waitingTimestamp) 
-        ? state.waitingTimestamp 
-        : ((typeof state === 'object' && state.lastHumanInteraction) ? state.lastHumanInteraction : 0);
-      queue.push({ id, ts });
+    if (stateStr === 'waiting_human' || stateStr === 'waiting_admin_confirmation') {
+      // Ignorar números internos del bot o grupos
+      if (id.includes('3118587974') || id.includes('269285859545110') || id.includes('@g.us')) continue;
+      
+      const waitingSince = typeof state === 'object' 
+        ? (state.clientWaitingSince || state.waitingTimestamp || state.lastHumanInteraction || state.lastMessageTime || 0)
+        : 0;
+      
+      // Solo contar chats que entraron en espera recientemente (últimas 2 horas)
+      if (waitingSince && (now - waitingSince) < TWO_HOURS) {
+        queue.push({ id, ts: waitingSince });
+      } else if (id === userId) {
+        queue.push({ id, ts: now });
+      }
     }
   }
 
@@ -185,8 +197,8 @@ function getQueuePosition(userId, userStates) {
 
   // Find index of userId
   const index = queue.findIndex(item => item.id === userId);
-  if (index === -1) return null;
-  return index + 1; // 1-based index
+  if (index === -1) return 1;
+  return index + 1; // 1-based index (ej: #1, #2, #3)
 }
 async function checkUpcomingDayCoverage(client, groupId) {
   try {
