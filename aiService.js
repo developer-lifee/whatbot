@@ -179,28 +179,29 @@ const MODELS = [
  */
 async function detectAdminIntent(messageContent) {
   const prompt = `
-    Eres el asistente personal del JEFE de la plataforma Sheerit. 
-    Tu tarea es identificar qué acción administrativa quiere realizar el jefe basándose en su mensaje: "${messageContent}"
+    Eres el asistente personal del JEFE y de los ASESORES de la plataforma Sheerit. 
+    Tu tarea es identificar qué acción administrativa quiere realizar el asesor/jefe basándose en su mensaje natural: "${messageContent}"
 
-    FACULTADES DEL JEFE:
-    - "confirmar_pago": El jefe quiere validar el pago de un cliente. Busca si menciona un número de teléfono o nombre.
-    - "confirm_action": El jefe confirma una acción pendiente (menciona "sí", "si", "dale", "proceder", "confirmar", "hazlo").
-    - "liberar_bot": El jefe quiere que el bot vuelva a atender a un cliente que estaba silenciado (menciona "liberar", "atiende", "vuelve", "contesta", "te ayuda el bot", "ayúdame a explicar", "explícale").
-    - "dame_cuenta": El jefe quiere que le des las credenciales de una plataforma para él mismo (menciona "dame una de", "pásame", "pasa cuenta", "quiero entrar a"). 
-      *IMPORTANTE*: NO uses este intent si el mensaje menciona "envía", "manda", "pasa a todos", "notifica", "a los de", "código", "gmail", "correo" o "verificación", ya que eso indica un broadcast o la búsqueda de un código de acceso temporal.
-    - "dormir_bot": El jefe quiere apagar las respuestas automáticas globales ("duérmete", "apágate").
-    - "despertar_bot": El jefe quiere reactivar el bot globalmente ("despiértate", "actívate").
-    - "programar_mensaje": El jefe quiere que el bot le envíe un mensaje a un cliente específico (ej: "dile a Juan...", "envía a 573...", "dile a este cliente..."). Puede ser programado para el futuro (ej: "a las 8 am", "mañana a las 10:30", "en 10 minutos") o puede ser inmediato (si no se especifica hora, el tiempo programado es null).
-    - "desconocido": Consultas de códigos (menciona "código", "gmail", "correo", "2fa", "authenticator", "totp", "verificación"), consultas de datos, reportes, envíos masivos (broadcast), refinamientos de mensajes, o charla casual.
+    FACULTADES Y ACCIONES:
+    - "enviar_credenciales": El asesor pide enviar credenciales/cuenta/acceso de una plataforma a un correo o número (ej: "@bot envia credenciales de Amazon para dazaolivia43@gmail.com", "@bot pásale la cuenta de Disney a 3101234567", "@bot mándale el acceso de Netflix a este cliente").
+    - "dame_cuenta": El asesor pide credenciales para él mismo en el grupo (ej: "@bot dame una de Netflix", "pásame un Disney", "pasa cuenta de HBO").
+    - "confirmar_pago": El asesor confirma o valida el pago de un cliente (ej: "@bot confirmar 3162733503", "si me llegó 3162733503", "@bot confirmar Isabella").
+    - "confirm_action": Confirma una acción pendiente ("sí", "si", "dale", "proceder", "confirmar", "hazlo").
+    - "liberar_bot": Retomar la atención automática para un cliente ("liberar", "atiende", "vuelve", "contesta", "reactivar").
+    - "dormir_bot": Apagar las respuestas automáticas globales ("duérmete", "apágate").
+    - "despertar_bot": Reactivar el bot globalmente ("despiértate", "actívate").
+    - "programar_mensaje": Enviar un mensaje programado o directo a un cliente ("dile a Juan...", "envía a 573...").
+    - "desconocido": Consultas casuales u otras dudas.
  
     Salida esperada JSON:
     {
-      "intent": "confirmar_pago" | "confirm_action" | "liberar_bot" | "dame_cuenta" | "dormir_bot" | "despertar_bot" | "programar_mensaje" | "desconocido",
-      "target_platform": string | null, // Ej: "Netflix", "HBO"
-      "target_user": string | null, // Ej: "57304...", "Estefania Arias", o "este cliente"
-      "message_text": string | null, // El contenido limpio del mensaje que el jefe quiere enviarle al cliente (sin el @bot dile a..., etc.)
-      "scheduled_time": string | null, // La descripción del tiempo si la hay (ej: "8 am", "mañana a las 10:30", "en 10 minutos"), de lo contrario null
-      "months": number | null // Si menciona duración para una confirmación
+      "intent": "enviar_credenciales" | "dame_cuenta" | "confirmar_pago" | "confirm_action" | "liberar_bot" | "dormir_bot" | "despertar_bot" | "programar_mensaje" | "desconocido",
+      "target_platform": string | null, // Ej: "Amazon", "Netflix", "Disney", "Spotify", "HBO"
+      "target_user": string | null, // Ej: "57304...", "3162733503", "dazaolivia43@gmail.com", o "Isabella Alvarez"
+      "target_email": string | null, // Si menciona un correo electrónico (ej: "dazaolivia43@gmail.com")
+      "message_text": string | null,
+      "scheduled_time": string | null,
+      "months": number | null
     }
   `;
 

@@ -775,7 +775,17 @@ async function calculateAndShowPrice(message, userId, userStates) {
     periodText = `/${defaultDurationRule.label}`;
   }
 
-  responseText += `\nTotal (${subscriptionType}): $${totalPrice}${periodText}`;
+  // Detección de cliente internacional
+  const { calculateInternationalPrice } = require('./billingService');
+  const cleanDigits = userId.replace(/\D/g, '');
+  const isInternational = (!cleanDigits.startsWith('57') && cleanDigits.length >= 10 && !cleanDigits.startsWith('3'));
+  
+  if (isInternational) {
+    const { priceUSD } = calculateInternationalPrice(totalPrice);
+    responseText += `\nTotal (${subscriptionType}): **$${totalPrice.toLocaleString('es-CO')} COP** *(~$${priceUSD} USD)*${periodText}`;
+  } else {
+    responseText += `\nTotal (${subscriptionType}): **$${totalPrice.toLocaleString('es-CO')} COP**${periodText}`;
+  }
 
   // Verificar disponibilidad general usando plan completo
   const { getPlatformAvailability } = require('./availabilityService');
@@ -792,12 +802,20 @@ async function calculateAndShowPrice(message, userId, userStates) {
     responseText += `\n\n⚠️ *Nota:* Para *${uniquePlats.join(', ')}*, la entrega/activación demorará un poco más de lo habitual y no será de inmediato. ¡Agradecemos tu paciencia! 😊`;
   }
 
-  responseText += "\n\n🤖 *Aviso:* He sumado los precios estándar. Si tienes dudas sobre el total o crees que aplicas a un descuento especial, no te preocupes, puedes esperar a que un asesor humano revise tu solicitud. 😊";
+  if (isInternational) {
+    const { priceUSD } = calculateInternationalPrice(totalPrice);
+    responseText += `\n\n🌎 *Cliente Internacional:* Puedes pagar en **Dólares (USD)** de forma segura con tu tarjeta débito o crédito internacional a través de nuestra pasarela web oficial: https://sheerit.co/ o por Binance Pay (USDT).`;
+  }
 
   await message.reply('🤖 ' + responseText);
 
-  const paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?" + getDynamicPaymentMessage(nonImmediatePlats.length > 0).replace("\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?", "");
-  await message.reply(paymentOptions);
+  if (isInternational) {
+    await message.reply("🤖 Para clientes internacionales fuera de Colombia 🇲🇽 🌎:\n\n💳 *Pago con Tarjeta Internacional (Débito / Crédito):*\nIngresa a https://sheerit.co y realiza el pago seguro con entrega inmediata.\n\n🟡 *Binance Pay / USDT:*\nSolicita a un asesor nuestra ID de Binance para pago directo en cripto sin comisiones.");
+  } else {
+    const paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?" + getDynamicPaymentMessage(nonImmediatePlats.length > 0).replace("\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?", "");
+    await message.reply(paymentOptions);
+  }
+
   const existing = userStates.get(userId);
   const stateData = typeof existing === 'object'
     ? { ...existing, state: 'awaiting_payment_method', total: totalPrice, items: selected, subscriptionType }

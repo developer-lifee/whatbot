@@ -7559,6 +7559,53 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
     }
 });
 
+// POST Auto-Session for freshly approved web orders (No OTP required on first checkout)
+app.post('/api/client/auto-session', express.json(), async (req, res) => {
+    try {
+        const { phone, orderId } = req.body;
+        if (!phone) {
+            return res.status(400).json({ success: false, message: 'Falta el número de teléfono' });
+        }
+
+        const cleanPhone = phone.replace(/\D/g, '');
+        const isDemo = isDemoClientPhone(cleanPhone);
+
+        if (isDemo) {
+            return res.json({
+                success: true,
+                message: 'Sesión automática (Modo Demo)',
+                accounts: DEMO_ACCOUNTS_LIST
+            });
+        }
+
+        const { getAccountsByPhone } = require('./apiService');
+        const userAccounts = await getAccountsByPhone(cleanPhone);
+
+        const formattedAccounts = userAccounts.map(acc => {
+            const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
+            const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
+
+            return {
+                id: acc.id || acc._rowNumber,
+                platform: (acc.Streaming || "").toUpperCase(),
+                email: acc.correo || "",
+                password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
+                profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
+                vencimiento: acc.vencimiento || acc.deben || ""
+            };
+        });
+
+        res.json({
+            success: true,
+            message: 'Sesión iniciada con éxito',
+            accounts: formattedAccounts
+        });
+    } catch (e) {
+        console.error('Error en auto-session de cliente:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // POST Request 2FA Code from Website
 app.post('/api/client/request-2fa', express.json(), async (req, res) => {
     try {
@@ -8658,8 +8705,8 @@ async function baseProcessIncomingMessage(messages) {
             }
 
             if (contact) {
-                let extractedNum = contact.number;
-                if (!extractedNum && contact.phoneNumber) {
+                let extractedNum = null;
+                if (contact.phoneNumber) {
                     if (typeof contact.phoneNumber === 'string') {
                         extractedNum = contact.phoneNumber.replace(/\D/g, '');
                     } else if (typeof contact.phoneNumber === 'object' && contact.phoneNumber.user) {
@@ -8668,8 +8715,17 @@ async function baseProcessIncomingMessage(messages) {
                         extractedNum = contact.phoneNumber._serialized.replace(/\D/g, '');
                     }
                 }
+                
+                if (!extractedNum && contact.number) {
+                    const cleanCNum = String(contact.number).replace(/\D/g, '');
+                    // Si el número tiene entre 7 y 12 dígitos y no parece un LID (más de 12 dígitos), lo usamos
+                    if (cleanCNum.length >= 7 && cleanCNum.length <= 12) {
+                        extractedNum = cleanCNum;
+                    }
+                }
+
                 const botNum = (client.info && client.info.wid) ? client.info.wid.user : '3118587974';
-                if (extractedNum && extractedNum !== botNum && extractedNum !== '573118587974') {
+                if (extractedNum && extractedNum !== botNum && extractedNum !== '573118587974' && extractedNum.length <= 12) {
                     resolvedPhoneFromLid = extractedNum;
                 }
             }
@@ -9474,6 +9530,74 @@ async function baseProcessIncomingMessage(messages) {
                 }
             }
             return;
+        } else if (adminAI.intent === 'enviar_credenciales') {
+            const targetPlat = adminAI.target_platform || 'Amazon';
+            const targetEmail = adminAI.target_email || (adminAI.target_user && adminAI.target_user.includes('@') ? adminAI.target_user : null);
+            const targetPhone = adminAI.target_user && !adminAI.target_user.includes('@') ? adminAI.target_user.replace(/\D/g, '') : null;
+
+            try {
+                const { fetchRawData } = require('./apiService');
+                const allRows = await fetchRawData(3, 2500, true);
+                
+                let targetRow = null;
+                if (targetEmail) {
+                    targetRow = allRows.find(r => {
+                        const m = (r.correo || r.Correo || r['customer mail'] || r['Customer Mail'] || '').toString().toLowerCase().trim();
+                        const s = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
+                        return (m === targetEmail.toLowerCase() || m.includes(targetEmail.toLowerCase())) && s.includes(targetPlat.toLowerCase());
+                    });
+                }
+                
+                if (!targetRow) {
+                    targetRow = allRows.find(r => {
+                        const s = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
+                        const w = (r.whatsapp || '').toString().trim();
+                        const n = (r.Nombre || r.nombre || '').toString().toLowerCase().trim();
+                        return s.includes(targetPlat.toLowerCase()) && (!w || w.length < 5) && (!n || n === 'libre');
+                    });
+                }
+
+                if (targetRow) {
+                    const { getMaskedAccessData } = require('./aiService');
+                    const masked = getMaskedAccessData(targetRow);
+                    const pinLine = targetRow.pin ? `\n📌 PIN: \`${targetRow.pin}\`` : '';
+                    const vencStr = targetRow.vencimiento ? `\n📅 Vence: *${targetRow.vencimiento}*` : '';
+                    
+                    const credMsg = `🤖 ¡Hola! Un asesor de nuestro equipo te envía las credenciales de acceso de *${masked.streamingName || targetPlat.toUpperCase()}*:\n\n` +
+                        `📺 *Plataforma:* ${masked.streamingName || targetPlat.toUpperCase()}\n` +
+                        `📧 *Usuario:* \`${masked.correo || targetRow.correo}\`\n` +
+                        `🔑 *Contraseña:* \`${masked.clave || targetRow.clave || targetRow.password}\`${pinLine}${vencStr}\n\n` +
+                        `¡Que disfrutes tu servicio! 😊`;
+
+                    let sent = false;
+                    if (targetPhone) {
+                        const targetJid = targetPhone.includes('@') ? targetPhone : (targetPhone.length === 10 ? '57' + targetPhone + '@c.us' : targetPhone + '@c.us');
+                        await client.sendMessage(targetJid, credMsg);
+                        sent = true;
+                    } else if (targetEmail) {
+                        const custRow = allRows.find(r => (r.correo || r['customer mail'] || '').toString().toLowerCase().includes(targetEmail.toLowerCase()) && (r.whatsapp || r.numero));
+                        if (custRow && (custRow.whatsapp || custRow.numero)) {
+                            const p = (custRow.whatsapp || custRow.numero).replace(/\D/g, '');
+                            const jid = p.length === 10 ? '57' + p + '@c.us' : p + '@c.us';
+                            await client.sendMessage(jid, credMsg);
+                            sent = true;
+                        }
+                    }
+
+                    const destDesc = targetEmail || targetPhone || "destinatario";
+                    if (sent) {
+                        await message.reply(`✅ Credenciales de *${targetPlat.toUpperCase()}* enviadas con éxito a *${destDesc}* 🚀\n\n📧 Cuenta: \`${targetRow.correo}\``);
+                    } else {
+                        await message.reply(`✅ Credenciales de *${targetPlat.toUpperCase()}* localizadas para *${destDesc}*:\n\n📧 Correo: \`${targetRow.correo}\`\n🔑 Clave: \`${targetRow.clave || targetRow.password}\`${pinLine}`);
+                    }
+                } else {
+                    await message.reply(`⚠️ No encontré una cuenta libre o registrada de *${targetPlat}* para *${targetEmail || targetPhone || 'ese destino'}*.`);
+                }
+            } catch (err) {
+                console.error("Error en enviar_credenciales admin:", err);
+                await message.reply(`❌ Ocurrió un error al procesar el envío de credenciales: ${err.message}`);
+            }
+            return;
         } else if (adminAI.intent === 'dame_cuenta') {
             const { handleAdminForceRetrieve } = require('./adminService');
             await handleAdminForceRetrieve(message, adminAI.target_platform || adminAI.target_user || message.body, client, adminAI.target_user);
@@ -9482,26 +9606,43 @@ async function baseProcessIncomingMessage(messages) {
             const { handleAdminPaymentConfirmation } = require('./adminService');
             let targetPhone = adminAI.target_user ? adminAI.target_user.replace(/\D/g, '') : null;
 
-            // Fallback manual si la IA no detectó el número pero está en el texto
+            // Fallback manual si la IA no detectó el número pero está en el texto (soporta LIDs de 14 dígitos y celulares de 10-12 dígitos)
             if (!targetPhone) {
-                const regex = /57\s*3\d{2}\s*\d{7}|3\d{9}/;
+                const regex = /6\d{13}|9\d{13}|57\s*3\d{2}\s*\d{7}|3\d{9}/;
                 const match = message.body.match(regex);
                 if (match) targetPhone = match[0].replace(/\s+/g, '');
             }
 
-            let targetId = targetPhone ? (targetPhone.includes('@') ? targetPhone : targetPhone + '@c.us') : null;
+            let targetId = null;
+            if (targetPhone) {
+                if (targetPhone.includes('@')) {
+                    targetId = targetPhone;
+                } else if (targetPhone.length > 12) {
+                    // Es un LID
+                    targetId = targetPhone + '@lid';
+                    if (!userStates.has(targetId)) {
+                        const matchingKey = Array.from(userStates.keys()).find(k => k.includes(targetPhone));
+                        if (matchingKey) targetId = matchingKey;
+                    }
+                } else {
+                    targetId = (targetPhone.length === 10 ? '57' + targetPhone : targetPhone) + '@c.us';
+                }
+            }
 
             // Prioridad: 1. Quoted Message, 2. Target Phone, 3. globalLastPaymentUserId
             if (isReplyConfirmation) {
                 const quotedMsg = await message.getQuotedMessage();
-                const phoneRegex = /(57\d{10})|(\d{10})/;
+                const phoneRegex = /(6\d{13})|(9\d{13})|(57\d{10})|(\d{10})/;
                 const match = quotedMsg.body.match(phoneRegex);
                 if (match) {
                     let num = match[0];
-                    if (num.length === 10) num = '57' + num;
-                    targetId = num + '@c.us';
+                    if (num.length > 12) {
+                        targetId = num + '@lid';
+                    } else {
+                        if (num.length === 10) num = '57' + num;
+                        targetId = num + '@c.us';
+                    }
                 } else if (quotedMsg.from !== client.info.wid._serialized) {
-                    // Si no hay número en el texto pero el mensaje citado es de un cliente (no del bot)
                     targetId = quotedMsg.from;
                 }
             }
@@ -10576,15 +10717,15 @@ async function baseProcessIncomingMessage(messages) {
                                     return;
                                 }
 
-                                // SI EL CARRITO FUE AUTO-RELLENADO DESDE LA IA / HISTORIAL (CARRITO VACÍO PREVIO), CONFIRMAR CON EL USUARIO ANTES DE ENTREGAR
-                                if (stateData.isAutoFilled && stateData.items && stateData.items.length > 0) {
+                                // SI EL CARRITO FUE AUTO-RELLENADO DESDE LA IA / HISTORIAL (CARRITO VACÍO PREVIO PARA VENTA NUEVA), CONFIRMAR CON EL USUARIO ANTES DE ENTREGAR
+                                if (!stateData.isRenewal && stateData.isAutoFilled && stateData.items && stateData.items.length > 0) {
                                     const item = stateData.items[0];
                                     const targetPlat = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "Servicio").toUpperCase();
-                                    const actionWord = stateData.isRenewal ? "renovar tu" : "activar tu";
-                                    const buttonWord = stateData.isRenewal ? "renovar" : "activar";
+                                    const actionWord = "activar tu";
+                                    const buttonWord = "activar";
 
                                     let msg = `🤖 ¡Hola! He recibido tu comprobante de pago por *$${check.amount.toLocaleString('es-CO')}* COP.\n\n` +
-                                        `Veo que deseas ${actionWord} servicio de *${targetPlat}*, ¿es correcto para proceder con la ${stateData.isRenewal ? 'renovación' : 'entrega de tus credenciales'}? 😊\n\n` +
+                                        `Veo que deseas ${actionWord} servicio de *${targetPlat}*, ¿es correcto para proceder con la entrega de tus credenciales? 😊\n\n` +
                                         `1 - Sí, ${buttonWord} ${targetPlat} ✅\n` +
                                         `2 - No, es para otra plataforma u otro motivo ❌`;
                                     await message.reply(msg);

@@ -291,6 +291,14 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
     return null;
 }
 
+function calculateInternationalPrice(basePriceCOP, trm = 4000) {
+    if (!basePriceCOP || isNaN(basePriceCOP)) return { grossCOP: 0, priceUSD: 0 };
+    // Gross COP to guarantee merchant receives 100% net basePriceCOP after Bold fees (3.49% + $900 + 19% IVA)
+    const grossCOP = Math.ceil(((Number(basePriceCOP) + 1100) / 0.945) / 100) * 100;
+    const priceUSD = Number((grossCOP / trm).toFixed(2));
+    return { grossCOP, priceUSD };
+}
+
 function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     if (!accountOrStreaming) return 0;
     let streamingName = "";
@@ -317,13 +325,28 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     if (cleanName.includes('PERSONAL') || cleanName.includes('TU CORREO')) {
         isPersonal = true;
     }
-    const aliasMap = {
-        'AMAZON': 'PRIME VIDEO', 'PRIME': 'PRIME VIDEO', 'APPLE TV': 'APPLE TV+',
-        'HBO': 'HBOMAX', 'MAX': 'HBOMAX', 'DISNEY': 'DISNEY+ PREMIUM',
-        'STAR': 'DISNEY+ PREMIUM', 'YOUTUBE': 'YOUTUBE PREMIUM', 'MICROSOFT': 'MICROSOFT 365',
-        'NETFLIX EXTRA': 'NETFLIX EXTRA', 'EXTRA': 'NETFLIX EXTRA'
-    };
-    const targetName = aliasMap[cleanName] || cleanName;
+    
+    // High-priority alias detection (Specific names before generic)
+    let targetName = cleanName;
+    if (cleanName.includes('APPLE ONE') || cleanName.includes('APPLE_ONE') || (cleanName.includes('APPLE') && cleanName.includes('ONE'))) {
+        targetName = 'APPLE ONE';
+    } else if (cleanName.includes('APPLE TV') || cleanName === 'APPLE') {
+        targetName = 'APPLE TV+';
+    } else if (cleanName.includes('NETFLIX EXTRA') || cleanName.includes('EXTRA')) {
+        targetName = 'NETFLIX EXTRA';
+    } else if (cleanName.includes('AMAZON') || cleanName.includes('PRIME')) {
+        targetName = 'PRIME VIDEO';
+    } else if (cleanName.includes('HBO PLATINO') || cleanName.includes('MAX PLATINO')) {
+        targetName = 'MAX PLATINO';
+    } else if (cleanName.includes('HBO') || cleanName.includes('MAX')) {
+        targetName = 'HBOMAX';
+    } else if (cleanName.includes('DISNEY') || cleanName.includes('STAR')) {
+        targetName = 'DISNEY+ PREMIUM';
+    } else if (cleanName.includes('YOUTUBE')) {
+        targetName = 'YOUTUBE PREMIUM';
+    } else if (cleanName.includes('MICROSOFT')) {
+        targetName = 'MICROSOFT 365';
+    }
 
     if (Array.isArray(platforms) && platforms.length > 0) {
         // 1. Buscar coincidencia exacta en el nombre de la plataforma y seleccionar plan según tipo (Personal vs Compartida)
@@ -331,6 +354,10 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
             const pName = (p.name || '').toUpperCase();
             if (pName === targetName || pName.includes(targetName) || targetName.includes(pName)) {
                 if (Array.isArray(p.plans) && p.plans.length > 0) {
+                    if (targetName === 'APPLE ONE') {
+                        const appleOnePlan = p.plans.find(pl => (pl.name || '').toUpperCase().includes('ONE'));
+                        if (appleOnePlan && appleOnePlan.price) return appleOnePlan.price;
+                    }
                     if (isPersonal) {
                         const persPlan = p.plans.find(pl => pl.isPersonalEmail || (pl.name && (pl.name.toLowerCase().includes('personal') || pl.name.toLowerCase().includes('tu correo'))));
                         if (persPlan && persPlan.price) return persPlan.price;
@@ -1405,6 +1432,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
 module.exports = {
   safeSend,
   getPlatformPriceFromExcel,
+  calculateInternationalPrice,
   processCheckCredentials,
   processCheckPrices,
   handleAutoCobros,
