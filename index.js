@@ -3391,24 +3391,8 @@ function syncPlatformPrices(platforms, dbPrices) {
 
 app.get('/api/public/platforms', async (req, res) => {
     try {
-        const fs = require('fs');
-        const path = require('path');
-        const localPath = path.join(__dirname, 'platforms.json');
-        const { pool } = require('./database');
-
-        let platforms = [];
-        if (fs.existsSync(localPath)) {
-            const content = fs.readFileSync(localPath, 'utf8');
-            platforms = JSON.parse(content);
-        } else {
-            const fetch = require('node-fetch');
-            const response = await fetch('https://sheerit.co/data/platforms.json');
-            platforms = await response.json();
-        }
-
-        const [dbPrices] = await pool.query('SELECT * FROM streaming_prices');
-        platforms = syncPlatformPrices(platforms, dbPrices);
-
+        const { getPlatformsFromDb } = require('./platformsDbService');
+        const platforms = await getPlatformsFromDb();
         res.json(platforms);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -3656,34 +3640,31 @@ app.post('/api/admin/prices/save', async (req, res) => {
         const { platform, price, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         await accountingService.savePrice(platform, price);
-
-        // Auto-sincronizar platforms.json en disco
-        try {
-            const fs = require('fs');
-            const path = require('path');
-            const localPath = path.join(__dirname, 'platforms.json');
-            const webPath = '/var/www/sheerit.com.co/data/platforms.json';
-            const [dbPrices] = await pool.query('SELECT * FROM streaming_prices');
-
-            let basePlatforms = [];
-            if (fs.existsSync(localPath)) {
-                basePlatforms = JSON.parse(fs.readFileSync(localPath, 'utf8'));
-            } else if (fs.existsSync(webPath)) {
-                basePlatforms = JSON.parse(fs.readFileSync(webPath, 'utf8'));
-            }
-
-            if (basePlatforms.length > 0) {
-                const synced = syncPlatformPrices(basePlatforms, dbPrices);
-                fs.writeFileSync(localPath, JSON.stringify(synced, null, 2), 'utf8');
-                if (fs.existsSync('/var/www/sheerit.com.co/data')) {
-                    fs.writeFileSync(webPath, JSON.stringify(synced, null, 2), 'utf8');
-                }
-            }
-        } catch (syncErr) {
-            console.error('[Price Save Sync Error]', syncErr.message);
-        }
-
         res.json({ success: true, message: 'Precio actualizado con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/plans/price', async (req, res) => {
+    try {
+        const { planId, price, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const { updatePlanPriceInDb } = require('./platformsDbService');
+        await updatePlanPriceInDb(planId, price);
+        res.json({ success: true, message: 'Precio de plan actualizado con éxito' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/platforms/sync-db', async (req, res) => {
+    try {
+        const { password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const { forceSyncJsonToDb } = require('./platformsDbService');
+        const result = await forceSyncJsonToDb();
+        res.json(result);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
