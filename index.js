@@ -2249,6 +2249,23 @@ app.get('/api/admin/tickets', async (req, res) => {
             }
 
             if (isInvalidName(resolvedName)) {
+                try {
+                    const [nameMsgRows] = await pool.query(
+                        'SELECT body FROM messages WHERE chat_id = ? ORDER BY id ASC LIMIT 10',
+                        [userId]
+                    );
+                    for (const row of nameMsgRows) {
+                        const txt = row.body || '';
+                        const mMatch = txt.match(/(?:hola|dia|tarde|noches|buen d[ií]a|gracias)\s+([A-Za-zÁÉÍÓÚáéíóúñÑ]{3,20})/i);
+                        if (mMatch && !isInvalidName(mMatch[1])) {
+                            resolvedName = mMatch[1].charAt(0).toUpperCase() + mMatch[1].slice(1).toLowerCase();
+                            break;
+                        }
+                    }
+                } catch(e) {}
+            }
+
+            if (isInvalidName(resolvedName)) {
                 resolvedName = "Cliente";
             }
 
@@ -2348,6 +2365,17 @@ app.get('/api/admin/tickets', async (req, res) => {
                             }
                         }
                     } catch (e) {}
+                }
+
+                // E.3 Intentar resolver con API interna de Puppeteer de WhatsApp Web
+                if (!resolvedPhoneFromLid) {
+                    try {
+                        const { resolveRealPhoneFromJid } = require('./billingService');
+                        const pFound = await resolveRealPhoneFromJid(userId, client, resolvedName);
+                        if (pFound && pFound.replace(/\D/g, '').length >= 7 && pFound.replace(/\D/g, '').length <= 13 && !pFound.includes('3118587974')) {
+                            resolvedPhoneFromLid = pFound.replace(/\D/g, '');
+                        }
+                    } catch(e) {}
                 }
 
                 // E. Guardar en base de datos para futuras consultas
