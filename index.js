@@ -10171,10 +10171,12 @@ async function baseProcessIncomingMessage(messages) {
         'youtube', 'spotify', 'paramount', 'apple', 'claude', 'canva',
         'crunchyroll', 'vix', 'gamma', 'iptv', 'magis', 'microsoft'
     ];
-    const isPaymentOrReceipt = lowerBody.includes('qr') || lowerBody.includes('barras') || lowerBody.includes('pago') || lowerBody.includes('comprobante') || lowerBody.includes('recibo') || lowerBody.includes('abono');
-    const hasCodeKeyword = (wantsCodeKeywords.some(kw => lowerBody.includes(kw)) || /c[oó]dig[oó]+/i.test(lowerBody)) && !isPaymentOrReceipt;
+    const isPaymentState = currentStateData && (currentStateData.state === 'awaiting_payment_confirmation' || currentStateData.state === 'waiting_admin_confirmation');
+    const isPaymentOrReceipt = isPaymentState || lowerBody.includes('qr') || lowerBody.includes('barras') || lowerBody.includes('pago') || lowerBody.includes('comprobante') || lowerBody.includes('recibo') || lowerBody.includes('abono') || lowerBody.includes('transferencia');
+    const hasExplicitCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) || /\bc[oó]dig[oó]+\b/i.test(lowerBody);
+    const hasCodeKeyword = hasExplicitCodeKeyword && !isPaymentOrReceipt;
     const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
-    const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw) || /c[oó]dig[oó]+/i.test(lowerBody)) && !isPaymentOrReceipt;
+    const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw) || /\bc[oó]dig[oó]+\b/i.test(lowerBody)) && !isPaymentOrReceipt;
 
     if (hasCodeKeyword || (isQuestionOrCode && hasPlatformKeyword)) {
         try {
@@ -10865,6 +10867,46 @@ async function baseProcessIncomingMessage(messages) {
 Un asesor ya está notificado y revisará tu transferencia lo más pronto posible. ¡Gracias por tu paciencia! 😊`;
 
                 await message.reply(replyText);
+
+                // Si el comprobante era de un método automático (Bre-V, QR, Bancolombia),
+                // programar reintentos en segundo plano (15s, 35s, 60s) por si el correo del banco viene con retraso
+                if (isAutoMethod && check.amount) {
+                    const retryDelays = [15000, 35000, 60000];
+                    retryDelays.forEach(delayMs => {
+                        setTimeout(async () => {
+                            try {
+                                const currSt = userStates.get(userId);
+                                if (!currSt || currSt.state !== 'awaiting_payment_confirmation') return;
+
+                                const { findMatchingEmailPayment } = require('./gmailService');
+                                const retryRes = await findMatchingEmailPayment(check.amount, check.bank || 'bancolombia');
+                                if (retryRes && retryRes.success && retryRes.match) {
+                                    console.log(`[PAYMENT AUTO-RETRY] 🎉 ¡Pago encontrado en Gmail tras ${delayMs/1000}s para ${userId}!`);
+                                    const valRes = await executePaymentValidation(
+                                        userId,
+                                        { ...stateData, total: check.amount, leftoverAmount: leftoverAmount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` },
+                                        client,
+                                        userStates,
+                                        null,
+                                        retryRes.match.id
+                                    );
+                                    if (valRes && valRes.success) {
+                                        await safeSend(null, `🤖 ¡Excelente noticia! 🎉 Tu pago de *$${check.amount.toLocaleString('es-CO')}* COP acaba de ser verificado con éxito por el banco. Procedo a renovar tu cuenta. ¡Muchas gracias por tu compra! 😊`, originalChatJid || userId, client);
+                                        try {
+                                            const groupChat = await client.getChatById(GROUP_ID);
+                                            if (groupChat) {
+                                                const displayTarget = realPhone || userId.replace('@c.us', '').replace('@lid', '');
+                                                await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO TRAS REINTENTO* (@${displayTarget})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Bre-B'}\nGmail ID: ${retryRes.match.id}\nServicio entregado/renovado automáticamente.`);
+                                            }
+                                        } catch (e) {}
+                                    }
+                                }
+                            } catch (rErr) {
+                                console.error(`[PAYMENT AUTO-RETRY Error ${delayMs/1000}s]:`, rErr.message);
+                            }
+                        }, delayMs);
+                    });
+                }
 
                 // Notificar al grupo administrativo
                 try {
