@@ -7703,7 +7703,28 @@ server.listen(port, () => {
 
             console.log(`💓 Heartbeat: Proceso vivo. Estado en WWebJS: ${state} | Estado interno: ${currentWhatsappStatus}`);
 
+            // Si aún no está en CONNECTED, verificar si WhatsApp está descargando mensajes legítimamente
             if (state !== 'CONNECTED') {
+                let isSyncing = false;
+                try {
+                    if (client.pupPage) {
+                        isSyncing = await client.pupPage.evaluate(() => {
+                            const body = document.body ? document.body.innerText.toLowerCase() : '';
+                            return body.includes('descargando') || 
+                                   body.includes('sincronizando') || 
+                                   body.includes('no cierres esta ventana') ||
+                                   !!document.querySelector('progress') || 
+                                   !!document.querySelector('[role="progressbar"]');
+                        }).catch(() => false);
+                    }
+                } catch (e) { isSyncing = false; }
+
+                if (isSyncing) {
+                    console.log('⏳ [SYNC ACTIVO] WhatsApp Web está descargando mensajes/historial legítimamente. Manteniendo proceso vivo...');
+                    nonConnectedHeartbeatCount = 0;
+                    return;
+                }
+
                 if (isWarmingUp) {
                     console.log(`⏳ Heartbeat: Calentamiento en progreso (${Math.round((Date.now() - botProcessStartTime)/1000)}s). Estado: ${state || 'null'}`);
                     return;
@@ -7711,9 +7732,9 @@ server.listen(port, () => {
                 nonConnectedHeartbeatCount++;
                 console.warn(`⚠️ Heartbeat: Cliente en estado NO-CONECTADO ('${state}'). Intento sin conexión #${nonConnectedHeartbeatCount}`);
 
-                // Si lleva 4 heartbeats seguidos (8 minutos) sin estar en CONNECTED tras el calentamiento, forzar reinicio
+                // Si lleva 4 heartbeats seguidos (8 minutos) sin estar en CONNECTED tras el calentamiento y sin estar descargando, forzar reinicio
                 if (nonConnectedHeartbeatCount >= 4) {
-                    console.error(`🔥 [ANTI-ZOMBIE] El cliente WhatsApp lleva ${nonConnectedHeartbeatCount * 2} minutos sin estar en estado CONNECTED (estado actual: '${state}'). Forzando reinicio para PM2...`);
+                    console.error(`🔥 [ANTI-ZOMBIE] El cliente WhatsApp lleva ${nonConnectedHeartbeatCount * 2} minutos sin estar en estado CONNECTED ni sincronizando (estado actual: '${state}'). Forzando reinicio para PM2...`);
                     process.exit(1);
                 }
                 return;
