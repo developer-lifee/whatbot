@@ -2311,42 +2311,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                         }
                     }
                 }
-                // D. Cruzar nombre resuelto con base de datos customers y Excel (Solo si tiene al menos 2 palabras y no es @usuario)
-                const nameTokens = (resolvedName || '').trim().split(/\s+/).filter(w => w.length >= 3);
-                if (!resolvedPhoneFromLid && !isInvalidName(resolvedName) && !resolvedName.startsWith('@') && nameTokens.length >= 2) {
-                    try {
-                        const [custMatch] = await pool.query(
-                            "SELECT phone FROM customers WHERE (fullname = ? OR fullname LIKE ?) AND phone NOT LIKE '%@lid' LIMIT 2",
-                            [resolvedName, `${resolvedName}%`]
-                        );
-                        // Solo asignar si hay exactamente 1 coincidencia inequívoca
-                        if (custMatch && custMatch.length === 1 && custMatch[0].phone) {
-                            const cleanP = custMatch[0].phone.replace(/\D/g, '');
-                            if (cleanP.length >= 7 && cleanP.length <= 13 && cleanP !== '573118587974') {
-                                resolvedPhoneFromLid = cleanP;
-                            }
-                        }
-                    } catch (e) {}
 
-                    if (!resolvedPhoneFromLid) {
-                        const { isNameMatch } = require('./billingService');
-                        if (typeof isNameMatch === 'function') {
-                            const matchRows = excelRows.filter(r => {
-                                const rawNum = (r.numero || r.Numero || r.whatsapp || r.WhatsApp || '').toString().replace(/\D/g, '');
-                                if (!rawNum || rawNum.length < 7 || rawNum.length > 13 || rawNum === '573118587974') return false;
-                                const rowName = `${r.Nombre || r.nombre || ''} ${r.apellido || r.Apellido || ''}`.trim();
-                                const rowWhatsapp = (r.whatsapp || r.WhatsApp || '').toString().trim();
-                                return isNameMatch(resolvedName, rowName) || (rowWhatsapp.length >= 5 && isNameMatch(resolvedName, rowWhatsapp));
-                            });
-                            if (matchRows.length === 1) {
-                                const rawNum = (matchRows[0].numero || matchRows[0].Numero || matchRows[0].whatsapp || '').toString().replace(/\D/g, '');
-                                if (rawNum && rawNum.length >= 7 && rawNum.length <= 13 && rawNum !== '573118587974') {
-                                    resolvedPhoneFromLid = rawNum;
-                                }
-                            }
-                        }
-                    }
-                }
 
                 // E.2 Extraer teléfono de 10 dígitos (ej: 3227922392) directamente del texto de los mensajes recientes en BD
                 if (!resolvedPhoneFromLid) {
