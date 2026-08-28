@@ -323,7 +323,9 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         }
         const cMail = (accountOrStreaming['customer mail'] || accountOrStreaming['Customer Mail'] || '').toString().trim();
         const pinText = (accountOrStreaming['pin perfil'] || accountOrStreaming.pin || '').toString().toLowerCase();
-        if (cMail || pinText.includes('invite') || pinText.includes('spotify.com') || pinText.includes('join')) {
+        const obsText = (accountOrStreaming.observaciones || accountOrStreaming.Observaciones || '').toString().toLowerCase();
+        if (cMail || pinText.includes('invite') || pinText.includes('spotify.com') || pinText.includes('join') || pinText.includes('google.com') ||
+            obsText.includes('propia') || obsText.includes('personal') || obsText.includes('correo propio') || obsText.includes('invitacion') || obsText.includes('invitación')) {
             isPersonal = true;
         }
         streamingName = accountOrStreaming.Streaming || accountOrStreaming.Plataforma || accountOrStreaming.name || "";
@@ -333,7 +335,7 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
 
     if (!streamingName) return fallbackExcelPrice;
     const cleanName = streamingName.toString().trim().toUpperCase();
-    if (cleanName.includes('PERSONAL') || cleanName.includes('TU CORREO')) {
+    if (cleanName.includes('PERSONAL') || cleanName.includes('PROPIA') || cleanName.includes('PROPIO') || cleanName.includes('TU CORREO') || cleanName.includes('CORREO PROPIO') || cleanName.includes('OWNER') || cleanName.includes('FAMILIAR')) {
         isPersonal = true;
     }
     
