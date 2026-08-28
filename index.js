@@ -11575,8 +11575,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 const existingState = userStates.get(userId) || {};
 
                 // SI EL USUARIO TIENE CUENTAS Y NO MENCIONA UNA PLATAFORMA NUEVA, ASUMIMOS QUE ES RENOVACIÓN/PAGO
-                // Pero solo si el mensaje NO contiene palabras de compra explícitas (ej: "comprar", "nueva", "quiero una")
-                const isExplicitPurchase = inputToUse.toLowerCase().includes('comprar') || inputToUse.toLowerCase().includes('nueva');
+                const isExplicitPurchase = ['comprar', 'nueva', 'nuevo', 'interesado', 'interesada', 'adquirir', 'quiero', 'venden', 'precio', 'cotizar', 'cuenta de', 'cuentas de'].some(kw => inputToUse.toLowerCase().includes(kw));
 
                 if (userAccounts.length > 0 && !isExplicitPurchase) {
                     const durationMonths = getDurationMonths(detection, inputToUse);

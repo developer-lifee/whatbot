@@ -155,8 +155,12 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
       return normalizedJsonNumber === cleanInputPhone || (normalizedJsonNumber.length >= 10 && cleanInputPhone.endsWith(normalizedJsonNumber.slice(-10)));
     });
 
-    // FALLBACK: Si no hay cuentas asociadas al número y tenemos el nombre de contacto (útil para LIDs o números desactualizados)
-    if (userAccounts.length === 0 && contactName) {
+    const isRealPhone = cleanInputPhone.length >= 10;
+
+    // FALLBACK: Si no hay cuentas asociadas al número y tenemos el nombre de contacto.
+    // IMPORTANTE: Si es un número de teléfono real válido (10+ dígitos) y no tiene cuentas, significa que es un CLIENTE NUEVO.
+    // Solo permitimos fallback por nombre si el ID era un LID no resuelto (no un celular estándar).
+    if (userAccounts.length === 0 && contactName && !isRealPhone) {
       const getLevenshteinDistance = (a, b) => {
         if (a.length === 0) return b.length;
         if (b.length === 0) return a.length;
