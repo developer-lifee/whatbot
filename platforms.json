@@ -25,6 +25,7 @@
         "id": 102,
         "name": "Extra",
         "price": 17000,
+        "isPersonalEmail": true,
         "characteristics": [
           "Cuenta completa con un perfil",
           "Alta definición 4K + HDR con su lista exclusiva",
@@ -49,6 +50,7 @@
         "id": 601,
         "name": "Compartida",
         "price": 20000,
+        "isPersonalEmail": false,
         "characteristics": [
           "Cuenta compartida",
           "IA actualizada y límites amplios",
@@ -73,6 +75,7 @@
         "id": 1501,
         "name": "Compartida",
         "price": 5000,
+        "isPersonalEmail": false,
         "characteristics": [
           "Cuenta compartida con nuestro correo",
           "Ideal para tener Office original a menor costo",
@@ -84,6 +87,7 @@
         "id": 1502,
         "name": "Personal",
         "price": 13000,
+        "isPersonalEmail": true,
         "characteristics": [
           "1 TB de almacenamiento",
           "Suite de Office (Word, Excel, PowerPoint)",
@@ -216,6 +220,7 @@
         "id": 1401,
         "name": "Apple One (345GB)",
         "price": 22000,
+        "isPersonalEmail": true,
         "characteristics": [
           "345 GB en iCloud",
           "Con tu mismo Apple ID",
@@ -228,6 +233,7 @@
         "id": 1402,
         "name": "Apple TV+",
         "price": 8000,
+        "isPersonalEmail": false,
         "characteristics": [
           "Acceso exclusivo a Películas y Series",
           "4K HDR y Dolby Atmos",
@@ -254,6 +260,7 @@
         "id": 801,
         "name": "Premium",
         "price": 12000,
+        "isPersonalEmail": true,
         "characteristics": [
           "Usa tu cuenta personal",
           "Reproducción segundo plano",
@@ -302,6 +309,7 @@
         "id": 1001,
         "name": "Cuenta Nueva o Renovación",
         "price": 8000,
+        "isPersonalEmail": false,
         "characteristics": [
           "Cuenta proporcionada por nosotros",
           "Uso personal, no compartida",
@@ -313,6 +321,7 @@
         "id": 1002,
         "name": "Personal (Tu Correo)",
         "price": 10000,
+        "isPersonalEmail": true,
         "characteristics": [
           "Se activa en tu cuenta personal",
           "Uso personal, no compartida",
@@ -361,6 +370,7 @@
         "id": 1601,
         "name": "Compartida",
         "price": 20000,
+        "isPersonalEmail": false,
         "characteristics": [
           "Acceso a 1200+ cursos",
           "Rutas de aprendizaje",
@@ -408,8 +418,8 @@
   },
   {
     "id": 19,
-    "name": "Gemini Pro",
-    "image": "https://meta-q.cdn.bubble.io/f1724422026295x667563819270324800/GeminiStreamingPro2.svg",
+    "name": "Gemini",
+    "image": "https://upload.wikimedia.org/wikipedia/commons/8/8a/Google_Gemini_logo.svg",
     "price": 10000,
     "characteristics": [
       "Modelo 3.1 Pro (Última versión)",
@@ -423,6 +433,7 @@
         "id": 1901,
         "name": "Compartida",
         "price": 10000,
+        "isPersonalEmail": false,
         "characteristics": [
           "Cuenta compartida (Login compartido)",
           "Sin almacenamiento personal",
@@ -436,6 +447,7 @@
         "id": 1902,
         "name": "Correo Propio",
         "price": 22000,
+        "isPersonalEmail": true,
         "characteristics": [
           "En tu propio correo (Plan Familiar)",
           "1 TB de almacenamiento personal",
