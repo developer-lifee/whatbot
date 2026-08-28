@@ -7452,16 +7452,28 @@ app.post('/api/client/request-otp', express.json(), async (req, res) => {
 
         const cleanPhone = phone.replace(/\D/g, '');
         const isDemo = isDemoClientPhone(cleanPhone);
-        const recipientJid = isDemo ? (ADMIN_DEMO_RECIPIENT_PHONE + '@c.us') : (cleanPhone + '@c.us');
+        const last10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+        const recipientJid = isDemo ? (ADMIN_DEMO_RECIPIENT_PHONE + '@c.us') : (cleanPhone.startsWith('57') ? cleanPhone + '@c.us' : '57' + last10 + '@c.us');
 
         let clientName = "Cliente";
         if (!isDemo) {
             const { pool } = require('./database');
-            const [rows] = await pool.query('SELECT fullname FROM customers WHERE phone = ?', [cleanPhone]);
-            if (!rows || rows.length === 0) {
-                return res.status(404).json({ success: false, message: 'No encontramos ningún cliente registrado con ese número de teléfono' });
+            const [rows] = await pool.query(
+                'SELECT fullname FROM customers WHERE phone = ? OR phone LIKE ? OR phone = ? LIMIT 1',
+                [cleanPhone, `%${last10}`, `57${last10}`]
+            );
+            if (rows && rows.length > 0) {
+                clientName = rows[0].fullname;
+            } else {
+                // Fallback a Excel y órdenes de clientes
+                const { getAccountsByPhone } = require('./apiService');
+                const userAccounts = await getAccountsByPhone(cleanPhone);
+                if (!userAccounts || userAccounts.length === 0) {
+                    return res.status(404).json({ success: false, message: 'No encontramos ningún cliente registrado con ese número de teléfono' });
+                }
+                const firstAcc = userAccounts[0];
+                clientName = `${firstAcc.Nombre || firstAcc.nombre || ''} ${firstAcc.Apellido || firstAcc.apellido || ''}`.trim() || "Cliente";
             }
-            clientName = rows[0].fullname;
         } else {
             clientName = "Esteban (Usuario Demo)";
         }
