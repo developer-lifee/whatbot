@@ -199,7 +199,12 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
         let realPhone = userState.realPhone || null;
         let resolvedName = userState.nombre || null;
 
-        const activeClient = typeof global !== 'undefined' ? global.client : null;
+        const botNum = (activeClient && activeClient.info && activeClient.info.wid) ? activeClient.info.wid.user : '3118587974';
+        const isBotNumber = (n) => {
+            if (!n) return true;
+            const c = String(n).replace(/\D/g, '');
+            return c.includes('3118587974') || (botNum && c.includes(botNum));
+        };
 
         if (isLid && !realPhone) {
             // A. Buscar en tabla chats
@@ -211,7 +216,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 );
                 if (chatRows.length > 0 && chatRows[0].customer_phone) {
                     const cp = chatRows[0].customer_phone.replace(/\D/g, '');
-                    if (cp && cp.length >= 7 && cp.length <= 12 && cp !== cleanDigits) {
+                    if (cp && cp.length >= 7 && cp.length <= 12 && cp !== cleanDigits && !isBotNumber(cp)) {
                         realPhone = cp;
                     }
                 }
@@ -231,7 +236,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                         }
                         if (contact.number) {
                             const cleanCNum = String(contact.number).replace(/\D/g, '');
-                            if (cleanCNum.length >= 7 && cleanCNum.length <= 12 && cleanCNum !== cleanDigits) {
+                            if (cleanCNum.length >= 7 && cleanCNum.length <= 12 && cleanCNum !== cleanDigits && !isBotNumber(cleanCNum)) {
                                 realPhone = cleanCNum;
                             }
                         }
@@ -239,7 +244,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                             try {
                                 const formatted = await contact.getFormattedNumber();
                                 const cleanFNum = String(formatted).replace(/\D/g, '');
-                                if (cleanFNum.length >= 7 && cleanFNum.length <= 12 && cleanFNum !== cleanDigits) {
+                                if (cleanFNum.length >= 7 && cleanFNum.length <= 12 && cleanFNum !== cleanDigits && !isBotNumber(cleanFNum)) {
                                     realPhone = cleanFNum;
                                 }
                             } catch (e) { }
@@ -278,13 +283,17 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                         }
                         if (storeInfo.pn) {
                             const cleanP = storeInfo.pn.replace(/\D/g, '');
-                            if (cleanP.length >= 7 && cleanP.length <= 12 && cleanP !== cleanDigits) {
+                            if (cleanP.length >= 7 && cleanP.length <= 12 && cleanP !== cleanDigits && !isBotNumber(cleanP)) {
                                 realPhone = cleanP;
                             }
                         }
                     }
                 } catch (e) { }
             }
+        }
+
+        if (isBotNumber(realPhone)) {
+            realPhone = null;
         }
 
         const phoneToUse = realPhone || cleanDigits;
@@ -496,16 +505,23 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const nextPaymentDate = calculateNextPaymentDate(subscriptionType, months);
                 console.log(`[Sales Registry] Cupo encontrado para ${platformName} en fila ${slot.index}`);
 
-                // Lógica de separación de nombres
-                const nameParts = name.trim().split(/\s+/);
-                const firstName = nameParts[0] || "";
-                const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "";
+                // Lógica de separación de nombres limpia
+                let firstName = name;
+                let lastName = "";
+                const isNumericName = /^[\d\s\+\-\(\)]+$/.test(name.trim());
+                if (!isNumericName) {
+                    const nameParts = name.trim().split(/\s+/);
+                    firstName = nameParts[0] || "";
+                    lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "";
+                }
 
-                const numericPhone = parseInt(formattedPhone.replace(/\D/g, '')) || 0;
+                const cleanDigitsOnly = phone.replace(/\D/g, '');
+                const isValidClientPhone = cleanDigitsOnly.length >= 7 && cleanDigitsOnly.length <= 12 && !isBotNumber(cleanDigitsOnly);
+                const finalPhoneToWrite = isValidClientPhone ? formatWhatsAppNumber(phone) : "";
 
                 const updates = {
                     "whatsapp": name,
-                    "numero": formattedPhone,
+                    "numero": finalPhoneToWrite,
                     "Nombre": firstName,
                     "apellido": lastName,
                     "deben": nextPaymentDate,
