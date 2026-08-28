@@ -12310,8 +12310,8 @@ async function triggerGlobalQueueProcessing() {
  * Event Listener principal
  */
 client.on('message', async (message) => {
-    // 0. IGNORAR ABSOLUTAMENTE TODOS LOS ESTADOS / HISTORIAS DE WHATSAPP Y GRUPOS
-    if (!message || !message.from || message.from.includes('status@broadcast') || message.from.includes('@g.us') || message.isStatus || message.type === 'status_v3' || message.type === 'status') {
+    // 0. IGNORAR ABSOLUTAMENTE TODOS LOS ESTADOS / HISTORIAS DE WHATSAPP
+    if (!message || !message.from || message.from.includes('status@broadcast') || message.isStatus || message.type === 'status_v3' || message.type === 'status') {
         return;
     }
 
@@ -12372,22 +12372,14 @@ client.on('message', async (message) => {
         } catch (e) {
             console.log(`[GROUP MSG] ID: ${message.from} | De: ${message.author || message.from} | Mensaje: ${message.body || '[Sin texto]'}`);
         }
-        // Los mensajes de grupo se procesan instantáneamente (normalmente no hay ráfagas de imágenes para el bot aquí)
-        if (message.from === GROUP_ID && message.body && message.body.toLowerCase().startsWith('@bot')) {
+        // Los mensajes de grupo se procesan si contienen comando @bot o confirmaciones
+        const b = message.body ? message.body.toLowerCase().trim() : '';
+        const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot');
+        let groupState = userStates.get(message.from);
+        if (groupState && typeof groupState === 'object') groupState = groupState.state;
+
+        if (isBotCommand || groupState === 'awaiting_cobros_confirmation' || b.includes('liberar masivo') || b.startsWith('!liberar') || b.startsWith('liberar ') || b.startsWith('confirmar_cobros ')) {
             await processIncomingMessage([message]);
-        } else {
-            let groupState = userStates.get(message.from);
-            if (groupState && typeof groupState === 'object') groupState = groupState.state;
-            if (message.from === GROUP_ID && groupState === 'awaiting_cobros_confirmation') {
-                await processIncomingMessage([message]);
-            } else {
-                const b = message.body ? message.body.toLowerCase().trim() : '';
-                if (message.from === GROUP_ID && (b.includes('liberar masivo') || b.startsWith('!bot') || b.startsWith('!liberar') || b.startsWith('liberar ') || b.startsWith('confirmar_cobros '))) {
-                    // dejar pasar
-                } else {
-                    return;
-                }
-            }
         }
         return;
     }
