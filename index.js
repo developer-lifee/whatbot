@@ -7676,12 +7676,15 @@ const port = process.env.PORT || 3000;
 server.listen(port, () => {
     console.log(`Servidor Express corriendo en el puerto ${port}`);
 
-    // Heartbeat cada 5 minutos (con detector anti-zombie de estados atascados OPENING / DISCONNECTED)
+    // Heartbeat cada 2 minutos (con detector anti-zombie de estados atascados OPENING / DISCONNECTED)
     let nonConnectedHeartbeatCount = 0;
+    const botProcessStartTime = Date.now();
 
     setInterval(async () => {
         try {
             if (!client) return;
+
+            const isWarmingUp = (Date.now() - botProcessStartTime) < (6 * 60 * 1000);
 
             let state = null;
             try {
@@ -7690,6 +7693,10 @@ server.listen(port, () => {
                     new Promise((_, reject) => setTimeout(() => reject(new Error("getState Timeout (15s)")), 15000))
                 ]);
             } catch (e) {
+                if (isWarmingUp) {
+                    console.log(`⏳ Heartbeat: Esperando conexión inicial de WhatsApp Web (${Math.round((Date.now() - botProcessStartTime)/1000)}s)...`);
+                    return;
+                }
                 console.error('⚠️ Heartbeat: client.getState() falló o dio timeout:', e.message);
                 throw e;
             }
@@ -7697,11 +7704,15 @@ server.listen(port, () => {
             console.log(`💓 Heartbeat: Proceso vivo. Estado en WWebJS: ${state} | Estado interno: ${currentWhatsappStatus}`);
 
             if (state !== 'CONNECTED') {
+                if (isWarmingUp) {
+                    console.log(`⏳ Heartbeat: Calentamiento en progreso (${Math.round((Date.now() - botProcessStartTime)/1000)}s). Estado: ${state || 'null'}`);
+                    return;
+                }
                 nonConnectedHeartbeatCount++;
                 console.warn(`⚠️ Heartbeat: Cliente en estado NO-CONECTADO ('${state}'). Intento sin conexión #${nonConnectedHeartbeatCount}`);
 
-                // Si lleva 2 heartbeats seguidos (4 minutos) sin estar en CONNECTED (ej: atascado en OPENING), forzar reinicio
-                if (nonConnectedHeartbeatCount >= 2) {
+                // Si lleva 4 heartbeats seguidos (8 minutos) sin estar en CONNECTED tras el calentamiento, forzar reinicio
+                if (nonConnectedHeartbeatCount >= 4) {
                     console.error(`🔥 [ANTI-ZOMBIE] El cliente WhatsApp lleva ${nonConnectedHeartbeatCount * 2} minutos sin estar en estado CONNECTED (estado actual: '${state}'). Forzando reinicio para PM2...`);
                     process.exit(1);
                 }
@@ -7724,7 +7735,8 @@ server.listen(port, () => {
             }
         } catch (err) {
             console.error('⚠️ Heartbeat: Error de salud detectado:', err.message);
-            if (isCriticalBrowserError(err) || err.message.toLowerCase().includes("timeout") || err.message.toLowerCase().includes("detached") || err.message.toLowerCase().includes("unresponsive") || err.message.toLowerCase().includes("protocol error")) {
+            const isWarmingUp = (Date.now() - botProcessStartTime) < (6 * 60 * 1000);
+            if (!isWarmingUp && (isCriticalBrowserError(err) || err.message.toLowerCase().includes("detached") || err.message.toLowerCase().includes("unresponsive") || err.message.toLowerCase().includes("protocol error"))) {
                 console.error('🔥 [ANTI-ZOMBIE] Detectado estado crítico o zombie de Puppeteer. Forzando reinicio para PM2...');
                 process.exit(1);
             }
