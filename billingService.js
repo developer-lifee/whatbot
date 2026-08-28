@@ -469,12 +469,13 @@ async function checkPendingWebSaleForPhone(phone, name = '') {
     try {
         // Solo buscar ventas web pendientes de las últimas 4 horas y por coincidencia estricta de teléfono
         const [rows] = await pool.query(
-            "SELECT * FROM web_sales_pending WHERE (whatsapp LIKE ? OR whatsapp = ?) AND (created_at >= NOW() - INTERVAL 4 HOUR OR created_at IS NULL) ORDER BY id DESC LIMIT 1",
+            "SELECT * FROM web_sales_pending WHERE (whatsapp LIKE ? OR whatsapp = ?) AND (createdAt >= NOW() - INTERVAL 4 HOUR OR createdAt IS NULL) ORDER BY createdAt DESC LIMIT 1",
             [`%${last10}`, clean]
         );
         if (rows.length > 0) return rows[0];
         return null;
     } catch (e) {
+        console.error('[checkPendingWebSaleForPhone] Error:', e.message);
         return null;
     }
 }

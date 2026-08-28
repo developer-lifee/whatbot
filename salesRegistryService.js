@@ -185,8 +185,9 @@ function findAvailableSlot(platformName, allRows) {
 /**
  * Registra una venta intentando llenar cupos existentes.
  */
-async function recordNewSale(userId, userState, paymentMethod, overrideMonths = null) {
+async function recordNewSale(userId, userState, paymentMethod, overrideMonths = null, client = null) {
     const months = overrideMonths || userState.durationMonths || null;
+    const activeClient = client || (typeof global !== 'undefined' ? global.client : null);
     console.log(`[Sales Registry] Procesando registro inteligente para ${userId} (${months || 'auto'} meses)...`);
 
     try {
