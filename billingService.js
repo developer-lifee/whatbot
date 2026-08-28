@@ -8,6 +8,17 @@ const fs = require('fs');
 async function safeSend(message, text, userId = null, clientInstance = null) {
     const activeClient = clientInstance || (message && message._client) || (typeof global !== 'undefined' ? global.client : null);
     
+    // Si el mensaje es en un grupo, responder DIRECTAMENTE al grupo
+    if (message && message.from && message.from.includes('@g.us')) {
+        if (activeClient) {
+            const res = await activeClient.sendMessage(message.from, text).catch(() => null);
+            if (res) return res;
+        }
+        if (typeof message.reply === 'function') {
+            return await message.reply(text).catch(() => null);
+        }
+    }
+
     let realPhoneJid = null;
     let lidJid = null;
 
@@ -1240,14 +1251,11 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         let wasSuspendedNow = false;
         if (diffDays >= 3 && !observacion.toLowerCase().includes('cortar')) {
             observacion = observacion ? observacion + " - cortar" : "cortar";
-            try {
-                if (account.rowNumber) {
-                    await updateExcelData(account.rowNumber, { "observaciones": observacion });
-                    console.log(`[SUSPENSIÓN] Se agregó 'cortar' a fila ${account.rowNumber} (${account.Nombre}) por >3 días de mora.`);
-                    wasSuspendedNow = true;
-                }
-            } catch (err) {
-                console.error(`Error auto-suspendiendo fila ${account.rowNumber}:`, err);
+            if (account.rowNumber) {
+                updateExcelData(account.rowNumber, { "observaciones": observacion })
+                    .then(() => console.log(`[SUSPENSIÓN] Se agregó 'cortar' a fila ${account.rowNumber} (${account.Nombre}) por >3 días de mora.`))
+                    .catch(err => console.error(`Error auto-suspendiendo fila ${account.rowNumber}:`, err.message));
+                wasSuspendedNow = true;
             }
         }
 
