@@ -2311,16 +2311,18 @@ app.get('/api/admin/tickets', async (req, res) => {
                         }
                     }
                 }
-                // D. Cruzar nombre resuelto con base de datos customers y Excel
-                if (!resolvedPhoneFromLid && !isInvalidName(resolvedName)) {
+                // D. Cruzar nombre resuelto con base de datos customers y Excel (Solo si tiene al menos 2 palabras y no es @usuario)
+                const nameTokens = (resolvedName || '').trim().split(/\s+/).filter(w => w.length >= 3);
+                if (!resolvedPhoneFromLid && !isInvalidName(resolvedName) && !resolvedName.startsWith('@') && nameTokens.length >= 2) {
                     try {
                         const [custMatch] = await pool.query(
-                            "SELECT phone FROM customers WHERE (fullname LIKE ? OR fullname = ?) AND phone NOT LIKE '%@lid' LIMIT 1",
-                            [`%${resolvedName}%`, resolvedName]
+                            "SELECT phone FROM customers WHERE (fullname = ? OR fullname LIKE ?) AND phone NOT LIKE '%@lid' LIMIT 2",
+                            [resolvedName, `${resolvedName}%`]
                         );
-                        if (custMatch && custMatch.length > 0 && custMatch[0].phone) {
+                        // Solo asignar si hay exactamente 1 coincidencia inequívoca
+                        if (custMatch && custMatch.length === 1 && custMatch[0].phone) {
                             const cleanP = custMatch[0].phone.replace(/\D/g, '');
-                            if (cleanP.length >= 7 && cleanP.length <= 13) {
+                            if (cleanP.length >= 7 && cleanP.length <= 13 && cleanP !== '573118587974') {
                                 resolvedPhoneFromLid = cleanP;
                             }
                         }
@@ -2329,16 +2331,16 @@ app.get('/api/admin/tickets', async (req, res) => {
                     if (!resolvedPhoneFromLid) {
                         const { isNameMatch } = require('./billingService');
                         if (typeof isNameMatch === 'function') {
-                            const matchRow = excelRows.find(r => {
+                            const matchRows = excelRows.filter(r => {
                                 const rawNum = (r.numero || r.Numero || r.whatsapp || r.WhatsApp || '').toString().replace(/\D/g, '');
-                                if (!rawNum || rawNum.length < 7 || rawNum.length > 13) return false;
+                                if (!rawNum || rawNum.length < 7 || rawNum.length > 13 || rawNum === '573118587974') return false;
                                 const rowName = `${r.Nombre || r.nombre || ''} ${r.apellido || r.Apellido || ''}`.trim();
                                 const rowWhatsapp = (r.whatsapp || r.WhatsApp || '').toString().trim();
-                                return isNameMatch(resolvedName, rowName) || isNameMatch(resolvedName, rowWhatsapp);
+                                return isNameMatch(resolvedName, rowName) || (rowWhatsapp.length >= 5 && isNameMatch(resolvedName, rowWhatsapp));
                             });
-                            if (matchRow) {
-                                const rawNum = (matchRow.numero || matchRow.Numero || matchRow.whatsapp || '').toString().replace(/\D/g, '');
-                                if (rawNum && rawNum.length >= 7 && rawNum.length <= 13) {
+                            if (matchRows.length === 1) {
+                                const rawNum = (matchRows[0].numero || matchRows[0].Numero || matchRows[0].whatsapp || '').toString().replace(/\D/g, '');
+                                if (rawNum && rawNum.length >= 7 && rawNum.length <= 13 && rawNum !== '573118587974') {
                                     resolvedPhoneFromLid = rawNum;
                                 }
                             }
@@ -8764,35 +8766,19 @@ async function baseProcessIncomingMessage(messages) {
 
     if (resolvedPhoneFromLid) {
         const cleanResolved = String(resolvedPhoneFromLid).replace(/\D/g, '');
-        if (cleanResolved.length >= 7) {
-            const oldId = userId;
+        if (cleanResolved.length >= 7 && cleanResolved !== '573118587974') {
             realPhone = cleanResolved;
-
-            if (userId.includes('@lid') || isLidJid || (isFromAdmin && !userId.includes('@g.us'))) {
-                userId = realPhone + '@c.us';
-
-                // MIGRACIÓN DE ESTADO: Si el ID cambió (de @lid a @c.us), migramos estado
-                if (oldId !== userId && userStates.has(oldId)) {
-                    const oldData = userStates.get(oldId);
-                    const newData = userStates.get(userId) || {};
-                    if (!newData.state || (oldData.items && oldData.items.length > 0)) {
-                        userStates.set(userId, { ...oldData, ...newData, realPhone });
-                        console.log(`[LID Migration] Migrado estado de ${oldId} a ${userId} (realPhone: ${realPhone}).`);
-                    }
-                    userStates.delete(oldId);
-                }
-            }
 
             // Persistir mapeo en DB chats y userStates
             try {
                 const { pool } = require('./database');
                 await pool.query(
                     'UPDATE chats SET customer_phone = ? WHERE chat_id = ?',
-                    [realPhone, oldId]
+                    [realPhone, userId]
                 );
             } catch (e) { }
 
-            const targetState = userStates.get(userId) || userStates.get(oldId);
+            const targetState = userStates.get(userId);
             if (targetState && typeof targetState === 'object') {
                 targetState.realPhone = realPhone;
                 userStates.set(userId, targetState);

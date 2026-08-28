@@ -104,18 +104,22 @@ function isNameMatch(strA, strB) {
     const normalize = (s) => (typeof s === 'string' ? s : String(s || '')).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim();
     const cleanA = normalize(strA);
     const cleanB = normalize(strB);
-    if (!cleanA || !cleanB || cleanA.length < 2 || cleanB.length < 2) return false;
+    if (!cleanA || !cleanB || cleanA.length < 3 || cleanB.length < 3) return false;
     if (cleanA === cleanB) return true;
-    if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true;
 
-    const tokensA = cleanA.split(/\s+/).filter(w => w.length > 2);
-    const tokensB = cleanB.split(/\s+/).filter(w => w.length > 2);
+    const tokensA = cleanA.split(/\s+/).filter(w => w.length >= 3);
+    const tokensB = cleanB.split(/\s+/).filter(w => w.length >= 3);
     if (tokensA.length === 0 || tokensB.length === 0) return false;
+
+    // Si alguno solo tiene 1 token (ej: "Diego", "Carlos"), NO hacer match con nombres compuestos ("Diego Abril", "Diego Tn")
+    if (tokensA.length === 1 || tokensB.length === 1) {
+        return cleanA === cleanB;
+    }
 
     const tokenMatch = (tA, tB) => {
         if (tA === tB) return true;
-        if (tA.startsWith(tB) || tB.startsWith(tA)) return true;
-        if (Math.abs(tA.length - tB.length) <= 1 && tA.slice(0, 3) === tB.slice(0, 3)) {
+        if (tA.length >= 4 && tB.length >= 4 && (tA.startsWith(tB) || tB.startsWith(tA))) return true;
+        if (Math.abs(tA.length - tB.length) <= 1 && tA.slice(0, 3) === tB.slice(0, 3) && tA.length >= 4) {
             let diff = 0;
             for (let i = 0; i < Math.min(tA.length, tB.length); i++) {
                 if (tA[i] !== tB[i]) diff++;
@@ -125,19 +129,15 @@ function isNameMatch(strA, strB) {
         return false;
     };
 
-    const shorter = tokensA.length <= tokensB.length ? tokensA : tokensB;
-    const longer = tokensA.length <= tokensB.length ? tokensB : tokensA;
-    const allShortMatched = shorter.every(sTok => longer.some(lTok => tokenMatch(sTok, lTok)));
-    if (allShortMatched && shorter.length >= 1) return true;
-
-    if (tokenMatch(tokensA[0], tokensB[0])) {
-        if (tokensA.length === 1 || tokensB.length === 1) return true;
-        const restA = tokensA.slice(1);
-        const restB = tokensB.slice(1);
-        return restA.some(rA => restB.some(rB => tokenMatch(rA, rB)));
+    // Coincidencia de al menos 2 tokens correspondientes (ej: Nombre + Apellido)
+    let matchingTokens = 0;
+    for (const tA of tokensA) {
+        if (tokensB.some(tB => tokenMatch(tA, tB))) {
+            matchingTokens++;
+        }
     }
 
-    return false;
+    return matchingTokens >= 2;
 }
 
 async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
