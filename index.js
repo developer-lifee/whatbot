@@ -7997,6 +7997,14 @@ client.on('message_create', async (msg) => {
         saveMessage(msg).catch(err => console.error("[DB Save Error] message_create:", err.message));
     }
 
+    // Si el mensaje lo envío yo mismo (fromMe) a un grupo con comando @bot
+    if (msg.fromMe && ((msg.to && msg.to.includes('@g.us')) || (msg.from && msg.from.includes('@g.us')))) {
+        if (msg.body && (msg.body.toLowerCase().includes('@bot') || msg.body.toLowerCase().startsWith('!bot'))) {
+            processIncomingMessage([msg]).catch(err => console.error('Error procesando comando @bot de grupo en message_create:', err));
+            return;
+        }
+    }
+
     // DETECTAR INTERVENCIÓN HUMANA: Si el mensaje lo envío yo manualmente
     // a un chat que NO es un grupo y NO tiene el emoji del bot.
     if (msg.fromMe && !msg.to.includes('@g.us') && !msg.to.includes('@broadcast')) {
@@ -12382,8 +12390,13 @@ client.on('message', async (message) => {
         if (!shouldProcess) return;
     }
 
-    // Ignorar propios
-    if (message.fromMe) return;
+    // Ignorar propios excepto si es un comando de bot/administración
+    if (message.fromMe) {
+        const b = message.body ? message.body.toLowerCase().trim() : '';
+        if (!b.startsWith('@bot') && !b.startsWith('!bot') && !b.includes('@bot')) {
+            return;
+        }
+    }
 
     // Guardar último mensaje en el estado del usuario para evitar llamadas lentas a Puppeteer en el dashboard
     if (!message.from.includes('@g.us') && !message.from.includes('status@broadcast')) {
