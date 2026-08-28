@@ -11427,11 +11427,16 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         } catch (e) { }
                     }
 
+                    const lowerInput = (inputToUse || '').toLowerCase();
+                    const isRejectingOrder = /no he pedido|no ped[ií]|no compr[eé]|error|no es m[ií]o/i.test(lowerInput);
+                    const isSupportOrIssue = /problema|se cay[oó]|no tengo suscripci[oó]n|pantalla|ca[ií]da|soporte|asesor|ayuda|no funciona|falla/i.test(lowerInput);
+                    const isPaymentQuery = message.hasMedia || /ya pagu[eé]|comprobante|mi pedido|mis claves|mi orden|mi cuenta/i.test(lowerInput);
+
                     if (isApprovedInBold) {
                         console.log(`[Web Sale Check] ✅ ¡Orden ${pendingSale.order_id} aprobada en Bold API! Ejecutando entrega inmediata...`);
                         await approveBoldOrder(pendingSale.order_id);
                         return;
-                    } else if (message.hasMedia || ['credenciales', 'pagar', 'soporte'].includes(detection.intent) || (inputToUse && inputToUse.length > 3)) {
+                    } else if (isPaymentQuery && !isRejectingOrder && !isSupportOrIssue) {
                         const amountFmt = pendingSale.amount ? `$${Number(pendingSale.amount).toLocaleString('es-CO')} COP` : '';
                         await message.reply(
                             `🤖 ¡Hola ${pendingSale.firstName || ''}! 👋 Veo que tu pedido de *${pendingSale.platformName}* (${amountFmt}) está registrado en nuestro sistema (Orden \`${pendingSale.order_id}\`). 🎉\n\n` +

@@ -39,7 +39,7 @@ const SEED_STREAMING_PRICES = [
   { platform: 'HBO PLATINO', normal_price: 11000 },
   { platform: 'AMAZON', normal_price: 10000 },
   { platform: 'SPOTIFY', normal_price: 8000 },
-  { platform: 'SPOTIFY OWNER', normal_price: 10000 },
+  { platform: 'SPOTIFY OWNER', normal_price: 8000 },
   { platform: 'YOUTUBE', normal_price: 12000 },
   { platform: 'YOUTUBE OWNER', normal_price: 12000 },
   { platform: 'GPT', normal_price: 20000 },

@@ -402,6 +402,8 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     const fallbackPrices = {
         'crunchyroll': 7000,
         'spotify': 8000,
+        'spotify_owner': 8000,
+        'spotify owner': 8000,
         'amazon': 10000,
         'netflix': 13000,
         'netflix_extra': 17000,
@@ -456,28 +458,19 @@ function extractPlatformFromText(text) {
 }
 
 async function checkPendingWebSaleForPhone(phone, name = '') {
-    if (!phone && !name) return null;
+    if (!phone) return null;
     const clean = (phone || '').replace(/\D/g, '');
     const last10 = clean.length >= 10 ? clean.slice(-10) : clean;
+    if (!last10 || last10.length !== 10) return null;
+
     const { pool } = require('./database');
     try {
-        if (last10 && last10.length === 10) {
-            const [rows] = await pool.query(
-                "SELECT * FROM web_sales_pending WHERE whatsapp LIKE ? OR whatsapp = ?",
-                [`%${last10}`, clean]
-            );
-            if (rows.length > 0) return rows[0];
-        }
-        if (name && name.trim().length > 2) {
-            const cleanName = name.trim().toLowerCase().split(' ')[0];
-            if (cleanName.length > 2 && !['hola', 'buenas', 'user', 'cliente', 'nuevo'].includes(cleanName)) {
-                const [rowsByName] = await pool.query(
-                    "SELECT * FROM web_sales_pending WHERE LOWER(firstName) LIKE ? OR LOWER(lastName) LIKE ?",
-                    [`%${cleanName}%`, `%${cleanName}%`]
-                );
-                if (rowsByName.length > 0) return rowsByName[0];
-            }
-        }
+        // Solo buscar ventas web pendientes de las últimas 4 horas y por coincidencia estricta de teléfono
+        const [rows] = await pool.query(
+            "SELECT * FROM web_sales_pending WHERE (whatsapp LIKE ? OR whatsapp = ?) AND (created_at >= NOW() - INTERVAL 4 HOUR OR created_at IS NULL) ORDER BY id DESC LIMIT 1",
+            [`%${last10}`, clean]
+        );
+        if (rows.length > 0) return rows[0];
         return null;
     } catch (e) {
         return null;
