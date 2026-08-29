@@ -528,6 +528,10 @@ Realiza una extracción precisa (OCR) y describe detalladamente lo que se ve en 
    - Transcribe textualmente el mensaje de error o aviso que aparece (ej: "Contraseña incorrecta", "Demasiados dispositivos", "Tu suscripción ha expirado", "Este dispositivo no forma parte de tu hogar").
    - Detalla el contexto técnico del error para que podamos identificar cómo solucionarlo.
 
+4. Si es una captura de pantalla de la PÁGINA WEB (sheerit.co), CATÁLOGO o TARJETA DE UN SERVICIO (ej: Spotify, Netflix, Disney+, YouTube, Claude, Apple, etc.):
+   - Identifica explícitamente la plataforma que se muestra en la tarjeta (ej: "Spotify", "Netflix", "Claude Max", etc.), el plan y el precio (ej: "Spotify - $8.000/mes").
+   - Especifica claramente: "El cliente está enviando una captura de la tarjeta de [PLATAFORMA] de la página web de Sheerit con la intención de cotizar o comprar este servicio."
+
 Sé sumamente descriptivo y preciso. Transcribe textualmente los textos importantes. No inventes datos.`;
 
   return await callGemini(prompt, "Eres un analista de imágenes y lector OCR extremadamente preciso, capaz de procesar recibos de pago, pantallas de error y solicitudes de acceso/2FA.", false, mediaData);
