@@ -246,6 +246,21 @@ function loadSourceDocuments() {
 - Transferencias Nequi / Bancolombia por QR.`
   });
 
+  chunks.push({
+    id: 'master_claude_plans',
+    source: 'system',
+    category: 'Plataformas e IA',
+    title: 'Planes de Claude Pro y Claude Max (Modalidad y Características)',
+    content: `MODALIDAD Y CARACTERÍSTICAS DE CLAUDE PRO & CLAUDE MAX:
+1. Modalidad de cuenta: Todos los planes de Claude (Claude Pro, Claude Pro x2, Claude Max, Claude Max x5) son CUENTAS COMPARTIDAS asignadas por Sheerit (correo y clave o enlace de inicio), NO son individuales ni en correo personal.
+2. Capacidad y Distribución de uso:
+   - Claude Pro Estándar ($20.000/mes): Cuenta compartida estándar para uso moderado (15% a 25% de uso).
+   - Claude Pro x2 ($30.000/mes): Cuenta compartida con grupo reducido para alto uso (40% a 60% de uso de tokens).
+   - Claude Max ($60.000/mes): Cuenta compartida con grupo reducido de alto rendimiento con acceso prioritario a Claude 3.7 Sonnet y Opus.
+   - Claude Max x5 ($130.000/mes): Cuenta compartida con grupo muy reducido para trabajo pesado / intensivo (garantizando entre 40% y 60% o más de uso continuo sin saturación).
+3. Respuesta ante preguntas sobre si es compartida o individual: Indicar siempre con claridad que es una cuenta compartida pero gestionada con grupos reducidos según el plan para garantizar entre 40% y 60% de uso intensivo sin límites molestos.`
+  });
+
   return chunks;
 }
 

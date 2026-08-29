@@ -497,7 +497,7 @@
   {
     "id": 23,
     "name": "Claude Pro & Claude Max",
-    "image": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Claude-ai-icon.svg/960px-Claude-ai-icon.svg.png?_=20250728014952",
+    "image": "/plataform/claude.svg",
     "price": 20000,
     "characteristics": [
       "Planes Pro y Claude Max para desarrollo e investigación",
@@ -544,7 +544,7 @@
           "Ideal para desarrolladores y proyectos continuos",
           "Soporte para análisis de código complejo y archivos pesados"
         ],
-        "detalles": "Plan Claude Max. Ofrece alta capacidad de mensajes, menor restricción de límites y prioridad máxima de respuesta para trabajo continuo.",
+        "detalles": "Plan Claude Max compartido con grupo reducido. Ofrece alta capacidad de mensajes, menor restricción de límites y prioridad máxima de respuesta para trabajo continuo.",
         "isPersonalEmail": false
       },
       {
@@ -552,13 +552,12 @@
         "name": "Claude Max x5 (Uso Intensivo / Trabajo Pesado)",
         "price": 130000,
         "characteristics": [
-          "Plan Claude Max x5 para trabajo pesado / intensivo (5x uso)",
+          "Plan Claude Max x5 compartido con grupo muy reducido para trabajo pesado / intensivo (40% a 60% de uso)",
           "Máxima asignación de tokens y límites extendidos por hora",
           "Uso prioritario garantizado para largas sesiones de código",
-          "Ideal para empresas, agencias y desarrollo a tiempo completo",
-          "Acceso ilimitado a Proyectos, Artefactos y Claude CoWork"
+          "Ideal para empresas, agencias y desarrollo a tiempo completo"
         ],
-        "detalles": "Plan Claude Max x5 (130 mil). Diseñado para usuarios de alta demanda, programadores full-time e investigadores que requieren el máximo rendimiento disponible sin interrupciones.",
+        "detalles": "Cuenta Claude Max x5 compartida entre un grupo muy reducido de usuarios para garantizar alto volumen de tokens (40% a 60% de uso) ideal para desarrollo continuo y proyectos pesados.",
         "isPersonalEmail": false
       }
     ]
