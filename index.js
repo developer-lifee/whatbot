@@ -8818,7 +8818,14 @@ async function baseProcessIncomingMessage(messages) {
         return;
     }
 
-    let foundName = contact ? (contact.name || contact.pushname) : null;
+    let rawPushName = contact ? (contact.name || contact.pushname) : null;
+    let foundName = null;
+    if (rawPushName && typeof rawPushName === 'string') {
+        const cleanName = rawPushName.trim();
+        if (cleanName.length >= 2 && /[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(cleanName) && !/^[\.\-_,\s\d*~+!#%&/()=?]+$/.test(cleanName)) {
+            foundName = cleanName;
+        }
+    }
     if (!foundName) {
         try {
             const { searchContactByPhone } = require('./googleContactsService');

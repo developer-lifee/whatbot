@@ -87,6 +87,11 @@ async function addNewContact(name, phone) {
         setTimeout(() => recentlyAdded.delete(coreNumber), PROCESSING_WINDOW);
 
         // 2. Verificar existencia real en Google Contacts
+        if (!name || name.trim().length < 2 || !/[a-zA-ZáéíóúÁÉÍÓÚñÑ]/.test(name) || /^[\.\-_,\s\d*~+!#%&/()=?]+$/.test(name.trim()) || name.trim().toLowerCase() === 'cliente') {
+            console.log(`[Google Contacts] ℹ️ Nombre inválido o simbólico "${name}", omitiendo guardado en Google.`);
+            return false;
+        }
+
         const existingName = await searchContactByPhone(phone);
         if (existingName) {
             console.log(`[Google Contacts] ℹ️ Contacto ya existe en Google: ${existingName} (${coreNumber}).`);

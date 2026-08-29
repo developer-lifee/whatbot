@@ -374,31 +374,36 @@ function getDynamicSupportExpectationMessage() {
     const timeValue = hours + mins / 60;
 
     let isWorking = false;
-    let nextShift = "";
+    let nextShift = "en el próximo turno de soporte";
 
-    if (day >= 1 && day <= 5) { // Weekdays (Lunes a Viernes)
-        // Katherine de 10 a 6 (10 a 18), Camilo de 6 a 10 (18 a 22) -> total de 10 a 22
+    if (day >= 1 && day <= 5) { // Lunes a Viernes (10:00 AM a 10:00 PM)
         if (timeValue >= 10 && timeValue < 22) {
             isWorking = true;
         } else {
-            nextShift = "mañana a partir de las 10:00 AM";
+            if (timeValue < 10) {
+                nextShift = "hoy a partir de las 10:00 AM";
+            } else {
+                nextShift = day === 5 ? "mañana a partir de las 4:00 PM" : "mañana a partir de las 10:00 AM";
+            }
         }
-    } else { // Weekend (Sat & Sun)
-        // Esteban de 4 a 10 (16 a 22)
+    } else { // Fin de semana (Sábado y Domingo: 4:00 PM a 10:00 PM)
         if (timeValue >= 16 && timeValue < 22) {
             isWorking = true;
         } else {
-            nextShift = day === 6 ? "hoy a partir de las 4:00 PM" : "mañana a partir de las 4:00 PM";
-            if (day === 0 && timeValue >= 22) {
+            if (timeValue < 16) {
+                nextShift = "hoy a partir de las 4:00 PM";
+            } else if (day === 6) {
+                nextShift = "mañana a partir de las 4:00 PM";
+            } else {
                 nextShift = "el Lunes a partir de las 10:00 AM";
             }
         }
     }
 
     if (isWorking) {
-        return "Un asesor está activo en este momento y te enviará la invitación por este chat en unos minutos. ¡Gracias por tu paciencia! 😊";
+        return "Un asesor está activo en este momento y te atenderá por este chat en unos minutos. ¡Gracias por tu paciencia! 😊";
     } else {
-        return `Ten en cuenta que nuestro horario de soporte es de Lunes a Viernes de 10:00 AM a 10:00 PM, y Sábados y Domingos de 4:00 PM a 10:00 PM. Un asesor te enviará la invitación ${nextShift}. ¡Muchas gracias por tu comprensión! 😊`;
+        return `Ten en cuenta que nuestro horario de soporte es de Lunes a Viernes de 10:00 AM a 10:00 PM, y Sábados y Domingos de 4:00 PM a 10:00 PM. Un asesor te atenderá ${nextShift}. ¡Muchas gracias por tu comprensión! 😊`;
     }
 }
 
