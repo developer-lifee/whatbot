@@ -1245,7 +1245,14 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
 
         // LÓGICA DE SUSPENSIÓN (CORTAR)
         let wasSuspendedNow = false;
-        if (diffDays >= 3 && !observacion.toLowerCase().includes('cortar')) {
+        const isPaymentPromise = [
+            'paga el', 'pagara el', 'pagará el', 'cancela el', 'cancelará el',
+            'esperar', 'acuerdo', 'promesa', 'convenio', 'hasta el', 'hablar con',
+            'lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes', 'sabado', 'sábado', 'domingo',
+            'quincena', 'fin de mes'
+        ].some(keyword => observacion.toLowerCase().includes(keyword)) || /\b(30|31|01|02|03|04|05|15)\b/.test(observacion);
+
+        if (diffDays >= 3 && !observacion.toLowerCase().includes('cortar') && !isPaymentPromise) {
             observacion = observacion ? observacion + " - cortar" : "cortar";
             if (account.rowNumber) {
                 updateExcelData(account.rowNumber, { "observaciones": observacion })

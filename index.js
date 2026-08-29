@@ -11605,7 +11605,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 // Priorizamos la venta: Si ya tenemos algún nombre (venga de contactos o de la IA), seguimos adelante.
                 if (!foundName) {
                     await message.reply(`🤖 ¡Hola! Con gusto te ayudo con tu compra. ¿Me podrías regalar tu nombre y apellido completo para registrarte oficialmente? 😊`);
-                    userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'comprar' });
+                    userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'comprar', detectedPlatform: detection.detectedPlatform || null });
                     return;
                 }
 
@@ -12300,11 +12300,21 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const name = (message.body || "").trim();
             try {
                 const { addNewContact } = require('./googleContactsService');
-                // addNewContact ya tiene validación interna y caché local
                 await addNewContact(name, userId.replace('@c.us', '')).catch(() => null);
             } catch (e) { }
-            userStates.set(userId, { state: 'main_menu', nombre: name });
-            await message.reply("🤖 ¡Un placer conocerte, *" + name + "*! Ya quedaste agendado. Ahora sí, ¿en qué te puedo ayudar hoy?\n\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
+            
+            const prev = userStates.get(userId) || {};
+            const clientName = name;
+
+            if (prev.detectedPlatform) {
+                userStates.set(userId, { ...prev, state: 'awaiting_purchase_platforms', nombre: clientName });
+                await message.reply(`🤖 ¡Un placer conocerte, *${clientName}*! Ya quedaste registrado en nuestra base de datos.`);
+                await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+                break;
+            }
+
+            userStates.set(userId, { state: 'main_menu', nombre: clientName });
+            await message.reply("🤖 ¡Un placer conocerte, *" + clientName + "*! Ya quedaste registrado en nuestra base de datos. Ahora sí, ¿en qué te puedo ayudar hoy?\n\n1 - Comprar cuenta nueva\n2 - Revisar mis credenciales\n3 - Pagar o renovar mis cuentas\n4 - Soporte Técnico\n5 - Hablar con un asesor (Otro)");
             break;
         case 'awaiting_churn_reason':
             const reason = (message.body || "").trim();
