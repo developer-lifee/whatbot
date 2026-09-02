@@ -419,17 +419,17 @@ let isDeepSeekDisabled = false;
 let deepSeekDisableUntil = 0;
 
 async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true) {
-  const now = Date.now();
-  if (isDeepSeekDisabled && now < deepSeekDisableUntil) {
-    // Redirigir de inmediato a Gemini para evitar latencia de API caída
+  // 1. Motor Principal: Google Gemini 3.7 Flash (Mayor capacidad de razonamiento, ultra veloz y costo $0)
+  try {
     return await callGemini(prompt, systemInstruction, isJson);
-  } else if (isDeepSeekDisabled) {
-    isDeepSeekDisabled = false;
+  } catch (geminiError) {
+    console.warn("⚠️ [AI Failover] Gemini no disponible temporalmente. Activando DeepSeek como respaldo:", geminiError.message);
   }
 
+  // 2. Respaldo de Alta Disponibilidad: DeepSeek
   if (!DEEPSEEK_API_KEY) {
     console.error("DEEPSEEK_API_KEY is missing in .env");
-    throw new Error("DEEPSEEK_API_KEY not configured");
+    throw new Error("Gemini falló y DEEPSEEK_API_KEY no está configurada");
   }
 
   const messages = [
@@ -473,22 +473,8 @@ async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de so
 
     return text;
   } catch (error) {
-    console.error("Error in callDeepSeek:", error.message);
-    
-    // Si es error de saldo o similar, silenciamos la API por 30 mins
-    if (error.message.includes("402") || error.message.includes("Insufficient Balance") || error.message.includes("Payment Required")) {
-      console.warn("🚫 [DeepSeek Bypass] Detectado error de saldo insuficiente (402). Desactivando DeepSeek por 30 minutos...");
-      isDeepSeekDisabled = true;
-      deepSeekDisableUntil = Date.now() + 30 * 60 * 1000;
-    }
-
-    console.warn("⚠️ DeepSeek failed. Falling back to Gemini as backup...");
-    try {
-      return await callGemini(prompt, systemInstruction, isJson);
-    } catch (fallbackError) {
-      console.error("❌ Gemini fallback also failed:", fallbackError.message);
-      throw fallbackError;
-    }
+    console.error("Error in DeepSeek backup call:", error.message);
+    throw error;
   }
 }
 
