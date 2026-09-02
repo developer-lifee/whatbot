@@ -1075,7 +1075,22 @@ async function approveBoldOrder(orderId) {
                 userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
             } else {
                 let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
-                const platformsStr = newManualItems.map(item => item.name.toUpperCase()).join(', ');
+                const formatCleanPlatformTitle = (rawName) => {
+                    if (!rawName) return "tu servicio";
+                    let str = rawName.toString().replace(/^COMBO\s*\([^)]*\)\s*:\s*/i, '').trim();
+                    if (str.toUpperCase().includes('CLAUDE')) {
+                        if (str.toUpperCase().includes('X5') || str.toUpperCase().includes(' 5')) return 'Claude Max x5';
+                        if (str.toUpperCase().includes('MAX')) return 'Claude Max';
+                        if (str.toUpperCase().includes('X2') || str.toUpperCase().includes(' 2')) return 'Claude Pro x2';
+                        return 'Claude Pro';
+                    }
+                    if (str.includes(' - ')) {
+                        const parts = str.split(' - ');
+                        return parts[parts.length - 1].trim();
+                    }
+                    return str;
+                };
+                const platformsStr = newManualItems.map(item => formatCleanPlatformTitle(item.name)).join(', ');
                 const expectation = getDynamicSupportExpectationMessage();
                 manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
                     `${expectation}`;
@@ -3121,13 +3136,23 @@ app.get('/api/admin/availability', (req, res) => {
 // Endpoint to write manual stock/platform availability configuration
 app.post('/api/admin/availability/save', (req, res) => {
     try {
-        const { config, password } = req.body;
+        const { config, password, agentEmail, agentName } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!config || typeof config !== 'object') return res.status(400).json({ success: false, message: 'Configuración inválida' });
 
         const { saveAvailabilityConfig } = require('./availabilityService');
+        const { logAdminAction } = require('./auditService');
         saveAvailabilityConfig(config);
-        res.json({ success: true, message: 'Disponibilidad de stock actualizada' });
+
+        logAdminAction({
+            agentEmail: agentEmail || 'admin@sheerit.com',
+            agentName: agentName || 'Administrador',
+            action: 'UPDATE_STOCK_AVAILABILITY',
+            target: 'Plataformas & Planes',
+            details: { platformsModified: Object.keys(config.platforms || {}).length }
+        });
+
+        res.json({ success: true, message: 'Disponibilidad de stock actualizada y auditada' });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -3387,7 +3412,42 @@ function syncPlatformPrices(platforms, dbPrices) {
 app.get('/api/public/platforms', async (req, res) => {
     try {
         const { getPlatformsFromDb } = require('./platformsDbService');
-        const platforms = await getPlatformsFromDb();
+        const { getAvailabilityConfig } = require('./availabilityService');
+        const config = getAvailabilityConfig();
+        const rawPlatforms = await getPlatformsFromDb();
+
+        const platforms = rawPlatforms.map(p => {
+            const pKey = p.name;
+            const pOverride = config[pKey] || {};
+            const isPlatformAvailable = pOverride.immediate !== false;
+            const pReason = pOverride.reason || '';
+            const pIncident = pOverride.incident || '';
+
+            const plans = (p.plans || []).map(pl => {
+                const planKey = `${p.name} ${pl.name}`;
+                const planOverride = config[planKey] || {};
+                const isPlanAvailable = isPlatformAvailable && (planOverride.immediate !== false);
+                const planReason = planOverride.reason || pReason;
+
+                return {
+                    ...pl,
+                    isAvailable: isPlanAvailable,
+                    reason: planReason || undefined
+                };
+            });
+
+            // If all plans are unavailable, mark the platform overall as unavailable
+            const hasAnyAvailablePlan = plans.length === 0 ? isPlatformAvailable : plans.some(pl => pl.isAvailable);
+
+            return {
+                ...p,
+                isAvailable: isPlatformAvailable && hasAnyAvailablePlan,
+                reason: pReason || undefined,
+                incident: pIncident || undefined,
+                plans
+            };
+        });
+
         res.json(platforms);
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -3777,15 +3837,44 @@ app.get('/api/admin/gpt-accounts', (req, res) => {
     }
 });
 
+app.post('/api/admin/ai-assistant/query', express.json(), async (req, res) => {
+    try {
+        const { query, activeTab, agentName, agentEmail, history } = req.body;
+        if (!query) return res.status(400).json({ success: false, message: 'Falta la consulta (query)' });
+
+        const { processAdminAssistantQuery } = require('./adminAssistantService');
+        const response = await processAdminAssistantQuery({ query, activeTab, agentName, agentEmail, history });
+        res.json(response);
+    } catch (e) {
+        console.error('[AI Assistant API Error]:', e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+app.get('/api/admin/audit-logs', (req, res) => {
+    try {
+        const { limit, action, agentEmail } = req.query;
+        const { getAuditLogs } = require('./auditService');
+        const logs = getAuditLogs({ 
+            limit: limit ? parseInt(limit) : 100, 
+            action: action || null, 
+            agentEmail: agentEmail || null 
+        });
+        res.json({ success: true, logs });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 app.post('/api/admin/gpt-accounts/save', (req, res) => {
     try {
-        const { email, secret, service, password } = req.body;
+        const { email, secret, service, password, agentEmail, agentName } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!email || !secret) return res.status(400).json({ error: 'Faltan campos obligatorios' });
 
         const { saveSecret } = require('./totpService');
-        saveSecret(email, secret, service || 'ChatGPT');
-        res.json({ success: true, message: 'Cuenta GPT guardada con éxito' });
+        saveSecret(email, secret, service || 'ChatGPT', { agentEmail, agentName });
+        res.json({ success: true, message: 'Cuenta 2FA guardada y auditada con éxito' });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -3857,18 +3946,14 @@ app.get('/api/admin/groups', async (req, res) => {
 
 app.post('/api/admin/gpt-accounts/delete', (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, agentEmail, agentName } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!email) return res.status(400).json({ error: 'Faltan campos obligatorios' });
 
-        const { loadSecrets } = require('./totpService');
-        const secrets = loadSecrets();
-        const key = email.toLowerCase().trim();
-        if (secrets[key]) {
-            delete secrets[key];
-            const SECRETS_FILE = path.join(__dirname, 'tokens', 'gpt_secrets.json');
-            fs.writeFileSync(SECRETS_FILE, JSON.stringify(secrets, null, 2));
-            res.json({ success: true, message: 'Cuenta GPT eliminada con éxito' });
+        const { deleteSecret } = require('./totpService');
+        const deleted = deleteSecret(email, { agentEmail, agentName });
+        if (deleted) {
+            res.json({ success: true, message: 'Cuenta 2FA eliminada y auditada con éxito' });
         } else {
             res.status(404).json({ success: false, message: 'Cuenta no encontrada' });
         }

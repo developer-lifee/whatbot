@@ -333,7 +333,7 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         streamingName = String(accountOrStreaming || "");
     }
 
-    if (!streamingName) return fallbackExcelPrice;
+    if (!streamingName && fallbackExcelPrice > 0) return fallbackExcelPrice;
     const cleanName = streamingName.toString().trim().toUpperCase();
     if (cleanName.includes('PERSONAL') || cleanName.includes('PROPIA') || cleanName.includes('PROPIO') || cleanName.includes('TU CORREO') || cleanName.includes('CORREO PROPIO') || cleanName.includes('OWNER') || cleanName.includes('FAMILIAR')) {
         isPersonal = true;
@@ -343,39 +343,95 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     let targetName = cleanName;
     if (cleanName.includes('APPLE ONE') || cleanName.includes('APPLE_ONE') || (cleanName.includes('APPLE') && cleanName.includes('ONE'))) {
         targetName = 'APPLE ONE';
-    } else if (cleanName.includes('APPLE TV') || cleanName === 'APPLE') {
+    } else if (cleanName.includes('APPLE TV') || cleanName === 'APPLE' || cleanName === 'APPLETV') {
         targetName = 'APPLE TV+';
-    } else if (cleanName.includes('NETFLIX EXTRA') || cleanName.includes('EXTRA')) {
+    } else if (cleanName.includes('NETFLIX EXTRA') || cleanName.includes('MIEMBRO EXTRA') || (cleanName.includes('NETFLIX') && cleanName.includes('EXTRA'))) {
         targetName = 'NETFLIX EXTRA';
     } else if (cleanName.includes('AMAZON') || cleanName.includes('PRIME')) {
         targetName = 'PRIME VIDEO';
-    } else if (cleanName.includes('HBO PLATINO') || cleanName.includes('MAX PLATINO')) {
+    } else if (cleanName.includes('HBO PLATINO') || cleanName.includes('MAX PLATINO') || cleanName.includes('PLATINUM')) {
         targetName = 'MAX PLATINO';
     } else if (cleanName.includes('HBO') || cleanName.includes('MAX')) {
-        targetName = 'HBOMAX';
+        if (!cleanName.includes('CLAUDE')) targetName = 'HBOMAX';
     } else if (cleanName.includes('DISNEY') || cleanName.includes('STAR')) {
         targetName = 'DISNEY+ PREMIUM';
     } else if (cleanName.includes('YOUTUBE')) {
         targetName = 'YOUTUBE PREMIUM';
-    } else if (cleanName.includes('MICROSOFT')) {
+    } else if (cleanName.includes('MICROSOFT') || cleanName.includes('OFFICE')) {
         targetName = 'MICROSOFT 365';
+    } else if (cleanName.includes('CRUNCHY')) {
+        targetName = 'CRUNCHYROLL';
+    } else if (cleanName.includes('CLAUDE')) {
+        if (cleanName.includes('X5') || cleanName.includes('5')) targetName = 'CLAUDE MAX X5';
+        else if (cleanName.includes('MAX')) targetName = 'CLAUDE MAX';
+        else if (cleanName.includes('X2') || cleanName.includes('2')) targetName = 'CLAUDE PRO X2';
+        else targetName = 'CLAUDE PRO';
     }
 
     if (Array.isArray(platforms) && platforms.length > 0) {
-        // 1. Buscar coincidencia exacta en el nombre de la plataforma y seleccionar plan según tipo (Personal vs Compartida)
+        // 1. Buscar coincidencia exacta en el nombre de la plataforma y seleccionar plan según tipo
         for (const p of platforms) {
             const pName = (p.name || '').toUpperCase();
-            if (pName === targetName || pName.includes(targetName) || targetName.includes(pName)) {
+            const pNameNorm = pName.replace(/[^A-Z0-9]/g, '');
+            const targetNorm = targetName.replace(/[^A-Z0-9]/g, '');
+
+            const isMatch = pName === targetName || pNameNorm === targetNorm || pName.includes(targetName) || targetName.includes(pName) ||
+                            (targetNorm.includes('CLAUDE') && pNameNorm.includes('CLAUDE')) ||
+                            (targetNorm.includes('CRUNCHY') && pNameNorm.includes('CRUNCHY')) ||
+                            (targetNorm.includes('APPLE') && pNameNorm.includes('APPLE'));
+
+            if (isMatch) {
                 if (Array.isArray(p.plans) && p.plans.length > 0) {
                     if (targetName === 'APPLE ONE') {
                         const appleOnePlan = p.plans.find(pl => (pl.name || '').toUpperCase().includes('ONE'));
                         if (appleOnePlan && appleOnePlan.price) return appleOnePlan.price;
                     }
+                    if (targetName === 'APPLE TV+') {
+                        const appleTvPlan = p.plans.find(pl => (pl.name || '').toUpperCase().includes('TV'));
+                        if (appleTvPlan && appleTvPlan.price) return appleTvPlan.price;
+                    }
+                    if (targetName === 'NETFLIX EXTRA') {
+                        const extraPlan = p.plans.find(pl => (pl.name || '').toUpperCase().includes('EXTRA'));
+                        if (extraPlan && extraPlan.price) return extraPlan.price;
+                    }
+                    if (targetName === 'CLAUDE MAX X5') {
+                        const planX5 = p.plans.find(pl => {
+                            const n = (pl.name || '').toUpperCase();
+                            return n.includes('X5') || n.includes('5X') || n.includes('INTENSIVO') || n.includes('PESADO') || pl.id === 2304;
+                        });
+                        if (planX5 && planX5.price) return planX5.price;
+                        return 130000;
+                    }
+                    if (targetName === 'CLAUDE MAX') {
+                        const planMax = p.plans.find(pl => {
+                            const n = (pl.name || '').toUpperCase();
+                            return (n.includes('MAX') && !n.includes('X5') && !n.includes('5X') && !n.includes('INTENSIVO')) || pl.id === 2303;
+                        });
+                        if (planMax && planMax.price) return planMax.price;
+                        return 60000;
+                    }
+                    if (targetName === 'CLAUDE PRO X2') {
+                        const planX2 = p.plans.find(pl => {
+                            const n = (pl.name || '').toUpperCase();
+                            return n.includes('X2') || n.includes('2X') || n.includes('ALTO USO') || pl.id === 2302;
+                        });
+                        if (planX2 && planX2.price) return planX2.price;
+                        return 30000;
+                    }
+                    if (targetName === 'CLAUDE PRO') {
+                        const planPro = p.plans.find(pl => {
+                            const n = (pl.name || '').toUpperCase();
+                            return (n.includes('ESTÁNDAR') || n.includes('ESTANDAR') || (n.includes('PRO') && !n.includes('X2') && !n.includes('2X') && !n.includes('MAX'))) || pl.id === 2301;
+                        });
+                        if (planPro && planPro.price) return planPro.price;
+                        return 20000;
+                    }
+
                     if (isPersonal) {
-                        const persPlan = p.plans.find(pl => pl.isPersonalEmail || (pl.name && (pl.name.toLowerCase().includes('personal') || pl.name.toLowerCase().includes('tu correo'))));
+                        const persPlan = p.plans.find(pl => pl.isPersonalEmail || (pl.name && (pl.name.toLowerCase().includes('personal') || pl.name.toLowerCase().includes('tu correo') || pl.name.toLowerCase().includes('extra'))));
                         if (persPlan && persPlan.price) return persPlan.price;
                     } else {
-                        const sharedPlan = p.plans.find(pl => !pl.isPersonalEmail && (pl.name && (pl.name.toLowerCase().includes('compartida') || pl.name.toLowerCase().includes('cuenta nueva') || pl.name.toLowerCase().includes('apple one'))));
+                        const sharedPlan = p.plans.find(pl => !pl.isPersonalEmail && (pl.name && (pl.name.toLowerCase().includes('compartida') || pl.name.toLowerCase().includes('cuenta nueva') || pl.name.toLowerCase().includes('1 pantalla') || pl.name.toLowerCase().includes('perfil'))));
                         if (sharedPlan && sharedPlan.price) return sharedPlan.price;
                     }
                 }
@@ -396,27 +452,28 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         }
     }
 
-    if (fallbackExcelPrice > 0) {
-        return fallbackExcelPrice;
-    }
-
-    // 3. Diccionario de respaldo por si platforms no cargó o hay variantes
+    // 3. Diccionario de respaldo por si platforms no cargó o hay variantes (PRIORIDAD SOBRE VALORES RESIDUALES DE EXCEL)
     const fallbackPrices = {
         'crunchyroll': 7000,
+        'crunchy_roll': 7000,
+        'crunchy': 7000,
         'spotify': 8000,
         'spotify_owner': 8000,
         'spotify owner': 8000,
         'amazon': 10000,
+        'prime': 10000,
         'netflix': 13000,
         'netflix_extra': 17000,
         'disney': 14000,
         'hbo': 8000,
         'hbo_platino': 11000,
+        'max_platino': 11000,
         'youtube': 12000,
         'gpt': 20000,
         'canva': 7000,
         'vix': 7000,
         'appletv': 8000,
+        'apple_tv': 8000,
         'appleone': 22000,
         'apple_one': 22000,
         'apple': 8000,
@@ -425,6 +482,9 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         'microsoft': 13000,
         'microsoft_compartida': 5000,
         'claude_pro': 20000,
+        'claude_pro_x2': 30000,
+        'claude_max': 60000,
+        'claude_max_x5': 130000,
         'claude': 20000,
         'gemini': 22000,
         'gemini_compartida': 10000,
@@ -437,6 +497,11 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     const targetNorm = normalizeStreamingName(streamingName);
     if (targetNorm && fallbackPrices[targetNorm]) {
         return fallbackPrices[targetNorm];
+    }
+
+    // 4. Último recurso: usar el precio de Excel solo si es un valor limpio y no se encontró en catálogo
+    if (fallbackExcelPrice > 0) {
+        return fallbackExcelPrice;
     }
 
     return 0;
@@ -862,22 +927,11 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             return;
         }
 
-        // Lógica de descuento por combo: solo aplica si las plataformas a renovar tienen la misma fecha de vencimiento (fecha idéntica)
-        const vencimientoStrings = itemsForRenewal.map(item => {
-            const rawDate = item.deben || item.vencimiento;
-            if (!rawDate) return null;
-            const jsDate = getJsDateFromExcel(rawDate);
-            if (!jsDate || isNaN(jsDate.getTime())) return null;
-            return jsDate.toISOString().split('T')[0];
-        }).filter(Boolean);
-
-        const uniqueDates = [...new Set(vencimientoStrings)];
-        const allDatesIdentical = uniqueDates.length === 1 && vencimientoStrings.length === itemsForRenewal.length;
-
-        if (total > 0 && itemsForRenewal.length > 1 && allDatesIdentical) {
+        // Lógica de descuento por combo ($1.000 COP de descuento por cada servicio adicional pagado en combo)
+        if (total > 0 && itemsForRenewal.length > 1) {
             const discount = (itemsForRenewal.length - 1) * 1000 * durationMonths;
             total -= discount;
-            response += `✨ *Descuento por combo:* -$${discount.toLocaleString('es-CO')}\n`;
+            response += `✨ *Descuento por combo (${itemsForRenewal.length} servicios):* -$${discount.toLocaleString('es-CO')} COP\n`;
         }
 
         // Detección automática de Churn (si renueva una plataforma pero deja vencer otras)

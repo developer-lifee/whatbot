@@ -170,8 +170,8 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-flash-lite-latest", // Modelo rápido y ultra económico
-  "gemini-flash-latest"       // Backup estándar
+  "gemini-flash-latest",       // Modelo principal: Máxima Inteligencia y Visión Flash
+  "gemini-flash-lite-latest"   // Respaldo ultra rápido
 ];
 
 /**

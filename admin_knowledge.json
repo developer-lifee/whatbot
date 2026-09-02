@@ -1,0 +1,42 @@
+{
+  "company_overview": {
+    "name": "Sheerit S.A.S.",
+    "role": "Plataforma líder de suscripciones y software compartido y personal.",
+    "core_services": [
+      "Streaming de entretenimiento (Netflix, Disney+, HBO Max, Prime Video, Spotify, Crunchyroll, YouTube Premium, Apple TV/One)",
+      "Inteligencia Artificial y Productividad (ChatGPT Plus, Claude Pro/Max, Gemini Advanced, Canva Pro, Microsoft 365)",
+      "Desarrollo de software a la medida, automatizaciones RPA y soluciones corporativas"
+    ]
+  },
+  "operational_protocols": {
+    "two_factor_authentication_2fa": {
+      "description": "Protocolo para almacenamiento y generación de códigos TOTP offline para cuentas corporativas.",
+      "supported_platforms": ["ChatGPT", "Amazon Prime / AWS", "Netflix", "Disney+", "Claude", "Microsoft"],
+      "procedure": "Cuando un asesor añade una semilla secreta (TOTP seed) desde el panel, el sistema genera códigos dinámicos de 6 dígitos con vigencia de 30 segundos. El bot los suministra automáticamente a los clientes autorizados al solicitar inicio de sesión.",
+      "security_rule": "Las semillas nunca deben compartirse por chats públicos. Solo deben cargarse a través del panel administrativo autenticado."
+    },
+    "stock_and_availability": {
+      "description": "Control de inventario en tiempo real para la tienda web y cotizaciones del bot.",
+      "states": {
+        "disponible": "La plataforma y todos sus planes pueden ser adquiridos normalmente.",
+        "sin_stock": "Desactiva el botón de compra en la web, añade la etiqueta '🚫 Sin Stock de Momento' y el bot notifica a los clientes que no hay cupos inmediatos.",
+        "incidente_activo": "Muestra un banner amarillo de advertencia explicando mantenimiento o problemas del proveedor."
+      }
+    },
+    "ticket_management_sla": {
+      "description": "Acuerdos de nivel de servicio para resolución de solicitudes de clientes.",
+      "response_time_goal": "Menos de 15 minutos en horario diurno (08:00 a 22:00).",
+      "escalation_rules": "Si un problema de clave o correo persiste tras 2 reintentos automáticos, el bot escala a 'waiting_human' para intervención directa de un asesor."
+    },
+    "payroll_and_schedules": {
+      "standard_rate_hourly": 8333.33,
+      "trial_rate_hourly": 5000.00,
+      "shift_duration_hours": 8,
+      "rules": "Los pagos de nómina se calculan con base en las horas registradas en la planilla de horarios. Para auditorías históricas (por ejemplo, verificar quién laboró en fechas específicas como el 15 de julio), el sistema incluye tanto a los asesores activos como a contratos terminados/desvinculados que hayan estado presentes en esa fecha."
+    }
+  },
+  "role_permissions": {
+    "admin": "Acceso total a contabilidad, horarios, inventario 2FA, pasarelas de pago, cambios de stock y configuración del bot.",
+    "advisor": "Gestión de tickets de soporte, verificación de comprobantes de pago, consulta de credenciales y atención en chat."
+  }
+}

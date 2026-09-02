@@ -67,14 +67,61 @@ function resetAllUsage() {
  * @param {string} email 
  * @param {string} secret 
  * @param {string} service 
+ * @param {Object} [auditContext]
  */
-function saveSecret(email, secret, service = 'ChatGPT') {
+function saveSecret(email, secret, service = 'ChatGPT', auditContext = {}) {
+    const { logAdminAction } = require('./auditService');
     const secrets = loadSecrets();
-    secrets[email.toLowerCase().trim()] = {
+    const cleanEmail = email.toLowerCase().trim();
+    const existing = secrets[cleanEmail];
+
+    const isUpdate = !!existing;
+    const createdAt = existing && typeof existing === 'object' && existing.createdAt ? existing.createdAt : new Date().toISOString();
+    const createdBy = existing && typeof existing === 'object' && existing.createdBy ? existing.createdBy : (auditContext.agentName || auditContext.agentEmail || 'Administrador');
+
+    secrets[cleanEmail] = {
         secret: secret.replace(/\s/g, ''),
-        service: service
+        service: service,
+        createdAt: createdAt,
+        createdBy: createdBy,
+        updatedAt: new Date().toISOString(),
+        updatedBy: auditContext.agentName || auditContext.agentEmail || 'Administrador'
     };
     fs.writeFileSync(SECRETS_FILE, JSON.stringify(secrets, null, 2));
+
+    logAdminAction({
+        agentEmail: auditContext.agentEmail || 'admin@sheerit.com',
+        agentName: auditContext.agentName || 'Administrador',
+        action: isUpdate ? 'UPDATE_2FA_ACCOUNT' : 'ADD_2FA_ACCOUNT',
+        target: cleanEmail,
+        details: { service, isUpdate }
+    });
+}
+
+/**
+ * Deletes a 2FA secret for an email.
+ * @param {string} email 
+ * @param {Object} [auditContext]
+ */
+function deleteSecret(email, auditContext = {}) {
+    const { logAdminAction } = require('./auditService');
+    const secrets = loadSecrets();
+    const cleanEmail = email.toLowerCase().trim();
+    if (secrets[cleanEmail]) {
+        const deletedService = typeof secrets[cleanEmail] === 'object' ? secrets[cleanEmail].service : '2FA';
+        delete secrets[cleanEmail];
+        fs.writeFileSync(SECRETS_FILE, JSON.stringify(secrets, null, 2));
+
+        logAdminAction({
+            agentEmail: auditContext.agentEmail || 'admin@sheerit.com',
+            agentName: auditContext.agentName || 'Administrador',
+            action: 'DELETE_2FA_ACCOUNT',
+            target: cleanEmail,
+            details: { service: deletedService }
+        });
+        return true;
+    }
+    return false;
 }
 
 function loadSecrets() {
@@ -104,5 +151,6 @@ module.exports = {
     checkAndIncrementUsage,
     resetAllUsage,
     saveSecret,
+    deleteSecret,
     loadSecrets
 };

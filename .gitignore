@@ -31,6 +31,8 @@ scratch/*.js
 # Logs and registration files
 logs/
 *.log
+audit_logs.json
+frontend_audit.log
 
 # Contacts cache
 contacts_cache.json
