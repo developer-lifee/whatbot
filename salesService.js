@@ -775,12 +775,12 @@ async function calculateAndShowPrice(message, userId, userStates) {
     periodText = `/${defaultDurationRule.label}`;
   }
 
-  // Detección de cliente internacional
+  // Detección precisa de cliente internacional (Solo números @c.us extranjeros verificados, nunca @lid colombianos)
   const { calculateInternationalPrice } = require('./billingService');
   const cleanDigits = userId.replace(/\D/g, '');
-  const isInternational = (!cleanDigits.startsWith('57') && cleanDigits.length >= 10 && !cleanDigits.startsWith('3'));
+  const isRealInternational = userId.endsWith('@c.us') && cleanDigits.length >= 10 && !cleanDigits.startsWith('57') && !cleanDigits.startsWith('3');
   
-  if (isInternational) {
+  if (isRealInternational) {
     const { priceUSD } = calculateInternationalPrice(totalPrice);
     responseText += `\nTotal (${subscriptionType}): **$${totalPrice.toLocaleString('es-CO')} COP** *(~$${priceUSD} USD)*${periodText}`;
   } else {
@@ -802,16 +802,11 @@ async function calculateAndShowPrice(message, userId, userStates) {
     responseText += `\n\n⚠️ *Nota:* Para *${uniquePlats.join(', ')}*, la entrega/activación demorará un poco más de lo habitual y no será de inmediato. ¡Agradecemos tu paciencia! 😊`;
   }
 
-  if (isInternational) {
-    const { priceUSD } = calculateInternationalPrice(totalPrice);
-    responseText += `\n\n🌎 *Cliente Internacional:* Puedes pagar en **Dólares (USD)** de forma segura con tu tarjeta débito o crédito internacional a través de nuestra pasarela web oficial: https://sheerit.co/ o por Binance Pay (USDT).`;
-  }
-
-  await message.reply('🤖 ' + responseText);
-
-  if (isInternational) {
-    await message.reply("🤖 Para clientes internacionales fuera de Colombia 🇲🇽 🌎:\n\n💳 *Pago con Tarjeta Internacional (Débito / Crédito):*\nIngresa a https://sheerit.co y realiza el pago seguro con entrega inmediata.\n\n🟡 *Binance Pay / USDT:*\nSolicita a un asesor nuestra ID de Binance para pago directo en cripto sin comisiones.");
+  if (isRealInternational) {
+    responseText += `\n\n💳 *Pago Internacional:* Puedes realizar tu pago seguro con tarjeta débito o crédito internacional directamente desde nuestra página web oficial: https://sheerit.co/`;
+    await message.reply('🤖 ' + responseText);
   } else {
+    await message.reply('🤖 ' + responseText);
     const paymentOptions = "🤖 ¿Por cuál medio deseas hacer la transferencia?" + getDynamicPaymentMessage(nonImmediatePlats.length > 0).replace("\n\n🚀 *¡Listo para activar tu cuenta!*\n¿Por cuál medio deseas realizar la transferencia?", "");
     await message.reply(paymentOptions);
   }
