@@ -345,8 +345,8 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   }
 
   for (const modelName of MODELS) {
-    let attempts = 4; // Increment to 4 to allow key rotation to happen within attempts
-    let delay = 1000;
+    let attempts = 2; // Rápida rotación de clave antes de pasar al siguiente modelo
+    let delay = 300;
     
     for (let attempt = 1; attempt <= attempts; attempt++) {
       const activeKey = getActiveGeminiKey();
@@ -364,10 +364,9 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
         // 429 Quota or 5xx temporary errors
         if (response.status === 429 || response.status === 503 || response.status === 502 || response.status === 504) {
-          console.warn(`⚠️ [Gemini API] Error ${response.status} en intento ${attempt}/${attempts}. Rotando API Key...`);
+          console.warn(`⚠️ [Gemini API] Error ${response.status} en intento ${attempt}/${attempts} (${modelName}). Rotando clave...`);
           rotateGeminiKey();
           await new Promise(r => setTimeout(r, delay));
-          delay *= 2;
           continue;
         }
 
