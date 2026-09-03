@@ -947,11 +947,30 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             return;
         }
 
-        // Lógica de descuento por combo ($1.000 COP de descuento por cada servicio adicional pagado en combo)
-        if (total > 0 && itemsForRenewal.length > 1) {
-            const discount = (itemsForRenewal.length - 1) * 1000 * durationMonths;
-            total -= discount;
-            response += `✨ *Descuento por combo (${itemsForRenewal.length} servicios):* -$${discount.toLocaleString('es-CO')} COP\n`;
+        // Lógica de descuento por combo: El combo SOLO aplica a cuentas que comparten la MISMA fecha de corte/vencimiento ($1.000 COP de descuento por cada servicio adicional en la misma fecha)
+        const dateGroups = {};
+        itemsForRenewal.forEach(item => {
+            const rawDate = item.deben || item.vencimiento;
+            const jsDate = getJsDateFromExcel(rawDate);
+            const dateKey = jsDate && !isNaN(jsDate.getTime()) ? jsDate.toISOString().split('T')[0] : (rawDate ? String(rawDate).trim() : 'sin_fecha');
+            if (!dateGroups[dateKey]) dateGroups[dateKey] = [];
+            dateGroups[dateKey].push(item);
+        });
+
+        let totalComboDiscount = 0;
+        const comboDetails = [];
+        for (const [dateKey, group] of Object.entries(dateGroups)) {
+            if (group.length > 1) {
+                const groupDiscount = (group.length - 1) * 1000 * durationMonths;
+                totalComboDiscount += groupDiscount;
+                const formattedDate = dateKey !== 'sin_fecha' ? new Date(dateKey + 'T12:00:00Z').toLocaleDateString('es-CO') : '';
+                comboDetails.push(`${group.length} servicios${formattedDate ? ` vence ${formattedDate}` : ''}`);
+            }
+        }
+
+        if (totalComboDiscount > 0) {
+            total = Math.max(0, total - totalComboDiscount);
+            response += `✨ *Descuento por combo (${comboDetails.join(' + ')}):* -$${totalComboDiscount.toLocaleString('es-CO')} COP\n`;
         }
 
         // Detección automática de Churn (si renueva una plataforma pero deja vencer otras)
