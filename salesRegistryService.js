@@ -58,6 +58,13 @@ function isSamePlatformFamily(name1, name2) {
         return false;
     }
 
+    // REGLA CRÍTICA 5: Compartida vs Personal/Correo Propio/Familiar NUNCA deben mezclarse
+    const isCompartida1 = n1.includes('compartida') || name1.toLowerCase().includes('compartida');
+    const isCompartida2 = n2.includes('compartida') || name2.toLowerCase().includes('compartida');
+    if (isCompartida1 !== isCompartida2) {
+        return false;
+    }
+
     const mainRoots = ['gemini', 'apple', 'youtube', 'spotify', 'disney', 'hbo', 'netflix', 'microsoft', 'office', 'prime', 'vix', 'crunchyroll', 'crunchy', 'claude', 'chatgpt', 'gpt', 'paramount'];
     for (const root of mainRoots) {
         let normalizedN1 = n1.replace(/chatgpt|chat gpt/g, 'gpt');

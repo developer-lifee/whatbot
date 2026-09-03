@@ -10472,29 +10472,58 @@ async function baseProcessIncomingMessage(messages) {
                     // 1. PRIORIDAD MÁXIMA: Si el usuario YA TIENE cuentas activas y no solicitó servicio nuevo
                     if (userAccounts && userAccounts.length > 0 && !isNewRequested) {
                         const { getPlatformPriceFromExcel } = require('./billingService');
-                        let totalAllAccountsPrice = 0;
                         const accountsWithPrices = userAccounts.map(acc => {
                             const price = getPlatformPriceFromExcel(acc, platforms);
                             return { ...acc, calculatedPrice: price };
                         });
 
-                        totalAllAccountsPrice = accountsWithPrices.reduce((sum, a) => sum + (a.calculatedPrice || 0), 0);
-                        if (userAccounts.length > 1) {
-                            totalAllAccountsPrice = Math.max(0, totalAllAccountsPrice - (1000 * (userAccounts.length - 1)));
+                        // Agrupar cuentas que comparten la misma fecha de corte para evaluar combos reales
+                        const dateGroups = {};
+                        accountsWithPrices.forEach(acc => {
+                            const d = (acc.deben || acc.vencimiento || '').toString().trim();
+                            if (!dateGroups[d]) dateGroups[d] = [];
+                            dateGroups[d].push(acc);
+                        });
+
+                        let matchingSameDateCombo = null;
+                        for (const d of Object.keys(dateGroups)) {
+                            const group = dateGroups[d];
+                            if (group.length > 1) {
+                                const baseSum = group.reduce((sum, a) => sum + (a.calculatedPrice || 0), 0);
+                                const comboDiscountPrice = Math.max(0, baseSum - (1000 * (group.length - 1)));
+                                if (check.amount && (check.amount === comboDiscountPrice || check.amount === baseSum)) {
+                                    matchingSameDateCombo = { items: group, price: comboDiscountPrice };
+                                    break;
+                                }
+                            }
                         }
 
-                        // A. Si el monto transferido coincide exactamente con el combo total de todas sus cuentas
-                        if (check.amount && check.amount === totalAllAccountsPrice) {
-                            console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} coincide exactamente con el combo total de sus cuentas (${userAccounts.map(a => a.Streaming).join(', ')}).`);
-                            stateData.items = userAccounts;
-                            stateData.total = totalAllAccountsPrice;
+                        // A. Si el monto transferido coincide exactamente con un combo de cuentas con la misma fecha
+                        if (matchingSameDateCombo) {
+                            console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} coincide exactamente con combo de misma fecha (${matchingSameDateCombo.items.map(a => a.Streaming).join(', ')}).`);
+                            stateData.items = matchingSameDateCombo.items;
+                            stateData.total = matchingSameDateCombo.price;
                             stateData.isRenewal = true;
                             stateData.isAutoFilled = true;
                             userStates.set(userId, stateData);
                         }
                         // B. Si el monto transferido coincide con una sola cuenta específica del usuario
                         else if (check.amount && accountsWithPrices.some(ap => ap.calculatedPrice === check.amount)) {
-                            const matchedAcc = accountsWithPrices.find(ap => ap.calculatedPrice === check.amount);
+                            const matchingByPrice = accountsWithPrices.filter(ap => ap.calculatedPrice === check.amount);
+                            let matchedAcc = null;
+
+                            // Si tiene varias cuentas con el mismo precio (ej: IPTV y Spotify a $10.000), desempatar con la plataforma mencionada en el chat o inferredPlatform
+                            if (matchingByPrice.length > 1) {
+                                const textToSearch = `${check.inferredPlatform || ''} ${batchText || ''} ${historyLower || ''}`.toLowerCase();
+                                matchedAcc = matchingByPrice.find(ap => {
+                                    const plat = (ap.Streaming || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                                    return plat && textToSearch.includes(plat);
+                                });
+                            }
+                            if (!matchedAcc) {
+                                matchedAcc = matchingByPrice[0];
+                            }
+
                             console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} coincide con la cuenta ${matchedAcc.Streaming} (precio real: $${matchedAcc.calculatedPrice}) del usuario.`);
                             stateData.items = [matchedAcc];
                             stateData.total = check.amount;
@@ -10507,15 +10536,6 @@ async function baseProcessIncomingMessage(messages) {
                             console.log(`[PAYMENT INTERCEPTOR] Usuario tiene 1 sola cuenta activa (${userAccounts[0].Streaming}). Renovando automáticamente.`);
                             stateData.items = [userAccounts[0]];
                             stateData.total = check.amount || accountsWithPrices[0].calculatedPrice;
-                            stateData.isRenewal = true;
-                            stateData.isAutoFilled = true;
-                            userStates.set(userId, stateData);
-                        }
-                        // D. Si tiene múltiples cuentas y el monto cubre el combo total
-                        else if (userAccounts.length > 1 && check.amount && check.amount >= totalAllAccountsPrice) {
-                            console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} cubre el combo completo de sus cuentas.`);
-                            stateData.items = userAccounts;
-                            stateData.total = totalAllAccountsPrice || check.amount;
                             stateData.isRenewal = true;
                             stateData.isAutoFilled = true;
                             userStates.set(userId, stateData);

@@ -740,72 +740,65 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
 
         const platforms = await getPlatformKnowledge();
 
-        // 1. Si el cliente tiene múltiples cuentas, verificar primero si el monto cubre el combo de todas ellas
-        let oneMonthComboWithDiscount = 0;
-        let oneMonthComboWithoutDiscount = 0;
+        // 1. REGLA ESTRICTA DE COMBO: El combo y su descuento SOLO aplican si las cuentas tienen la MISMA fecha de vencimiento.
+        const dateGroups = {};
         userAccounts.forEach(acc => {
-            const price = getPlatformPriceFromExcel(acc, platforms);
-            oneMonthComboWithDiscount += price;
-            oneMonthComboWithoutDiscount += price;
+            const dateKey = (acc.deben || acc.vencimiento || '').toString().trim();
+            if (!dateGroups[dateKey]) dateGroups[dateKey] = [];
+            dateGroups[dateKey].push(acc);
         });
-        if (userAccounts.length > 1) {
-            oneMonthComboWithDiscount = Math.max(0, oneMonthComboWithDiscount - ((userAccounts.length - 1) * 1000));
-        }
 
-        // 1.1 Si el monto pagado cubre o está muy cerca del combo mensual de todas sus cuentas (tolerancia de 1.500 COP):
-        if (userAccounts.length > 1 && (paidAmount >= (oneMonthComboWithDiscount - 1500) || Math.abs(paidAmount - oneMonthComboWithDiscount) <= 1500 || Math.abs(paidAmount - oneMonthComboWithoutDiscount) <= 1500)) {
-            console.log(`[Duration Adjuster] ✅ Cliente tiene ${userAccounts.length} cuentas y pagó $${paidAmount} (cubre combo mensual de $${oneMonthComboWithDiscount}). Renovando TODAS las cuentas por 1 mes.`);
-            stateData.durationMonths = 1;
-            stateData.total = paidAmount;
-            stateData.items = userAccounts;
-            stateData.isRenewal = true;
-            stateData.leftoverAmount = Math.max(0, paidAmount - oneMonthComboWithDiscount);
-            return;
-        }
+        // Revisar cada grupo que tenga 2 o más cuentas con la misma fecha de corte
+        for (const dateKey of Object.keys(dateGroups)) {
+            const comboAccs = dateGroups[dateKey];
+            if (comboAccs.length > 1) {
+                let comboBase = 0;
+                comboAccs.forEach(acc => {
+                    comboBase += getPlatformPriceFromExcel(acc, platforms);
+                });
+                const comboWithDiscount = Math.max(0, comboBase - ((comboAccs.length - 1) * 1000));
 
-        // 1.2 Probar si paidAmount coincide con la suma de todas las cuentas del usuario para múltiples meses (2 a 12 meses)
-        for (let m = 2; m <= 12; m++) {
-            let totalWithDiscount = 0;
-            let totalWithoutDiscount = 0;
+                // 1.1 Coincidencia mensual exacta para el combo de misma fecha
+                if (paidAmount === comboWithDiscount || paidAmount === comboBase) {
+                    console.log(`[Duration Adjuster] ✅ Cliente tiene combo de ${comboAccs.length} cuentas en la misma fecha (${dateKey}) y pagó monto exacto $${paidAmount}. Renovando combo.`);
+                    stateData.durationMonths = 1;
+                    stateData.total = paidAmount;
+                    stateData.items = comboAccs;
+                    stateData.isRenewal = true;
+                    stateData.leftoverAmount = 0;
+                    return;
+                }
 
-            userAccounts.forEach(acc => {
-                const price = getPlatformPriceFromExcel(acc, platforms);
-                totalWithDiscount += price * m;
-                totalWithoutDiscount += price * m;
-            });
-
-            if (userAccounts.length > 1) {
-                totalWithDiscount = Math.max(0, totalWithDiscount - ((userAccounts.length - 1) * 1000 * m));
-            }
-
-            if (Math.abs(totalWithDiscount - paidAmount) <= 1500 || Math.abs(totalWithoutDiscount - paidAmount) <= 1500) {
-                console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con renovación de ${m} mes(es) para ${userAccounts.length} cuenta(s).`);
-                stateData.durationMonths = m;
-                stateData.total = paidAmount;
-                stateData.items = userAccounts;
-                stateData.isRenewal = true;
-                stateData.leftoverAmount = 0;
-                return;
-            }
-        }
-
-        // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta por M meses
-        // REGLA CRÍTICA: Si el usuario tiene MÚLTIPLES cuentas activas, NO asumir que un pago mayor es para 1 sola cuenta por múltiples meses
-        // a menos que el usuario tenga 1 sola cuenta o lo haya pedido explícitamente en el chat.
-        if (userAccounts.length === 1) {
-            for (const acc of userAccounts) {
-                const price = getPlatformPriceFromExcel(acc, platforms);
-
-                for (let m = 1; m <= 12; m++) {
-                    if (price > 0 && Math.abs((price * m) - paidAmount) <= 500) {
-                        console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con renovación individual de ${acc.Streaming} por ${m} mes(es).`);
+                // 1.2 Múltiples meses exactos para el combo
+                for (let m = 2; m <= 12; m++) {
+                    const multiDiscount = Math.max(0, (comboBase * m) - ((comboAccs.length - 1) * 1000 * m));
+                    const multiBase = comboBase * m;
+                    if (paidAmount === multiDiscount || paidAmount === multiBase) {
+                        console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide exactamente con renovación de ${m} meses para combo de ${comboAccs.length} cuentas.`);
                         stateData.durationMonths = m;
                         stateData.total = paidAmount;
-                        stateData.items = [acc];
+                        stateData.items = comboAccs;
                         stateData.isRenewal = true;
                         stateData.leftoverAmount = 0;
                         return;
                     }
+                }
+            }
+        }
+
+        // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta por M meses
+        for (const acc of userAccounts) {
+            const price = getPlatformPriceFromExcel(acc, platforms);
+
+            for (let m = 1; m <= 12; m++) {
+                if (price > 0 && (price * m) === paidAmount) {
+                    console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con renovación individual de ${acc.Streaming} por ${m} mes(es).`);
+                    stateData.durationMonths = m;
+                    stateData.total = paidAmount;
+                    stateData.items = [acc];
+                    stateData.isRenewal = true;
+                    stateData.leftoverAmount = 0;
+                    return;
                 }
             }
         }
