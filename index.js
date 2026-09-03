@@ -11262,9 +11262,15 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'datos de acceso', 'datos anteriores', 'clave antigua', 'contraseña antigua', 'no me permite el ingreso', 'no permite el ingreso'
         ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
 
-        const wantsImgCode = [
-            'hogar', 'dispositivo', 'código', 'codigo', '2fa', 'authenticator', 'autenticación',
-            'televisor', 'tv', 'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
+        const isDateOrAccountQuery = [
+            'va hasta', 'vence', 'vencimiento', 'cuando vence', 'cuándo vence',
+            'fecha de corte', 'hasta cuando', 'hasta cuándo', 'hasta que dia', 'hasta qué día',
+            'cuanto me queda', 'cuánto me queda', 'renov', 'hasta el 11', 'hasta el'
+        ].some(kw => bodyLower.includes(kw));
+
+        const wantsImgCode = (detection.metadata && detection.metadata.is2faScreen === true) || [
+            'código', 'codigo', '2fa', 'authenticator', 'autenticación',
+            'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
             'no forma parte', 'hogar con netflix', 'tu tv no forma parte', 'enviamos a tu email', 'ingresa el código',
             'código vence en 15', 'codigo vence en 15', 'solicita el reenvio', 'solicita el reenvío',
             'ver temporalmente', 'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'entendimos mal',
@@ -11287,7 +11293,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             return;
         }
 
-        if (wantsImgCode && !isIncorrectPassword) {
+        if (wantsImgCode && !isIncorrectPassword && !isDateOrAccountQuery) {
             const isOptionsScreen = [
                 'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'estoy de viaje',
                 'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte', 'ver temporalmente',
