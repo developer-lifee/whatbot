@@ -1823,10 +1823,11 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
                 accounts.forEach((clientData) => {
                     const streaming = (clientData.Streaming || 'N/A').toString().trim();
                     const streamingLower = streaming.toLowerCase();
-                    const pass = clientData['pin perfil'] || clientData.contraseña || clientData.Clave || clientData.clave || clientData.password || '';
+                    const pass = clientData.contraseña || clientData.Contraseña || clientData.password || clientData.clave || clientData.Clave || '';
                     const pin = clientData['pin perfil'] || clientData.pin || clientData.pin_perfil || '';
                     const venc = formatExcelDate(clientData['Fecha Vencimiento'] || clientData.deben || clientData.vencimiento);
                     const customerMail = clientData['customer mail'] || clientData.customerMail || clientData['Customer Mail'] || '';
+                    const email = (clientData.correo && clientData.correo.length > 3) ? clientData.correo : (customerMail || clientData.correo || 'N/A');
 
                     const isFamilyOrInvitation = streamingLower.includes('youtube') ||
                         streamingLower.includes('apple') ||
@@ -1834,13 +1835,13 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
                         streamingLower.includes('extra');
 
                     message += `🍿 *Servicio:* ${streaming.toUpperCase()}\n`;
-                    if (isFamilyOrInvitation && customerMail) {
-                        message += `📧 *Correo registrado:* ${customerMail}\n` +
+                    if (isFamilyOrInvitation && (customerMail || !pass)) {
+                        message += `📧 *Correo registrado:* ${customerMail || email}\n` +
                             `📌 *Estado:* Acceso por invitación / perfil propio\n`;
                     } else {
-                        message += `📧 *Usuario:* ${clientData.correo || 'N/A'}\n`;
+                        message += `📧 *Usuario:* ${email}\n`;
                         if (pass && pass !== 'N/A') message += `🔑 *Contraseña:* ${pass}\n`;
-                        if (pin && pin !== pass) message += `📍 *Pin Perfil:* ${pin}\n`;
+                        if (pin && pin !== pass && pin.length > 0) message += `📍 *Pin Perfil:* ${pin}\n`;
                     }
                     message += `📅 *Vence:* ${venc}\n\n`;
                 });
