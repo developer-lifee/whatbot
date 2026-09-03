@@ -1508,6 +1508,8 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
     txt.includes('como es el correo') || txt.includes('cuál es el correo') || txt.includes('cual es el correo') ||
     txt.includes('como es la clave') || txt.includes('como es la contraseña') || txt.includes('pasa la clave') || txt.includes('pasa el correo');
 
+  const isShortCodeMsg = txt.split(/\s+/).length <= 4 && (txt.includes('codigo') || txt.includes('código') || txt.includes('2fa') || txt.includes('verificacion') || txt.includes('verificación'));
+
   const isCodeRequest = !isSalesQuestion && (isExplicitCodeAction || isShortCodeMsg);
 
   try {
