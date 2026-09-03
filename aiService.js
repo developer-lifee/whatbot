@@ -346,7 +346,7 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
   for (const modelName of MODELS) {
     let attempts = 2; // Rápida rotación de clave antes de pasar al siguiente modelo
-    let delay = 300;
+    let delay = 200;
     
     for (let attempt = 1; attempt <= attempts; attempt++) {
       const activeKey = getActiveGeminiKey();
@@ -356,10 +356,12 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
       try {
         const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+        // Timeout rápido de 4 segundos para evitar que WhatsApp se quede colgado esperando a Google
         const response = await fetch(`${API_URL}?key=${activeKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(4000)
         });
 
         // 429 Quota or 5xx temporary errors
@@ -399,15 +401,12 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
         return text;
 
       } catch (err) {
-        console.warn(`⚠️ [Gemini API] Error de red en intento ${attempt}/${attempts}: ${err.message}. Rotando clave...`);
+        console.warn(`⚠️ [Gemini API] Error/Timeout (${modelName} intento ${attempt}/${attempts}): ${err.message}.`);
         rotateGeminiKey();
-        if (attempt === attempts) {
-          if (modelName === MODELS[MODELS.length - 1]) {
-            throw err;
-          }
+        if (attempt === attempts && modelName === MODELS[MODELS.length - 1]) {
+          throw err;
         }
         await new Promise(r => setTimeout(r, delay));
-        delay *= 2;
       }
     }
   }
@@ -415,21 +414,13 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   throw new Error("No se pudo obtener respuesta de Gemini tras intentar con todos los modelos y claves disponibles.");
 }
 
+// Estados de Circuit Breaker y Auto-Recovery
 let isDeepSeekDisabled = false;
 let deepSeekDisableUntil = 0;
 
-async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true) {
-  // 1. Motor Principal: Google Gemini 3.7 Flash (Mayor capacidad de razonamiento, ultra veloz y costo $0)
-  try {
-    return await callGemini(prompt, systemInstruction, isJson);
-  } catch (geminiError) {
-    console.warn("⚠️ [AI Failover] Gemini no disponible temporalmente. Activando DeepSeek como respaldo:", geminiError.message);
-  }
-
-  // 2. Respaldo de Alta Disponibilidad: DeepSeek
+async function executeDirectDeepSeek(prompt, systemInstruction, isJson) {
   if (!DEEPSEEK_API_KEY) {
-    console.error("DEEPSEEK_API_KEY is missing in .env");
-    throw new Error("Gemini falló y DEEPSEEK_API_KEY no está configurada");
+    throw new Error("DEEPSEEK_API_KEY no está configurada en .env");
   }
 
   const messages = [
@@ -448,33 +439,59 @@ async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de so
   }
 
   const API_URL = `${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`;
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(8000)
+  });
 
+  if (!response.ok) {
+    const errText = await response.text();
+    if (response.status === 402 || errText.includes("Insufficient Balance") || response.status === 429) {
+      isDeepSeekDisabled = true;
+      deepSeekDisableUntil = Date.now() + 10 * 60 * 1000;
+      console.warn("🚫 [DeepSeek Circuit] Saldo insuficiente (402) o cuota. Activando failover a Gemini por 10 mins.");
+    }
+    throw new Error(`DeepSeek API Error: ${response.status} ${response.statusText} - ${errText}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content;
+  return text || (isJson ? "{}" : "");
+}
+
+async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true) {
+  const now = Date.now();
+
+  // 1. Motor Principal: DeepSeek (rápido, empático y con saldo activo)
+  const canUseDeepSeek = !isDeepSeekDisabled || (now >= deepSeekDisableUntil);
+
+  if (canUseDeepSeek) {
+    if (isDeepSeekDisabled) {
+      console.log("🔄 [Auto-Recovery] Periodo de failover cumplido. Retomando DeepSeek como motor principal.");
+      isDeepSeekDisabled = false;
+    }
+
+    try {
+      return await executeDirectDeepSeek(prompt, systemInstruction, isJson);
+    } catch (deepSeekError) {
+      console.warn(`⚠️ [AI Failover] DeepSeek no disponible (${deepSeekError.message}). Transfiriendo a Gemini 3.7 Flash...`);
+    }
+  } else {
+    const remainingSec = Math.round((deepSeekDisableUntil - now) / 1000);
+    console.log(`⚡ [AI Failover Activo] DeepSeek en pausa temporal (${remainingSec}s restantes). Atendiendo con Gemini 3.7 Flash.`);
+  }
+
+  // 2. Respaldo de Alta Disponibilidad: Google Gemini 3.7 Flash
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`DeepSeek API Error: ${response.status} ${response.statusText} - ${errText}`);
-    }
-
-    const data = await response.json();
-    const text = data.choices?.[0]?.message?.content;
-
-    if (!text) {
-      return isJson ? "{}" : "";
-    }
-
-    return text;
-  } catch (error) {
-    console.error("Error in DeepSeek backup call:", error.message);
-    throw error;
+    return await callGemini(prompt, systemInstruction, isJson);
+  } catch (geminiError) {
+    console.error("❌ Ambos motores fallaron:", geminiError.message);
+    throw geminiError;
   }
 }
 
