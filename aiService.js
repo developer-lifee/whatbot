@@ -1008,22 +1008,26 @@ DESCRIPCIÓN DE LA IMAGEN DE PAGO:
 Debes responder en formato JSON:
 {
   "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco con una transferencia exitosa.
-  "amount": number | null, // El valor EXACTO de la transferencia (solo números enteros) si es legible. Ej: 33000 para $33.000.
-  "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, etc.)
+  "amount": number | null, // El valor numérico de la transferencia. Si es en COP, pon el entero (ej: 33000). Si es en USD o dólares (ej: $4.88 USD), pon 4.88 (con decimales).
+  "currency": string | null, // "COP" si es en pesos colombianos, "USD" si es en dólares, etc.
+  "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, Bold, etc.)
   "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
-  "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, o destino al que se envió el dinero. Ej: "0087387259", "300 123 4567", "esteban@nequi.com". Extráelo aunque aparezca parcial. MUY IMPORTANTE.
-  "destinationName": string | null, // Nombre del destinatario/negocio si aparece en lugar de la llave. Ej: "SHEERIT ESTEBAN AVILA", "TIENDA EJEMPLO". Aparece frecuentemente en pagos por QR de Negocios.
+  "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, referencia de compra (ej: LNK_NZ1FCLVDYI), o destino al que se envió el dinero.
+  "destinationName": string | null, // Nombre del destinatario/negocio si aparece en lugar de la llave. Ej: "SHEERIT ESTEBAN AVILA", "sheerit".
   "extractedDetails": string | null, // Detalles extra como ID de transacción o fecha/hora.
-  "inferredPlatform": string | null // ¿Qué plataforma está pagando según el historial? Extrae la plataforma exacta discutida en el historial (ej: "HBO", "Netflix", "Disney"). null si no es evidente.
+  "inferredPlatform": string | null // ¿Qué plataforma está pagando según el historial? Extrae la plataforma exacta discutida en el historial (ej: "HBO", "Netflix", "Disney", "Microsoft 365"). null si no es evidente.
 }
 
 Reglas:
-- Solo marca isReceipt: true si indica una confirmación de envío/transferencia exitosa.
+- Solo marca isReceipt: true si indica una confirmación de envío/transferencia exitosa (ej: "Payment Completed", "Pago exitoso", "Transferencia realizada").
+- REGLA DE MONEDA (DÓLARES / USD): Si el comprobante indica un pago en dólares o tarjeta internacional (ej: "$4.88 USD", "USD", pasarela Bold con orden en USD):
+  - Pon "currency": "USD"
+  - Pon "amount": el valor numérico en dólares (ej: 4.88). Queda ESTRICTAMENTE PROHIBIDO redondear 4.88 USD a 4 o 5 pesos colombianos (COP).
+- REGLA CRÍTICA (PASARELA BOLD): Si el recibo muestra "Bold", "sheerit", "Payment Completed", "Purchase reference: LNK_..." o "Authorization code":
+  - "isReceipt": true, "bank": "Bold", "confidence": 1.0. Es un pago 100% aprobado por pasarela.
 - REGLA CRÍTICA (COMPROBANTES MODERNOS NEQUI / BRE-V CON QR): Los comprobantes de Nequi y Bre-V incluyen un código QR en la parte superior con el texto "¡Escanea este QR con Nequi para verificar tu envio al instante!" junto con "Pago realizado", "Para: Sheerit Esteban Avila", "Llave: 0087387259", "¿Cuánto?: $ ...", "Referencia: M...". ESTO ES UN COMPROBANTE DE PAGO EXITOSO Y VÁLIDO (isReceipt: true, confidence: 1.0). NUNCA lo consideres como factura pendiente ni como QR de cobro.
 - Si indica ERROR, TRANSACCIÓN RECHAZADA o CUENTA SUSPENDIDA, marca isReceipt: false.
-- Sé muy riguroso con 'amount'. Extrae el valor numérico entero limpio (ej: "$ 33.000,00" -> 33000).
-- Para 'destinationKey': busca cualquier número que sea la cuenta, llave, Llave Bre-V, número de celular destino o alias al que se envió. Puede aparecer como "A la llave", "Cuenta destino", "Para", "Número", etc.
-- Para 'inferredPlatform': Examina el [Historial reciente]. Si el cliente estuvo consultando o comprando una plataforma específica (ej: 'HBO', 'Max', 'Netflix', 'Disney', 'Spotify'), coloca esa plataforma EXACTA. Queda estrictamente PROHIBIDO inferir 'Apple One' o plataformas no discutidas cuando el cliente hablaba de HBO, Netflix o Disney. Si no hay mención en el historial, pon null.`;
+- Para 'inferredPlatform': Examina el [Historial reciente] o texto adjunto. Si el cliente menciona "office", "office 365", pon "Microsoft 365". Si el cliente habla de HBO, Netflix, Disney, pon esa plataforma exacta.`;
 
     try {
       const { pool } = require('./database');
@@ -1052,14 +1056,42 @@ Reglas:
       }
     }
 
-    const isVal = result.isReceipt === true && ((result.confidence && result.confidence >= 0.5) || (result.amount && result.amount > 0));
+    let currency = (result.currency || 'COP').toUpperCase();
+    let rawAmount = result.amount;
+    let finalAmount = rawAmount;
+
+    const detailsLower = `${result.extractedDetails || ''} ${imageDescription || ''}`.toLowerCase();
+    if (currency !== 'USD' && (detailsLower.includes('usd') || detailsLower.includes('dólar') || detailsLower.includes('dolar') || detailsLower.includes('u.s. dollar'))) {
+      currency = 'USD';
+    }
+
+    // En Colombia ningún pago es de menos de 100 pesos. Si un recibo dice 4, 5, 4.88, etc., es DÓLARES (USD)
+    if (finalAmount !== null && finalAmount > 0 && finalAmount < 100) {
+      currency = 'USD';
+      // Si la IA lo redondeó a 4 o 5 pero en el texto decía $4.88
+      const usdMatch = detailsLower.match(/\$?\s*(\d+[.,]\d{2})\s*usd/i) || detailsLower.match(/usd\s*\$?\s*(\d+[.,]\d{2})/i);
+      if (usdMatch) {
+        rawAmount = parseFloat(usdMatch[1].replace(',', '.'));
+      }
+    }
+
+    // Conversión de USD a COP
+    if (currency === 'USD' && rawAmount !== null) {
+      finalAmount = Math.round(Number(rawAmount) * 4100);
+      console.log(`[PAYMENT INTERCEPTOR] 💵 Pago en USD detectado ($${rawAmount} USD). Convertido a ~$${finalAmount} COP.`);
+    }
+
+    const isVal = result.isReceipt === true && ((result.confidence && result.confidence >= 0.5) || (finalAmount && finalAmount > 0));
 
     return {
       isReceipt: !!isVal,
-      amount: result.amount,
+      amount: finalAmount,
+      rawAmount: rawAmount,
+      currency: currency,
       bank: result.bank,
       destinationKey: result.destinationKey || null,
       destinationName: result.destinationName || null,
+      extractedDetails: result.extractedDetails || null,
       inferredPlatform: inferred
     };
   } catch (error) {
