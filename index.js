@@ -1086,7 +1086,12 @@ async function approveBoldOrder(orderId) {
                     }
                     if (str.includes(' - ')) {
                         const parts = str.split(' - ');
-                        return parts[parts.length - 1].trim();
+                        const platform = parts[0].trim();
+                        const plan = parts[1] ? parts[1].trim() : "";
+                        if (plan.toLowerCase().includes('correo') || plan.toLowerCase().includes('familiar') || plan.toLowerCase().includes('invitaci')) {
+                            return `${platform} (${plan})`;
+                        }
+                        return platform;
                     }
                     return str;
                 };

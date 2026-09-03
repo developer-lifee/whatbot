@@ -523,9 +523,30 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                             `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
                         await client.sendMessage(targetJid, appleMsg);
 
+                        const formatCleanPlatformTitle = (rawName) => {
+                            if (!rawName) return "tu servicio";
+                            let str = rawName.toString().replace(/^COMBO\s*\([^)]*\)\s*:\s*/i, '').trim();
+                            if (str.toUpperCase().includes('CLAUDE')) {
+                                if (str.toUpperCase().includes('X5') || str.toUpperCase().includes(' 5')) return 'Claude Max x5';
+                                if (str.toUpperCase().includes('MAX')) return 'Claude Max';
+                                if (str.toUpperCase().includes('X2') || str.toUpperCase().includes(' 2')) return 'Claude Pro x2';
+                                return 'Claude Pro';
+                            }
+                            if (str.includes(' - ')) {
+                                const parts = str.split(' - ');
+                                const platform = parts[0].trim();
+                                const plan = parts[1] ? parts[1].trim() : "";
+                                if (plan.toLowerCase().includes('correo') || plan.toLowerCase().includes('familiar') || plan.toLowerCase().includes('invitaci')) {
+                                    return `${platform} (${plan})`;
+                                }
+                                return platform;
+                            }
+                            return str;
+                        };
+
                         const otherManuals = newManualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
                         if (otherManuals.length > 0) {
-                            const otherPlats = otherManuals.map(item => item.name.toUpperCase()).join(', ');
+                            const otherPlats = otherManuals.map(item => formatCleanPlatformTitle(item.name)).join(', ');
                             const expectation = getDynamicSupportExpectationMessage();
                             await client.sendMessage(targetJid, `⚠️ *Nota:* Tus otros servicios (*${otherPlats}*) requieren de una activación personalizada. ${expectation}`);
                         }
@@ -533,7 +554,27 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                         userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: targetJid, lastPaymentValidated: Date.now() });
                     } else {
                         let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
-                        const platformsStr = newManualItems.map(item => item.name.toUpperCase()).join(', ');
+                        const formatCleanPlatformTitle = (rawName) => {
+                            if (!rawName) return "tu servicio";
+                            let str = rawName.toString().replace(/^COMBO\s*\([^)]*\)\s*:\s*/i, '').trim();
+                            if (str.toUpperCase().includes('CLAUDE')) {
+                                if (str.toUpperCase().includes('X5') || str.toUpperCase().includes(' 5')) return 'Claude Max x5';
+                                if (str.toUpperCase().includes('MAX')) return 'Claude Max';
+                                if (str.toUpperCase().includes('X2') || str.toUpperCase().includes(' 2')) return 'Claude Pro x2';
+                                return 'Claude Pro';
+                            }
+                            if (str.includes(' - ')) {
+                                const parts = str.split(' - ');
+                                const platform = parts[0].trim();
+                                const plan = parts[1] ? parts[1].trim() : "";
+                                if (plan.toLowerCase().includes('correo') || plan.toLowerCase().includes('familiar') || plan.toLowerCase().includes('invitaci')) {
+                                    return `${platform} (${plan})`;
+                                }
+                                return platform;
+                            }
+                            return str;
+                        };
+                        const platformsStr = newManualItems.map(item => formatCleanPlatformTitle(item.name)).join(', ');
                         const expectation = getDynamicSupportExpectationMessage();
                         manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
                             `${expectation}`;
