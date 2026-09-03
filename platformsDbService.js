@@ -195,15 +195,71 @@ async function updatePlatformPriceInDb(platformId, newPrice) {
   return { success: true };
 }
 
-// Sincronizar masivamente toda la base de datos a partir del JSON (útil para forzar migración inicial)
-async function forceSyncJsonToDb() {
+async function syncPriceToPublicCatalog(accountingPlatformName, newPrice) {
   await initPlatformsTables();
-  if (fs.existsSync(LOCAL_JSON_PATH)) {
-    const seedData = JSON.parse(fs.readFileSync(LOCAL_JSON_PATH, 'utf8'));
-    await seedPlatformsToDb(seedData);
-    return { success: true, count: seedData.length };
+  const rawKey = (accountingPlatformName || '').toUpperCase().trim();
+  const [plans] = await pool.query(`
+    SELECT p.id as plan_id, p.name as plan_name, pl.id as platform_id, pl.name as platform_name 
+    FROM platform_plans p 
+    JOIN platforms pl ON p.platform_id = pl.id
+  `);
+
+  let targetPlan = null;
+
+  // Reglas específicas de mapeo exacto
+  if (rawKey === 'NETFLIX EXTRA') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('netflix') && p.plan_name.toLowerCase().includes('extra'));
+  } else if (rawKey === 'NETFLIX') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('netflix') && (p.plan_name.toLowerCase().includes('4k') || !p.plan_name.toLowerCase().includes('extra')));
+  } else if (rawKey === 'MICROSOFT COMPARTIDA') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('microsoft') && p.plan_name.toLowerCase().includes('compartida'));
+  } else if (rawKey === 'MICROSOFT') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('microsoft') && p.plan_name.toLowerCase().includes('personal'));
+  } else if (rawKey === 'GEMINI COMPARTIDA') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('gemini') && p.plan_name.toLowerCase().includes('compartida'));
+  } else if (rawKey === 'GEMINI') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('gemini') && (p.plan_name.toLowerCase().includes('propio') || p.plan_name.toLowerCase().includes('personal')));
+  } else if (rawKey === 'HBO PLATINO') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('hbo') && p.plan_name.toLowerCase().includes('platino'));
+  } else if (rawKey === 'HBO') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('hbo') && p.plan_name.toLowerCase().includes('estándar'));
+  } else if (rawKey === 'PLATZI COMPARTIDA') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('platzi') && p.plan_name.toLowerCase().includes('compartida'));
+  } else if (rawKey === 'PLATZI') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('platzi') && !p.plan_name.toLowerCase().includes('compartida'));
+  } else if (rawKey === 'APPLE ONE') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('apple') && p.plan_name.toLowerCase().includes('one'));
+  } else if (rawKey === 'APPLE TV') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('apple') && p.plan_name.toLowerCase().includes('tv'));
+  } else {
+    // Mapeo por similitud de nombre
+    const cleanKey = rawKey.replace(/[^A-Z0-9]/g, '');
+    targetPlan = plans.find(p => {
+      const full = (p.platform_name + ' ' + p.plan_name).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      return full.includes(cleanKey) || cleanKey.includes(p.platform_name.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+    });
   }
-  return { success: false, message: 'JSON not found' };
+
+  if (targetPlan) {
+    console.log(`[Sync Catalog] Sincronizando precio de ${rawKey} ($${newPrice}) con plan público "${targetPlan.platform_name} - ${targetPlan.plan_name}" (ID: ${targetPlan.plan_id})`);
+    await updatePlanPriceInDb(targetPlan.plan_id, newPrice);
+    return { success: true, planId: targetPlan.plan_id };
+  } else {
+    // Si no tiene plan específico, intentar buscar la plataforma directamente
+    const [platforms] = await pool.query('SELECT id, name FROM platforms');
+    const matchedPlat = platforms.find(pl => {
+      const pClean = pl.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const kClean = rawKey.replace(/[^A-Z0-9]/g, '');
+      return pClean.includes(kClean) || kClean.includes(pClean);
+    });
+    if (matchedPlat) {
+      console.log(`[Sync Catalog] Sincronizando precio de ${rawKey} ($${newPrice}) con plataforma pública "${matchedPlat.name}" (ID: ${matchedPlat.id})`);
+      await updatePlatformPriceInDb(matchedPlat.id, newPrice);
+      return { success: true, platformId: matchedPlat.id };
+    }
+  }
+
+  return { success: false, message: 'No matching public plan found' };
 }
 
 module.exports = {
@@ -212,5 +268,6 @@ module.exports = {
   getPlatformsFromDb,
   updatePlanPriceInDb,
   updatePlatformPriceInDb,
-  forceSyncJsonToDb
+  forceSyncJsonToDb,
+  syncPriceToPublicCatalog
 };

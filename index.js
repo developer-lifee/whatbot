@@ -3701,7 +3701,19 @@ app.post('/api/admin/prices/save', async (req, res) => {
         const { platform, price, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         await accountingService.savePrice(platform, price);
-        res.json({ success: true, message: 'Precio actualizado con éxito' });
+
+        // Sincronizar automáticamente con la tienda pública de ventas (platform_plans y platforms)
+        try {
+            const numPrice = parseFloat(price);
+            if (!isNaN(numPrice) && numPrice > 0) {
+                const { syncPriceToPublicCatalog } = require('./platformsDbService');
+                await syncPriceToPublicCatalog(platform, numPrice);
+            }
+        } catch (syncErr) {
+            console.warn('[Prices Save] Error sincronizando con catálogo público:', syncErr.message);
+        }
+
+        res.json({ success: true, message: 'Precio actualizado con éxito en contabilidad y página de ventas' });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
