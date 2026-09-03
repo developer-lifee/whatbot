@@ -11116,12 +11116,32 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
     // --- CONTEXTO DE CLIENTE ---
     const phoneNumber = (realPhone || userId).replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
-    let userAccounts = [];
     try {
         userAccounts = await getAccountsByPhone(realPhone || phoneNumber, foundName);
+        if (userAccounts && userAccounts.length > 0) {
+            const accPhone = (userAccounts[0].numero || userAccounts[0].Numero || userAccounts[0].whatsapp || userAccounts[0].WhatsApp || '').toString().replace(/\D/g, '');
+            if (accPhone && accPhone.length >= 10 && accPhone.length <= 13) {
+                realPhone = accPhone;
+            }
+        }
     } catch (e) {
         console.warn("[Context] Error fetching accounts for AI context:", e.message);
     }
+
+    const getDisplayPhone = (targetAccount = null) => {
+        if (targetAccount) {
+            const accPhone = (targetAccount.numero || targetAccount.Numero || targetAccount.whatsapp || targetAccount.WhatsApp || '').toString().replace(/\D/g, '');
+            if (accPhone && accPhone.length >= 10 && accPhone.length <= 13) return accPhone;
+        }
+        if (userAccounts && userAccounts.length > 0) {
+            const accPhone = (userAccounts[0].numero || userAccounts[0].Numero || userAccounts[0].whatsapp || userAccounts[0].WhatsApp || '').toString().replace(/\D/g, '');
+            if (accPhone && accPhone.length >= 10 && accPhone.length <= 13) return accPhone;
+        }
+        if (realPhone && realPhone.length >= 10 && realPhone.length <= 13 && !realPhone.includes('@')) {
+            return realPhone;
+        }
+        return (phoneNumber || userId).replace('@c.us', '').replace('@lid', '');
+    };
 
     // 2. DETECCIÓN DE INTENCIÓN Y NOMBRE (Global para todos los estados)
     const hist = await getChatHistoryText(message, 25);
@@ -11386,7 +11406,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 try {
                     const groupChat = await client.getChatById(GROUP_ID);
                     if (groupChat) {
-                        const adminMsg = `🚨 *POSIBLE FALLO PREMATURO* (@${userId.replace('@c.us', '')})\n` +
+                        const clientTag = getDisplayPhone(activeAccountWithProblem);
+                        const adminMsg = `🚨 *POSIBLE FALLO PREMATURO* (@${clientTag})\n` +
                             `El cliente reporta un error pero su cuenta de *${activeAccountWithProblem.Streaming}* vence hasta el *${dateStr}*.\n\n` +
                             `Favor revisar el chat de inmediato.`;
                         await groupChat.sendMessage(adminMsg);
@@ -12007,7 +12028,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         try {
                             const groupChat = await client.getChatById(GROUP_ID);
                             if (groupChat) {
-                                await groupChat.sendMessage(`🚨 *PAGO VERIFICADO ($${currentStateData.amount}) PARA NUEVO SERVICIO (${platformName})* de @${userId.replace('@c.us', '')}\n` +
+                                await groupChat.sendMessage(`🚨 *PAGO VERIFICADO ($${currentStateData.amount}) PARA NUEVO SERVICIO (${platformName})* de @${getDisplayPhone()}\n` +
                                     `Monto: $${currentStateData.amount}\n` +
                                     `Banco: ${currentStateData.bank || 'Nequi'}\n` +
                                     `Plataforma solicitada: ${platformName}\n` +
@@ -12021,7 +12042,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     try {
                         const groupChat = await client.getChatById(GROUP_ID);
                         if (groupChat) {
-                            await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${userId.replace('@c.us', '')}\n` +
+                            await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${getDisplayPhone()}\n` +
                                 `Monto: $${currentStateData.amount}\n` +
                                 `Banco: ${currentStateData.bank || 'Nequi'}\n` +
                                 `Asunto: ${currentStateData.subject}\n` +
@@ -12076,7 +12097,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         try {
                             const groupChat = await client.getChatById(GROUP_ID);
                             if (groupChat) {
-                                await groupChat.sendMessage(`🚨 *PAGO VERIFICADO ($${currentStateData.amount}) PARA NUEVO SERVICIO (${platformName})* de @${userId.replace('@c.us', '')}\n` +
+                                await groupChat.sendMessage(`🚨 *PAGO VERIFICADO ($${currentStateData.amount}) PARA NUEVO SERVICIO (${platformName})* de @${getDisplayPhone()}\n` +
                                     `Monto: $${currentStateData.amount}\n` +
                                     `Banco: ${currentStateData.bank || 'Nequi'}\n` +
                                     `Plataforma solicitada: ${platformName}\n` +
@@ -12093,7 +12114,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             const platformsList = currentStateData.matchedAccounts.map(item => (item.Streaming || item.name || "Servicio").toUpperCase());
                             const uniquePlats = [...new Set(platformsList)];
                             const platformsStr = uniquePlats.join(', ');
-                            await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${userId.replace('@c.us', '')}\n` +
+                            await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${getDisplayPhone()}\n` +
                                 `Monto: $${currentStateData.amount}\n` +
                                 `Banco: ${currentStateData.bank || 'Nequi'}\n` +
                                 `Asunto: ${currentStateData.subject}\n` +
@@ -12169,7 +12190,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 try {
                     const groupChat = await client.getChatById(GROUP_ID);
                     if (groupChat) {
-                        await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (PLATAFORMA ERRÓNEA)* de @${userId.replace('@c.us', '')}\n` +
+                        await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (PLATAFORMA ERRÓNEA)* de @${getDisplayPhone()}\n` +
                             `Monto: $${currentStateData.amount}\n` +
                             `Banco: ${currentStateData.bank || 'Nequi'}\n` +
                             `El cliente indicó que el pago NO era para ${currentStateData.targetPlat || 'la plataforma inferida'}.`);
@@ -12523,7 +12544,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 try {
                     const groupChat = await client.getChatById(GROUP_ID);
                     if (groupChat) {
-                        await groupChat.sendMessage(`🚨 *SOPORTE ALMACENAMIENTO OUTLOOK/M365* de @${userId.replace('@c.us', '')}\n` +
+                        await groupChat.sendMessage(`🚨 *SOPORTE ALMACENAMIENTO OUTLOOK/M365* de @${getDisplayPhone()}\n` +
                             `El cliente solicitó cancelar por almacenamiento: "${reason}".\n` +
                             `Se le ofreció soporte y pidió pantallazo del aviso de 15GB/espacio.`);
                     }
