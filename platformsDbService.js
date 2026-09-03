@@ -231,6 +231,8 @@ async function syncPriceToPublicCatalog(accountingPlatformName, newPrice) {
     targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('apple') && p.plan_name.toLowerCase().includes('one'));
   } else if (rawKey === 'APPLE TV') {
     targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('apple') && p.plan_name.toLowerCase().includes('tv'));
+  } else if (rawKey === 'AMAZON' || rawKey === 'PRIME') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('prime'));
   } else {
     // Mapeo por similitud de nombre
     const cleanKey = rawKey.replace(/[^A-Z0-9]/g, '');
