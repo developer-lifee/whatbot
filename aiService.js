@@ -1503,7 +1503,10 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
     'solicito codigo', 'solicito código', 'pedir codigo', 'pedir código'
   ];
   const isExplicitCodeAction = codeActionKeywords.some(kw => txt.includes(kw));
-  const isShortCodeMsg = txt.split(/\s+/).length <= 4 && (txt.includes('codigo') || txt.includes('código') || txt.includes('2fa') || txt.includes('verificacion') || txt.includes('verificación'));
+  const isCredentialRequest = txt.includes('credenciales') || 
+    ((txt.includes('correo') || txt.includes('usuario') || txt.includes('email')) && (txt.includes('contraseña') || txt.includes('contrasena') || txt.includes('clave') || txt.includes('password'))) ||
+    txt.includes('como es el correo') || txt.includes('cuál es el correo') || txt.includes('cual es el correo') ||
+    txt.includes('como es la clave') || txt.includes('como es la contraseña') || txt.includes('pasa la clave') || txt.includes('pasa el correo');
 
   const isCodeRequest = !isSalesQuestion && (isExplicitCodeAction || isShortCodeMsg);
 
@@ -1524,8 +1527,8 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
       parsed.intent = keywordIntent;
     }
 
-    // Prioridad para códigos de verificación (solo si no es pregunta de ventas)
-    if (isCodeRequest) {
+    // Prioridad para solicitudes directas de credenciales o códigos de verificación
+    if (isCredentialRequest || isCodeRequest) {
       parsed.intent = "credenciales";
     }
 

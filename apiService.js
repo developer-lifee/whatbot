@@ -155,12 +155,14 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
       return normalizedJsonNumber === cleanInputPhone || (normalizedJsonNumber.length >= 10 && cleanInputPhone.endsWith(normalizedJsonNumber.slice(-10)));
     });
 
-    const isRealPhone = cleanInputPhone.length >= 10;
+    const isLid = phoneNumber.toString().includes('@lid') || cleanInputPhone.length > 12 || (!cleanInputPhone.startsWith('57') && !cleanInputPhone.startsWith('52') && cleanInputPhone.length > 10);
+    const isRealPhone = !isLid && (cleanInputPhone.length >= 10 && cleanInputPhone.length <= 12);
 
     // FALLBACK: Si no hay cuentas asociadas al número y tenemos el nombre de contacto.
-    // IMPORTANTE: Si es un número de teléfono real válido (10+ dígitos) y no tiene cuentas, significa que es un CLIENTE NUEVO.
-    // Solo permitimos fallback por nombre si el ID era un LID no resuelto (no un celular estándar).
-    if (userAccounts.length === 0 && contactName && !isRealPhone) {
+    // Permitimos fallback si:
+    // 1) El ID era un LID no resuelto o identificador web (no un celular estándar).
+    // 2) O si el número en Excel está dañado/vacío (ej. celda con #NAME? o sin teléfono) y el nombre completo coincide exactamente.
+    if (userAccounts.length === 0 && contactName) {
       const getLevenshteinDistance = (a, b) => {
         if (a.length === 0) return b.length;
         if (b.length === 0) return a.length;
@@ -195,6 +197,11 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
             return false;
           }
 
+          // Si el input era un teléfono real (10-12 dígitos) y no un LID, solo permitimos match si la fila en Excel NO tiene un teléfono válido registrado (ej. celda con #NAME?, vacía o rota) para rescatar clientes cuyo número no se digitó bien.
+          if (isRealPhone && whatsappDigits && whatsappDigits.length >= 10) {
+            return false;
+          }
+
           // A. Si el contacto de WhatsApp tiene solo 1 palabra/apellido (ej. "López", "Daniel"):
           // EXIGIMOS coincidencia exacta en el campo whatsapp o nombre del cliente. NUNCA subcadena genérica de apellido.
           if (contactTokens.length === 1) {
@@ -205,20 +212,18 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
             return false;
           }
 
-          // B. Si el contacto tiene 2 o más palabras (ej. "Hugo Avila", "Santiago Duque Mora", "Daniel López"):
+          // Coincidencia estricta en campo WhatsApp (nombre completo en celda D)
+          if (cleanWhatsappNorm && (cleanWhatsappNorm === cleanContactNorm || getLevenshteinDistance(cleanWhatsappNorm, cleanContactNorm) <= 2)) {
+            return true;
+          }
+
+          // B. Si el contacto tiene 2 o más palabras (ej. "Hugo Avila", "Santiago Duque Mora", "Daniel López", "Michael Garzon"):
           // Debe coincidir el primer nombre (contactTokens[0] vs clientTokens[0]) Y al menos un apellido
           const clientTokens = fullClientName.split(/\s+/).filter(t => t.length >= 3);
           if (clientTokens.length >= 2) {
             const firstNameMatch = (contactTokens[0] === clientTokens[0] || getLevenshteinDistance(contactTokens[0], clientTokens[0]) <= 1);
             const lastNameMatch = contactTokens.slice(1).some(ct => clientTokens.slice(1).some(clt => clt === ct || getLevenshteinDistance(clt, ct) <= 1));
             if (firstNameMatch && lastNameMatch) {
-              return true;
-            }
-          }
-
-          // Coincidencia estricta en campo WhatsApp (nombre completo en celda D)
-          if (cleanWhatsappNorm && !whatsappDigits) {
-            if (cleanWhatsappNorm === cleanContactNorm || getLevenshteinDistance(cleanWhatsappNorm, cleanContactNorm) <= 2) {
               return true;
             }
           }
