@@ -356,8 +356,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             // 1. CASO RENOVACIÓN: Ya tenemos la fila
             let targetRow = null;
             let excelRow = null;
-            if (userState.isRenewal && (item._rowNumber || item.index)) {
-                const tempRow = item._rowNumber || item.index;
+            const itemRow = item.rowNumber || item._rowNumber || item.index;
+            if (userState.isRenewal && itemRow) {
+                const tempRow = itemRow;
                 const tempRowData = allRows[tempRow - 2];
                 if (tempRowData) {
                     const rowPhone = (tempRowData.numero || tempRowData.Numero || "").toString().replace(/\D/g, '');
