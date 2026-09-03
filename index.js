@@ -8644,12 +8644,20 @@ async function hasRecentHumanMessage(message, limit = 15) {
         const chat = await message.getChat();
         const msgs = await chat.fetchMessages({ limit });
         const nowSec = Math.floor(Date.now() / 1000);
+        const closingKeywords = ['oki', 'ok', 'con gusto', 'a la orden', 'listo', 'de nada', 'feliz dia', 'feliz noche', 'hasta luego', 'que disfrutes', 'perfecto', 'dale', 'vale'];
+
         for (const m of msgs) {
             if (m.fromMe && !m.body.includes('🤖')) {
                 const diffHours = (nowSec - m.timestamp) / 3600;
-                if (diffHours <= 1.5) {
-                    return true;
-                }
+                // Si pasaron más de 30 minutos, ya no hay una conversación humana activa en tiempo real
+                if (diffHours > 0.5) continue;
+
+                // Mensajes de despedida o confirmación corta ("oki", "listo", etc.) no deben silenciar el bot
+                const cleanBody = (m.body || '').trim().toLowerCase();
+                const isClosing = closingKeywords.some(k => cleanBody === k || cleanBody === `${k}.` || cleanBody === `${k}!`);
+                if (isClosing) continue;
+
+                return true;
             }
         }
     } catch (e) {}
@@ -12821,15 +12829,13 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     await processCheckCredentials(userId, client, message.body, "", userStates);
                     return;
                 } else if (detection.intent === 'duda_contexto') {
-                    if (await hasRecentHumanMessage(message)) {
-                        console.log(`[Bypass Bot Reply] Silenciando respuesta 'duda_contexto' por mensaje humano reciente en las últimas 6 horas.`);
-                        return;
-                    }
+                    // Limpiar estado de menú para permitir conversación fluida
+                    userStates.delete(userId);
                     const history = await getChatHistoryText(message);
                     let accounts = [];
                     try { accounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
-                    const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
-                    if (fallback.replyMessage) {
+                    const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts, userId, userStates);
+                    if (fallback && fallback.replyMessage) {
                         await message.reply(fallback.replyMessage);
                     }
                     return;
