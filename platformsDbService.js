@@ -262,6 +262,17 @@ async function syncPriceToPublicCatalog(accountingPlatformName, newPrice) {
   return { success: false, message: 'No matching public plan found' };
 }
 
+// Sincronizar masivamente toda la base de datos a partir del JSON (útil para forzar migración inicial)
+async function forceSyncJsonToDb() {
+  await initPlatformsTables();
+  if (fs.existsSync(LOCAL_JSON_PATH)) {
+    const seedData = JSON.parse(fs.readFileSync(LOCAL_JSON_PATH, 'utf8'));
+    await seedPlatformsToDb(seedData);
+    return { success: true, count: seedData.length };
+  }
+  return { success: false, message: 'JSON not found' };
+}
+
 module.exports = {
   initPlatformsTables,
   seedPlatformsToDb,
