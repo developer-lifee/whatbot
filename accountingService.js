@@ -214,7 +214,8 @@ function normalizePlatformKey(raw) {
   const clean = raw.toUpperCase().trim();
   if (clean.includes('AMAZON') || clean.includes('PRIME')) return 'AMAZON';
   if (clean.includes('DISNEY')) return 'DISNEY';
-  if (clean.includes('HBO') || clean.includes('MAX')) {
+  if (clean.includes('CLAUDE')) return 'CLAUDE';
+  if (clean.includes('HBO') || (clean.includes('MAX') && !clean.includes('CLAUDE'))) {
     if (clean.includes('PLATINO')) return 'HBO PLATINO';
     return 'HBO';
   }

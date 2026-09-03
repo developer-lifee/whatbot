@@ -10299,8 +10299,8 @@ async function baseProcessIncomingMessage(messages) {
         'envia el codigo', 'envía el código', 'mandar codigo', 'mandar código'
     ];
     const platformsSupported = [
-        'netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt',
-        'youtube', 'spotify', 'paramount', 'apple', 'claude', 'canva',
+        'netflix', 'disney', 'claude', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt',
+        'youtube', 'spotify', 'paramount', 'apple', 'canva',
         'crunchyroll', 'vix', 'gamma', 'iptv', 'magis', 'microsoft'
     ];
     const isPaymentState = currentStateData && (currentStateData.state === 'awaiting_payment_confirmation' || currentStateData.state === 'waiting_admin_confirmation');
@@ -10340,7 +10340,7 @@ async function baseProcessIncomingMessage(messages) {
                         targetAccount = userAccounts.find(c => {
                             const streamingName = (c.Streaming || "").toLowerCase();
                             if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
-                                return streamingName.includes('hbo') || streamingName.includes('max');
+                                return (streamingName.includes('hbo') || streamingName.includes('max')) && !streamingName.includes('claude');
                             }
                             if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
                                 return streamingName.includes('amazon') || streamingName.includes('prime');
@@ -11308,7 +11308,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         try {
             if (userAccounts.length > 0) {
                 let targetAccount = null;
-                const platformsSupported = ['netflix', 'disney', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify'];
+                const platformsSupported = ['netflix', 'disney', 'claude', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt', 'youtube', 'spotify'];
 
                 // 0. Si la imagen contiene un correo explícito (ej: yulisadiagama@gmail.com), buscar primero por ese correo
                 const textForDetection = (inputToUse + " " + (detection.explanation || "") + " " + (detection.mediaDescription || "")).toLowerCase();
@@ -11328,7 +11328,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         const matchingAccounts = userAccounts.filter(c => {
                             const streamingName = (c.Streaming || "").toLowerCase();
                             if (matchedPlatform === 'hbo' || matchedPlatform === 'max') {
-                                return streamingName.includes('hbo') || streamingName.includes('max');
+                                return (streamingName.includes('hbo') || streamingName.includes('max')) && !streamingName.includes('claude');
                             }
                             if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
                                 return streamingName.includes('amazon') || streamingName.includes('prime');
@@ -11872,8 +11872,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         const targetPlatformLower = platform.toLowerCase();
                         const matchingAccounts = userAccounts.filter(c => {
                             const streamingName = (c.Streaming || "").toLowerCase();
-                            if (targetPlatformLower.includes('hbo') || targetPlatformLower.includes('max')) {
-                                return streamingName.includes('hbo') || streamingName.includes('max');
+                            if ((targetPlatformLower.includes('hbo') || targetPlatformLower.includes('max')) && !targetPlatformLower.includes('claude')) {
+                                return (streamingName.includes('hbo') || streamingName.includes('max')) && !streamingName.includes('claude');
                             }
                             if (targetPlatformLower.includes('amazon') || targetPlatformLower.includes('prime')) {
                                 return streamingName.includes('amazon') || streamingName.includes('prime');

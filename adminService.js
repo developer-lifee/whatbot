@@ -268,7 +268,7 @@ async function handleSendCredentialsCommand(message, command, client, getAccount
         matchingAccount = allAccounts.find(acc => {
             const accMail = (acc.correo || acc.email || '').trim().toLowerCase();
             const accPlat = (acc.Streaming || '').toLowerCase();
-            const isPlatMatch = !requestedPlatform || accPlat.includes(requestedPlatform) || (requestedPlatform === 'hbo' && (accPlat.includes('max') || accPlat.includes('hbo')));
+            const isPlatMatch = !requestedPlatform || accPlat.includes(requestedPlatform) || (requestedPlatform === 'hbo' && !accPlat.includes('claude') && (accPlat.includes('max') || accPlat.includes('hbo')));
             return accMail === targetEmail && isPlatMatch;
         });
         if (!matchingAccount && requestedPlatform) {
@@ -280,7 +280,7 @@ async function handleSendCredentialsCommand(message, command, client, getAccount
         if (userAccs && userAccs.length > 0) {
             matchingAccount = userAccs.find(acc => {
                 const accPlat = (acc.Streaming || '').toLowerCase();
-                return !requestedPlatform || accPlat.includes(requestedPlatform) || (requestedPlatform === 'hbo' && (accPlat.includes('max') || accPlat.includes('hbo')));
+                return !requestedPlatform || accPlat.includes(requestedPlatform) || (requestedPlatform === 'hbo' && !accPlat.includes('claude') && (accPlat.includes('max') || accPlat.includes('hbo')));
             }) || userAccs[0];
         }
     }

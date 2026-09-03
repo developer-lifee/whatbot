@@ -33,7 +33,13 @@ function normalizeStreamingName(name) {
     if (normalized.includes('prime') || normalized.includes('amazon')) {
         return 'amazon';
     }
-    if (normalized.includes('hbo') || normalized.includes('max')) {
+    if (normalized.includes('claude')) {
+        if (normalized.includes('max') && (normalized.includes('x5') || normalized.includes('5'))) return 'claude_max_x5';
+        if (normalized.includes('max')) return 'claude_max';
+        if (normalized.includes('x2') || normalized.includes('pro x2')) return 'claude_pro_x2';
+        return 'claude_pro';
+    }
+    if ((normalized.includes('hbo') || normalized.includes('max')) && !normalized.includes('claude')) {
         if (normalized.includes('platino') || normalized.includes('platinum')) {
             return 'hbo_platino';
         }
@@ -56,12 +62,6 @@ function normalizeStreamingName(name) {
     }
     if (normalized.includes('microsoft') || normalized.includes('office')) {
         return 'microsoft';
-    }
-    if (normalized.includes('claude')) {
-        if (normalized.includes('max') && (normalized.includes('x5') || normalized.includes('5'))) return 'claude_max_x5';
-        if (normalized.includes('max')) return 'claude_max';
-        if (normalized.includes('x2') || normalized.includes('pro x2')) return 'claude_pro_x2';
-        return 'claude_pro';
     }
     if (normalized.includes('chatgpt') || normalized.includes('gpt')) {
         return 'gpt';
