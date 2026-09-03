@@ -496,6 +496,33 @@ async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de so
 }
 
 /**
+ * Transcribe un archivo de audio o nota de voz (PTT) de WhatsApp usando Gemini Multimodal.
+ * @param {object} mediaData { data: base64, mimeType: string }
+ * @returns {Promise<string>} Texto transcrito de la voz
+ */
+async function transcribeAudioWithGemini(mediaData) {
+  if (!mediaData || !mediaData.data) return "";
+  const cleanMime = (mediaData.mimeType || "audio/ogg").split(';')[0].trim();
+  const prompt = "Escucha atentamente este audio / nota de voz de WhatsApp en español y transcribe con total exactitud cada palabra dicha por el cliente. Devuelve ÚNICAMENTE la transcripción literal de lo que dijo, sin comentarios, sin comillas y sin introducciones como 'El usuario dice:'. Si no hay voz o solo hay silencio/ruido ininteligible, responde: [inaudible].";
+
+  try {
+    const text = await callGemini(
+      prompt,
+      "Eres un transcriptor de notas de voz de WhatsApp en español extremadamente fiel y exacto.",
+      false,
+      { data: mediaData.data, mimeType: cleanMime }
+    );
+    if (!text || text.toLowerCase().includes("[inaudible]")) {
+      return "";
+    }
+    return text.trim();
+  } catch (err) {
+    console.error("❌ Error transcribiendo nota de voz con Gemini:", err.message);
+    return "";
+  }
+}
+
+/**
  * Utiliza Gemini para describir un comprobante de pago/imagen.
  * @param {object} mediaData
  * @param {string} chatHistory Historial reciente del chat para dar contexto a la imagen
@@ -503,6 +530,14 @@ async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de so
  * @returns {Promise<string>} La descripción de la imagen.
  */
 async function describeImageWithGemini(mediaData, chatHistory = "", accountSummary = "") {
+  if (!mediaData) return "";
+  const mime = (mediaData.mimeType || "").toLowerCase();
+  
+  // Si es un audio/nota de voz, redirigir a transcripción de audio
+  if (mime.startsWith('audio/')) {
+    return await transcribeAudioWithGemini(mediaData);
+  }
+
   let contextBlock = "";
   if (accountSummary || chatHistory) {
     contextBlock = `\n\nCONTEXTO PREVIO DEL CHAT Y PLATAFORMAS REGISTRADAS DEL CLIENTE:\n` +
@@ -948,6 +983,11 @@ Salida esperada en formato JSON estricto:
  */
 async function isPaymentReceipt(mediaData, chatHistory = "") {
   if (!mediaData) return { isReceipt: false, amount: null, bank: null, destinationKey: null, destinationName: null };
+  const mime = (mediaData.mimeType || "").toLowerCase();
+  // Un archivo de audio no es un comprobante de pago visual
+  if (mime.startsWith('audio/')) {
+    return { isReceipt: false, amount: null, bank: null, destinationKey: null, destinationName: null };
+  }
 
   try {
     // 1. Pre-procesar la imagen con Gemini para extraer la descripción visual / OCR
@@ -1146,11 +1186,22 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
 `;
 
   let mediaDescription = "";
+  let isAudioMedia = false;
   if (isMedia && mediaData) {
     try {
-      mediaDescription = await describeImageWithGemini(mediaData, chatHistory, accountSummary);
+      const mime = (mediaData.mimeType || "").toLowerCase();
+      if (mime.startsWith('audio/')) {
+        isAudioMedia = true;
+        mediaDescription = await transcribeAudioWithGemini(mediaData);
+        if (mediaDescription) {
+          console.log(`[AI Fallback Audio] Transcripción de nota de voz: "${mediaDescription}"`);
+          messageContent = messageContent ? `${messageContent} (Nota de voz: ${mediaDescription})` : mediaDescription;
+        }
+      } else {
+        mediaDescription = await describeImageWithGemini(mediaData, chatHistory, accountSummary);
+      }
       
-      if (mediaDescription) {
+      if (mediaDescription && !isAudioMedia) {
         const descLower = mediaDescription.toLowerCase();
 
         // DETECCIÓN DE PANTALLA DE ERROR/FALLA DE PAGO DEL PROVEEDOR EN NETFLIX/STREAMING
@@ -1261,7 +1312,7 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     .replace('{{CHAT_HISTORY}}', chatHistory)
     .replace('{{MESSAGE_CONTENT}}', messageContent)
     .replace('{{VERIFICATION_LINK}}', verificationLink)
-    .replace('{{MEDIA_STATUS}}', isMedia ? `[El usuario envió una imagen/archivo. Descripción visual de la imagen extraída por OCR: ${mediaDescription}]` : "");
+    .replace('{{MEDIA_STATUS}}', isMedia ? (isAudioMedia ? `[El cliente envió una NOTA DE VOZ (audio). Lo que dijo fue: "${mediaDescription}". Responde directamente a lo que dice el cliente en su audio. Queda TERMINANTEMENTE PROHIBIDO decir "veo que adjuntaste una imagen" o asumir que es una foto.]` : `[El usuario envió una imagen/archivo. Descripción visual de la imagen extraída por OCR: ${mediaDescription}]`) : "");
 
   try {
     const response = await callDeepSeek(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false);
@@ -1877,6 +1928,7 @@ module.exports = {
   getMaskedAccessData,
   callGemini,
   callDeepSeek,
+  transcribeAudioWithGemini,
   analyzeRenewalModification,
   cleanWhatsAppFormatting
 };

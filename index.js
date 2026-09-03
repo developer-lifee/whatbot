@@ -8767,7 +8767,7 @@ async function baseProcessIncomingMessage(messages) {
     }
 
     const message = validMessages[validMessages.length - 1];
-    const isMedia = validMessages.some(m => m.hasMedia);
+    let isMedia = validMessages.some(m => m.hasMedia);
     const combinedBody = validMessages.map(m => m.body || "").filter(b => b !== "").join("\n");
     message.combinedBody = combinedBody;
 
@@ -9133,7 +9133,17 @@ async function baseProcessIncomingMessage(messages) {
             try {
                 const media = await downloadMediaWithRetry(message);
                 if (media && media.data && media.mimetype) {
-                    mediaData = { data: media.data, mimeType: media.mimetype.split(';')[0] };
+                    const cleanMime = media.mimetype.split(';')[0].trim();
+                    const isAudio = message.type === 'ptt' || message.type === 'audio' || cleanMime.startsWith('audio/');
+                    if (isAudio) {
+                        const { transcribeAudioWithGemini } = require('./aiService');
+                        const transcript = await transcribeAudioWithGemini({ data: media.data, mimeType: cleanMime });
+                        if (transcript) {
+                            message.body = transcript;
+                        }
+                    } else {
+                        mediaData = { data: media.data, mimeType: cleanMime };
+                    }
                 }
             } catch (e) { }
         }
@@ -10382,12 +10392,35 @@ async function baseProcessIncomingMessage(messages) {
             for (const m of messages) {
                 const media = await downloadMediaWithRetry(m);
                 if (media && media.data && media.mimetype) {
-                    const cleanMime = media.mimetype.split(';')[0];
-                    mediaData.push({ data: media.data, mimeType: cleanMime });
+                    const cleanMime = media.mimetype.split(';')[0].trim();
+                    const isAudio = m.type === 'ptt' || m.type === 'audio' || cleanMime.startsWith('audio/');
+                    if (isAudio) {
+                        try {
+                            const { transcribeAudioWithGemini } = require('./aiService');
+                            console.log(`[AUDIO DETECTED] 🎙️ Nota de voz de @${userId}. Transcribiendo con Gemini...`);
+                            const audioText = await transcribeAudioWithGemini({ data: media.data, mimeType: cleanMime });
+                            if (audioText) {
+                                console.log(`[AUDIO TRANSCRIBED] 🎙️ Transcripción: "${audioText}"`);
+                                m.body = audioText;
+                                m.isAudioNote = true;
+                                if (!message.body) message.body = audioText;
+                                else message.body += `\n${audioText}`;
+                            }
+                        } catch (audioErr) {
+                            console.error("[AUDIO ERROR] Error transcribiendo audio:", audioErr.message);
+                        }
+                    } else {
+                        mediaData.push({ data: media.data, mimeType: cleanMime });
+                    }
                 }
             }
         } catch (err) {
             console.error("Error descargando multimedia del lote:", err.message);
+        }
+
+        // Si solo se enviaron notas de voz (sin fotos/imágenes adjuntas), desactivar isMedia para no confundir al bot
+        if (mediaData.length === 0 && messages.some(m => m.isAudioNote)) {
+            isMedia = false;
         }
 
         // --- INTERCEPTOR GLOBAL DE PAGOS ---
