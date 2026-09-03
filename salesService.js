@@ -56,7 +56,8 @@ function findPlatformByName(platformName, platforms) {
   const roots = ['disney', 'netflix', 'max', 'hbo', 'spotify', 'youtube', 'apple', 'prime', 'vix', 'microsoft', 'office', 'chatgpt', 'crunchyroll', 'claude', 'capcut', 'canva', 'duolingo', 'paramount'];
   for (const r of roots) {
     if (rawLower.includes(r)) {
-      match = platforms.find(p => p.name.toLowerCase().includes(r));
+      const searchKey = (r === 'office' || r === 'm365') ? 'microsoft' : r;
+      match = platforms.find(p => p.name.toLowerCase().includes(searchKey));
       if (match) return match;
     }
   }
@@ -93,17 +94,6 @@ async function getPlatforms() {
                 }
                 return plan;
             });
-        } else if (p.name === 'Microsoft 365') {
-            p.name = "Microsoft Individual";
-            p.price = 13000;
-            const personalPlan = p.plans.find(plan => plan.name.toLowerCase().includes('personal') || plan.price === 13000 || plan.price === 12000);
-            if (personalPlan) {
-                p.plans = [personalPlan];
-                p.plans[0].name = "Individual (Cuenta Propia)";
-            }
-        } else if (p.name === 'Microsoft 365 Compartida') {
-            p.name = "Microsoft Compartida";
-            p.price = 5000;
         }
         return p;
     });
@@ -151,7 +141,8 @@ async function startPurchaseProcess(message, userId, userStates) {
   }
   let reply = "🌟 *¡Claro que sí! Tenemos disponibilidad inmediata para la mayoría de nuestras plataformas.* 🚀\n\nAquí tienes nuestra lista de precios actualizada:\n\n";
   platforms.forEach((p) => {
-    reply += `• *${p.name}* - Desde $${p.plans[0].price}\n`;
+    const minPrice = (p.plans && p.plans.length > 0) ? Math.min(...p.plans.map(pl => pl.price)) : (p.price || 0);
+    reply += `• *${p.name}* - Desde $${minPrice}\n`;
   });
 
   reply += '\n🤖 *¿Qué te gustaría activar hoy?* Escribe los nombres de las plataformas (ej. Netflix, Disney+).\n\n💡 *Dato Pro:* Si pagas usando nuestro **QR de Negocios**, yo mismo valido tu pago y te entrego la cuenta en segundos. 🤖⚡';
