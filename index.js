@@ -11460,8 +11460,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         !(isSingleDigit && statesExpectingNumbers.includes(currentState));
     const isVeryFrustrated = detection.frustrationLevel >= 7;
 
-    // NUEVO breakout específico para awaiting_churn_reason cuando el usuario explícitamente NO quiere cancelar
+    // NUEVO breakout específico para awaiting_churn_reason cuando el usuario explícitamente NO quiere cancelar o quiere comprar/otra acción
     let isChurnRefusal = false;
+    let isChurnSwitchToPurchase = false;
     if (currentState === 'awaiting_churn_reason') {
         const lowerBody = inputToUse.toLowerCase();
         const hasRefusalText = lowerBody.includes('no quiero cancelar') ||
@@ -11479,9 +11480,31 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             lowerBody.startsWith('comprar ') ||
             lowerBody.startsWith('renovar ');
 
+        // Detectar si el usuario quiere comprar otro servicio, cambiar de plataforma o preguntar por otra
+        const isPurchaseOrOtherIntent = ['comprar', 'pagar', 'renovar', 'soporte'].includes(detection.intent) ||
+            detection.detectedPlatform ||
+            lowerBody.includes('quiero') ||
+            lowerBody.includes('tienen') ||
+            lowerBody.includes('tiene') ||
+            lowerBody.includes('precio') ||
+            lowerBody.includes('venden') ||
+            lowerBody.includes('cambiar') ||
+            lowerBody.includes('amazon') ||
+            lowerBody.includes('disney') ||
+            lowerBody.includes('spotify') ||
+            lowerBody.includes('youtube') ||
+            lowerBody.includes('hbo') ||
+            lowerBody.includes('max') ||
+            lowerBody.includes('apple') ||
+            lowerBody.includes('paramount') ||
+            lowerBody.includes('crunchyroll');
+
         if (hasRefusalText || isExplicitOtherAction) {
             isChurnRefusal = true;
             console.log(`[Churn Breakout] El cliente rechaza la cancelación o solicita otra acción explícita. Intent: ${detection.intent}, Texto: "${inputToUse}"`);
+        } else if (isPurchaseOrOtherIntent) {
+            isChurnSwitchToPurchase = true;
+            console.log(`[Churn Breakout] El cliente en awaiting_churn_reason quiere comprar/cambiar de servicio. Intent: ${detection.intent}, Plataforma: ${detection.detectedPlatform}, Texto: "${inputToUse}"`);
         }
     }
 
@@ -11494,8 +11517,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         }
     }
 
-    if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform || isForcedMenuBreakout)) || isChurnRefusal || isNumericSelectionBreakout) {
-        console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isNumericSelectionBreakout ? 'Breakout selección numérica' : (isForcedMenuBreakout ? 'Fuerza de menú numérico' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema (' + detection.intent + ')' : 'Alta frustración'))))}`);
+    if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform || isForcedMenuBreakout)) || isChurnRefusal || isChurnSwitchToPurchase || isNumericSelectionBreakout) {
+        console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isChurnSwitchToPurchase ? 'Cambio a compra/nuevo servicio' : (isNumericSelectionBreakout ? 'Breakout selección numérica' : (isForcedMenuBreakout ? 'Fuerza de menú numérico' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema (' + detection.intent + ')' : 'Alta frustración')))))}`);
 
         if (isVeryFrustrated) {
             userStates.set(userId, { ...currentStateData, state: 'waiting_human', waitingCount: 1, waiting_human_mode: 'bot' });
@@ -11511,6 +11534,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 .catch(e => console.error("[Churn Breakout] Error al limpiar observaciones:", e.message));
 
             await message.reply("🤖 ¡Ah, entiendo perfectamente! Qué alegría que quieras continuar con nosotros. Permíteme ayudarte con eso...");
+        } else if (isChurnSwitchToPurchase) {
+            // El cliente efectivamente cancela o pausa la cuenta anterior, pero desea comprar o cambiar a otra plataforma
+            console.log(`[Churn Breakout] Cliente pasa de cancelar a comprar/consultar: ${detection.detectedPlatform || inputToUse}`);
+            userStates.delete(userId);
         }
 
         // Si el usuario simplemente cambió de tema o plataforma
@@ -12443,6 +12470,39 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const reason = (message.body || "").trim();
             const lowerReason = reason.toLowerCase();
             const cState = userStates.get(userId) || {};
+
+            // Si la respuesta en realidad es una intención de compra o cambio a otra plataforma (ej: "Quiero Amazon prime video")
+            const isPurchaseAttempt = ['comprar', 'pagar', 'renovar', 'soporte'].includes(detection.intent) ||
+                detection.detectedPlatform ||
+                lowerReason.includes('quiero') ||
+                lowerReason.includes('tienen') ||
+                lowerReason.includes('tiene') ||
+                lowerReason.includes('precio') ||
+                lowerReason.includes('venden') ||
+                lowerReason.includes('cambiar') ||
+                lowerReason.includes('amazon') ||
+                lowerReason.includes('disney') ||
+                lowerReason.includes('spotify') ||
+                lowerReason.includes('youtube') ||
+                lowerReason.includes('hbo') ||
+                lowerReason.includes('max') ||
+                lowerReason.includes('apple') ||
+                lowerReason.includes('paramount') ||
+                lowerReason.includes('crunchyroll');
+
+            if (isPurchaseAttempt) {
+                console.log(`[Churn Guard] Cliente en awaiting_churn_reason expresó intención de compra/cambio: "${reason}". Redirigiendo a compra.`);
+                userStates.delete(userId);
+                const targetPlatform = detection.detectedPlatform || (lowerReason.includes('amazon') || lowerReason.includes('prime') ? 'Amazon' : null);
+                if (targetPlatform) {
+                    const { processCheckPrices } = require('./billingService');
+                    await processCheckPrices(message, userId, userStates, reason, targetPlatform, 1);
+                } else {
+                    const { handleSubscriptionInterest } = require('./salesService');
+                    await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+                }
+                break;
+            }
 
             // Si la razón de cancelación es almacenamiento/espacio en Outlook/Microsoft/correo
             const isStorageIssue = lowerReason.includes('almacenamiento') ||
