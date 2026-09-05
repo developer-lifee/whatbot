@@ -9689,67 +9689,177 @@ async function baseProcessIncomingMessage(messages) {
             }
             return;
         } else if (adminAI.intent === 'enviar_credenciales') {
-            const targetPlat = adminAI.target_platform || 'Amazon';
-            const targetEmail = adminAI.target_email || (adminAI.target_user && adminAI.target_user.includes('@') ? adminAI.target_user : null);
-            const targetPhone = adminAI.target_user && !adminAI.target_user.includes('@') ? adminAI.target_user.replace(/\D/g, '') : null;
+            const targetPlat = (adminAI.target_platform || '').trim();
+            const platLower = targetPlat.toLowerCase();
+            const isHBO = platLower.includes('hbo') || platLower.includes('max') || message.body.toLowerCase().includes('hbo') || message.body.toLowerCase().includes('max');
+
+            let targetEmail = adminAI.target_email || (adminAI.target_user && adminAI.target_user.includes('@') ? adminAI.target_user.trim() : null);
+            if (!targetEmail) {
+                const emailMatch = message.body.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+                if (emailMatch) targetEmail = emailMatch[0].trim();
+            }
+
+            let targetPhone = null;
+            if (adminAI.target_user && !adminAI.target_user.includes('@')) {
+                const digits = adminAI.target_user.replace(/\D/g, '');
+                if (digits.length >= 10 && digits.length <= 15) {
+                    targetPhone = digits.length === 10 ? '57' + digits : digits;
+                }
+            }
+            if (!targetPhone) {
+                const phoneMatch = message.body.match(/57\s*3\d{2}\s*\d{7}|3\d{9}/);
+                if (phoneMatch) {
+                    const digits = phoneMatch[0].replace(/\D/g, '');
+                    if (digits.length === 10) targetPhone = '57' + digits;
+                    else if (digits.length > 10) targetPhone = digits;
+                }
+            }
 
             try {
                 const { fetchRawData } = require('./apiService');
                 const allRows = await fetchRawData(3, 2500, true);
                 
                 let targetRow = null;
-                if (targetEmail) {
+                const cleanEmail = targetEmail ? targetEmail.toLowerCase().trim() : null;
+
+                if (cleanEmail) {
+                    // 1. Coincidencia exacta con correo de la cuenta
                     targetRow = allRows.find(r => {
-                        const m = (r.correo || r.Correo || r['customer mail'] || r['Customer Mail'] || '').toString().toLowerCase().trim();
+                        const m = (r.correo || r.Correo || '').toString().toLowerCase().trim();
+                        return m === cleanEmail;
+                    });
+
+                    // 2. Coincidencia con customer mail (correo personal del cliente)
+                    if (!targetRow) {
+                        targetRow = allRows.find(r => {
+                            const cm = (r['customer mail'] || r['Customer Mail'] || r.customerMail || '').toString().toLowerCase().trim();
+                            return cm === cleanEmail;
+                        });
+                    }
+
+                    // 3. Coincidencia parcial con plataforma
+                    if (!targetRow) {
+                        targetRow = allRows.find(r => {
+                            const m = (r.correo || r.Correo || r['customer mail'] || r['Customer Mail'] || '').toString().toLowerCase().trim();
+                            const s = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
+                            const isPlatMatch = !platLower || s.includes(platLower) || (isHBO && (s.includes('hbo') || s.includes('max')));
+                            return m.includes(cleanEmail) && isPlatMatch;
+                        });
+                    }
+                }
+
+                if (!targetRow && targetPhone) {
+                    targetRow = allRows.find(r => {
+                        const numDigits = (r.numero || r.Numero || '').toString().replace(/\D/g, '');
+                        const waDigits = (r.whatsapp || r.Whatsapp || '').toString().replace(/\D/g, '');
+                        const phoneMatch = (numDigits && (numDigits === targetPhone || ('57' + numDigits) === targetPhone || numDigits.endsWith(targetPhone.slice(-10)))) ||
+                                           (waDigits && (waDigits === targetPhone || ('57' + waDigits) === targetPhone || waDigits.endsWith(targetPhone.slice(-10))));
                         const s = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
-                        return (m === targetEmail.toLowerCase() || m.includes(targetEmail.toLowerCase())) && s.includes(targetPlat.toLowerCase());
+                        const isPlatMatch = !platLower || s.includes(platLower) || (isHBO && (s.includes('hbo') || s.includes('max')));
+                        return phoneMatch && isPlatMatch;
                     });
                 }
                 
-                if (!targetRow) {
+                if (!targetRow && (platLower || isHBO)) {
                     targetRow = allRows.find(r => {
                         const s = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
                         const w = (r.whatsapp || '').toString().trim();
+                        const num = (r.numero || '').toString().trim();
                         const n = (r.Nombre || r.nombre || '').toString().toLowerCase().trim();
-                        return s.includes(targetPlat.toLowerCase()) && (!w || w.length < 5) && (!n || n === 'libre');
+                        const isPlatMatch = (platLower ? s.includes(platLower) : false) || (isHBO && (s.includes('hbo') || s.includes('max')));
+                        const isFree = (!w || w.length < 5) && (!num || num.length < 5) && (!n || n === 'libre' || n.includes('libre'));
+                        return isPlatMatch && isFree;
                     });
                 }
 
                 if (targetRow) {
-                    const { getMaskedAccessData } = require('./aiService');
-                    const masked = getMaskedAccessData(targetRow);
-                    const pinLine = targetRow.pin ? `\n📌 PIN: \`${targetRow.pin}\`` : '';
-                    const vencStr = targetRow.vencimiento ? `\n📅 Vence: *${targetRow.vencimiento}*` : '';
-                    
-                    const credMsg = `🤖 ¡Hola! Un asesor de nuestro equipo te envía las credenciales de acceso de *${masked.streamingName || targetPlat.toUpperCase()}*:\n\n` +
-                        `📺 *Plataforma:* ${masked.streamingName || targetPlat.toUpperCase()}\n` +
-                        `📧 *Usuario:* \`${masked.correo || targetRow.correo}\`\n` +
-                        `🔑 *Contraseña:* \`${masked.clave || targetRow.clave || targetRow.password}\`${pinLine}${vencStr}\n\n` +
-                        `¡Que disfrutes tu servicio! 😊`;
+                    const finalPlat = (targetRow.Streaming || targetRow.Plataforma || targetPlat || (isHBO ? 'HBO' : 'Servicio')).toUpperCase();
+                    const accountEmail = (targetRow.correo || targetRow.Correo || targetRow['E-mail'] || '').toString().trim();
+                    const accountPass = (targetRow.contraseña || targetRow.Contraseña || targetRow.clave || targetRow.Clave || targetRow.password || targetRow.Password || '').toString().trim();
+                    const accountPin = (targetRow['pin perfil'] || targetRow.pin || targetRow.PIN || targetRow.Pin || '').toString().trim();
+                    const accountVenc = (targetRow.vencimiento || targetRow.Vencimiento || '').toString().trim();
+
+                    const pinLine = accountPin ? `\n📌 *PIN:* \`${accountPin}\`` : '';
+                    const vencStr = accountVenc ? `\n📅 *Vence:* ${accountVenc}` : '';
 
                     let sent = false;
+                    let recipientDesc = "";
+
                     if (targetPhone) {
-                        const targetJid = targetPhone.includes('@') ? targetPhone : (targetPhone.length === 10 ? '57' + targetPhone + '@c.us' : targetPhone + '@c.us');
-                        await client.sendMessage(targetJid, credMsg);
-                        sent = true;
-                    } else if (targetEmail) {
-                        const custRow = allRows.find(r => (r.correo || r['customer mail'] || '').toString().toLowerCase().includes(targetEmail.toLowerCase()) && (r.whatsapp || r.numero));
-                        if (custRow && (custRow.whatsapp || custRow.numero)) {
-                            const p = (custRow.whatsapp || custRow.numero).replace(/\D/g, '');
-                            const jid = p.length === 10 ? '57' + p + '@c.us' : p + '@c.us';
-                            await client.sendMessage(jid, credMsg);
+                        const targetJid = targetPhone + '@c.us';
+                        const credMsg = `🤖 ¡Hola! Un asesor de nuestro equipo te envía las credenciales de acceso de *${finalPlat}*:\n\n` +
+                            `📺 *Plataforma:* ${finalPlat}\n` +
+                            `📧 *Usuario:* \`${accountEmail}\`\n` +
+                            `🔑 *Contraseña:* \`${accountPass}\`${pinLine}${vencStr}\n\n` +
+                            `¡Que disfrutes tu servicio! 😊`;
+                        try {
+                            await client.sendMessage(targetJid, credMsg);
                             sent = true;
+                            recipientDesc = `+${targetPhone}`;
+                        } catch (sendErr) {
+                            console.error(`[enviar_credenciales] Error enviando WhatsApp a ${targetJid}:`, sendErr.message);
+                        }
+                    } else if (cleanEmail) {
+                        // Solo enviar por WhatsApp si cleanEmail es el correo personal de un cliente (customer mail)
+                        // y NO la cuenta maestra
+                        const isMasterAccountEmail = (accountEmail.toLowerCase() === cleanEmail);
+                        if (!isMasterAccountEmail) {
+                            const custRow = allRows.find(r => {
+                                const cm = (r['customer mail'] || r['Customer Mail'] || r.customerMail || '').toString().toLowerCase().trim();
+                                return cm === cleanEmail;
+                            });
+                            if (custRow) {
+                                const cNum = (custRow.numero || custRow.Numero || '').toString().replace(/\D/g, '');
+                                const cWa = (custRow.whatsapp || custRow.Whatsapp || '').toString().replace(/\D/g, '');
+                                const rawPhone = (cNum.length >= 10 && cNum.length <= 15) ? cNum : ((cWa.length >= 10 && cWa.length <= 15) ? cWa : null);
+                                if (rawPhone) {
+                                    const custPhone = rawPhone.length === 10 ? '57' + rawPhone : rawPhone;
+                                    const targetJid = custPhone + '@c.us';
+                                    const credMsg = `🤖 ¡Hola! Un asesor de nuestro equipo te envía las credenciales de acceso de *${finalPlat}*:\n\n` +
+                                        `📺 *Plataforma:* ${finalPlat}\n` +
+                                        `📧 *Usuario:* \`${accountEmail}\`\n` +
+                                        `🔑 *Contraseña:* \`${accountPass}\`${pinLine}${vencStr}\n\n` +
+                                        `¡Que disfrutes tu servicio! 😊`;
+                                    try {
+                                        await client.sendMessage(targetJid, credMsg);
+                                        sent = true;
+                                        recipientDesc = `${targetEmail} (+${custPhone})`;
+                                    } catch (sendErr) {
+                                        console.error(`[enviar_credenciales] Error enviando WhatsApp a ${targetJid}:`, sendErr.message);
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    const destDesc = targetEmail || targetPhone || "destinatario";
                     if (sent) {
-                        await message.reply(`✅ Credenciales de *${targetPlat.toUpperCase()}* enviadas con éxito a *${destDesc}* 🚀\n\n📧 Cuenta: \`${targetRow.correo}\``);
+                        await message.reply(`✅ Credenciales de *${finalPlat}* enviadas con éxito a *${recipientDesc}* 🚀\n\n📧 Cuenta: \`${accountEmail}\``);
                     } else {
-                        await message.reply(`✅ Credenciales de *${targetPlat.toUpperCase()}* localizadas para *${destDesc}*:\n\n📧 Correo: \`${targetRow.correo}\`\n🔑 Clave: \`${targetRow.clave || targetRow.password}\`${pinLine}`);
+                        // Responder en el grupo con los datos completos de la cuenta
+                        const allProfileRows = allRows.filter(r => {
+                            const m = (r.correo || r.Correo || '').toString().toLowerCase().trim();
+                            return accountEmail && m === accountEmail.toLowerCase();
+                        });
+
+                        let detailsMsg = `✅ Credenciales de *${finalPlat}* localizadas:\n\n` +
+                            `📧 *Correo:* \`${accountEmail}\`\n` +
+                            `🔑 *Contraseña:* \`${accountPass}\`` +
+                            `${pinLine}${vencStr}`;
+
+                        if (allProfileRows.length > 1) {
+                            detailsMsg += `\n\n👥 *Perfiles asignados (${allProfileRows.length}):*`;
+                            allProfileRows.forEach((r, idx) => {
+                                const pName = r.Nombre || r.nombre || `Perfil ${idx + 1}`;
+                                const pPin = (r['pin perfil'] || r.pin) ? ` (PIN: ${r['pin perfil'] || r.pin})` : '';
+                                const pCust = (r.whatsapp || r.numero) ? ` - ${r.whatsapp || r.numero}` : ' (Libre)';
+                                detailsMsg += `\n  • ${pName}${pPin}${pCust}`;
+                            });
+                        }
+
+                        await message.reply(detailsMsg);
                     }
                 } else {
-                    await message.reply(`⚠️ No encontré una cuenta libre o registrada de *${targetPlat}* para *${targetEmail || targetPhone || 'ese destino'}*.`);
+                    await message.reply(`⚠️ No encontré una cuenta libre o registrada de *${targetPlat || (isHBO ? 'HBO' : 'la plataforma solicitada')}* para *${targetEmail || targetPhone || 'ese criterio'}*.`);
                 }
             } catch (err) {
                 console.error("Error en enviar_credenciales admin:", err);

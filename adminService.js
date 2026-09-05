@@ -290,19 +290,22 @@ async function handleSendCredentialsCommand(message, command, client, getAccount
         const mail = matchingAccount.correo || matchingAccount.email || 'N/A';
         const pass = matchingAccount.contraseña || matchingAccount.password || 'N/A';
         const profile = matchingAccount['pin perfil'] || matchingAccount.perfil || '';
-        const phone = matchingAccount.whatsapp || matchingAccount.telefono || '';
+        const rawP = (matchingAccount.numero || matchingAccount.Numero || matchingAccount.telefono || matchingAccount.whatsapp || '').toString().replace(/\D/g, '');
+        const validP = (rawP.length >= 10 && rawP.length <= 15) ? (rawP.length === 10 ? '57' + rawP : rawP) : null;
+        const custName = (matchingAccount.Nombre || matchingAccount.nombre || matchingAccount.whatsapp || '').toString().trim();
 
         let replyMsg = `🤖 🔑 *CREDENCIALES ENCONTRADAS (${platName})*\n\n` +
             `📧 *Correo:* \`${mail}\`\n` +
             `🔒 *Clave:* \`${pass}\``;
         if (profile) replyMsg += `\n👤 *Perfil/PIN:* ${profile}`;
-        if (phone) replyMsg += `\n📱 *Cliente:* +${phone}`;
+        if (validP) replyMsg += `\n📱 *Cliente:* +${validP}${custName && custName !== validP ? ` (${custName})` : ''}`;
+        else if (custName) replyMsg += `\n👤 *Cliente:* ${custName}`;
 
         await message.reply(replyMsg);
 
-        // Si se detectó teléfono del cliente, enviarle también las credenciales por chat privado
-        if (phone) {
-            const clientJid = (phone.length === 10 ? '57' + phone : phone) + '@c.us';
+        // Si el asesor especificó explícitamente un teléfono de destino, enviarle las credenciales por chat privado
+        if (targetPhone && validP) {
+            const clientJid = validP + '@c.us';
             const clientCredsMsg = `🤖 *Tus credenciales de ${platName}:*\n\n📧 Correo: ${mail}\n🔒 Clave: ${pass}${profile ? `\n👤 Perfil/PIN: ${profile}` : ''}`;
             await client.sendMessage(clientJid, clientCredsMsg).catch(err => console.error("[Admin Cmd] Error enviando a cliente:", err.message));
         }
