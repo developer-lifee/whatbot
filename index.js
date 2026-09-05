@@ -10774,9 +10774,11 @@ async function baseProcessIncomingMessage(messages) {
                         const { isSamePlatformFamily } = require('./salesRegistryService');
                         const matchingActiveAccounts = userAccounts.filter(acc => {
                             return stateData.items.some(item => {
-                                const itemPlat = (item.Streaming || (item.platform ? item.platform.name : '') || item.name || '').toUpperCase();
+                                const planName = (item.chosenPlan ? item.chosenPlan.name : (item.plan ? (item.plan.name || item.plan) : "")) || "";
+                                const basePlat = (item.Streaming || (item.platform ? item.platform.name : '') || item.name || '').toUpperCase();
+                                const itemPlat = planName ? `${basePlat} ${planName}`.toUpperCase() : basePlat;
                                 const accPlat = (acc.Streaming || '').toUpperCase();
-                                return isSamePlatformFamily(itemPlat, accPlat) || itemPlat.includes(accPlat) || accPlat.includes(itemPlat);
+                                return isSamePlatformFamily(itemPlat, accPlat);
                             });
                         });
                         if (matchingActiveAccounts.length > 0) {
@@ -10999,15 +11001,16 @@ async function baseProcessIncomingMessage(messages) {
 
                                 // Si el usuario ya tiene una cuenta activa en Excel/DB para este teléfono en la plataforma comprada, es una RENOVACIÓN
                                 const { isSamePlatformFamily } = require('./salesRegistryService');
-                                const targetPlatformName = (stateData.items && stateData.items[0])
-                                    ? (stateData.items[0].Streaming || (stateData.items[0].platform ? stateData.items[0].platform.name : "") || stateData.items[0].name || "").toLowerCase()
-                                    : "";
+                                const item0 = stateData.items && stateData.items[0];
+                                const planName0 = (item0 && item0.chosenPlan ? item0.chosenPlan.name : (item0 && item0.plan ? (item0.plan.name || item0.plan) : "")) || "";
+                                const baseName0 = (item0 ? (item0.Streaming || (item0.platform ? item0.platform.name : "") || item0.name || "") : "").toLowerCase();
+                                const targetPlatformName = planName0 ? `${baseName0} ${planName0}`.toLowerCase().trim() : baseName0.trim();
 
                                 const userHasActiveAccount = userAccounts && Array.isArray(userAccounts) && userAccounts.some(acc => {
                                     const s = (acc.Streaming || "").toLowerCase();
                                     if (!s) return false;
                                     if (!targetPlatformName) return true;
-                                    return isSamePlatformFamily(s, targetPlatformName) || s.includes(targetPlatformName) || targetPlatformName.includes(s);
+                                    return isSamePlatformFamily(s, targetPlatformName);
                                 });
 
                                 if (userHasActiveAccount) {

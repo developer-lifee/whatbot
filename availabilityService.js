@@ -27,16 +27,17 @@ function saveAvailabilityConfig(config) {
 
 function normalizeStreamingName(name) {
     if (!name) return "";
-    let normalized = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    let clean = name.replace(/claude\s*pro\s*(&|y)\s*claude\s*max/gi, "claude");
+    let normalized = clean.toLowerCase().replace(/[^a-z0-9]/g, '');
     
     // Mapear aliases comunes a sus nombres en Excel/Sistema
     if (normalized.includes('prime') || normalized.includes('amazon')) {
         return 'amazon';
     }
     if (normalized.includes('claude')) {
-        if (normalized.includes('max') && (normalized.includes('x5') || normalized.includes('5'))) return 'claude_max_x5';
+        if (normalized.includes('x5') || normalized.includes('5x') || normalized.includes('intensivo') || normalized.includes('pesado')) return 'claude_max_x5';
+        if (normalized.includes('x2') || normalized.includes('2x') || normalized.includes('altouso')) return 'claude_pro_x2';
         if (normalized.includes('max')) return 'claude_max';
-        if (normalized.includes('x2') || normalized.includes('pro x2')) return 'claude_pro_x2';
         return 'claude_pro';
     }
     if ((normalized.includes('hbo') || normalized.includes('max')) && !normalized.includes('claude')) {

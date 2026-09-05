@@ -47,13 +47,22 @@ function isSamePlatformFamily(name1, name2) {
 
     if (n1 === n2) return true;
 
+    // REGLA CRÍTICA CLAUDE: Los tiers de Claude (Pro, Pro x2, Max, Max x5) NUNCA deben mezclarse entre sí
+    const isClaude1 = n1.startsWith('claude');
+    const isClaude2 = n2.startsWith('claude');
+    if (isClaude1 || isClaude2) {
+        if (!isClaude1 || !isClaude2) return false;
+        // Solo pueden coincidir si el tier normalizado es exactamente idéntico
+        return n1 === n2;
+    }
+
     // Equivalencias directas de alias
     if ((n1 === 'disney' && n2 === 'disney_premium') || (n1 === 'disney_premium' && n2 === 'disney')) return true;
     if ((n1 === 'appleone' && n2 === 'apple_one') || (n1 === 'apple_one' && n2 === 'appleone')) return true;
     if ((n1 === 'crunchyroll' && n2 === 'crunchy_roll') || (n1 === 'crunchy_roll' && n2 === 'crunchyroll')) return true;
 
     // REGLA CRÍTICA 4: Tiers específicos que NO deben cruzarse con planes estándar
-    const specificTiers = ['hbo_platino', 'netflix_extra', 'spotify_owner', 'youtube_owner', 'appletv'];
+    const specificTiers = ['hbo_platino', 'netflix_extra', 'spotify_owner', 'youtube_owner', 'appletv', 'appleone'];
     if (specificTiers.includes(n1) || specificTiers.includes(n2)) {
         return false;
     }
@@ -65,7 +74,7 @@ function isSamePlatformFamily(name1, name2) {
         return false;
     }
 
-    const mainRoots = ['gemini', 'apple', 'youtube', 'spotify', 'disney', 'hbo', 'netflix', 'microsoft', 'office', 'prime', 'vix', 'crunchyroll', 'crunchy', 'claude', 'chatgpt', 'gpt', 'paramount'];
+    const mainRoots = ['gemini', 'apple', 'youtube', 'spotify', 'disney', 'hbo', 'netflix', 'microsoft', 'office', 'prime', 'vix', 'crunchyroll', 'crunchy', 'chatgpt', 'gpt', 'paramount'];
     for (const root of mainRoots) {
         let normalizedN1 = n1.replace(/chatgpt|chat gpt/g, 'gpt');
         let normalizedN2 = n2.replace(/chatgpt|chat gpt/g, 'gpt');
@@ -354,8 +363,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             const planName = (item.chosenPlan ? item.chosenPlan.name : (item.plan ? (item.plan.name || item.plan) : "")) || "";
             let platformName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
             
-            // Si el plan es específico (como Platino o Extra), lo concatenamos para la búsqueda en Excel
-            if (planName && (planName.toLowerCase().includes('platino') || planName.toLowerCase().includes('platinum') || planName.toLowerCase().includes('extra'))) {
+            // Si hay un plan específico (como Platino, Extra, Claude X2/X5, Apple One/TV, etc.), lo concatenamos para la búsqueda exacta en Excel
+            if (planName) {
                 platformName = `${platformName} ${planName}`;
             }
             const lowerName = platformName.toLowerCase();
