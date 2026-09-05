@@ -10576,22 +10576,29 @@ async function baseProcessIncomingMessage(messages) {
                 let userAccounts = [];
                 try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
-                const historyLower = (history || "").toLowerCase();
-                const lastMsgLower = (batchText || "").toLowerCase();
-                const isNewRequested = historyLower.includes('otro') ||
-                    historyLower.includes('otra') ||
-                    historyLower.includes('nueva') ||
-                    historyLower.includes('nuevo') ||
-                    historyLower.includes('adquirir') ||
-                    historyLower.includes('adicional') ||
-                    lastMsgLower.includes('otro') ||
-                    lastMsgLower.includes('otra') ||
-                    lastMsgLower.includes('nueva') ||
-                    lastMsgLower.includes('nuevo') ||
-                    lastMsgLower.includes('adquirir') ||
-                    lastMsgLower.includes('adicional') ||
-                    stateData.intent === 'comprar' ||
-                    stateData.state === 'awaiting_purchase_platforms';
+                // Extraer únicamente los mensajes del CLIENTE en el historial (ignorando respuestas del bot como "ver otros medios", "de nuevo", etc.)
+                const clientMessagesHistory = (history || "")
+                    .split('\n')
+                    .filter(line => /^(Cliente|Usuario):/i.test(line.trim()))
+                    .map(line => line.replace(/^(Cliente|Usuario):\s*/i, '').trim())
+                    .join(' ')
+                    .toLowerCase();
+
+                const combinedClientText = `${clientMessagesHistory} ${(batchText || "").toLowerCase()}`;
+                
+                // Expresión regular estricta para frases de solicitud explícita de cuenta NUEVA o ADICIONAL
+                const explicitNewRegex = /\b(cuenta nueva|servicio nuevo|comprar otra|adquirir otra|otra cuenta|cuenta adicional|pantalla adicional|nueva cuenta|nuevo servicio|adquirir nueva|adquirir nuevo)\b/i;
+                const explicitlyWantsNew = explicitNewRegex.test(combinedClientText);
+
+                // Si el usuario ya tiene cuentas activas, por defecto SIEMPRE es una RENOVACIÓN a menos que pida explícitamente una cuenta nueva
+                let isNewRequested = false;
+                if (stateData.isRenewal === true || stateData.intent === 'renovar') {
+                    isNewRequested = false;
+                } else if (explicitlyWantsNew) {
+                    isNewRequested = true;
+                } else if (stateData.intent === 'comprar' && stateData.state === 'awaiting_purchase_platforms' && (!userAccounts || userAccounts.length === 0)) {
+                    isNewRequested = true;
+                }
 
                 // Si el carrito está vacío, intentar auto-rellenarlo inteligentemente
                 if (!stateData.items || stateData.items.length === 0) {
