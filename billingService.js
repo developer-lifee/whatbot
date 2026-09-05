@@ -310,6 +310,15 @@ function calculateInternationalPrice(basePriceCOP, trm = 4000) {
     return { grossCOP, priceUSD };
 }
 
+function isValidCustomerEmail(email) {
+    if (!email || typeof email !== 'string') return false;
+    const clean = email.trim().toLowerCase();
+    if (!clean.includes('@') || !clean.includes('.')) return false;
+    if (clean.includes('sheerit') || clean.includes('dediagama') || clean.includes('sheerpremium') || clean.includes('jordimemes')) return false;
+    if (/^[.\-_/\\*]+$/.test(clean)) return false;
+    return true;
+}
+
 function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     if (!accountOrStreaming) return 0;
     let streamingName = "";
@@ -324,7 +333,7 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         const cMail = (accountOrStreaming['customer mail'] || accountOrStreaming['Customer Mail'] || '').toString().trim();
         const pinText = (accountOrStreaming['pin perfil'] || accountOrStreaming.pin || '').toString().toLowerCase();
         const obsText = (accountOrStreaming.observaciones || accountOrStreaming.Observaciones || '').toString().toLowerCase();
-        if (cMail || pinText.includes('invite') || pinText.includes('spotify.com') || pinText.includes('join') || pinText.includes('google.com') ||
+        if (isValidCustomerEmail(cMail) || pinText.includes('invite') || pinText.includes('spotify.com') || pinText.includes('join') || pinText.includes('google.com') ||
             obsText.includes('propia') || obsText.includes('personal') || obsText.includes('correo propio') || obsText.includes('invitacion') || obsText.includes('invitación')) {
             isPersonal = true;
         }
@@ -382,6 +391,12 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
 
             if (isMatch) {
                 if (Array.isArray(p.plans) && p.plans.length > 0) {
+                    // Si el cliente tiene un precio registrado en Excel que coincide exactamente con uno de los planes oficiales de esta plataforma, priorizar ese plan
+                    if (fallbackExcelPrice > 0) {
+                        const exactPlan = p.plans.find(pl => Number(pl.price) === fallbackExcelPrice);
+                        if (exactPlan && exactPlan.price) return exactPlan.price;
+                    }
+
                     if (targetName === 'APPLE ONE') {
                         const appleOnePlan = p.plans.find(pl => (pl.name || '').toUpperCase().includes('ONE'));
                         if (appleOnePlan && appleOnePlan.price) return appleOnePlan.price;
@@ -431,7 +446,17 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
                         const persPlan = p.plans.find(pl => pl.isPersonalEmail || (pl.name && (pl.name.toLowerCase().includes('personal') || pl.name.toLowerCase().includes('tu correo') || pl.name.toLowerCase().includes('extra'))));
                         if (persPlan && persPlan.price) return persPlan.price;
                     } else {
-                        const sharedPlan = p.plans.find(pl => !pl.isPersonalEmail && (pl.name && (pl.name.toLowerCase().includes('compartida') || pl.name.toLowerCase().includes('cuenta nueva') || pl.name.toLowerCase().includes('1 pantalla') || pl.name.toLowerCase().includes('perfil'))));
+                        const sharedPlan = p.plans.find(pl => !pl.isPersonalEmail && (pl.name && (
+                            pl.name.toLowerCase().includes('compartida') ||
+                            pl.name.toLowerCase().includes('cuenta nueva') ||
+                            pl.name.toLowerCase().includes('1 pantalla') ||
+                            pl.name.toLowerCase().includes('perfil') ||
+                            pl.name.toLowerCase().includes('4k') ||
+                            pl.name.toLowerCase().includes('estándar') ||
+                            pl.name.toLowerCase().includes('estandar') ||
+                            pl.name.toLowerCase().includes('suscripción') ||
+                            pl.name.toLowerCase().includes('suscripcion')
+                        ))) || p.plans.find(pl => !pl.isPersonalEmail);
                         if (sharedPlan && sharedPlan.price) return sharedPlan.price;
                     }
                 }
@@ -919,8 +944,9 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 
             const dateStr = vencimientoDate ? vencimientoDate.toLocaleDateString('es-CO') : 'N/A';
 
-            const customerMail = (acc["customer mail"] || acc["Customer Mail"] || "").toString().trim();
-            let emailToShow = customerMail;
+            const rawCustomerMail = (acc["customer mail"] || acc["Customer Mail"] || "").toString().trim();
+            const isValidCustomer = isValidCustomerEmail(rawCustomerMail);
+            let emailToShow = isValidCustomer ? rawCustomerMail : "";
             if (!emailToShow) {
                 const adminMail = (acc.correo || 'Sin correo').toString().trim();
                 emailToShow = acc.correo ? `${adminMail} *(Administrador)*` : adminMail;

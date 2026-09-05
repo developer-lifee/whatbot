@@ -145,7 +145,9 @@ function getMaskedAccessData(acc) {
 
   const correoOriginal = acc.correo || acc.Correo || acc["E-mail"] || "N/A";
   let clave = acc["contraseña"] || acc["Clave"] || acc["clave"] || acc["password"] || acc["Password"] || "N/A";
-  const customerMail = (acc["customer mail"] || acc["Customer Mail"] || acc.customerMail || "").trim();
+  const rawCustomerMail = (acc["customer mail"] || acc["Customer Mail"] || acc.customerMail || "").trim();
+  const isValidCustomer = rawCustomerMail.includes('@') && rawCustomerMail.includes('.') && !rawCustomerMail.toLowerCase().includes('sheerit') && !rawCustomerMail.toLowerCase().includes('dediagama') && !/^[.\-_/\\*]+$/.test(rawCustomerMail);
+  const customerMail = isValidCustomer ? rawCustomerMail : "";
 
   let displayCorreo = correoOriginal;
   let displayClave = clave;
