@@ -567,7 +567,8 @@ Realiza una extracción precisa (OCR) y describe detalladamente lo que se ve en 
    - Extrae el correo o usuario mostrado en pantalla al que se envió el código (ej: "Hurkjua6554@outlook.com").
    - Especifica qué solicita la pantalla (ej: "Código de 6 dígitos que vencerá en 15 minutos", "Código de hogar", etc.).
 
-3. Si es una pantalla de ERROR o falla técnica:
+3. Si es una pantalla de ERROR, vencimiento o falla técnica:
+   - Si la pantalla dice "Renovar ahora", "Tus beneficios terminaron", "Renueva tu suscripción", "Tu membresía ha caducado": descríbela explícitamente como pantalla de AVISO DE RENOVACIÓN / MEMBRESÍA VENCIDA, identificando claramente la plataforma (ej: YouTube Premium, Spotify). Aclara que NO es una pantalla de código de acceso ni de verificación de hogar.
    - Transcribe textualmente el mensaje de error o aviso que aparece (ej: "Contraseña incorrecta", "Demasiados dispositivos", "Tu suscripción ha expirado", "Este dispositivo no forma parte de tu hogar").
    - Detalla el contexto técnico del error para que podamos identificar cómo solucionarlo.
 
@@ -1259,7 +1260,14 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
           };
         }
         // DETECCIÓN DE PANTALLA DE HOGAR / VER TEMPORALMENTE / CÓDIGO DE VIAJE (NETFLIX O DISNEY+)
-        const isHouseholdScreen = [
+        const isExpiredOrRenewal = [
+          'renovar ahora', 'tus beneficios terminaron', 'renueva tu suscripción', 'renueva tu membresia',
+          'renueva tu membresía', 'suscripción ha expirado', 'suscripcion ha expirado', 'suscripción expirada',
+          'suscripcion expirada', 'suscripción ha caducado', 'suscripcion ha caducado', 'membresía caducada',
+          'membresia caducada', 'beneficios terminaron', 'no renovar', 'se te acabó el premium'
+        ].some(kw => descLower.includes(kw));
+
+        const isHouseholdScreen = !isExpiredOrRenewal && [
           'ver temporalmente', 'entendimos mal', 'si estás de viaje', 'si estas de viaje', 'fuera de casa',
           'obtener un código para ver netflix', 'obtener un codigo para ver netflix',
           'crea tu propia cuenta para disfrutar de netflix', 'no forma parte del hogar',
@@ -1269,6 +1277,8 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
 
         if (isHouseholdScreen) {
           const isDisney = descLower.includes('disney') || descLower.includes('star+') || descLower.includes('star plus');
+          const isNetflix = descLower.includes('netflix') || (userAccounts && userAccounts.some(a => (a.Streaming || a.streaming_platform || '').toLowerCase().includes('netflix')));
+          const isOtherPlatform = descLower.includes('youtube') || descLower.includes('spotify') || descLower.includes('prime') || descLower.includes('amazon');
 
           if (isDisney) {
             console.log("[AI Fallback Media] Detectada pantalla de Hogar de Disney+ en TV. Guiando al usuario de inmediato.");
@@ -1282,16 +1292,18 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
             };
           }
 
-          console.log("[AI Fallback Media] Detectada pantalla de Hogar / Ver temporalmente de Netflix en TV. Guiando al usuario de inmediato.");
-          const phoneParam = isValidPhone ? `?tel=${customerPhone}` : '';
-          return {
-            replyMessage: `🤖 ¡Hola! Veo en tu pantalla el aviso de Hogar / Ver temporalmente de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
-              `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
-              `1️⃣ Con el control remoto de tu TV, selecciona **"Ver temporalmente"** (o *"Actualizar Hogar"*).\n` +
-              `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
-              `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos para que sigas viendo. 🚀`,
-            needsEscalation: false
-          };
+          if (isNetflix && !isOtherPlatform) {
+            console.log("[AI Fallback Media] Detectada pantalla de Hogar / Ver temporalmente de Netflix en TV. Guiando al usuario de inmediato.");
+            const phoneParam = isValidPhone ? `?tel=${customerPhone}` : '';
+            return {
+              replyMessage: `🤖 ¡Hola! Veo en tu pantalla el aviso de Hogar / Ver temporalmente de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
+                `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
+                `1️⃣ Con el control remoto de tu TV, selecciona **"Ver temporalmente"** (o *"Actualizar Hogar"*).\n` +
+                `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
+                `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos para que sigas viendo. 🚀`,
+              needsEscalation: false
+            };
+          }
         }
       }
     } catch (e) {

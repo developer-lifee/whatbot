@@ -11386,16 +11386,69 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'va hasta', 'vence', 'vencimiento', 'cuando vence', 'cuándo vence',
             'fecha de corte', 'hasta cuando', 'hasta cuándo', 'hasta que dia', 'hasta qué día',
             'cuanto me queda', 'cuánto me queda', 'renov', 'hasta el 11', 'hasta el'
-        ].some(kw => bodyLower.includes(kw));
+        ].some(kw => bodyLower.includes(kw) || fullOcrContext.includes(kw));
 
-        const wantsImgCode = (detection.metadata && detection.metadata.is2faScreen === true) || [
+        // Detección de pantallas de expiración / renovación / pérdida de beneficios (ej: YouTube "Tus beneficios terminaron", Spotify "Renovar", etc.)
+        const isExpiredOrRenewalScreen = [
+            'renovar ahora', 'tus beneficios terminaron', 'renueva tu suscripción', 'renueva tu membresia',
+            'renueva tu membresía', 'suscripción ha expirado', 'suscripcion ha expirado', 'suscripción expirada',
+            'suscripcion expirada', 'suscripción ha caducado', 'suscripcion ha caducado', 'suscripción finalizada',
+            'suscripcion finalizada', 'membresía caducada', 'membresia caducada', 'tu suscripción terminó',
+            'tu suscripcion termino', 'tu membresía venció', 'tu membresia vencio', 'beneficios terminaron',
+            'no renovar', 'reactivar suscripción', 'reactivar suscripcion', 'plan expirado', 'cuenta vencida',
+            'se te acabó el premium', 'se te acabo el premium', 'sin anuncios y sin conexión'
+        ].some(kw => fullOcrContext.includes(kw));
+
+        if (isExpiredOrRenewalScreen && !isIncorrectPassword) {
+            let expiredPlat = null;
+            if (fullOcrContext.includes('youtube') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('youtube'))) {
+                expiredPlat = 'YouTube';
+            } else if (fullOcrContext.includes('spotify') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('spotify'))) {
+                expiredPlat = 'Spotify';
+            } else if (fullOcrContext.includes('disney') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('disney'))) {
+                expiredPlat = 'Disney+';
+            } else if (fullOcrContext.includes('netflix') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('netflix'))) {
+                expiredPlat = 'Netflix';
+            } else if (fullOcrContext.includes('max') || fullOcrContext.includes('hbo') || (detection.detectedPlatform && (detection.detectedPlatform.toLowerCase().includes('max') || detection.detectedPlatform.toLowerCase().includes('hbo')))) {
+                expiredPlat = 'Max';
+            } else if (fullOcrContext.includes('prime') || fullOcrContext.includes('amazon') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('prime'))) {
+                expiredPlat = 'Amazon Prime';
+            } else if (userAccounts && userAccounts.length > 0) {
+                expiredPlat = userAccounts[0].Streaming || userAccounts[0].streaming_platform || 'tu servicio';
+            } else {
+                expiredPlat = detection.detectedPlatform || 'tu servicio';
+            }
+
+            const activeService = userAccounts && userAccounts.find(a => {
+                const plat = (a.Streaming || a.streaming_platform || '').toLowerCase();
+                const expLower = (expiredPlat || '').toLowerCase();
+                return plat && (expLower.includes(plat) || plat.includes(expLower.replace(' premium', '').trim()));
+            });
+
+            console.log(`[BOT MEDIA OCR EXPIRED SCREEN] Se detectó pantalla de renovación/beneficios terminados (${expiredPlat}) en @${userId}.`);
+
+            if (activeService) {
+                // Cuenta bajo garantía activa que perdió beneficios
+                await message.reply(`🤖 ¡Hola! Veo en tu pantalla que tus beneficios de **${expiredPlat}** se han pausado o aparece el aviso de renovar. 📺\n\n` +
+                    `💡 Como tu servicio con nosotros está registrado y vigente, cuentas con **garantía total**. Por favor no ingreses ninguna tarjeta personal ni realices pagos directamente en esa pantalla.\n\n` +
+                    `Ya notifiqué a soporte técnico para revisar tu vinculación y reactivarte el acceso Premium a la brevedad. ¡Gracias por tu paciencia! 😊`);
+                return;
+            } else {
+                // Cuenta no activa o vencida: ofrecer renovación de precios
+                const { processCheckPrices } = require('./billingService');
+                await processCheckPrices(message, userId, userStates, inputToUse, expiredPlat, 1);
+                return;
+            }
+        }
+
+        const wantsImgCode = !isExpiredOrRenewalScreen && ((detection.metadata && detection.metadata.is2faScreen === true) || [
             'código', 'codigo', '2fa', 'authenticator', 'autenticación',
             'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
             'no forma parte', 'hogar con netflix', 'tu tv no forma parte', 'enviamos a tu email', 'ingresa el código',
             'código vence en 15', 'codigo vence en 15', 'solicita el reenvio', 'solicita el reenvío',
             'ver temporalmente', 'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'entendimos mal',
             'obtener un código para ver netflix temporalmente', 'crea tu propia cuenta para disfrutar de netflix'
-        ].some(kw => fullOcrContext.includes(kw));
+        ].some(kw => fullOcrContext.includes(kw)));
 
         const isProfileSelectScreen = [
             'elige tu perfil', 'quién está viendo', 'quien esta viendo', 'quién va a ver', 'quien va a ver',
@@ -11422,19 +11475,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             ].some(kw => fullOcrContext.includes(kw));
 
             if (isOptionsScreen) {
-                // Determinar si la pantalla o contexto corresponde a Disney+ o Netflix
+                // Determinar si la pantalla o contexto corresponde estrictamente a Disney+ o Netflix
                 const isDisney = fullOcrContext.includes('disney') || fullOcrContext.includes('star+') || fullOcrContext.includes('star plus') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('disney'));
                 const isNetflix = fullOcrContext.includes('netflix') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('netflix'));
+                const isOtherPlatform = fullOcrContext.includes('youtube') || fullOcrContext.includes('spotify') || fullOcrContext.includes('prime') || fullOcrContext.includes('amazon') || fullOcrContext.includes('hbo') || fullOcrContext.includes('max') || (detection.detectedPlatform && ['youtube', 'spotify', 'prime', 'max'].some(p => detection.detectedPlatform.toLowerCase().includes(p)));
 
-                let targetPlatform = 'netflix';
+                const hasDisney = userAccounts && userAccounts.some(a => (a.Streaming || a.streaming_platform || '').toLowerCase().includes('disney'));
+                const hasNetflix = userAccounts && userAccounts.some(a => (a.Streaming || a.streaming_platform || '').toLowerCase().includes('netflix'));
+
+                let targetPlatform = null;
                 if (isDisney && !isNetflix) {
                     targetPlatform = 'disney';
                 } else if (isNetflix && !isDisney) {
                     targetPlatform = 'netflix';
-                } else if (userAccounts && userAccounts.length > 0) {
-                    const hasDisney = userAccounts.some(a => (a.Streaming || '').toLowerCase().includes('disney'));
-                    const hasNetflix = userAccounts.some(a => (a.Streaming || '').toLowerCase().includes('netflix'));
+                } else if (!isOtherPlatform) {
                     if (hasDisney && !hasNetflix) targetPlatform = 'disney';
+                    else if (hasNetflix && !hasDisney) targetPlatform = 'netflix';
+                    else if (isNetflix) targetPlatform = 'netflix';
                     else if (isDisney) targetPlatform = 'disney';
                 }
 
@@ -11448,15 +11505,17 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     return;
                 }
 
-                console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones/hogar de Netflix/TV en @${userId}. Guiando al usuario.`);
-                const phoneDigits = userId.replace(/\D/g, '');
-                const phoneParam = phoneDigits && phoneDigits.length >= 10 && phoneDigits.length <= 13 ? `?tel=${phoneDigits}` : '';
-                await message.reply(`🤖 ¡Hola! Veo la pantalla de confirmación de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
-                    `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
-                    `1️⃣ Con el control remoto de tu TV, selecciona el botón **"Ver temporalmente"** (o *"Actualizar Hogar con Netflix"*).\n` +
-                    `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
-                    `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos para que sigas viendo sin problema. 🚀`);
-                return;
+                if (targetPlatform === 'netflix') {
+                    console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones/hogar de Netflix/TV en @${userId}. Guiando al usuario.`);
+                    const phoneDigits = userId.replace(/\D/g, '');
+                    const phoneParam = phoneDigits && phoneDigits.length >= 10 && phoneDigits.length <= 13 ? `?tel=${phoneDigits}` : '';
+                    await message.reply(`🤖 ¡Hola! Veo la pantalla de confirmación de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
+                        `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
+                        `1️⃣ Con el control remoto de tu TV, selecciona el botón **"Ver temporalmente"** (o *"Actualizar Hogar con Netflix"*).\n` +
+                        `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
+                        `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos para que sigas viendo sin problema. 🚀`);
+                    return;
+                }
             }
 
             isCodeRequestFromImage = true;
