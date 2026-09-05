@@ -8980,9 +8980,22 @@ async function baseProcessIncomingMessage(messages) {
     }
 
 
-    // 2. ESTADO ACTUAL
+    // 2. ESTADO ACTUAL (Sincronizado entre LID y número de teléfono real)
     const cleanPhoneJid = realPhone ? (realPhone + '@c.us') : userId.split('@')[0].split(':')[0].replace(/\D/g, '') + '@c.us';
-    let currentStateData = userStates.get(userId) || userStates.get(cleanPhoneJid) || userStates.get(realPhone);
+    const stateByUserId = userStates.get(userId);
+    const stateByPhone = cleanPhoneJid ? userStates.get(cleanPhoneJid) : null;
+    const stateByRawPhone = realPhone ? userStates.get(realPhone) : null;
+
+    // Priorizar el estado que tenga intervención humana activa si existe
+    let currentStateData = stateByUserId || stateByPhone || stateByRawPhone;
+    if (stateByPhone && stateByPhone.state === 'waiting_human' && (!stateByUserId || stateByUserId.state !== 'waiting_human')) {
+        currentStateData = stateByPhone;
+        userStates.set(userId, { ...stateByPhone, chatJid: userId });
+    } else if (stateByUserId && stateByUserId.state === 'waiting_human' && cleanPhoneJid && (!stateByPhone || stateByPhone.state !== 'waiting_human')) {
+        currentStateData = stateByUserId;
+        userStates.set(cleanPhoneJid, { ...stateByUserId, chatJid: userId });
+    }
+
     let currentState = undefined;
     if (currentStateData && typeof currentStateData === 'object') {
         currentState = currentStateData.state;
@@ -9009,6 +9022,7 @@ async function baseProcessIncomingMessage(messages) {
             if (currentState === 'waiting_human') {
                 console.log(`[BOT MUTE] Reactivado por comando administrativo @bot.`);
                 userStates.delete(userId);
+                if (cleanPhoneJid) userStates.delete(cleanPhoneJid);
                 currentState = undefined;
             }
             if (!isAdminCommand) return; // Si fue una mención para reactivar el chat con cliente, ignorar para la IA.
@@ -9017,15 +9031,21 @@ async function baseProcessIncomingMessage(messages) {
                 console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
             }
             const existingData = typeof currentStateData === 'object' ? currentStateData : {};
-            userStates.set(userId, {
+            const muteObj = {
                 ...existingData,
                 state: 'waiting_human',
                 nombre: foundName,
                 waitingCount: 0,
                 lastHumanInteraction: Date.now(),
                 waiting_human_mode: 'advisor',
-                clientWaitingSince: null
-            });
+                clientWaitingSince: null,
+                chatJid: userId,
+                realPhone: realPhone
+            };
+            userStates.set(userId, muteObj);
+            if (cleanPhoneJid && cleanPhoneJid !== userId) {
+                userStates.set(cleanPhoneJid, muteObj);
+            }
             return;
         }
     }
@@ -11339,6 +11359,27 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         await message.reply(`🤖 ¡Hola! En tu pantalla puedes seleccionar la opción **"Añadir perfil"** (o el botón **"+"**). 📺\n\n` +
             `Crea tu perfil colocándole **tu nombre** para que tengas tu propio espacio y lista personal. 😊\n\n` +
             `⚠️ *Recuerda:* No modifiques los perfiles de otros usuarios para evitar confusiones.`);
+        return;
+    }
+
+    const isProfilePinQuery = [
+        'puedes poner clave', 'puedo poner clave', 'puedes poner pin', 'puedo poner pin',
+        'ponerle clave', 'ponerle pin', 'se puede poner clave', 'se puede poner pin',
+        'poner clave al perfil', 'poner pin al perfil', 'ponerle clave a mi perfil', 'ponerle pin a mi perfil',
+        'le puedo poner clave', 'le puedo poner pin', 'puedo colocarle clave', 'puedo colocarle pin',
+        'colocarle clave', 'colocarle pin', 'puedes colocarle clave', 'puedes colocarle pin',
+        'puedes poner contrasena', 'puedes poner contraseña', 'puedo poner contrasena', 'puedo poner contraseña',
+        'bloquear perfil', 'bloqueo de perfil', 'bloquear mi perfil', 'pin al perfil', 'clave al perfil'
+    ].some(kw => inputLower.includes(kw));
+
+    if (isProfilePinQuery) {
+        console.log(`[Fast-Track Profile PIN] Interceptada duda de PIN/clave para perfil en @${userId}`);
+        await message.reply(`🤖 ¡Hola! Sí, claro, puedes colocarle un PIN de 4 dígitos a tu perfil para que sea privado. 🔒\n\n` +
+            `👉 *Para colocarle PIN a tu perfil:*\n` +
+            `1️⃣ Ingresa a la cuenta desde la app o un navegador.\n` +
+            `2️⃣ Ve a la sección de configuración de perfiles y selecciona tu perfil.\n` +
+            `3️⃣ Activa la opción **"Bloqueo de perfil"** (o "PIN de perfil") e ingresa la contraseña de la cuenta para configurar tu PIN personal de 4 dígitos. ¡Listo! ✨\n\n` +
+            `⚠️ *Recuerda:* No cambies la contraseña principal de la cuenta para mantener tu servicio y garantía activos.`);
         return;
     }
 

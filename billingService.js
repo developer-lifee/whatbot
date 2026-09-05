@@ -536,16 +536,19 @@ function extractPlatformFromText(text) {
     if (!text) return null;
     const txt = text.toLowerCase().trim();
     if (txt === "2") return null; // Ignorar si es solo la opción del menú
-    if (txt.includes('netflix')) return 'NETFLIX';
-    if (txt.includes('spotify')) return 'SPOTIFY';
-    if (txt.includes('disney')) return 'DISNEY';
-    if (txt.includes('prime') || txt.includes('amazon')) return 'AMAZON PRIME';
-    if (txt.includes('hbo') || txt.includes('max')) return 'MAX';
-    if (txt.includes('paramount')) return 'PARAMOUNT';
-    if (txt.includes('youtube')) return 'YOUTUBE';
-    if (txt.includes('plex')) return 'PLEX';
-    if (txt.includes('crunchyroll') || txt.includes('crunchy')) return 'CRUNCHYROLL';
-    if (txt.includes('apple') || txt.includes('one')) return 'APPLE ONE';
+    if (/\bnetflix\b/i.test(txt)) return 'NETFLIX';
+    if (/\bspotify\b/i.test(txt)) return 'SPOTIFY';
+    if (/\b(disney\+?|star\+?|star\s*plus)\b/i.test(txt)) return 'DISNEY';
+    if (/\b(prime|amazon|prime\s*video)\b/i.test(txt)) return 'AMAZON PRIME';
+    if (/\b(hbo|max|hbo\s*max)\b/i.test(txt)) return 'MAX';
+    if (/\bparamount(\+?|\s*plus)?\b/i.test(txt)) return 'PARAMOUNT';
+    if (/\b(youtube|yt)\b/i.test(txt)) return 'YOUTUBE';
+    if (/\bplex\b/i.test(txt)) return 'PLEX';
+    if (/\b(crunchyroll|crunchy)\b/i.test(txt)) return 'CRUNCHYROLL';
+    if (/\b(apple|apple\s*one|apple\s*tv|apple\s*music)\b/i.test(txt)) return 'APPLE ONE';
+    if (/\bclaude\b/i.test(txt)) return 'CLAUDE';
+    if (/\b(chatgpt|gpt)\b/i.test(txt)) return 'CHATGPT';
+    if (/\bcanva\b/i.test(txt)) return 'CANVA';
     return null;
 }
 
