@@ -1258,15 +1258,30 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
             needsEscalation: true
           };
         }
-        // DETECCIÓN DE PANTALLA DE HOGAR / VER TEMPORALMENTE / CÓDIGO DE VIAJE NETFLIX
-        const isNetflixHouseholdScreen = [
+        // DETECCIÓN DE PANTALLA DE HOGAR / VER TEMPORALMENTE / CÓDIGO DE VIAJE (NETFLIX O DISNEY+)
+        const isHouseholdScreen = [
           'ver temporalmente', 'entendimos mal', 'si estás de viaje', 'si estas de viaje', 'fuera de casa',
           'obtener un código para ver netflix', 'obtener un codigo para ver netflix',
           'crea tu propia cuenta para disfrutar de netflix', 'no forma parte del hogar',
-          'actualizar hogar', 'hogar con netflix', 'hogar de netflix', 'tu tv no forma parte'
+          'actualizar hogar', 'hogar con netflix', 'hogar de netflix', 'tu tv no forma parte',
+          'hogar de disney', 'hogar con disney', 'esta tv no forma parte'
         ].some(kw => descLower.includes(kw));
 
-        if (isNetflixHouseholdScreen) {
+        if (isHouseholdScreen) {
+          const isDisney = descLower.includes('disney') || descLower.includes('star+') || descLower.includes('star plus');
+
+          if (isDisney) {
+            console.log("[AI Fallback Media] Detectada pantalla de Hogar de Disney+ en TV. Guiando al usuario de inmediato.");
+            return {
+              replyMessage: `🤖 ¡Hola! Veo en tu pantalla el aviso de Hogar de **Disney+** en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
+                `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
+                `1️⃣ Con el control remoto de tu TV, selecciona la opción **"ESTOY FUERA DE CASA"** (o *"Actualizar Hogar"*).\n` +
+                `2️⃣ En la siguiente pantalla selecciona **"Enviar código"** (o *"Continuar"*).\n` +
+                `3️⃣ Disney te enviará un **código de acceso de 6 dígitos**. En cuanto le des enviar, escribe aquí la palabra *código* (o *"código de disney"*) y el sistema te entregará el código para que sigas viendo sin problema. 🚀`,
+              needsEscalation: false
+            };
+          }
+
           console.log("[AI Fallback Media] Detectada pantalla de Hogar / Ver temporalmente de Netflix en TV. Guiando al usuario de inmediato.");
           const phoneParam = isValidPhone ? `?tel=${customerPhone}` : '';
           return {

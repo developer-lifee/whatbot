@@ -11419,6 +11419,32 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             ].some(kw => fullOcrContext.includes(kw));
 
             if (isOptionsScreen) {
+                // Determinar si la pantalla o contexto corresponde a Disney+ o Netflix
+                const isDisney = fullOcrContext.includes('disney') || fullOcrContext.includes('star+') || fullOcrContext.includes('star plus') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('disney'));
+                const isNetflix = fullOcrContext.includes('netflix') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('netflix'));
+
+                let targetPlatform = 'netflix';
+                if (isDisney && !isNetflix) {
+                    targetPlatform = 'disney';
+                } else if (isNetflix && !isDisney) {
+                    targetPlatform = 'netflix';
+                } else if (userAccounts && userAccounts.length > 0) {
+                    const hasDisney = userAccounts.some(a => (a.Streaming || '').toLowerCase().includes('disney'));
+                    const hasNetflix = userAccounts.some(a => (a.Streaming || '').toLowerCase().includes('netflix'));
+                    if (hasDisney && !hasNetflix) targetPlatform = 'disney';
+                    else if (isDisney) targetPlatform = 'disney';
+                }
+
+                if (targetPlatform === 'disney') {
+                    console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones/hogar de Disney+ en @${userId}. Guiando al usuario.`);
+                    await message.reply(`🤖 ¡Hola! Veo la pantalla de confirmación de **Disney+** en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
+                        `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
+                        `1️⃣ Con el control remoto de tu TV, selecciona la opción **"ESTOY FUERA DE CASA"** (o *"Actualizar Hogar"*).\n` +
+                        `2️⃣ En la siguiente pantalla selecciona **"Enviar código"** (o *"Continuar"*).\n` +
+                        `3️⃣ Disney te enviará un **código de acceso de 6 dígitos**. En cuanto le des enviar, escribe aquí la palabra *código* (ej: *"código de disney"*) y el sistema te entregará el código de 6 dígitos para que sigas viendo sin problema. 🚀`);
+                    return;
+                }
+
                 console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones/hogar de Netflix/TV en @${userId}. Guiando al usuario.`);
                 const phoneDigits = userId.replace(/\D/g, '');
                 const phoneParam = phoneDigits && phoneDigits.length >= 10 && phoneDigits.length <= 13 ? `?tel=${phoneDigits}` : '';
