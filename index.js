@@ -12569,21 +12569,28 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 console.log(`[Advisor Flow AI Analysis] Can resolve? ${analysis.canResolve}. Action: ${analysis.action}. Explanation: ${analysis.explanation}`);
 
                 if (analysis.canResolve && analysis.action) {
-                    if (analysis.action === 'comprar') {
+                    if (analysis.action === 'duda') {
+                        userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                        const { generateEmpatheticFallback } = require('./aiService');
+                        const fallback = await generateEmpatheticFallback(reason, false, hist, null, userAccounts, userId, userStates);
+                        if (fallback && fallback.replyMessage) {
+                            await message.reply(fallback.replyMessage);
+                            return;
+                        }
+                    } else if (analysis.action === 'comprar') {
                         userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: foundName });
-                        await message.reply(`🤖 Entiendo que deseas adquirir un nuevo servicio (${analysis.explanation}). ¡Yo mismo puedo ayudarte con eso de inmediato!`);
                         const { handleSubscriptionInterest } = require('./salesService');
                         await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
                         return;
                     } else if (analysis.action === 'pagar' || analysis.action === 'renovar') {
                         userStates.set(userId, { state: 'main_menu', nombre: foundName });
-                        await message.reply(`🤖 Veo que deseas realizar un pago o renovar tus cuentas (${analysis.explanation}). ¡Puedo ayudarte con eso ahora mismo!`);
+                        await message.reply(`🤖 Veo que deseas realizar un pago o renovar tus cuentas. ¡Puedo ayudarte con eso ahora mismo!`);
                         const { processCheckPrices } = require('./billingService');
                         await processCheckPrices(message, userId, userStates, reason, analysis.detectedPlatform, 1);
                         return;
                     } else if (analysis.action === 'credenciales') {
                         userStates.set(userId, { state: 'main_menu', nombre: foundName });
-                        await message.reply(`🤖 Veo que necesitas revisar tus credenciales o claves de acceso (${analysis.explanation}).`);
+                        await message.reply(`🤖 Veo que necesitas revisar tus credenciales o claves de acceso.`);
                         const { processCheckCredentials } = require('./billingService');
                         await processCheckCredentials(userId, client, reason, "");
                         return;

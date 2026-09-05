@@ -228,12 +228,25 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   const { items, statedPrice, subscriptionType, empathyGreeting } = intent;
 
   if (!items || items.length === 0) {
+    const cleanText = (mensaje || "").toLowerCase().trim();
+    const isSimpleGreeting = /^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hey|que tal|qué tal)\b/i.test(cleanText) && cleanText.length < 25;
+
+    if (!isSimpleGreeting) {
+      // Si el usuario hizo una pregunta o consulta (ej: "¿Tienes cuentas pro individuales?", "¿Qué incluye el plan?"),
+      // respondemos directamente usando la IA empática y base de conocimiento con el historial de la conversación.
+      const { generateEmpatheticFallback } = require('./aiService');
+      const fallback = await generateEmpatheticFallback(mensaje, false, chatHistoryText, null, [], userId, userStates);
+      if (fallback && fallback.replyMessage) {
+        await message.reply(fallback.replyMessage);
+        return;
+      }
+    }
+
     let replyMsg = "";
     if (empathyGreeting && empathyGreeting.trim().length > 0) {
       replyMsg = `${empathyGreeting.trim()}\n\n¿En qué plataforma o servicio estás interesad@ hoy? (Tenemos Netflix, YouTube Premium, Disney+, Spotify, HBO Max, Prime Video, etc.) 😊`;
     } else {
-      const cleanText = (mensaje || "").toLowerCase().trim();
-      if (/hola|buenas|buenos d[ií]as|buenas tardes|buenas noches/i.test(cleanText)) {
+      if (isSimpleGreeting) {
         replyMsg = "🤖 ¡Hola! Buenas tardes. 😊 Bienvenid@ a Sheerit. ¿En qué plataforma o servicio estás interesad@ hoy? (Tenemos Netflix, YouTube Premium, Disney+, Spotify, HBO Max, Prime Video, etc.)";
       } else {
         replyMsg = "🤖 ¡Hola! 😊 ¿En qué plataforma estás interesad@ hoy? Por favor indícame cuál deseas adquirir o renovar (Netflix, YouTube, Disney+, Spotify, etc.) para darte todos los detalles.";

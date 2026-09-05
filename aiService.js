@@ -1853,15 +1853,16 @@ async function analyzeAdvisorReason(reason, chatHistory = "") {
     2. Pagar, renovar o consultar el precio de su cuenta actual ("pagar" / "renovar").
     3. Solicitar credenciales, cambiar contraseña o consultar PIN ("credenciales").
     4. Fallas técnicas comunes o errores de pantalla en plataformas ("soporte").
+    5. Preguntas, dudas sobre características, disponibilidad de planes, tipos de cuentas (ej. si hay cuentas individuales o compartidas), o cómo funciona un servicio ("duda").
     
     Si el cliente está enojado, tiene problemas de saldos, quejas de atención, o pide un reembolso, el bot NO puede resolverlo y debe ser atendido por un humano (canResolve: false).
     
     Salida esperada JSON:
     {
       "canResolve": boolean, // true si el bot puede resolverlo automáticamente usando uno de los flujos de arriba.
-      "action": "comprar" | "pagar" | "renovar" | "credenciales" | "soporte" | null, // null si canResolve es false.
-      "detectedPlatform": string | null, // Ej: "Netflix", "Disney" si se menciona, de lo contrario null.
-      "explanation": string // Una frase muy corta justificando la decisión (ej. "Quiere comprar Amazon Prime").
+      "action": "comprar" | "pagar" | "renovar" | "credenciales" | "soporte" | "duda" | null, // null si canResolve es false.
+      "detectedPlatform": string | null, // Ej: "Claude", "Netflix", "Disney" si se menciona o se deduce del historial.
+      "explanation": string // Una frase muy corta justificando la decisión (ej. "Pregunta por cuentas individuales").
     }
   `;
 
