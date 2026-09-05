@@ -359,12 +359,13 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
       try {
         const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
-        // Timeout rápido de 4 segundos para evitar que WhatsApp se quede colgado esperando a Google
+        // Timeout adaptativo: 15s para imágenes/OCR multimodal, 6s para texto
+        const geminiTimeoutMs = mediaData ? 15000 : 6000;
         const response = await fetch(`${API_URL}?key=${activeKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
-          signal: AbortSignal.timeout(4000)
+          signal: AbortSignal.timeout(geminiTimeoutMs)
         });
 
         // 429 Quota or 5xx temporary errors
