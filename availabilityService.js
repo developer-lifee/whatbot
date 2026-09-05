@@ -108,7 +108,7 @@ async function checkSpreadsheetStock(platformName) {
             const rowStreaming = normalizeStreamingName(row.Streaming || row.Plataforma);
             if (!rowStreaming) return false;
             
-            if (rowStreaming === targetSearch || targetSearch.includes(rowStreaming) || rowStreaming.includes(targetSearch)) {
+            if (rowStreaming === targetSearch) {
                 const email = (row.correo || row.Correo || "").toString().toLowerCase().trim();
                 if (email && config[email] && config[email].immediate === false) {
                     return false;
@@ -137,12 +137,16 @@ async function getPlatformAvailability(platformName) {
     
     // Normalizar nombre de búsqueda
     const normalizedQuery = platformName.toLowerCase().trim();
+    const targetNormalized = normalizeStreamingName(platformName);
+
+    // 1. Coincidencia exacta de texto
     let configKey = Object.keys(config).find(key => key.toLowerCase().trim() === normalizedQuery);
     
+    // 2. Coincidencia exacta por nombre de plataforma normalizado (evita que 'Netflix Extra' bloquee 'Netflix')
     if (!configKey) {
         configKey = Object.keys(config).find(key => {
-            const k = key.toLowerCase().trim();
-            return k.includes(normalizedQuery) || normalizedQuery.includes(k);
+            const kNorm = normalizeStreamingName(key);
+            return kNorm && targetNormalized && kNorm === targetNormalized;
         });
     }
     
