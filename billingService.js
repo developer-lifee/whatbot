@@ -333,8 +333,8 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         const cMail = (accountOrStreaming['customer mail'] || accountOrStreaming['Customer Mail'] || '').toString().trim();
         const pinText = (accountOrStreaming['pin perfil'] || accountOrStreaming.pin || '').toString().toLowerCase();
         const obsText = (accountOrStreaming.observaciones || accountOrStreaming.Observaciones || '').toString().toLowerCase();
-        if (isValidCustomerEmail(cMail) || pinText.includes('invite') || pinText.includes('spotify.com') || pinText.includes('join') || pinText.includes('google.com') ||
-            obsText.includes('propia') || obsText.includes('personal') || obsText.includes('correo propio') || obsText.includes('invitacion') || obsText.includes('invitación')) {
+        if (isValidCustomerEmail(cMail) ||
+            obsText.includes('propia') || obsText.includes('personal') || obsText.includes('correo propio') || obsText.includes('tu correo')) {
             isPersonal = true;
         }
         streamingName = accountOrStreaming.Streaming || accountOrStreaming.Plataforma || accountOrStreaming.name || "";
@@ -344,13 +344,16 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
 
     if (!streamingName && fallbackExcelPrice > 0) return fallbackExcelPrice;
     const cleanName = streamingName.toString().trim().toUpperCase();
-    if (cleanName.includes('PERSONAL') || cleanName.includes('PROPIA') || cleanName.includes('PROPIO') || cleanName.includes('TU CORREO') || cleanName.includes('CORREO PROPIO') || cleanName.includes('OWNER') || cleanName.includes('FAMILIAR')) {
+    if ((cleanName.includes('PERSONAL') || cleanName.includes('PROPIA') || cleanName.includes('PROPIO') || cleanName.includes('TU CORREO') || cleanName.includes('CORREO PROPIO')) && !cleanName.includes('OWNER')) {
         isPersonal = true;
     }
     
     // High-priority alias detection (Specific names before generic)
     let targetName = cleanName;
-    if (cleanName.includes('APPLE ONE') || cleanName.includes('APPLE_ONE') || (cleanName.includes('APPLE') && cleanName.includes('ONE'))) {
+    if (cleanName.includes('SPOTIFY OWNER') || (cleanName.includes('SPOTIFY') && cleanName.includes('OWNER'))) {
+        targetName = 'SPOTIFY OWNER';
+        isPersonal = false;
+    } else if (cleanName.includes('APPLE ONE') || cleanName.includes('APPLE_ONE') || (cleanName.includes('APPLE') && cleanName.includes('ONE'))) {
         targetName = 'APPLE ONE';
     } else if (cleanName.includes('APPLE TV') || cleanName === 'APPLE' || cleanName === 'APPLETV') {
         targetName = 'APPLE TV+';
@@ -391,6 +394,12 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
 
             if (isMatch) {
                 if (Array.isArray(p.plans) && p.plans.length > 0) {
+                    if (targetName === 'SPOTIFY OWNER') {
+                        const ownerPlan = p.plans.find(pl => !pl.isPersonalEmail || (pl.name && (pl.name.toUpperCase().includes('CUENTA NUEVA') || pl.name.toUpperCase().includes('RENOVACION') || pl.name.toUpperCase().includes('RENOVACIÓN'))));
+                        if (ownerPlan && ownerPlan.price) return ownerPlan.price;
+                        return 8000;
+                    }
+
                     // Si el cliente tiene un precio registrado en Excel que coincide exactamente con uno de los planes oficiales de esta plataforma, priorizar ese plan
                     if (fallbackExcelPrice > 0) {
                         const exactPlan = p.plans.find(pl => Number(pl.price) === fallbackExcelPrice);
