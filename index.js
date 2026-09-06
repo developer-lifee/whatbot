@@ -10679,7 +10679,12 @@ async function baseProcessIncomingMessage(messages) {
             if (check.isReceipt) {
                 console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);
 
-                const existing = userStates.get(userId);
+                const cleanPhoneDigits = realPhone ? String(realPhone).replace(/\D/g, '') : '';
+                const realPhoneJid = cleanPhoneDigits ? `${cleanPhoneDigits}@c.us` : null;
+                const existing = userStates.get(userId) || 
+                                 (realPhoneJid ? userStates.get(realPhoneJid) : null) || 
+                                 (cleanPhoneDigits ? userStates.get(cleanPhoneDigits) : null) ||
+                                 (userId.includes('@lid') ? userStates.get(userId.replace('@lid', '@c.us')) : null);
                 const stateData = typeof existing === 'object' ? { ...existing } : { nombre: foundName };
 
                 const { getAccountsByPhone } = require('./apiService');
@@ -10877,6 +10882,57 @@ async function baseProcessIncomingMessage(messages) {
                             stateData.isRenewal = true;
                             userStates.set(userId, stateData);
                         }
+
+                        // 3. RECUPERACIÓN INTELIGENTE DESDE EL HISTORIAL DE CHAT PARA VENTA NUEVA
+                        if (!stateData.items || stateData.items.length === 0) {
+                            // A. Buscar si el bot recientemente cotizó: "Entendido, buscas:\n- (Platform): $(Price)"
+                            const quoteMatch = (history || "").match(/Entendido,\s*buscas:\s*[\r\n]+(?:-\s*([^\r\n:]+):\s*\$?(\d+))/i);
+                            let recoveredPlat = null;
+                            if (quoteMatch) {
+                                recoveredPlat = quoteMatch[1].trim();
+                            }
+
+                            // B. Si no hubo cotización formal, buscar mención de plataformas en el historial reciente
+                            if (!recoveredPlat) {
+                                const textToSearch = `${combinedClientText} ${history || ''}`.toLowerCase();
+                                for (const p of platforms) {
+                                    const pName = p.name.toLowerCase();
+                                    const cleanPName = pName.replace(/[^a-z0-9]/g, '');
+                                    const matchesName = cleanPName.length >= 3 && (textToSearch.includes(cleanPName) || (cleanPName.includes('chatgpt') && (textToSearch.includes('gpt') || textToSearch.includes('chat gpt'))));
+                                    if (matchesName) {
+                                        const matchesPrice = (p.price === check.amount) || (p.plans && p.plans.some(pl => pl.price === check.amount));
+                                        if (matchesPrice || !check.amount) {
+                                            recoveredPlat = p.name;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (recoveredPlat) {
+                                console.log(`[PAYMENT INTERCEPTOR] 🎯 Plataforma recuperada del historial reciente: ${recoveredPlat}`);
+                                const lowerRec = recoveredPlat.toLowerCase();
+                                const matchedPlat = platforms.find(p => p.name.toLowerCase() === lowerRec || lowerRec.includes(p.name.toLowerCase()) || p.name.toLowerCase().includes(lowerRec));
+                                let pPrice = check.amount || 20000;
+                                let pName = recoveredPlat;
+
+                                if (matchedPlat) {
+                                    pName = matchedPlat.name;
+                                    pPrice = matchedPlat.price || check.amount;
+                                    if (matchedPlat.plans && matchedPlat.plans.length > 0) {
+                                        const planMatch = matchedPlat.plans.find(pl => pl.price === check.amount) || matchedPlat.plans[0];
+                                        pPrice = planMatch.price;
+                                        pName = `${matchedPlat.name} - ${planMatch.name}`;
+                                    }
+                                }
+
+                                stateData.items = [{ Streaming: pName, platform: { name: (matchedPlat ? matchedPlat.name : recoveredPlat) }, price: pPrice }];
+                                stateData.total = pPrice;
+                                stateData.isAutoFilled = true;
+                                userStates.set(userId, stateData);
+                                if (realPhoneJid) userStates.set(realPhoneJid, stateData);
+                            }
+                        }
                     }
 
                     // Si el carrito contiene plataformas que el usuario YA TIENE activas en Excel/DB, es obligatoriamente una RENOVACIÓN
@@ -10898,6 +10954,45 @@ async function baseProcessIncomingMessage(messages) {
                             userStates.set(userId, stateData);
                         }
                     }
+                }
+
+                // SI DESPUÉS DE TODAS LAS EVALUACIONES NO HAY SERVICIOS EN EL PEDIDO:
+                // No se puede auto-activar una cuenta fantasma. Notificar que el pago fue recibido y transferir a un asesor.
+                if (!stateData.items || stateData.items.length === 0) {
+                    console.log(`[PAYMENT AUTO-VALIDATE] ⚠️ Comprobante recibido ($${check.amount}) para @${userId} pero NO hay plataforma identificada ni cuentas activas. Pasando a revisión manual.`);
+                    const amtFmt = check.amount ? `$${check.amount.toLocaleString('es-CO')} COP` : '';
+                    await message.reply(`🤖 ¡Hola! He recibido tu comprobante de pago ${amtFmt ? `por valor de *${amtFmt}*` : ''}. 🎉\n\n` +
+                        `Un asesor humano revisará tu chat en breve para asignarte y entregarte tus credenciales. ¡Muchas gracias por tu compra! 😊`);
+                    
+                    userStates.set(userId, {
+                        ...stateData,
+                        state: 'waiting_human',
+                        waitingCount: 1,
+                        waiting_human_mode: 'advisor',
+                        advisorReason: `Pago de ${amtFmt} recibido sin plataforma identificada`,
+                        lastPaymentValidated: Date.now()
+                    });
+                    if (realPhoneJid) {
+                        userStates.set(realPhoneJid, userStates.get(userId));
+                    }
+                    await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
+
+                    try {
+                        const groupChat = await client.getChatById(GROUP_ID);
+                        if (groupChat) {
+                            const displayTarget = realPhone || userId.replace('@c.us', '').replace('@lid', '');
+                            let adminMsg = `🚨 *PAGO RECIBIDO SIN PLATAFORMA IDENTIFICADA* (@${displayTarget})\n` +
+                                `Monto: ${amtFmt}\n` +
+                                `Banco: ${check.bank || 'No identificado'}\n` +
+                                `Por favor, un asesor debe revisar qué servicio solicitó el cliente y entregarlo.`;
+                            await groupChat.sendMessage(adminMsg);
+                            const mediaToForward = await message.downloadMedia();
+                            if (mediaToForward) await groupChat.sendMessage(mediaToForward);
+                        }
+                    } catch (adminErr) {
+                        console.error("Error notificando al grupo sobre pago sin plataforma:", adminErr.message);
+                    }
+                    return;
                 }
 
                 // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---

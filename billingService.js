@@ -646,7 +646,14 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             return;
         }
 
-        const existingState = userStates ? userStates.get(userId) : null;
+        const cleanPhone = (phoneNumber || "").toString().replace(/\D/g, '');
+        const canonicalJid = cleanPhone ? `${cleanPhone}@c.us` : null;
+        const existingState = userStates ? (
+            userStates.get(userId) || 
+            (canonicalJid ? userStates.get(canonicalJid) : null) || 
+            (cleanPhone ? userStates.get(cleanPhone) : null) ||
+            (userId && userId.includes('@lid') ? userStates.get(userId.replace('@lid', '@c.us')) : null)
+        ) : null;
         const hasRecentPayment = existingState && (
             (existingState.lastPaymentValidated && Date.now() - existingState.lastPaymentValidated < 1000 * 60 * 30) ||
             existingState.state === 'awaiting_payment_confirmation' ||

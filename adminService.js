@@ -609,6 +609,17 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     return { success: true };
                 }
 
+                if (!results || results.length === 0) {
+                    const amtFmt = amount ? `$${Number(amount).toLocaleString('es-CO')} COP` : '';
+                    const expectation = getDynamicSupportExpectationMessage();
+                    const manualMsg = `🤖 ¡Tu pago ${amtFmt ? `de *${amtFmt}* ` : ''}ha sido verificado con éxito! 🎉\n\n` +
+                        `Un asesor revisará tu chat en breve para asignarte y entregarte tus credenciales. ${expectation}`;
+                    await client.sendMessage(targetJid, manualMsg);
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                    await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
+                    return { success: true };
+                }
+
                 const successMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n" +
                     "Aquí tienes tus credenciales actualizadas:";
                 await client.sendMessage(targetJid, successMsg);
