@@ -261,6 +261,19 @@ function loadSourceDocuments() {
 3. Respuesta ante preguntas sobre si es compartida o individual: Indicar siempre con claridad que es una cuenta compartida pero gestionada con grupos reducidos según el plan para garantizar entre 40% y 60% de uso intensivo sin límites molestos.`
   });
 
+  chunks.push({
+    id: 'master_individual_slots_policy',
+    source: 'system',
+    category: 'Plataformas y Modalidades',
+    title: 'Modalidad de Cupo Individual en Cuentas Familiares (Apple One, Gemini, YouTube, Spotify)',
+    content: `POLÍTICA DE CUPOS INDIVIDUALES EN GRUPOS FAMILIARES:
+1. En todos los servicios que se activan mediante invitación familiar a correo propio o Apple ID (Apple One $22.000, Gemini Correo Propio $22.000, YouTube Premium, Spotify, Microsoft 365, etc.), el cliente adquiere ÚNICAMENTE UN CUPO INDIVIDUAL PARA 1 SOLA PERSONA.
+2. Sheerit Store administra el grupo familiar y agrega al cliente como miembro invitado individual.
+3. El cliente NO es el administrador del grupo familiar y NO puede agregar a sus familiares, ni invitar a 6 personas, ni compartir el plan con otros por ese mismo valor.
+4. Si el cliente pregunta si puede compartirlo con su grupo familiar o meter a sus familiares sin costo adicional, la respuesta debe ser:
+   "No, el valor de $22.000 COP corresponde a 1 cupo individual para tu cuenta personal. Te unimos a nuestro grupo mediante invitación para que disfrutes de todos los beneficios con total privacidad e independencia en tu propio correo/Apple ID, pero no incluye cupos adicionales para compartir con familiares. Si algún familiar también desea el servicio, debe adquirir su propio cupo individual."`
+  });
+
   return chunks;
 }
 

@@ -222,12 +222,12 @@
         "price": 22000,
         "isPersonalEmail": true,
         "characteristics": [
-          "345 GB en iCloud",
-          "Con tu mismo Apple ID",
+          "345 GB en iCloud personal",
+          "Cupo individual en tu propio Apple ID",
           "Incluye TV, Music, Fitness y Arcade",
-          "Acceso Familiar"
+          "Privacidad total (1 solo usuario)"
         ],
-        "detalles": "Se activa en tu propio Apple ID vía invitación familiar. Incluye Music, TV+, Arcade, Fitness+ y 345GB de iCloud."
+        "detalles": "Cupo individual activado en tu propio Apple ID vía invitación a nuestro grupo familiar. Incluye Music, TV+, Arcade, Fitness+ y 345GB de iCloud con privacidad total (para 1 solo usuario, no incluye cupos para terceros)."
       },
       {
         "id": 1402,
@@ -449,13 +449,13 @@
         "price": 22000,
         "isPersonalEmail": true,
         "characteristics": [
-          "En tu propio correo (Plan Familiar)",
+          "Activación en tu propio correo (Cupo individual)",
           "1 TB de almacenamiento personal",
           "200 créditos de IA mensuales propios",
           "Privacidad total (Nadie ve tus archivos/chats)",
           "Gemini en Workspace (Gmail, Docs, etc.)"
         ],
-        "detalles": "Se activa en tu propio correo personal. 1TB de espacio, 200 créditos de IA propios al mes y privacidad total."
+        "detalles": "Cupo individual activado en tu propio correo personal. 1TB de espacio, 200 créditos de IA propios al mes y privacidad total (para 1 solo usuario, no incluye cupos para terceros)."
       }
     ]
   },

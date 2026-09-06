@@ -21,7 +21,9 @@
   "platform_rules": {
     "Disney+ Premium": "Incluye deportes en vivo (ESPN, Champions League, Copa Libertadores). Menciona esto si preguntan por deportes.",
     "Netflix": "Si el cliente tiene problemas de 'Hogar Netflix', debe solicitar el enlace de actualización de hogar o el código de viaje al bot.",
-    "Spotify": "Si la cuenta vuelve a 'Free', debe reportarlo con una foto para enviarle una nueva invitación familiar. REGLA DE PRECIO: Solo los 'Owners' (dueños que proveen el plan familiar) pagan $8,000. Las cuentas normales (invitados) pagan el precio estándar de cuenta propia."
+    "Spotify": "Las cuentas proporcionadas por nosotros (nuevas, renovaciones estándar y Spotify Owner) valen $8.000 COP. Solo el plan Personal (Tu Correo) vale $10.000 COP.",
+    "Apple One": "Se activa en el Apple ID del cliente como CUPO INDIVIDUAL ($22.000 COP) mediante invitación a nuestro grupo familiar. Es exclusivo para 1 sola persona. Queda estrictamente PROHIBIDO decirle que puede invitar a sus familiares o compartirlo con terceros; no incluye cupos para otras personas.",
+    "Gemini": "El plan en correo propio ($22.000 COP) es un CUPO INDIVIDUAL en el propio correo del cliente con 1TB y 200 créditos de IA. Es exclusivo para 1 sola persona. Queda estrictamente PROHIBIDO decirle que puede agregar familiares o compartir el plan; cualquier familiar debe comprar su propio cupo individual."
   },
   "general_policies": {
     "refunds": "Los reembolsos aprobados se efectuarán 24 horas después de la disponibilidad de los agentes, ya que el equipo prioriza resolver problemas de soporte técnico urgentes. No se reembolsa dinero en efectivo por no funcionamiento o demoras en la entrega de productos si estos ya han sido efectivamente entregados al cliente; en su lugar, la diferencia de valor o saldo restante se guarda en su totalidad como un saldo a favor en la cuenta del cliente para comprar o renovar cualquier otra plataforma en Sheerit Store.",
