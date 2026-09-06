@@ -12018,7 +12018,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     }
 
     // 4.6 BREAKOUT DE FLUJOS (Si el usuario cambia de tema bruscamente o está frustrado)
-    const flowsRequiringBreakout = ['selecting_plans', 'awaiting_purchase_platforms', 'adding_platform', 'awaiting_payment_method', 'awaiting_name_for_contact', 'awaiting_churn_reason'];
+    const flowsRequiringBreakout = ['selecting_plans', 'awaiting_purchase_platforms', 'adding_platform', 'awaiting_payment_method', 'awaiting_name_for_contact', 'awaiting_churn_reason', 'awaiting_payment_confirmation', 'waiting_admin_confirmation'];
 
     // Pivotar si detecta una plataforma distinta a la que estamos configurando
     let isPivottingPlatform = false;
@@ -12028,10 +12028,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             isPivottingPlatform = true;
             console.log(`[Flow Breakout] Pivotando plataforma: ${currentPlatformName} -> ${detection.detectedPlatform}`);
         }
-    } else if (currentState === 'awaiting_payment_method' && currentStateData.items && currentStateData.items.length > 0) {
+    } else if (['awaiting_payment_method', 'awaiting_payment_confirmation'].includes(currentState) && currentStateData.items && currentStateData.items.length > 0) {
         const currentPlatformName = (currentStateData.items[0].Streaming || currentStateData.items[0].platform?.name || "").toLowerCase();
         if (detection.detectedPlatform && !currentPlatformName.includes(detection.detectedPlatform.toLowerCase()) && detection.intent === 'comprar') {
-            console.log(`[Flow Breakout] Pivotando de renovación a compra de nueva plataforma: ${currentPlatformName} -> ${detection.detectedPlatform}`);
+            console.log(`[Flow Breakout] Pivotando de ${currentState} a compra de nueva plataforma: ${currentPlatformName} -> ${detection.detectedPlatform}`);
             userStates.delete(userId);
             currentState = null;
             currentStateData = null;
@@ -13738,6 +13738,42 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
     if (timeSinceValidation < 1000 * 60 * 5) { // 5 minutos de gracia
         await message.reply("🤖 ¡Así es! Ya registré tu pago al instante y te entregué tu cuenta. ¡Es un hecho! A disfrutar de tus pantallas. 😎🎬");
         userStates.set(userId, { ...stateData, state: 'main_menu' });
+        return;
+    }
+
+    // 1. Breakout inmediato si el usuario presiona una opción del menú numérico (1, 2, 3, 4, 5)
+    const trimmedInput = (message.body || '').trim();
+    if (['1', '2', '3', '4', '5'].includes(trimmedInput)) {
+        console.log(`[Awaiting Payment Confirmation] Breakout por opción numérica de menú: ${trimmedInput} para @${userId}`);
+        userStates.delete(userId);
+        userStates.set(userId, { state: 'main_menu', nombre: stateData.nombre });
+        await handleMainMenuSelection(message, userId, null, message.hasMedia, singleMediaData);
+        return;
+    }
+
+    // 2. Si el usuario re-envía la llave de pago o número de cuenta recién entregado (ej: 0087387259, 1032936324, 46772753713, 3118587974)
+    const rawDigits = trimmedInput.replace(/\D/g, '');
+    const knownKeys = ['0087387259', '1032936324', '46772753713', '3118587974'];
+    const isPaymentKeyEcho = knownKeys.some(k => k === rawDigits || (rawDigits.length >= 8 && k.includes(rawDigits)));
+    if (isPaymentKeyEcho) {
+        const expectedTotal = stateData.total ? `$${Number(stateData.total).toLocaleString('es-CO')} COP` : '';
+        await message.reply(`🤖 ¡Exacto! Esa es nuestra llave/cuenta oficial. Transfiere ${expectedTotal ? `*${expectedTotal}*` : 'el valor acordado'} a ese número y envíame aquí la captura del comprobante para entregarte tus credenciales de inmediato. ⚡😊`);
+        return;
+    }
+
+    // 3. Breakout si el usuario escribe el nombre de una plataforma (ej: "Crunchyroll", "Netflix", "Disney+") o pide comprar otro servicio
+    const { getPlatforms } = require('./salesService');
+    const allPlatforms = await getPlatforms();
+    const platMatch = allPlatforms.find(p => {
+        const cleanP = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanMsg = body.replace(/[^a-z0-9]/g, '');
+        return cleanMsg === cleanP || (cleanP.length >= 4 && cleanMsg.includes(cleanP));
+    });
+    if (platMatch) {
+        console.log(`[Awaiting Payment Confirmation] Breakout por selección de plataforma '${platMatch.name}' para @${userId}`);
+        userStates.delete(userId);
+        userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: stateData.nombre });
+        await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
         return;
     }
 
