@@ -6,6 +6,10 @@ const path = require('path');
 const fs = require('fs');
 
 async function safeSend(message, text, userId = null, clientInstance = null) {
+    if (!text || typeof text !== 'string' || text.replace(/🤖|👍|👋|\s/g, '').length === 0) {
+        console.log(`[safeSend] 🛑 Cancelado envío de mensaje vacío o solo emojis: "${text}"`);
+        return null;
+    }
     const activeClient = clientInstance || (message && message._client) || (typeof global !== 'undefined' ? global.client : null);
     
     // Si el mensaje es en un grupo, responder DIRECTAMENTE al grupo

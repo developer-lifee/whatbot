@@ -1397,6 +1397,17 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
 
     replyText = cleanWhatsAppFormatting(replyText);
 
+    // Si la IA devolvió una respuesta vacía o insuficiente, evitar enviar únicamente el emoji 🤖
+    const textWithoutBot = replyText.replace(/🤖/g, '').trim();
+    if (!textWithoutBot || textWithoutBot.length < 3) {
+      console.warn("[AI Fallback] ⚠️ DeepSeek/Gemini devolvió respuesta vacía o insuficiente:", response);
+      const nameStr = (userStates && userId && userStates.get(userId)?.nombre) ? ` *${userStates.get(userId).nombre}*` : "";
+      return {
+        replyMessage: `🤖 ¡Hola${nameStr}! Qué gusto saludarte. ¿En qué te podemos colaborar hoy? Cuéntame qué servicio buscas o en qué te puedo ayudar. 😊🎬`,
+        needsEscalation: false
+      };
+    }
+
     if (!replyText.includes('🤖')) {
       replyText += ' 🤖';
     }

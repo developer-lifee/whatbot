@@ -11722,21 +11722,20 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         : "";
 
     // Añadimos el contexto de antigüedad al historial para que la IA se disculpe si es necesario
-    // --- COOLDOWN DE RESPUESTAS (Anti-Burst) ---
+    // --- CONTROL ANTI-DUPLICADOS (Evita procesar el MISMO mensaje idéntico si WhatsApp lo reenvía en <4s) ---
     const now = Date.now();
     const cleanDigits = userId.replace(/\D/g, '');
-    const lastResp = Math.max(
-        lastResponseTimestamps.get(userId) || 0,
-        cleanDigits ? (lastResponseTimestamps.get(cleanDigits) || 0) : 0,
-        originalChatJid ? (lastResponseTimestamps.get(originalChatJid) || 0) : 0
-    );
-    if (!isFromAdmin && (now - lastResp < RESPONSE_COOLDOWN)) {
-        console.log(`[Cooldown] Ignorando ráfaga duplicada para ${userId} (${now - lastResp}ms desde última respuesta)`);
+    const lastEntry = lastResponseTimestamps.get(userId) || (cleanDigits ? lastResponseTimestamps.get(cleanDigits) : null);
+    const incomingText = (inputToUse || "").trim().toLowerCase();
+    const isExactDuplicate = lastEntry && lastEntry.text && incomingText && (lastEntry.text === incomingText) && (now - lastEntry.timestamp < 4000);
+    if (!isFromAdmin && isExactDuplicate) {
+        console.log(`[Anti-Duplicate] Ignorando mensaje idéntico duplicado en ráfaga para ${userId} ("${incomingText.slice(0, 30)}")`);
         return;
     }
-    lastResponseTimestamps.set(userId, now);
-    if (cleanDigits) lastResponseTimestamps.set(cleanDigits, now);
-    if (originalChatJid) lastResponseTimestamps.set(originalChatJid, now);
+    const entryData = { timestamp: now, text: incomingText };
+    lastResponseTimestamps.set(userId, entryData);
+    if (cleanDigits) lastResponseTimestamps.set(cleanDigits, entryData);
+    if (originalChatJid) lastResponseTimestamps.set(originalChatJid, entryData);
 
     const timedHist = `[ESTE MENSAJE LLEGÓ HACE ${messageAgeMinutes} MINUTOS]\n${hist}`;
     const detection = await detectInitialIntent(inputToUse, timedHist, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
@@ -12592,14 +12591,16 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const fallbackResult = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
             const fallbackMsg = typeof fallbackResult === 'string' ? fallbackResult : (fallbackResult?.replyMessage || "");
 
-            if (fallbackMsg && fallbackMsg.trim() !== "") {
+            const cleanFallback = fallbackMsg ? fallbackMsg.replace(/🤖|👍|👋|\s/g, '') : "";
+
+            if (cleanFallback.length >= 3) {
                 console.log(`[Fallback Conversacional] Enviando respuesta empática de Gemini a @${userId}`);
                 await safeReply(message, fallbackMsg, userId);
                 if (typeof fallbackResult === 'object' && fallbackResult.needsEscalation) {
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', nombre: foundName });
                 }
             } else {
-                console.log(`[Fallback Menú] Enviando menú de bienvenida estándar a @${userId}`);
+                console.log(`[Fallback Menú] Enviando menú de bienvenida estándar a @${userId} porque la respuesta empática no tuvo texto real`);
                 const currentData = userStates.get(userId) || {};
                 if (foundName) {
                     userStates.set(userId, { ...currentData, state: 'main_menu', nombre: foundName });
@@ -13213,8 +13214,13 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
  * durante el tiempo de procesamiento, evitando "pisar" al usuario con respuestas stale.
  */
 async function safeReply(message, content, userId) {
-    if (!content || content.trim() === '👍' || content.trim() === '🤖\n👍' || content.trim() === '🤖 👍') {
-        console.log(`[Safe Reply] 🛑 Omitiendo respuesta vacía o emoji suelto.`);
+    if (!content || typeof content !== 'string') {
+        console.log(`[Safe Reply] 🛑 Omitiendo contenido no válido.`);
+        return null;
+    }
+    const stripped = content.replace(/🤖|👍|👋|\s/g, '');
+    if (stripped.length === 0) {
+        console.log(`[Safe Reply] 🛑 Omitiendo respuesta vacía o emoji suelto: "${content}"`);
         return null;
     }
     const { safeSend } = require('./billingService');
