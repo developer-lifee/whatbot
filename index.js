@@ -10982,11 +10982,26 @@ async function baseProcessIncomingMessage(messages) {
                                 let planName = plat.name;
 
                                 if (plat.plans && plat.plans.length > 0) {
-                                    const specificPlan = plat.plans.find(plan => {
-                                        const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                        const cleanInferred = targetPlatToUse.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                        return cleanInferred.includes(cleanPlan) || cleanPlan.includes(cleanInferred);
-                                    }) || (check.amount ? plat.plans.find(plan => plan.price === check.amount) : null);
+                                    const textToSearchPlans = `${targetPlatToUse} ${batchText || ''} ${(history || '').slice(-1500)}`.toLowerCase();
+                                    let specificPlan = plat.plans.find(plan => plan.price === check.amount);
+
+                                    // Buscar por nombre del plan mencionado en el chat (ej: "Personal", "Platino", etc.)
+                                    if (!specificPlan) {
+                                        specificPlan = plat.plans.find(plan => {
+                                            const cleanPlan = plan.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                            return cleanPlan.length >= 3 && textToSearchPlans.includes(cleanPlan);
+                                        });
+                                    }
+
+                                    // Buscar por múltiplo exacto de meses (ej: $39.000 / $13.000 = 3 meses de Personal)
+                                    if (!specificPlan && check.amount) {
+                                        const multipleMatches = plat.plans.filter(plan => plan.price > 0 && check.amount % plan.price === 0 && check.amount >= plan.price);
+                                        if (multipleMatches.length === 1) {
+                                            specificPlan = multipleMatches[0];
+                                        } else if (multipleMatches.length > 1) {
+                                            specificPlan = multipleMatches.sort((a, b) => b.price - a.price)[0];
+                                        }
+                                    }
 
                                     if (specificPlan) {
                                         price = specificPlan.price;
@@ -11013,7 +11028,7 @@ async function baseProcessIncomingMessage(messages) {
                             } else {
                                 stateData.items = [{ Streaming: targetPlatToUse, platform: { name: targetPlatToUse } }];
                             }
-                            stateData.total = catalogPrice || check.amount;
+                            stateData.total = check.amount || catalogPrice;
                             stateData.isAutoFilled = true;
                             stateData.isRenewal = false;
                             userStates.set(userId, stateData);
@@ -11068,8 +11083,22 @@ async function baseProcessIncomingMessage(messages) {
                                     pName = matchedPlat.name;
                                     pPrice = matchedPlat.price || check.amount;
                                     if (matchedPlat.plans && matchedPlat.plans.length > 0) {
-                                        const planMatch = matchedPlat.plans.find(pl => pl.price === check.amount) || matchedPlat.plans[0];
-                                        pPrice = planMatch.price;
+                                        const textToSearchPlans = `${matchedPlat.name} ${batchText || ''} ${(history || '').slice(-1500)}`.toLowerCase();
+                                        let planMatch = matchedPlat.plans.find(pl => pl.price === check.amount);
+                                        if (!planMatch) {
+                                            planMatch = matchedPlat.plans.find(pl => {
+                                                const cleanPlan = pl.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                                                return cleanPlan.length >= 3 && textToSearchPlans.includes(cleanPlan);
+                                            });
+                                        }
+                                        if (!planMatch && check.amount) {
+                                            const multiMatches = matchedPlat.plans.filter(pl => pl.price > 0 && check.amount % pl.price === 0 && check.amount >= pl.price);
+                                            if (multiMatches.length > 0) {
+                                                planMatch = multiMatches.sort((a, b) => b.price - a.price)[0];
+                                            }
+                                        }
+                                        if (!planMatch) planMatch = matchedPlat.plans[0];
+                                        pPrice = check.amount || planMatch.price;
                                         pName = `${matchedPlat.name} - ${planMatch.name}`;
                                     }
                                 }
