@@ -10793,34 +10793,102 @@ async function baseProcessIncomingMessage(messages) {
 
                 const combinedClientText = `${clientMessagesHistory} ${(batchText || "").toLowerCase()}`;
                 
+                // Cargar catálogo de plataformas y reglas de familias de plataformas
+                const { getPlatforms, findPlatformByName } = require('./salesService');
+                let platforms = [];
+                try { platforms = await getPlatforms(); } catch (e) { }
+                const { isSamePlatformFamily } = require('./salesRegistryService');
+                const { getPlatformPriceFromExcel } = require('./billingService');
+
                 // Expresión regular estricta para frases de solicitud explícita de cuenta NUEVA o ADICIONAL
                 const explicitNewRegex = /\b(cuenta nueva|servicio nuevo|comprar otra|adquirir otra|otra cuenta|cuenta adicional|pantalla adicional|nueva cuenta|nuevo servicio|adquirir nueva|adquirir nuevo)\b/i;
                 const explicitlyWantsNew = explicitNewRegex.test(combinedClientText);
 
-                // Si el usuario ya tiene cuentas activas, por defecto SIEMPRE es una RENOVACIÓN a menos que pida explícitamente una cuenta nueva
+                // Detectar si hay una plataforma objetivo mencionada o inferida (en OCR o en chat)
+                let candidateTargetPlatform = check.inferredPlatform ? String(check.inferredPlatform).trim() : null;
+
+                // Si no vino inferredPlatform en el check, buscar si se cotizó o habló en el historial reciente
+                if (!candidateTargetPlatform && platforms && platforms.length > 0) {
+                    const quoteMatch = (history || "").match(/Entendido,\s*buscas:\s*[\r\n]+(?:-\s*([^\r\n:]+):\s*\$?(\d+))/i);
+                    if (quoteMatch) {
+                        candidateTargetPlatform = quoteMatch[1].trim();
+                    } else {
+                        const textToSearch = `${combinedClientText} ${(history || '').slice(-1500)}`.toLowerCase();
+                        // 1. Buscar primero plataformas cuyo precio coincida con check.amount
+                        for (const p of platforms) {
+                            const pName = p.name.toLowerCase();
+                            const cleanPName = pName.replace(/[^a-z0-9]/g, '');
+                            const matchesName = cleanPName.length >= 3 && (textToSearch.includes(cleanPName) || (cleanPName.includes('chatgpt') && (textToSearch.includes('gpt') || textToSearch.includes('chat gpt'))));
+                            if (matchesName) {
+                                const matchesPrice = (p.price === check.amount) || (p.plans && p.plans.some(pl => pl.price === check.amount));
+                                if (matchesPrice) {
+                                    candidateTargetPlatform = p.name;
+                                    break;
+                                }
+                            }
+                        }
+                        // 2. Si aún no hay candidateTargetPlatform pero se mencionó una plataforma en los mensajes recientes del cliente
+                        if (!candidateTargetPlatform) {
+                            for (const p of platforms) {
+                                const pName = p.name.toLowerCase();
+                                const cleanPName = pName.replace(/[^a-z0-9]/g, '');
+                                const matchesName = cleanPName.length >= 3 && (combinedClientText.includes(cleanPName) || (cleanPName.includes('chatgpt') && (combinedClientText.includes('gpt') || combinedClientText.includes('chat gpt'))));
+                                if (matchesName) {
+                                    candidateTargetPlatform = p.name;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Verificar si la plataforma candidata coincide con alguna cuenta activa que el usuario YA tenga en Excel
+                let matchedUserAccount = null;
+                if (candidateTargetPlatform && userAccounts && userAccounts.length > 0) {
+                    matchedUserAccount = userAccounts.find(acc => {
+                        const accStr = (acc.Streaming || "").toLowerCase();
+                        const candStr = candidateTargetPlatform.toLowerCase();
+                        return isSamePlatformFamily(accStr, candStr) ||
+                               accStr.replace(/[^a-z0-9]/g, '').includes(candStr.replace(/[^a-z0-9]/g, '')) ||
+                               candStr.replace(/[^a-z0-9]/g, '').includes(accStr.replace(/[^a-z0-9]/g, ''));
+                    }) || null;
+                }
+
+                const accountsWithPrices = (userAccounts && userAccounts.length > 0) ? userAccounts.map(acc => ({
+                    ...acc,
+                    calculatedPrice: getPlatformPriceFromExcel(acc, platforms)
+                })) : [];
+
+                // Determinar si es una compra nueva
                 let isNewRequested = false;
                 if (stateData.isRenewal === true || stateData.intent === 'renovar') {
                     isNewRequested = false;
-                } else if (explicitlyWantsNew) {
+                } else if (explicitlyWantsNew || stateData.intent === 'comprar') {
                     isNewRequested = true;
-                } else if (stateData.intent === 'comprar' && stateData.state === 'awaiting_purchase_platforms' && (!userAccounts || userAccounts.length === 0)) {
+                } else if (candidateTargetPlatform && !matchedUserAccount) {
+                    // Si se detectó una plataforma (en OCR o en chat) que NO pertenece a ninguna cuenta activa del usuario,
+                    // es INEQUÍVOCAMENTE la compra de un servicio nuevo (ej: tiene Netflix pero paga/habla de HBO Max)
                     isNewRequested = true;
+                    console.log(`[PAYMENT INTERCEPTOR] 🆕 Plataforma detectada (${candidateTargetPlatform}) NO coincide con sus cuentas activas (${userAccounts.map(a => a.Streaming).join(', ')}). Marcado como COMPRA NUEVA.`);
+                } else if (userAccounts && userAccounts.length > 0 && !matchedUserAccount && check.amount) {
+                    // Si el monto pagado no coincide con el precio de sus cuentas activas, pero sí coincide con un plan del catálogo (ej: $11.000 = Max Platino vs Netflix $13.000)
+                    const priceMatchesExisting = accountsWithPrices.some(ap => ap.calculatedPrice === check.amount);
+                    if (!priceMatchesExisting) {
+                        const catalogMatch = platforms.find(p => p.price === check.amount || (p.plans && p.plans.some(pl => pl.price === check.amount)));
+                        if (catalogMatch) {
+                            console.log(`[PAYMENT INTERCEPTOR] Monto $${check.amount} no coincide con cuentas activas del usuario, pero coincide con catálogo (${catalogMatch.name}). Tratando como servicio nuevo.`);
+                            isNewRequested = true;
+                            if (!candidateTargetPlatform) {
+                                candidateTargetPlatform = catalogMatch.name;
+                            }
+                        }
+                    }
                 }
 
                 // Si el carrito está vacío, intentar auto-rellenarlo inteligentemente
                 if (!stateData.items || stateData.items.length === 0) {
-                    const { getPlatforms } = require('./salesService');
-                    let platforms = [];
-                    try { platforms = await getPlatforms(); } catch (e) { }
-
                     // 1. PRIORIDAD MÁXIMA: Si el usuario YA TIENE cuentas activas y no solicitó servicio nuevo
                     if (userAccounts && userAccounts.length > 0 && !isNewRequested) {
-                        const { getPlatformPriceFromExcel } = require('./billingService');
-                        const accountsWithPrices = userAccounts.map(acc => {
-                            const price = getPlatformPriceFromExcel(acc, platforms);
-                            return { ...acc, calculatedPrice: price };
-                        });
-
                         // Agrupar cuentas que comparten la misma fecha de corte para evaluar combos reales
                         const dateGroups = {};
                         accountsWithPrices.forEach(acc => {
@@ -10856,9 +10924,9 @@ async function baseProcessIncomingMessage(messages) {
                             const matchingByPrice = accountsWithPrices.filter(ap => ap.calculatedPrice === check.amount);
                             let matchedAcc = null;
 
-                            // Si tiene varias cuentas con el mismo precio (ej: IPTV y Spotify a $10.000), desempatar con la plataforma mencionada en el chat o inferredPlatform
+                            // Si tiene varias cuentas con el mismo precio (ej: IPTV y Spotify a $10.000), desempatar con la plataforma mencionada en el chat o candidateTargetPlatform
                             if (matchingByPrice.length > 1) {
-                                const textToSearch = `${check.inferredPlatform || ''} ${batchText || ''} ${historyLower || ''}`.toLowerCase();
+                                const textToSearch = `${candidateTargetPlatform || ''} ${batchText || ''} ${historyLower || ''}`.toLowerCase();
                                 matchedAcc = matchingByPrice.find(ap => {
                                     const plat = (ap.Streaming || '').toLowerCase().replace(/[^a-z0-9]/g, '');
                                     return plat && textToSearch.includes(plat);
@@ -10875,47 +10943,34 @@ async function baseProcessIncomingMessage(messages) {
                             stateData.isAutoFilled = true;
                             userStates.set(userId, stateData);
                         }
-                        // C. Si solo tiene 1 cuenta activa, es renovación de esa cuenta
-                        else if (userAccounts.length === 1) {
-                            console.log(`[PAYMENT INTERCEPTOR] Usuario tiene 1 sola cuenta activa (${userAccounts[0].Streaming}). Renovando automáticamente.`);
+                        // C. Si la plataforma detectada coincide con alguna de sus cuentas activas
+                        else if (matchedUserAccount) {
+                            console.log(`[PAYMENT INTERCEPTOR] Plataforma detectada ${candidateTargetPlatform} coincide con su cuenta activa ${matchedUserAccount.Streaming}.`);
+                            stateData.items = [matchedUserAccount];
+                            stateData.total = check.amount || accountsWithPrices.find(ap => ap.id === matchedUserAccount.id)?.calculatedPrice;
+                            stateData.isRenewal = true;
+                            stateData.isAutoFilled = true;
+                            userStates.set(userId, stateData);
+                        }
+                        // D. Si solo tiene 1 cuenta activa Y el monto pagado coincide o es muy cercano al precio de esa cuenta (nunca si es un monto para otra plataforma)
+                        else if (userAccounts.length === 1 && (!check.amount || Math.abs(accountsWithPrices[0].calculatedPrice - check.amount) <= 1000)) {
+                            console.log(`[PAYMENT INTERCEPTOR] Usuario tiene 1 sola cuenta activa (${userAccounts[0].Streaming}) y el monto coincide/aproxima. Renovando automáticamente.`);
                             stateData.items = [userAccounts[0]];
                             stateData.total = check.amount || accountsWithPrices[0].calculatedPrice;
                             stateData.isRenewal = true;
                             stateData.isAutoFilled = true;
                             userStates.set(userId, stateData);
                         }
-                        // E. Si se detectó una plataforma que coincide con alguna de sus cuentas o corregir plataforma inferida errónea
-                        else if (check.inferredPlatform) {
-                            const matchedAcc = userAccounts.find(acc => {
-                                const accStr = (acc.Streaming || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-                                const infStr = check.inferredPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
-                                return accStr.includes(infStr) || infStr.includes(accStr);
-                            });
-                            if (matchedAcc) {
-                                console.log(`[PAYMENT INTERCEPTOR] Plataforma detectada ${check.inferredPlatform} coincide con su cuenta ${matchedAcc.Streaming}.`);
-                                stateData.items = [matchedAcc];
-                                stateData.total = check.amount;
-                                stateData.isRenewal = true;
-                                stateData.isAutoFilled = true;
-                                userStates.set(userId, stateData);
-                            } else if (userAccounts.length === 1) {
-                                console.log(`[PAYMENT INTERCEPTOR] Corrigiendo plataforma inferida (${check.inferredPlatform}) a la única cuenta activa real del cliente: ${userAccounts[0].Streaming}.`);
-                                stateData.items = [userAccounts[0]];
-                                stateData.total = check.amount;
-                                stateData.isRenewal = true;
-                                stateData.isAutoFilled = true;
-                                userStates.set(userId, stateData);
-                            }
-                        }
                     }
 
-                    // 2. Si todavía no se llenó (ej: compra nueva de cliente sin cuentas o con solicitud explícita)
+                    // 2. Si todavía no se llenó (ej: compra nueva de cliente con o sin cuentas o plataforma diferente detectada)
                     if (!stateData.items || stateData.items.length === 0) {
-                        if (check.inferredPlatform) {
-                            console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con inferredPlatform: ${check.inferredPlatform}. isNewRequested=${isNewRequested}`);
+                        const targetPlatToUse = candidateTargetPlatform || check.inferredPlatform;
+                        if (targetPlatToUse) {
+                            console.log(`[PAYMENT INTERCEPTOR] Auto-rellenando carrito vacío con targetPlat: ${targetPlatToUse}. isNewRequested=${isNewRequested}`);
                             let catalogPrice = 0;
                             let matchedItems = [];
-                            const lowerInferred = check.inferredPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
+                            const lowerInferred = targetPlatToUse.toLowerCase().replace(/[^a-z0-9]/g, '');
 
                             const matchedPlats = platforms.filter(p => {
                                 const cleanPlat = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -10929,7 +10984,7 @@ async function baseProcessIncomingMessage(messages) {
                                 if (plat.plans && plat.plans.length > 0) {
                                     const specificPlan = plat.plans.find(plan => {
                                         const cleanPlan = plan.name.toUpperCase().replace(/[^A-Z0-9]/g, '');
-                                        const cleanInferred = check.inferredPlatform.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                                        const cleanInferred = targetPlatToUse.toUpperCase().replace(/[^A-Z0-9]/g, '');
                                         return cleanInferred.includes(cleanPlan) || cleanPlan.includes(cleanInferred);
                                     }) || (check.amount ? plat.plans.find(plan => plan.price === check.amount) : null);
 
@@ -10956,12 +11011,13 @@ async function baseProcessIncomingMessage(messages) {
                             if (matchedItems.length > 0) {
                                 stateData.items = matchedItems;
                             } else {
-                                stateData.items = [{ Streaming: check.inferredPlatform, platform: { name: check.inferredPlatform } }];
+                                stateData.items = [{ Streaming: targetPlatToUse, platform: { name: targetPlatToUse } }];
                             }
                             stateData.total = catalogPrice || check.amount;
                             stateData.isAutoFilled = true;
+                            stateData.isRenewal = false;
                             userStates.set(userId, stateData);
-                        } else if (userAccounts.length === 1 && !isNewRequested) {
+                        } else if (userAccounts.length === 1 && !isNewRequested && (!check.amount || Math.abs(accountsWithPrices[0].calculatedPrice - check.amount) <= 1000)) {
                             stateData.items = [userAccounts[0]];
                             stateData.total = check.amount;
                             stateData.isAutoFilled = true;
@@ -12739,7 +12795,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         }
         case 'awaiting_payment_autofill_confirmation':
             const autofillOption = (message.body || "").trim().toLowerCase();
-            if (autofillOption === '1' || autofillOption === 'si' || autofillOption === 'sí') {
+            const isAffirmative = autofillOption === '1' || /^(si|sí|correcto|claro|dale|por favor|confirmo|ok|vale)\b/i.test(autofillOption);
+            const isNegative = autofillOption === '2' || /^(no|otra|otro|ninguno)\b/i.test(autofillOption);
+            if (isAffirmative) {
                 const stateInfo = currentStateData;
                 await message.reply("🤖 ¡Excelente! Procediendo a la asignación y entrega de tu servicio... ⏳");
                 const valResult = await executePaymentValidation(
@@ -12754,7 +12812,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     await message.reply("🤖 Hubo un inconveniente al asignar automáticamente tu cuenta. Un asesor revisará tu caso en un momento. ¡Gracias por tu paciencia! 😊");
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
                 }
-            } else if (autofillOption === '2' || autofillOption === 'no') {
+            } else if (isNegative) {
                 await message.reply("🤖 Entendido. He pausado la asignación automática para que un asesor te colabore. Por favor, escríbeme cuál plataforma deseas activar. 😊");
                 userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
                 try {
