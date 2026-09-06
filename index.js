@@ -9799,9 +9799,70 @@ async function baseProcessIncomingMessage(messages) {
             }
             return;
         } else if (adminAI.intent === 'enviar_credenciales') {
-            const targetPlat = (adminAI.target_platform || '').trim();
-            const platLower = targetPlat.toLowerCase();
-            const isHBO = platLower.includes('hbo') || platLower.includes('max') || message.body.toLowerCase().includes('hbo') || message.body.toLowerCase().includes('max');
+            let targetPlat = (adminAI.target_platform || '').trim();
+            const bodyLower = (message.body || '').toLowerCase();
+
+            // Fallback para extraer plataforma si el AI no la detectó o viene vacía
+            const platKeywords = [
+                { key: 'crunchyroll', aliases: ['crunchyroll', 'crunchy roll', 'crunchy'] },
+                { key: 'apple one', aliases: ['apple one', 'appleone'] },
+                { key: 'apple tv', aliases: ['apple tv', 'appletv'] },
+                { key: 'apple', aliases: ['apple'] },
+                { key: 'hbo', aliases: ['hbo', 'max', 'hbo max', 'hbo platino'] },
+                { key: 'netflix', aliases: ['netflix', 'netflis', 'netfli'] },
+                { key: 'disney', aliases: ['disney', 'disney+', 'disney plus'] },
+                { key: 'amazon', aliases: ['amazon', 'prime', 'prime video'] },
+                { key: 'spotify', aliases: ['spotify', 'spoty'] },
+                { key: 'paramount', aliases: ['paramount', 'paramount+'] },
+                { key: 'youtube', aliases: ['youtube', 'yt'] },
+                { key: 'canva', aliases: ['canva'] },
+                { key: 'plex', aliases: ['plex'] },
+                { key: 'iptv', aliases: ['iptv'] },
+                { key: 'magis', aliases: ['magis', 'magis tv'] },
+                { key: 'vix', aliases: ['vix'] },
+                { key: 'claude', aliases: ['claude'] },
+                { key: 'gpt', aliases: ['chatgpt', 'gpt', 'chat gpt', 'openai'] },
+                { key: 'gemini', aliases: ['gemini'] },
+                { key: 'platzi', aliases: ['platzi'] }
+            ];
+
+            if (!targetPlat) {
+                for (const pk of platKeywords) {
+                    if (pk.aliases.some(alias => bodyLower.includes(alias))) {
+                        targetPlat = pk.key;
+                        break;
+                    }
+                }
+            }
+
+            const cleanPlat = (str) => (str || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+            const targetPlatNorm = cleanPlat(targetPlat);
+
+            const isPlatMatch = (rowPlat) => {
+                if (!targetPlatNorm) return true;
+                const rNorm = cleanPlat(rowPlat);
+                if (!rNorm) return false;
+
+                if (targetPlatNorm.includes('hbo') || targetPlatNorm.includes('max')) {
+                    return (rNorm.includes('hbo') || rNorm.includes('max')) && !rNorm.includes('claude');
+                }
+                if (targetPlatNorm.includes('crunchy')) {
+                    return rNorm.includes('crunchy');
+                }
+                if (targetPlatNorm === 'appleone') {
+                    return rNorm.includes('appleone') || (rNorm.includes('apple') && rNorm.includes('one'));
+                }
+                if (targetPlatNorm === 'appletv') {
+                    return rNorm.includes('appletv') || (rNorm.includes('apple') && rNorm.includes('tv'));
+                }
+                if (targetPlatNorm === 'apple') {
+                    return rNorm.includes('apple');
+                }
+                if (targetPlatNorm.includes('amazon') || targetPlatNorm.includes('prime')) {
+                    return rNorm.includes('amazon') || rNorm.includes('prime');
+                }
+                return rNorm.includes(targetPlatNorm) || targetPlatNorm.includes(rNorm);
+            };
 
             let targetEmail = adminAI.target_email || (adminAI.target_user && adminAI.target_user.includes('@') ? adminAI.target_user.trim() : null);
             if (!targetEmail) {
@@ -9833,57 +9894,82 @@ async function baseProcessIncomingMessage(messages) {
                 const cleanEmail = targetEmail ? targetEmail.toLowerCase().trim() : null;
 
                 if (cleanEmail) {
-                    // 1. Coincidencia exacta con correo de la cuenta
-                    targetRow = allRows.find(r => {
-                        const m = (r.correo || r.Correo || '').toString().toLowerCase().trim();
-                        return m === cleanEmail;
-                    });
-
-                    // 2. Coincidencia con customer mail (correo personal del cliente)
-                    if (!targetRow) {
+                    if (targetPlatNorm) {
+                        // 1. Coincidencia exacta con correo de la cuenta + plataforma requerida
                         targetRow = allRows.find(r => {
-                            const cm = (r['customer mail'] || r['Customer Mail'] || r.customerMail || '').toString().toLowerCase().trim();
-                            return cm === cleanEmail;
+                            const m = String(r.correo || r.Correo || '').toLowerCase().trim();
+                            const s = String(r.Streaming || r.Plataforma || '');
+                            return m === cleanEmail && isPlatMatch(s);
                         });
-                    }
 
-                    // 3. Coincidencia parcial con plataforma
-                    if (!targetRow) {
+                        // 2. Coincidencia con customer mail + plataforma requerida
+                        if (!targetRow) {
+                            targetRow = allRows.find(r => {
+                                const cm = String(r['customer mail'] || r['Customer Mail'] || r.customerMail || '').toLowerCase().trim();
+                                const s = String(r.Streaming || r.Plataforma || '');
+                                return cm === cleanEmail && isPlatMatch(s);
+                            });
+                        }
+
+                        // 3. Coincidencia parcial con plataforma requerida
+                        if (!targetRow) {
+                            targetRow = allRows.find(r => {
+                                const m = String(r.correo || r.Correo || '').toLowerCase().trim();
+                                const cm = String(r['customer mail'] || r['Customer Mail'] || r.customerMail || '').toLowerCase().trim();
+                                const s = String(r.Streaming || r.Plataforma || '');
+                                return (m.includes(cleanEmail) || cm.includes(cleanEmail)) && isPlatMatch(s);
+                            });
+                        }
+                    } else {
+                        // Sin plataforma especificada en el comando:
+                        // 1. Coincidencia exacta con correo de la cuenta
                         targetRow = allRows.find(r => {
-                            const m = (r.correo || r.Correo || r['customer mail'] || r['Customer Mail'] || '').toString().toLowerCase().trim();
-                            const s = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
-                            const isPlatMatch = !platLower || s.includes(platLower) || (isHBO && (s.includes('hbo') || s.includes('max')));
-                            return m.includes(cleanEmail) && isPlatMatch;
+                            const m = String(r.correo || r.Correo || '').toLowerCase().trim();
+                            return m === cleanEmail;
                         });
+
+                        // 2. Coincidencia con customer mail (correo personal del cliente)
+                        if (!targetRow) {
+                            targetRow = allRows.find(r => {
+                                const cm = String(r['customer mail'] || r['Customer Mail'] || r.customerMail || '').toLowerCase().trim();
+                                return cm === cleanEmail;
+                            });
+                        }
+
+                        // 3. Coincidencia parcial
+                        if (!targetRow) {
+                            targetRow = allRows.find(r => {
+                                const m = String(r.correo || r.Correo || r['customer mail'] || r['Customer Mail'] || '').toLowerCase().trim();
+                                return m.includes(cleanEmail);
+                            });
+                        }
                     }
                 }
 
                 if (!targetRow && targetPhone) {
                     targetRow = allRows.find(r => {
-                        const numDigits = (r.numero || r.Numero || '').toString().replace(/\D/g, '');
-                        const waDigits = (r.whatsapp || r.Whatsapp || '').toString().replace(/\D/g, '');
+                        const numDigits = String(r.numero || r.Numero || '').replace(/\D/g, '');
+                        const waDigits = String(r.whatsapp || r.Whatsapp || '').replace(/\D/g, '');
                         const phoneMatch = (numDigits && (numDigits === targetPhone || ('57' + numDigits) === targetPhone || numDigits.endsWith(targetPhone.slice(-10)))) ||
                                            (waDigits && (waDigits === targetPhone || ('57' + waDigits) === targetPhone || waDigits.endsWith(targetPhone.slice(-10))));
-                        const s = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
-                        const isPlatMatch = !platLower || s.includes(platLower) || (isHBO && (s.includes('hbo') || s.includes('max')));
-                        return phoneMatch && isPlatMatch;
+                        const s = String(r.Streaming || r.Plataforma || '');
+                        return phoneMatch && isPlatMatch(s);
                     });
                 }
                 
-                if (!targetRow && (platLower || isHBO)) {
+                if (!targetRow && targetPlatNorm) {
                     targetRow = allRows.find(r => {
-                        const s = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
-                        const w = (r.whatsapp || '').toString().trim();
-                        const num = (r.numero || '').toString().trim();
-                        const n = (r.Nombre || r.nombre || '').toString().toLowerCase().trim();
-                        const isPlatMatch = (platLower ? s.includes(platLower) : false) || (isHBO && (s.includes('hbo') || s.includes('max')));
+                        const s = String(r.Streaming || r.Plataforma || '');
+                        const w = String(r.whatsapp || '').trim();
+                        const num = String(r.numero || '').trim();
+                        const n = String(r.Nombre || r.nombre || '').toLowerCase().trim();
                         const isFree = (!w || w.length < 5) && (!num || num.length < 5) && (!n || n === 'libre' || n.includes('libre'));
-                        return isPlatMatch && isFree;
+                        return isPlatMatch(s) && isFree;
                     });
                 }
 
                 if (targetRow) {
-                    const finalPlat = (targetRow.Streaming || targetRow.Plataforma || targetPlat || (isHBO ? 'HBO' : 'Servicio')).toUpperCase();
+                    const finalPlat = (targetRow.Streaming || targetRow.Plataforma || targetPlat || 'Servicio').toUpperCase();
                     const accountEmail = (targetRow.correo || targetRow.Correo || targetRow['E-mail'] || '').toString().trim();
                     const accountPass = (targetRow.contraseña || targetRow.Contraseña || targetRow.clave || targetRow.Clave || targetRow.password || targetRow.Password || '').toString().trim();
                     const accountPin = (targetRow['pin perfil'] || targetRow.pin || targetRow.PIN || targetRow.Pin || '').toString().trim();
@@ -9915,12 +10001,13 @@ async function baseProcessIncomingMessage(messages) {
                         const isMasterAccountEmail = (accountEmail.toLowerCase() === cleanEmail);
                         if (!isMasterAccountEmail) {
                             const custRow = allRows.find(r => {
-                                const cm = (r['customer mail'] || r['Customer Mail'] || r.customerMail || '').toString().toLowerCase().trim();
-                                return cm === cleanEmail;
+                                const cm = String(r['customer mail'] || r['Customer Mail'] || r.customerMail || '').toLowerCase().trim();
+                                const s = String(r.Streaming || r.Plataforma || '');
+                                return cm === cleanEmail && isPlatMatch(s);
                             });
                             if (custRow) {
-                                const cNum = (custRow.numero || custRow.Numero || '').toString().replace(/\D/g, '');
-                                const cWa = (custRow.whatsapp || custRow.Whatsapp || '').toString().replace(/\D/g, '');
+                                const cNum = String(custRow.numero || custRow.Numero || '').replace(/\D/g, '');
+                                const cWa = String(custRow.whatsapp || custRow.Whatsapp || '').replace(/\D/g, '');
                                 const rawPhone = (cNum.length >= 10 && cNum.length <= 15) ? cNum : ((cWa.length >= 10 && cWa.length <= 15) ? cWa : null);
                                 if (rawPhone) {
                                     const custPhone = rawPhone.length === 10 ? '57' + rawPhone : rawPhone;
@@ -9946,9 +10033,14 @@ async function baseProcessIncomingMessage(messages) {
                         await message.reply(`✅ Credenciales de *${finalPlat}* enviadas con éxito a *${recipientDesc}* 🚀\n\n📧 Cuenta: \`${accountEmail}\``);
                     } else {
                         // Responder en el grupo con los datos completos de la cuenta
+                        const targetRowPlat = String(targetRow.Streaming || targetRow.Plataforma || targetPlat || '');
                         const allProfileRows = allRows.filter(r => {
-                            const m = (r.correo || r.Correo || '').toString().toLowerCase().trim();
-                            return accountEmail && m === accountEmail.toLowerCase();
+                            const m = String(r.correo || r.Correo || '').toLowerCase().trim();
+                            const s = String(r.Streaming || r.Plataforma || '');
+                            const isEmailMatch = accountEmail && m === accountEmail.toLowerCase();
+                            // Filtrar estrictamente perfiles pertenecientes a la plataforma de esta cuenta
+                            const isRowPlatMatch = targetRowPlat ? isPlatMatch(s) : true;
+                            return isEmailMatch && isRowPlatMatch;
                         });
 
                         let detailsMsg = `✅ Credenciales de *${finalPlat}* localizadas:\n\n` +
@@ -9969,7 +10061,7 @@ async function baseProcessIncomingMessage(messages) {
                         await message.reply(detailsMsg);
                     }
                 } else {
-                    await message.reply(`⚠️ No encontré una cuenta libre o registrada de *${targetPlat || (isHBO ? 'HBO' : 'la plataforma solicitada')}* para *${targetEmail || targetPhone || 'ese criterio'}*.`);
+                    await message.reply(`⚠️ No encontré una cuenta libre o registrada de *${targetPlat || 'la plataforma solicitada'}* para *${targetEmail || targetPhone || 'ese criterio'}*.`);
                 }
             } catch (err) {
                 console.error("Error en enviar_credenciales admin:", err);

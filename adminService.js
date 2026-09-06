@@ -253,11 +253,63 @@ async function handleSendCredentialsCommand(message, command, client, getAccount
     const targetPhone = phoneMatch ? phoneMatch[0].replace(/\s+/g, '') : null;
 
     // Extraer plataforma solicitada
-    const knownPlatforms = ['disney', 'netflix', 'amazon', 'spotify', 'max', 'hbo', 'paramount', 'crunchyroll', 'vix', 'youtube', 'canva', 'apple', 'plex', 'iptv', 'magis'];
+    const knownPlatforms = [
+        { key: 'crunchyroll', aliases: ['crunchyroll', 'crunchy roll', 'crunchy'] },
+        { key: 'apple one', aliases: ['apple one', 'appleone'] },
+        { key: 'apple tv', aliases: ['apple tv', 'appletv'] },
+        { key: 'apple', aliases: ['apple'] },
+        { key: 'hbo', aliases: ['hbo', 'max', 'hbo max', 'hbo platino'] },
+        { key: 'netflix', aliases: ['netflix', 'netflis', 'netfli'] },
+        { key: 'disney', aliases: ['disney', 'disney+', 'disney plus'] },
+        { key: 'amazon', aliases: ['amazon', 'prime', 'prime video'] },
+        { key: 'spotify', aliases: ['spotify', 'spoty'] },
+        { key: 'paramount', aliases: ['paramount', 'paramount+'] },
+        { key: 'youtube', aliases: ['youtube', 'yt'] },
+        { key: 'canva', aliases: ['canva'] },
+        { key: 'plex', aliases: ['plex'] },
+        { key: 'iptv', aliases: ['iptv'] },
+        { key: 'magis', aliases: ['magis', 'magis tv'] },
+        { key: 'vix', aliases: ['vix'] },
+        { key: 'claude', aliases: ['claude'] },
+        { key: 'gpt', aliases: ['chatgpt', 'gpt', 'chat gpt', 'openai'] },
+        { key: 'gemini', aliases: ['gemini'] },
+        { key: 'platzi', aliases: ['platzi'] }
+    ];
     let requestedPlatform = null;
-    for (const plat of knownPlatforms) {
-        if (cleanCmd.includes(plat)) { requestedPlatform = plat; break; }
+    for (const kp of knownPlatforms) {
+        if (kp.aliases.some(alias => cleanCmd.includes(alias))) {
+            requestedPlatform = kp.key;
+            break;
+        }
     }
+
+    const cleanPlat = (str) => (str || '').toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const reqPlatNorm = cleanPlat(requestedPlatform);
+
+    const isPlatMatch = (accPlat) => {
+        if (!reqPlatNorm) return true;
+        const aNorm = cleanPlat(accPlat);
+        if (!aNorm) return false;
+        if (reqPlatNorm.includes('hbo') || reqPlatNorm.includes('max')) {
+            return (aNorm.includes('hbo') || aNorm.includes('max')) && !aNorm.includes('claude');
+        }
+        if (reqPlatNorm.includes('crunchy')) {
+            return aNorm.includes('crunchy');
+        }
+        if (reqPlatNorm === 'appleone') {
+            return aNorm.includes('appleone') || (aNorm.includes('apple') && aNorm.includes('one'));
+        }
+        if (reqPlatNorm === 'appletv') {
+            return aNorm.includes('appletv') || (aNorm.includes('apple') && aNorm.includes('tv'));
+        }
+        if (reqPlatNorm === 'apple') {
+            return aNorm.includes('apple');
+        }
+        if (reqPlatNorm.includes('amazon') || reqPlatNorm.includes('prime')) {
+            return aNorm.includes('amazon') || aNorm.includes('prime');
+        }
+        return aNorm.includes(reqPlatNorm) || reqPlatNorm.includes(aNorm);
+    };
 
     const { fetchCustomersData } = require('./apiService');
     const allAccounts = await fetchCustomersData(true).catch(() => []);
@@ -266,22 +318,21 @@ async function handleSendCredentialsCommand(message, command, client, getAccount
 
     if (targetEmail) {
         matchingAccount = allAccounts.find(acc => {
-            const accMail = (acc.correo || acc.email || '').trim().toLowerCase();
-            const accPlat = (acc.Streaming || '').toLowerCase();
-            const isPlatMatch = !requestedPlatform || accPlat.includes(requestedPlatform) || (requestedPlatform === 'hbo' && !accPlat.includes('claude') && (accPlat.includes('max') || accPlat.includes('hbo')));
-            return accMail === targetEmail && isPlatMatch;
+            const accMail = String(acc.correo || acc.email || '').trim().toLowerCase();
+            const accPlat = String(acc.Streaming || acc.Plataforma || '');
+            return accMail === targetEmail && isPlatMatch(accPlat);
         });
-        if (!matchingAccount && requestedPlatform) {
-            matchingAccount = allAccounts.find(acc => (acc.correo || acc.email || '').trim().toLowerCase() === targetEmail);
+        if (!matchingAccount && !requestedPlatform) {
+            matchingAccount = allAccounts.find(acc => String(acc.correo || acc.email || '').trim().toLowerCase() === targetEmail);
         }
     } else if (targetPhone) {
         const cleanP = targetPhone.length === 10 ? '57' + targetPhone : targetPhone;
         const userAccs = await getAccountsByPhone(cleanP, null, true).catch(() => []);
         if (userAccs && userAccs.length > 0) {
             matchingAccount = userAccs.find(acc => {
-                const accPlat = (acc.Streaming || '').toLowerCase();
-                return !requestedPlatform || accPlat.includes(requestedPlatform) || (requestedPlatform === 'hbo' && !accPlat.includes('claude') && (accPlat.includes('max') || accPlat.includes('hbo')));
-            }) || userAccs[0];
+                const accPlat = String(acc.Streaming || acc.Plataforma || '');
+                return isPlatMatch(accPlat);
+            }) || (!requestedPlatform ? userAccs[0] : null);
         }
     }
 
