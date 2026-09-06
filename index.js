@@ -2738,13 +2738,14 @@ app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
                     type: m.media_path ? 'image' : 'chat',
                     timestamp: Math.floor(new Date(m.created_at).getTime() / 1000),
                     reply: async (text) => client.sendMessage(targetChatId, text),
+                    getChat: async () => client.getChatById(targetChatId),
                     getContact: async () => ({ number: cleanPhone, name: m.sender_name || cleanPhone })
                 }));
             }
         }
 
         // 4. Buscar últimos mensajes pendientes del cliente (filtrando mensajes del bot o nuestros)
-        const clientMessages = [];
+        let clientMessages = [];
         if (rawMessages && rawMessages.length > 0) {
             for (let i = rawMessages.length - 1; i >= 0; i--) {
                 const m = rawMessages[i];
@@ -2754,6 +2755,24 @@ app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
                     break;
                 }
             }
+
+            // Si el último mensaje fue del asesor, pero se presionó Forzar Bot, buscar el mensaje más reciente del cliente
+            if (clientMessages.length === 0) {
+                for (let i = rawMessages.length - 1; i >= 0; i--) {
+                    const m = rawMessages[i];
+                    if (!m.fromMe && !(m.body && m.body.includes('🤖'))) {
+                        clientMessages.unshift(m);
+                        for (let j = i - 1; j >= 0; j--) {
+                            if (!rawMessages[j].fromMe && !(rawMessages[j].body && rawMessages[j].body.includes('🤖'))) {
+                                clientMessages.unshift(rawMessages[j]);
+                            } else {
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
         }
 
         const messagesToProcess = clientMessages.length > 0 ? clientMessages : (rawMessages.length > 0 ? [rawMessages[rawMessages.length - 1]] : []);
@@ -2761,9 +2780,12 @@ app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
         if (messagesToProcess.length > 0) {
             console.log(`[Force Bot Reply] 🚀 Procesando ${messagesToProcess.length} mensajes para @${targetChatId} (${cleanPhone || phone})`);
             
-            // Asignar IDs frescos para que no sean bloqueados por deduplicación
+            // Asignar IDs frescos y asegurar getChat para que no sean bloqueados por deduplicación ni causen fallas
             messagesToProcess.forEach(m => {
                 m.from = targetChatId;
+                if (typeof m.getChat !== 'function') {
+                    m.getChat = async () => client.getChatById(targetChatId);
+                }
                 m.id = { _serialized: `force_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, id: `force_${Date.now()}` };
             });
 

@@ -162,7 +162,13 @@ async function getChatHistoryText(message, limit = 25) {
   let chatHistoryText = "";
   try {
     if (!message) return "";
-    const chat = await message.getChat().catch(() => null);
+    let chat = null;
+    if (typeof message.getChat === 'function') {
+      chat = await message.getChat().catch(() => null);
+    } else if (typeof global !== 'undefined' && global.client) {
+      const targetId = message.from || message.to;
+      if (targetId) chat = await global.client.getChatById(targetId).catch(() => null);
+    }
     if (!chat) return "";
 
     let messages = [];
