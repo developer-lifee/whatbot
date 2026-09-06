@@ -2634,21 +2634,83 @@ app.post('/api/admin/tickets/release', async (req, res) => {
 
 app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
     try {
-        const { phone, password } = req.body;
+        const { phone, userId: reqUserId, chatId: reqChatId, password } = req.body;
         if (password !== 'admin123' && password !== 'admin') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const cleanPhone = (phone || '').replace(/\D/g, '').slice(-10);
-        const userId = phone.includes('@') ? phone : (cleanPhone ? (cleanPhone.length === 10 ? '57' + cleanPhone : cleanPhone) + '@c.us' : phone);
+        const { pool } = require('./database');
 
-        // Resetear estado del bot y marcar isForceBot para procesar el contexto conversacional sin bloqueo por horario
-        userStates.set(userId, { state: 'idle', isForceBot: true });
-        if (cleanPhone) {
-            userStates.set(`57${cleanPhone}@c.us`, { state: 'idle', isForceBot: true });
-            userStates.set(`${cleanPhone}@c.us`, { state: 'idle', isForceBot: true });
+        // 1. Resolver el JID real de la conversación (priorizando LID si existe en la BD o viene en la petición)
+        let targetChatId = null;
+        if (reqUserId && reqUserId.includes('@')) {
+            targetChatId = reqUserId;
+        } else if (reqChatId && reqChatId.includes('@')) {
+            targetChatId = reqChatId;
+        } else if (phone && phone.includes('@')) {
+            targetChatId = phone;
         }
 
+        if (!targetChatId || !targetChatId.includes('@lid')) {
+            try {
+                const [chatDbRows] = await pool.query(
+                    "SELECT chat_id FROM chats WHERE (customer_phone = ? OR customer_phone LIKE ?) ORDER BY updated_at DESC LIMIT 1",
+                    [phone ? phone.replace(/\D/g, '') : cleanPhone, `%${cleanPhone}%`]
+                );
+                if (chatDbRows && chatDbRows.length > 0 && chatDbRows[0].chat_id) {
+                    targetChatId = chatDbRows[0].chat_id;
+                }
+            } catch (dbErr) {
+                console.error("[Force Bot Reply] Error buscando en tabla chats:", dbErr.message);
+            }
+        }
+
+        if (!targetChatId && cleanPhone) {
+            try {
+                const [msgDbRows] = await pool.query(
+                    "SELECT chat_id FROM messages WHERE chat_id LIKE ? OR sender_id LIKE ? ORDER BY created_at DESC LIMIT 1",
+                    [`%${cleanPhone}%`, `%${cleanPhone}%`]
+                );
+                if (msgDbRows && msgDbRows.length > 0 && msgDbRows[0].chat_id) {
+                    targetChatId = msgDbRows[0].chat_id;
+                }
+            } catch (msgErr) {
+                console.error("[Force Bot Reply] Error buscando en tabla messages:", msgErr.message);
+            }
+        }
+
+        if (!targetChatId) {
+            targetChatId = cleanPhone ? (cleanPhone.length === 10 ? '57' + cleanPhone : cleanPhone) + '@c.us' : phone;
+        }
+
+        console.log(`[Force Bot Reply] 🎯 Target chat resuelto para @${phone}: ${targetChatId}`);
+
+        // 2. Resetear estados en userStates y chats para permitir que el bot responda sin bloqueos por asesor ni horario
+        const forceState = { 
+            state: 'idle', 
+            isForceBot: true, 
+            waiting_human_mode: 'bot', 
+            agent: null, 
+            lastHumanInteraction: 0,
+            realPhone: cleanPhone ? ('57' + cleanPhone) : ''
+        };
+
+        userStates.set(targetChatId, forceState);
+        activeProcessingUsers.delete(targetChatId);
+
+        if (cleanPhone) {
+            userStates.set(`57${cleanPhone}@c.us`, forceState);
+            userStates.set(`${cleanPhone}@c.us`, forceState);
+            userStates.set(`57${cleanPhone}@lid`, forceState);
+            activeProcessingUsers.delete(`57${cleanPhone}@c.us`);
+            activeProcessingUsers.delete(`${cleanPhone}@c.us`);
+            activeProcessingUsers.delete(`57${cleanPhone}@lid`);
+        }
+
+        pool.query('UPDATE chats SET status = "bot", updated_at = NOW() WHERE chat_id = ? OR customer_phone LIKE ?', [targetChatId, `%${cleanPhone}%`]).catch(() => {});
+
+        // 3. Obtener mensajes recientes del chat
         let rawMessages = [];
-        let chat = await client.getChatById(userId).catch(() => null);
+        let chat = await client.getChatById(targetChatId).catch(() => null);
         if (!chat && cleanPhone) {
             chat = await client.getChatById(`57${cleanPhone}@c.us`).catch(() => null);
         }
@@ -2658,22 +2720,22 @@ app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
             rawMessages = await chat.fetchMessages({ limit: 15 }).catch(() => []);
         }
 
-        // Fallback a Base de Datos MariaDB si Puppeteer no tiene mensajes en caché
+        // Fallback a Base de Datos MariaDB si Puppeteer no tiene mensajes en caché o está vacío
         if (!rawMessages || rawMessages.length === 0) {
-            const { pool } = require('./database');
             const [dbMsgs] = await pool.query(
-                "SELECT * FROM messages WHERE chat_id LIKE ? OR sender_id LIKE ? ORDER BY created_at DESC LIMIT 15",
-                [`%${cleanPhone}%`, `%${cleanPhone}%`]
+                "SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT 15",
+                [targetChatId]
             );
 
             if (dbMsgs && dbMsgs.length > 0) {
-                const targetChatId = dbMsgs[0].chat_id || userId;
                 rawMessages = dbMsgs.reverse().map(m => ({
-                    id: { _serialized: m.message_id || `msg_${m.id}` },
-                    from: m.sender_id || targetChatId,
-                    to: m.chat_id || targetChatId,
+                    id: { _serialized: `force_${Date.now()}_${m.id}`, id: `force_${Date.now()}_${m.id}` },
+                    from: targetChatId,
+                    to: (client && client.info) ? client.info.wid._serialized : '',
                     body: m.body || '',
                     fromMe: m.is_from_me === 1,
+                    hasMedia: !!m.media_path,
+                    type: m.media_path ? 'image' : 'chat',
                     timestamp: Math.floor(new Date(m.created_at).getTime() / 1000),
                     reply: async (text) => client.sendMessage(targetChatId, text),
                     getContact: async () => ({ number: cleanPhone, name: m.sender_name || cleanPhone })
@@ -2681,12 +2743,12 @@ app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
             }
         }
 
-        // Buscar últimos mensajes del cliente
+        // 4. Buscar últimos mensajes pendientes del cliente (filtrando mensajes del bot o nuestros)
         const clientMessages = [];
         if (rawMessages && rawMessages.length > 0) {
             for (let i = rawMessages.length - 1; i >= 0; i--) {
                 const m = rawMessages[i];
-                if (!m.fromMe && !m.body.includes('🤖')) {
+                if (!m.fromMe && !(m.body && m.body.includes('🤖'))) {
                     clientMessages.unshift(m);
                 } else if (clientMessages.length > 0) {
                     break;
@@ -2697,15 +2759,21 @@ app.post('/api/admin/tickets/force-bot-reply', async (req, res) => {
         const messagesToProcess = clientMessages.length > 0 ? clientMessages : (rawMessages.length > 0 ? [rawMessages[rawMessages.length - 1]] : []);
 
         if (messagesToProcess.length > 0) {
-            console.log(`[Force Bot Reply] 🚀 Procesando ${messagesToProcess.length} mensajes para @${cleanPhone || phone}`);
+            console.log(`[Force Bot Reply] 🚀 Procesando ${messagesToProcess.length} mensajes para @${targetChatId} (${cleanPhone || phone})`);
+            
+            // Asignar IDs frescos para que no sean bloqueados por deduplicación
+            messagesToProcess.forEach(m => {
+                m.from = targetChatId;
+                m.id = { _serialized: `force_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, id: `force_${Date.now()}` };
+            });
+
             processIncomingMessage(messagesToProcess).catch(err => {
                 console.error('[Force Bot Reply] Error en procesamiento:', err.message);
             });
         } else {
             // Si no hay mensajes en ningún lado, enviar saludo/ayuda inicial del bot
-            console.log(`[Force Bot Reply] Enviando respuesta inicial por defecto para @${cleanPhone || phone}`);
-            const targetJid = userId;
-            await client.sendMessage(targetJid, `🤖 ¡Hola! 👋 ¿En qué te puedo colaborar el día de hoy? Cuéntame tu duda o envíame foto de lo que necesitas. 😊`);
+            console.log(`[Force Bot Reply] Enviando respuesta inicial por defecto para @${targetChatId}`);
+            await client.sendMessage(targetChatId, `🤖 ¡Hola! 👋 ¿En qué te puedo colaborar el día de hoy? Cuéntame tu duda o envíame foto de lo que necesitas. 😊`);
         }
 
         res.json({ success: true, message: 'Respuesta del bot forzada y reactivada con éxito' });

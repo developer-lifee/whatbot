@@ -1143,8 +1143,14 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
     };
   }
 
-  // Si en el historial reciente aparece un Asesor Humano hablando activamente, NO interrumpir la conversación
-  if (chatHistory && chatHistory.includes('Asesor Humano (Atención Manual)')) {
+  // Si en el historial reciente aparece un Asesor Humano hablando activamente, NO interrumpir la conversación a menos que se haya forzado el bot
+  const isForced = userStates && userId && (
+    userStates.get(userId)?.isForceBot ||
+    userStates.get(String(userId).replace('@lid', '@c.us'))?.isForceBot ||
+    (userStates.get(userId)?.realPhone && userStates.get(userStates.get(userId).realPhone + '@c.us')?.isForceBot)
+  );
+
+  if (!isForced && chatHistory && chatHistory.includes('Asesor Humano (Atención Manual)')) {
     const lines = chatHistory.split('\n').filter(l => l.trim().length > 0);
     const lastLines = lines.slice(-5).join(' ');
     if (lastLines.includes('Asesor Humano (Atención Manual)') && !messageContent?.toLowerCase()?.includes('@bot') && messageContent?.trim()?.toLowerCase() !== 'menu') {
