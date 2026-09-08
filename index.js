@@ -7911,6 +7911,32 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
 
 
 
+app.get('/api/debug/wwebjs', async (req, res) => {
+    try {
+        let state = null;
+        try {
+            state = await Promise.race([
+                client ? client.getState() : Promise.resolve('NO_CLIENT'),
+                new Promise((_, reject) => setTimeout(() => reject(new Error("getState timeout (5s)")), 5000))
+            ]);
+        } catch (e) {
+            state = `ERROR: ${e.message}`;
+        }
+        res.json({
+            hasClient: !!client,
+            hasPupBrowser: !!(client && client.pupBrowser),
+            browserConnected: (client && client.pupBrowser) ? client.pupBrowser.isConnected() : false,
+            hasPupPage: !!(client && client.pupPage),
+            pageClosed: (client && client.pupPage) ? client.pupPage.isClosed() : false,
+            pageUrl: (client && client.pupPage) ? client.pupPage.url() : null,
+            state: state,
+            internalStatus: typeof currentWhatsappStatus !== 'undefined' ? currentWhatsappStatus : null
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 const server = http.createServer(app);
 const port = process.env.PORT || 3000;
 
@@ -7936,7 +7962,7 @@ server.listen(port, () => {
                 ]);
             } catch (e) {
                 if (isWarmingUp) {
-                    console.log(`⏳ Heartbeat: Esperando conexión inicial de WhatsApp Web (${Math.round((Date.now() - botProcessStartTime)/1000)}s)...`);
+                    console.log(`⏳ Heartbeat: Esperando conexión inicial de WhatsApp Web (${Math.round((Date.now() - botProcessStartTime)/1000)}s)... Detalle:`, e.message);
                     return;
                 }
                 console.error('⚠️ Heartbeat: client.getState() falló o dio timeout:', e.message);
@@ -13931,11 +13957,26 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
     const explicitPaymentPhrases = [
         "ya pagu", "ya realice el pago", "ya realice pago", "ya hice el pago", "ya hice pago",
         "ya transferi", "ya deposite", "ya envie el pago", "ya mande el pago", "ya consigne",
-        "comprobante de pago", "comprobante", "pantallazo del pago", "aqui esta el pago"
+        "comprobante de pago", "comprobante", "pantallazo del pago", "aqui esta el pago",
+        "ya qued", "ya quedó", "ya quedo", "listo el pago", "listo ya", "ya cancele", "ya cancelé",
+        "pagado", "ya pase", "ya pasé", "ya se pago", "ya se pagó", "ya mande", "ya mandé",
+        "ya envie", "ya envié", "acabo de pagar", "acabo de transferir", "acabo de enviar",
+        "ya deposité", "ya consigné", "consignado", "transferido"
     ];
-    const isExplicitPaymentText = explicitPaymentPhrases.some(phrase => body.includes(phrase));
+    const isExplicitPaymentText = explicitPaymentPhrases.some(phrase => body.includes(phrase)) ||
+        body === 'listo' || body.startsWith('listo ') ||
+        body === 'ya' || body.startsWith('ya ') ||
+        body === 'hecho' || body === 'ok listo';
 
-    if (message.hasMedia || isExplicitPaymentText) {
+    // Si el cliente afirma haber pagado pero NO envió imagen/comprobante, solicitar el comprobante de inmediato
+    if (!message.hasMedia && isExplicitPaymentText) {
+        console.log(`[Awaiting Payment Confirmation] Cliente @${userId} afirma haber pagado por texto sin comprobante: "${message.body}". Solicitando comprobante.`);
+        await message.reply("🤖 ¡Hola! Para poder verificar tu pago y proceder con la entrega/renovación de inmediato, por favor envíanos la *captura de pantalla o foto del comprobante de transferencia* 📸. ¡Quedo muy atento! 😊");
+        userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation' });
+        return;
+    }
+
+    if (message.hasMedia) {
 
         // --- INTENTO DE VALIDACIÓN AUTOMÁTICA POR IMAGEN ---
         if (message.hasMedia && singleMediaData) {
