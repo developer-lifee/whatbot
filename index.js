@@ -966,6 +966,29 @@ app.post('/api/bold/webhook', async (req, res) => {
     }
 });
 
+async function ensureWWebJSInjected(clientInstance) {
+    if (!clientInstance || !clientInstance.pupPage) return false;
+    try {
+        const isOk = await clientInstance.pupPage.evaluate(() => {
+            return typeof window.WWebJS !== 'undefined' && typeof window.WWebJS.getChat === 'function';
+        }).catch(() => false);
+        if (!isOk) {
+            console.warn('[WWebJS] ⚠️ Inyección WWebJS ausente en WhatsApp Web. Re-inyectando LoadUtils...');
+            try {
+                const { ExposeStore } = require('whatsapp-web.js/src/util/Injected/Store');
+                await clientInstance.pupPage.evaluate(ExposeStore).catch(() => {});
+            } catch(e) {}
+            const { LoadUtils } = require('whatsapp-web.js/src/util/Injected/Utils');
+            await clientInstance.pupPage.evaluate(LoadUtils).catch(() => {});
+            return true;
+        }
+        return true;
+    } catch (e) {
+        console.error('[WWebJS] Error asegurando inyección:', e.message);
+        return false;
+    }
+}
+
 async function approveBoldOrder(orderId) {
     const { pool } = require('./database');
     const [approvedRows] = await pool.query('SELECT * FROM web_sales_approved WHERE order_id = ?', [orderId]);
@@ -984,7 +1007,11 @@ async function approveBoldOrder(orderId) {
     const { recordNewSale } = require('./salesRegistryService');
 
     let formattedPhone = (customerData.whatsapp || '').replace(/\D/g, '');
-    if (formattedPhone.length === 10 && !formattedPhone.startsWith('57') && !formattedPhone.startsWith('52')) {
+    // Si empieza por 52 pero sigue con numeración celular de Colombia (300-359 con 10 dígitos locales)
+    if (formattedPhone.startsWith('52') && /^523[0-5]\d{8}$/.test(formattedPhone)) {
+        console.log(`[Bold Approve] 🇨🇴 Corrigiendo prefijo erróneo 52 a 57 para celular colombiano: ${formattedPhone}`);
+        formattedPhone = '57' + formattedPhone.slice(2);
+    } else if (formattedPhone.length === 10 && !formattedPhone.startsWith('57') && !formattedPhone.startsWith('52')) {
         formattedPhone = '57' + formattedPhone;
     }
     const numericPhone = parseInt(formattedPhone) || 0;
@@ -1025,126 +1052,135 @@ async function approveBoldOrder(orderId) {
 
     const manualItems = results.filter(res => res.status !== 'success');
 
-    if (hasAnyCredentials) {
-        const customerName = customerData.firstName || "";
-        const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
-        credentialsMsg += profileTip;
-
-        if (manualItems.length > 0) {
-            const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
-            const expectation = getDynamicSupportExpectationMessage();
-            credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. ${expectation}`;
-            try {
-                const groupChat = await client.getChatById(GROUP_ID);
-                if (groupChat) {
-                    await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL PARCIAL REQUERIDA* (@${phoneId.replace('@c.us', '')})\n` +
-                        `Servicios manuales: ${manualPlats}\n` +
-                        `Por favor, envíale la invitación manualmente.`);
-                }
-            } catch (e) { }
+    // Intentar entrega por WhatsApp de forma segura sin abortar la aprobación en BD si falla el socket
+    try {
+        if (client && client.pupPage) {
+            await ensureWWebJSInjected(client);
         }
 
-        await client.sendMessage(phoneId, credentialsMsg);
+        if (hasAnyCredentials) {
+            const customerName = customerData.firstName || "";
+            const profileTip = customerName ? `\n💡 *Importante:* Por favor crea tu perfil usando exactamente el nombre *${customerName}* (como está registrado en nuestro sistema) para poder llevar el control de tu cuenta. 😊` : `\n💡 *Importante:* Por favor crea tu perfil usando tu nombre registrado en nuestro sistema para poder llevar el control de tu cuenta. 😊`;
+            credentialsMsg += profileTip;
 
-        if (manualItems.length > 0) {
-            const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
-            if (hasAppleOne) {
-                const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
-                    `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
-                    `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
-                await client.sendMessage(phoneId, appleMsg);
-                userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
-            } else {
-                userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
-            }
-            await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
-        } else {
-            userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
-        }
-    } else {
-        const newManualItems = manualItems.filter(item => item.type !== 'renewal');
-        const renewalItems = results.filter(item => item.type === 'renewal' || item.status === 'success');
-
-        if (newManualItems.length > 0) {
-            const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
-            if (hasAppleOne) {
-                const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
-                    `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
-                    `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
-                await client.sendMessage(phoneId, appleMsg);
-                userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
-            } else {
-                let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
-                const formatCleanPlatformTitle = (rawName) => {
-                    if (!rawName) return "tu servicio";
-                    let str = rawName.toString().replace(/^COMBO\s*\([^)]*\)\s*:\s*/i, '').trim();
-                    if (str.toUpperCase().includes('CLAUDE')) {
-                        if (str.toUpperCase().includes('X5') || str.toUpperCase().includes(' 5')) return 'Claude Max x5';
-                        if (str.toUpperCase().includes('MAX')) return 'Claude Max';
-                        if (str.toUpperCase().includes('X2') || str.toUpperCase().includes(' 2')) return 'Claude Pro x2';
-                        return 'Claude Pro';
-                    }
-                    if (str.includes(' - ')) {
-                        const parts = str.split(' - ');
-                        const platform = parts[0].trim();
-                        const plan = parts[1] ? parts[1].trim() : "";
-                        if (plan.toLowerCase().includes('correo') || plan.toLowerCase().includes('familiar') || plan.toLowerCase().includes('invitaci')) {
-                            return `${platform} (${plan})`;
-                        }
-                        return platform;
-                    }
-                    return str;
-                };
-                const platformsStr = newManualItems.map(item => formatCleanPlatformTitle(item.name)).join(', ');
+            if (manualItems.length > 0) {
+                const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
                 const expectation = getDynamicSupportExpectationMessage();
-                manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
-                    `${expectation}`;
-                await client.sendMessage(phoneId, manualMsg);
-
+                credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. ${expectation}`;
                 try {
                     const groupChat = await client.getChatById(GROUP_ID);
                     if (groupChat) {
-                        let ticketTag = "";
-                        try {
-                            await pool.query(
-                                'INSERT INTO chats (chat_id, customer_phone, last_message_text, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE updated_at = NOW()',
-                                [phoneId, phoneId.replace(/\D/g, ''), `Activación Manual Bold: ${platformsStr}`]
-                            );
-                            const [tRes] = await pool.query(
-                                'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
-                                [
-                                    phoneId,
-                                    `Activación Manual: ${platformsStr}`,
-                                    `Pago Web Bold de $${customerData.amount || ''} para ${platformsStr}`,
-                                    'open',
-                                    'high'
-                                ]
-                            );
-                            if (tRes && tRes.insertId) ticketTag = ` (#TK-${tRes.insertId})`;
-                        } catch (tErr) { }
-
-                        await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA*${ticketTag} (@${phoneId.replace('@c.us', '')})\n` +
-                            `Servicios: ${platformsStr}\n` +
-                            `Monto: $${customerData.amount || ''}\n` +
-                            `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
+                        await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL PARCIAL REQUERIDA* (@${phoneId.replace('@c.us', '')})\n` +
+                            `Servicios manuales: ${manualPlats}\n` +
+                            `Por favor, envíale la invitación manualmente.`);
                     }
                 } catch (e) { }
-
-                userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
             }
-            await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
-        } else if (renewalItems.length > 0) {
-            const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
-            const venc = renewalItems[0].vencimiento || "";
-            const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
-            const successMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\n¡Gracias por renovar con Sheerit! 😊`;
-            await client.sendMessage(phoneId, successMsg);
-            userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+
+            await client.sendMessage(phoneId, credentialsMsg);
+
+            if (manualItems.length > 0) {
+                const hasAppleOne = manualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
+                if (hasAppleOne) {
+                    const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
+                        `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
+                        `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
+                    await client.sendMessage(phoneId, appleMsg);
+                    userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+                } else {
+                    userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+                }
+                await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
+            } else {
+                userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+            }
         } else {
-            const successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema. En breve te enviaremos tus credenciales.`;
-            await client.sendMessage(phoneId, successMsg);
-            userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+            const newManualItems = manualItems.filter(item => item.type !== 'renewal');
+            const renewalItems = results.filter(item => item.type === 'renewal' || item.status === 'success');
+
+            if (newManualItems.length > 0) {
+                const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple'));
+                if (hasAppleOne) {
+                    const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
+                        `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
+                        `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
+                    await client.sendMessage(phoneId, appleMsg);
+                    userStates.set(phoneId, { state: 'awaiting_apple_one_details', chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+                } else {
+                    let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
+                    const formatCleanPlatformTitle = (rawName) => {
+                        if (!rawName) return "tu servicio";
+                        let str = rawName.toString().replace(/^COMBO\s*\([^)]*\)\s*:\s*/i, '').trim();
+                        if (str.toUpperCase().includes('CLAUDE')) {
+                            if (str.toUpperCase().includes('X5') || str.toUpperCase().includes(' 5')) return 'Claude Max x5';
+                            if (str.toUpperCase().includes('MAX')) return 'Claude Max';
+                            if (str.toUpperCase().includes('X2') || str.toUpperCase().includes(' 2')) return 'Claude Pro x2';
+                            return 'Claude Pro';
+                        }
+                        if (str.includes(' - ')) {
+                            const parts = str.split(' - ');
+                            const platform = parts[0].trim();
+                            const plan = parts[1] ? parts[1].trim() : "";
+                            if (plan.toLowerCase().includes('correo') || plan.toLowerCase().includes('familiar') || plan.toLowerCase().includes('invitaci')) {
+                                return `${platform} (${plan})`;
+                            }
+                            return platform;
+                        }
+                        return str;
+                    };
+                    const platformsStr = newManualItems.map(item => formatCleanPlatformTitle(item.name)).join(', ');
+                    const expectation = getDynamicSupportExpectationMessage();
+                    manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
+                        `${expectation}`;
+                    await client.sendMessage(phoneId, manualMsg);
+
+                    try {
+                        const groupChat = await client.getChatById(GROUP_ID);
+                        if (groupChat) {
+                            let ticketTag = "";
+                            try {
+                                await pool.query(
+                                    'INSERT INTO chats (chat_id, customer_phone, last_message_text, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE updated_at = NOW()',
+                                    [phoneId, phoneId.replace(/\D/g, ''), `Activación Manual Bold: ${platformsStr}`]
+                                );
+                                const [tRes] = await pool.query(
+                                    'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
+                                    [
+                                        phoneId,
+                                        `Activación Manual: ${platformsStr}`,
+                                        `Pago Web Bold de $${customerData.amount || ''} para ${platformsStr}`,
+                                        'open',
+                                        'high'
+                                    ]
+                                );
+                                if (tRes && tRes.insertId) ticketTag = ` (#TK-${tRes.insertId})`;
+                            } catch (tErr) { }
+
+                            await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA*${ticketTag} (@${phoneId.replace('@c.us', '')})\n` +
+                                `Servicios: ${platformsStr}\n` +
+                                `Monto: $${customerData.amount || ''}\n` +
+                                `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
+                        }
+                    } catch (e) { }
+
+                    userStates.set(phoneId, { state: 'waiting_human', waitingCount: 1, chatJid: phoneId, nombre: `${customerData.firstName} ${customerData.lastName}`, lastPaymentValidated: Date.now() });
+                }
+                await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
+            } else if (renewalItems.length > 0) {
+                const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
+                const venc = renewalItems[0].vencimiento || "";
+                const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
+                const successMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\n¡Gracias por renovar con Sheerit! 😊`;
+                await client.sendMessage(phoneId, successMsg);
+                userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+            } else {
+                const successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema. En breve te enviaremos tus credenciales.`;
+                await client.sendMessage(phoneId, successMsg);
+                userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+            }
         }
+    } catch (msgErr) {
+        console.error(`[Bold Approve] ⚠️ No se pudo enviar notificación de WhatsApp para orden ${orderId} (@${phoneId}):`, msgErr.message);
     }
 
     try {
@@ -7883,13 +7919,14 @@ server.listen(port, () => {
 
     // Heartbeat cada 2 minutos (con detector anti-zombie de estados atascados OPENING / DISCONNECTED)
     let nonConnectedHeartbeatCount = 0;
+    let criticalErrorCount = 0;
     const botProcessStartTime = Date.now();
 
     setInterval(async () => {
         try {
             if (!client) return;
 
-            const isWarmingUp = (Date.now() - botProcessStartTime) < (6 * 60 * 1000);
+            const isWarmingUp = (Date.now() - botProcessStartTime) < (10 * 60 * 1000);
 
             let state = null;
             try {
@@ -7927,6 +7964,7 @@ server.listen(port, () => {
                 if (isSyncing) {
                     console.log('⏳ [SYNC ACTIVO] WhatsApp Web está descargando mensajes/historial legítimamente. Manteniendo proceso vivo...');
                     nonConnectedHeartbeatCount = 0;
+                    criticalErrorCount = 0;
                     return;
                 }
 
@@ -7959,12 +7997,19 @@ server.listen(port, () => {
                 ]);
                 if (!info) throw new Error("Browser unresponsive (Deep check failed)");
             }
+            criticalErrorCount = 0;
         } catch (err) {
             console.error('⚠️ Heartbeat: Error de salud detectado:', err.message);
-            const isWarmingUp = (Date.now() - botProcessStartTime) < (6 * 60 * 1000);
+            const isWarmingUp = (Date.now() - botProcessStartTime) < (10 * 60 * 1000);
             if (!isWarmingUp && (isCriticalBrowserError(err) || err.message.toLowerCase().includes("detached") || err.message.toLowerCase().includes("unresponsive") || err.message.toLowerCase().includes("protocol error"))) {
-                console.error('🔥 [ANTI-ZOMBIE] Detectado estado crítico o zombie de Puppeteer. Forzando reinicio para PM2...');
-                process.exit(1);
+                criticalErrorCount++;
+                console.warn(`⚠️ [ANTI-ZOMBIE] Fallo crítico detectado en heartbeat (${criticalErrorCount}/3): ${err.message}`);
+                if (criticalErrorCount >= 3) {
+                    console.error('🔥 [ANTI-ZOMBIE] Detectado estado crítico persistente de Puppeteer (3 fallos seguidos). Forzando reinicio para PM2...');
+                    process.exit(1);
+                }
+            } else {
+                criticalErrorCount = 0;
             }
         }
     }, 2 * 60 * 1000);
@@ -14209,12 +14254,13 @@ async function startClientWithRetries(maxRetries = 5) {
                 if (fs.existsSync(dir)) {
                     ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'parent_singleton_lock'].forEach(lockFile => {
                         const lockPath = path.join(dir, lockFile);
-                        if (fs.existsSync(lockPath)) {
-                            try {
+                        try {
+                            const stat = fs.lstatSync(lockPath);
+                            if (stat) {
                                 fs.unlinkSync(lockPath);
                                 console.log(`🧹 [Startup Clean] ${lockFile} obsoleto eliminado en ${dir}`);
-                            } catch (e) { }
-                        }
+                            }
+                        } catch (e) { }
                     });
                 }
             });
