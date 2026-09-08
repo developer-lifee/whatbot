@@ -7845,8 +7845,8 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
 // POST Request 2FA Code from Website
 app.post('/api/client/request-2fa', express.json(), async (req, res) => {
     try {
-        const { phone, accountId } = req.body;
-        if (!phone || !accountId) {
+        const { phone, accountId, email, platform } = req.body;
+        if (!phone || (!accountId && !email)) {
             return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
         }
 
@@ -7856,14 +7856,77 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
 
         let targetAccount = null;
         if (isDemo) {
-            targetAccount = DEMO_ACCOUNTS_LIST.find(a => a.id == accountId);
+            targetAccount = DEMO_ACCOUNTS_LIST.find(a => (accountId && a.id == accountId) || (email && (a.email || '').toLowerCase() === email.toLowerCase()));
         } else {
-            const { getAccountsByPhone } = require('./apiService');
-            const userAccounts = await getAccountsByPhone(cleanPhone);
-            targetAccount = userAccounts.find(a => (a.id || a._rowNumber) == accountId);
+            const { getAccountsByPhone, fetchCustomersData } = require('./apiService');
+
+            // 1. Obtener cuentas asociadas al teléfono
+            let userAccounts = await getAccountsByPhone(cleanPhone);
+
+            // Si no encontró y el teléfono tiene 10 dígitos (ej. Colombia sin prefijo 57), intentar con 57
+            if ((!userAccounts || userAccounts.length === 0) && cleanPhone.length === 10) {
+                userAccounts = await getAccountsByPhone('57' + cleanPhone);
+            }
+            // Si no encontró y el teléfono tiene 12 dígitos y empieza por 57, intentar sin 57
+            if ((!userAccounts || userAccounts.length === 0) && cleanPhone.length === 12 && cleanPhone.startsWith('57')) {
+                userAccounts = await getAccountsByPhone(cleanPhone.slice(2));
+            }
+
+            userAccounts = userAccounts || [];
+
+            // A. Buscar por accountId (id, _rowNumber, rowNumber)
+            if (accountId) {
+                targetAccount = userAccounts.find(a => (a.id || a._rowNumber || a.rowNumber) == accountId);
+            }
+
+            // B. Si no se encontró por ID pero tenemos email, buscar por email en sus cuentas
+            if (!targetAccount && email) {
+                const normEmail = email.trim().toLowerCase();
+                targetAccount = userAccounts.find(a => (a.correo || '').trim().toLowerCase() === normEmail);
+            }
+
+            // C. Si no se encontró y tenemos plataforma, buscar por coincidencia de plataforma en sus cuentas
+            if (!targetAccount && platform) {
+                const normPlatform = platform.trim().toUpperCase();
+                targetAccount = userAccounts.find(a => {
+                    const st = (a.Streaming || '').toUpperCase();
+                    return st.includes(normPlatform) || normPlatform.includes(st);
+                });
+            }
+
+            // D. Si el usuario sólo tiene 1 cuenta asociada y no encontramos otra, usar esa cuenta
+            if (!targetAccount && userAccounts.length === 1) {
+                targetAccount = userAccounts[0];
+            }
+
+            // E. Fallback exhaustivo: Si aún no se encuentra pero se envió email:
+            // Validar en el Excel global si la cuenta existe y pertenece a este cliente (por coincidencia de teléfono)
+            if (!targetAccount && email) {
+                try {
+                    const allCustomers = await fetchCustomersData();
+                    const normEmail = email.trim().toLowerCase();
+                    const matchedRows = allCustomers.filter(c => (c.correo || '').trim().toLowerCase() === normEmail);
+                    for (const row of matchedRows) {
+                        const rowPhone = (row.numero || row.Numero || row.whatsapp || row.celular || '').toString().replace(/\D/g, '');
+                        if (rowPhone && (
+                            rowPhone === cleanPhone ||
+                            rowPhone.endsWith(cleanPhone) ||
+                            cleanPhone.endsWith(rowPhone) ||
+                            (cleanPhone.length >= 10 && rowPhone.endsWith(cleanPhone.slice(-10))) ||
+                            (rowPhone.length >= 10 && cleanPhone.endsWith(rowPhone.slice(-10)))
+                        )) {
+                            targetAccount = row;
+                            break;
+                        }
+                    }
+                } catch (errFallback) {
+                    console.error('[2FA Account Lookup Fallback Error]:', errFallback.message);
+                }
+            }
         }
 
         if (!targetAccount) {
+            console.warn(`[2FA Request 404] No account found. Phone: ${phone} (${cleanPhone}), accountId: ${accountId}, email: ${email}, platform: ${platform}`);
             return res.status(404).json({ success: false, message: 'Cuenta no encontrada o no vinculada a tu número' });
         }
 
@@ -8604,8 +8667,13 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 const { generateGPTCode, checkAndIncrementUsage } = require('./totpService');
                 const canRequest = checkAndIncrementUsage(realPhone, accountEmail);
                 if (!canRequest) {
-                    await message.reply("🤖 Has alcanzado el límite de 3 códigos para este inicio de sesión. Por seguridad, si necesitas más ayuda, un asesor humano revisará tu caso.");
-                    return;
+                    const limitMsg = "🤖 Has alcanzado el límite de códigos para este inicio de sesión. Por seguridad, por favor espera unos minutos o comunícate con un asesor.";
+                    await message.reply(limitMsg);
+                    return {
+                        success: false,
+                        limitReached: true,
+                        message: "Has alcanzado el límite temporal de solicitudes de código (5 intentos cada 15 minutos). Por favor espera un momento o contacta a soporte."
+                    };
                 }
                 const code = generateGPTCode(accountEmail);
                 if (code) {

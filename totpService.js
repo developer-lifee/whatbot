@@ -32,24 +32,35 @@ function generateGPTCode(email) {
 
 /**
  * Increments the usage counter for a user (phone) and account (email).
- * Returns true if the user is within the limit (max 3), false otherwise.
+ * Uses a 15-minute rolling window (max 5 requests per window) and normalizes phone numbers.
  * @param {string} phone 
  * @param {string} email 
+ * @param {number} [maxAllowed=5]
+ * @param {number} [windowMs=900000] (15 mins)
  * @returns {boolean}
  */
-function checkAndIncrementUsage(phone, email) {
+function checkAndIncrementUsage(phone, email, maxAllowed = 5, windowMs = 15 * 60 * 1000) {
     const usage = loadUsage();
-    const key = `${phone}_${email.toLowerCase().trim()}`;
-    
-    if (!usage[key]) {
-        usage[key] = 0;
+    const cleanPhone = (phone || '').toString().replace(/\D/g, '');
+    const normPhone = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+    const key = `${normPhone}_${(email || '').toLowerCase().trim()}`;
+    const now = Date.now();
+
+    const record = usage[key];
+    if (!record || typeof record !== 'object' || !record.resetAt || now > record.resetAt) {
+        usage[key] = {
+            count: 1,
+            resetAt: now + windowMs
+        };
+        saveUsage(usage);
+        return true;
     }
 
-    if (usage[key] >= 3) {
+    if (record.count >= maxAllowed) {
         return false;
     }
 
-    usage[key]++;
+    record.count++;
     saveUsage(usage);
     return true;
 }
