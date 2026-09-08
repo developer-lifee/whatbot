@@ -11914,13 +11914,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             }
         }
 
-        const wantsImgCode = !isExpiredOrRenewalScreen && ((detection.metadata && detection.metadata.is2faScreen === true) || [
-            'código', 'codigo', '2fa', 'authenticator', 'autenticación',
-            'google authenticator', 'código de 6 dígitos', '6-digit', 'authenticating',
-            'no forma parte', 'hogar con netflix', 'tu tv no forma parte', 'enviamos a tu email', 'ingresa el código',
-            'código vence en 15', 'codigo vence en 15', 'solicita el reenvio', 'solicita el reenvío',
-            'ver temporalmente', 'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'entendimos mal',
-            'obtener un código para ver netflix temporalmente', 'crea tu propia cuenta para disfrutar de netflix'
+        // Excluir si es una consulta comercial o sobre un plan del catálogo/web
+        const isSalesOrCatalogInquiry = [
+            'como funciona', 'cómo funciona', 'este plan', 'este servicio', 'de que trata', 'de qué trata',
+            'informacion', 'información', 'precio', 'costo', 'valor', 'quiero comprar', 'me interesa',
+            'agregar al combo', 'agregar', 'comprar', 'cotizar', 'promo', 'promocion', 'promoción',
+            'cuanto vale', 'cuánto vale', 'que incluye', 'qué incluye', 'sirve para'
+        ].some(kw => bodyLower.includes(kw)) || fullOcrContext.includes('agregar al combo') || fullOcrContext.includes('se entrega correo y clave');
+
+        const wantsImgCode = !isSalesOrCatalogInquiry && !isExpiredOrRenewalScreen && ((detection.metadata && detection.metadata.is2faScreen === true) || [
+            'código de verificación', 'codigo de verificacion', 'código de acceso', 'codigo de acceso',
+            'código de inicio', 'codigo de inicio', 'código de 4 dígitos', 'código de 6 dígitos',
+            'codigo de 6', 'codigo de 4', '6-digit', 'authenticating', '2fa', 'authenticator', 'autenticación',
+            'google authenticator', 'no forma parte', 'hogar con netflix', 'tu tv no forma parte',
+            'enviamos a tu email', 'ingresa el código', 'ingresa el codigo', 'código vence en 15', 'codigo vence en 15',
+            'solicita el reenvio', 'solicita el reenvío', 'ver temporalmente', 'si estás de viaje', 'si estas de viaje',
+            'fuera de casa', 'entendimos mal', 'obtener un código para ver netflix temporalmente',
+            'crea tu propia cuenta para disfrutar de netflix'
         ].some(kw => fullOcrContext.includes(kw)));
 
         const isProfileSelectScreen = [
