@@ -135,6 +135,9 @@ async function fetchCustomersData(retries = 3, delay = 2000, force = false) {
     return data.map((cliente, index) => {
         if (cliente) {
             cliente._rowNumber = index + 2;
+            if (!cliente.deben && cliente.Columna4) {
+                cliente.deben = cliente.Columna4;
+            }
         }
         return cliente;
     }).filter(cliente => cliente !== null && cliente !== undefined);

@@ -719,8 +719,10 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
       let fechaVencimiento = "Fecha desconocida";
       let isExpired = false;
 
-      if (acc.deben && !isNaN(parseFloat(acc.deben))) {
-        const jsDate = getJsDateFromExcel(acc.deben);
+      const rawVencimiento = acc.deben || acc.Columna4 || acc.vencimiento;
+      const jsDate = getJsDateFromExcel(rawVencimiento);
+
+      if (jsDate) {
         fechaVencimiento = jsDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
 
         const today = getTodayInBogota();
@@ -731,8 +733,8 @@ async function generateCredentialsResponse(userAccounts, userMessage = "", chatH
         if (compareDate.getTime() <= today.getTime()) {
           isExpired = true;
         }
-      } else if (acc.vencimiento) {
-        fechaVencimiento = acc.vencimiento;
+      } else if (rawVencimiento) {
+        fechaVencimiento = rawVencimiento;
       }
 
       let displayClave = clave;
@@ -844,8 +846,10 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
     let fechaVencimiento = "Fecha desconocida";
     let isExpired = false;
 
-    if (acc.deben && !isNaN(parseFloat(acc.deben))) {
-      const jsDate = getJsDateFromExcel(acc.deben);
+    const rawVencimiento = acc.deben || acc.Columna4 || acc.vencimiento;
+    const jsDate = getJsDateFromExcel(rawVencimiento);
+
+    if (jsDate) {
       const day = jsDate.getDate();
       const monthMatch = jsDate.toLocaleDateString('es-ES', { month: 'long' });
       const month = monthMatch.charAt(0).toUpperCase() + monthMatch.slice(1);
@@ -858,8 +862,8 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
       if (compareDate.getTime() <= today.getTime()) {
         isExpired = true;
       }
-    } else if (acc.vencimiento) {
-      fechaVencimiento = acc.vencimiento;
+    } else if (rawVencimiento) {
+      fechaVencimiento = rawVencimiento;
     }
 
     const isConcise = options.concise || (requestedPlatform && (requestedPlatform.includes('solo pin') || requestedPlatform.includes('unicamente pin')));

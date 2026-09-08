@@ -7767,12 +7767,16 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
             });
         }
 
-        const { getAccountsByPhone } = require('./apiService');
+        const { getAccountsByPhone, getJsDateFromExcel } = require('./apiService');
         const userAccounts = await getAccountsByPhone(cleanPhone);
 
         const formattedAccounts = userAccounts.map(acc => {
             const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
             const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
+
+            const rawVenc = acc.deben || acc.Columna4 || acc.vencimiento;
+            const jsDate = getJsDateFromExcel ? getJsDateFromExcel(rawVenc) : null;
+            const vencFormatted = jsDate ? jsDate.toISOString().split('T')[0] : (rawVenc || "");
 
             return {
                 id: acc.id || acc._rowNumber,
@@ -7780,7 +7784,7 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
                 email: acc.correo || "",
                 password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
                 profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
-                vencimiento: acc.vencimiento || acc.deben || ""
+                vencimiento: vencFormatted
             };
         });
 
@@ -7814,12 +7818,16 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
             });
         }
 
-        const { getAccountsByPhone } = require('./apiService');
+        const { getAccountsByPhone, getJsDateFromExcel } = require('./apiService');
         const userAccounts = await getAccountsByPhone(cleanPhone);
 
         const formattedAccounts = userAccounts.map(acc => {
             const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
             const perfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "N/A";
+
+            const rawVenc = acc.deben || acc.Columna4 || acc.vencimiento;
+            const jsDate = getJsDateFromExcel ? getJsDateFromExcel(rawVenc) : null;
+            const vencFormatted = jsDate ? jsDate.toISOString().split('T')[0] : (rawVenc || "");
 
             return {
                 id: acc.id || acc._rowNumber,
@@ -7827,7 +7835,7 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
                 email: acc.correo || "",
                 password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
                 profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
-                vencimiento: acc.vencimiento || acc.deben || ""
+                vencimiento: vencFormatted
             };
         });
 
