@@ -7768,6 +7768,7 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
         }
 
         const { getAccountsByPhone, getJsDateFromExcel } = require('./apiService');
+        const { getDeviceUsage } = require('./deviceLimitService');
         const userAccounts = await getAccountsByPhone(cleanPhone);
 
         const formattedAccounts = userAccounts.map(acc => {
@@ -7778,13 +7779,18 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
             const jsDate = getJsDateFromExcel ? getJsDateFromExcel(rawVenc) : null;
             const vencFormatted = jsDate ? jsDate.toISOString().split('T')[0] : (rawVenc || "");
 
+            const deviceStatus = getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, 3);
+
             return {
                 id: acc.id || acc._rowNumber,
                 platform: (acc.Streaming || "").toUpperCase(),
                 email: acc.correo || "",
                 password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
                 profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
-                vencimiento: vencFormatted
+                vencimiento: vencFormatted,
+                devicesUsed: deviceStatus.devicesUsed,
+                devicesRemaining: deviceStatus.devicesRemaining,
+                maxDevices: deviceStatus.maxDevices
             };
         });
 
@@ -7814,11 +7820,12 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
             return res.json({
                 success: true,
                 message: 'Sesión automática (Modo Demo)',
-                accounts: DEMO_ACCOUNTS_LIST
+                accounts: DEMO_ACCOUNTS_LIST.map(a => ({ ...a, devicesUsed: 1, devicesRemaining: 2, maxDevices: 3 }))
             });
         }
 
         const { getAccountsByPhone, getJsDateFromExcel } = require('./apiService');
+        const { getDeviceUsage } = require('./deviceLimitService');
         const userAccounts = await getAccountsByPhone(cleanPhone);
 
         const formattedAccounts = userAccounts.map(acc => {
@@ -7829,13 +7836,18 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
             const jsDate = getJsDateFromExcel ? getJsDateFromExcel(rawVenc) : null;
             const vencFormatted = jsDate ? jsDate.toISOString().split('T')[0] : (rawVenc || "");
 
+            const deviceStatus = getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, 3);
+
             return {
                 id: acc.id || acc._rowNumber,
                 platform: (acc.Streaming || "").toUpperCase(),
                 email: acc.correo || "",
                 password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
                 profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
-                vencimiento: vencFormatted
+                vencimiento: vencFormatted,
+                devicesUsed: deviceStatus.devicesUsed,
+                devicesRemaining: deviceStatus.devicesRemaining,
+                maxDevices: deviceStatus.maxDevices
             };
         });
 
@@ -7955,6 +7967,17 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
         // Ejecutar extractor automático y obtener el resultado estructurado
         const extractionResult = await processAccountVerificationCode(mockMessage, userJid, targetAccount, isDemo ? ADMIN_DEMO_RECIPIENT_PHONE : cleanPhone, client, userStates);
 
+        if (extractionResult && extractionResult.limitReached) {
+            return res.status(429).json({
+                success: false,
+                limitReached: true,
+                devicesUsed: extractionResult.devicesUsed ?? 3,
+                devicesRemaining: 0,
+                maxDevices: extractionResult.maxDevices ?? 3,
+                message: extractionResult.message || "Has alcanzado el límite de 3 dispositivos permitidos para este servicio. Por favor comunícate con un asesor para transferir tu acceso."
+            });
+        }
+
         if (extractionResult && (extractionResult.code || extractionResult.link)) {
             return res.json({
                 success: true,
@@ -7963,7 +7986,10 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
                 link: extractionResult.link || null,
                 snippet: extractionResult.snippet || null,
                 type: extractionResult.type || null,
-                account: targetAccount.correo
+                account: targetAccount.correo,
+                devicesUsed: extractionResult.devicesUsed,
+                devicesRemaining: extractionResult.devicesRemaining,
+                maxDevices: extractionResult.maxDevices || 3
             });
         }
 
@@ -7972,17 +7998,32 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
             message: extractionResult?.message || 'Buscando código en buzón... Si acabas de presionar enviar código en tu TV/App, presiona nuevamente en unos segundos.',
             code: extractionResult?.code || null,
             link: extractionResult?.link || null,
-            account: targetAccount.correo
+            account: targetAccount.correo,
+            devicesUsed: extractionResult?.devicesUsed,
+            devicesRemaining: extractionResult?.devicesRemaining,
+            maxDevices: extractionResult?.maxDevices || 3
         });
     } catch (e) {
         console.error('Error al solicitar 2FA desde web:', e.message);
         res.status(500).json({ success: false, error: e.message });
     }
+// POST Reset Devices for a Customer / Account
+app.post('/api/admin/reset-devices', express.json(), async (req, res) => {
+    try {
+        const { phone, email } = req.body;
+        if (!phone) {
+            return res.status(400).json({ success: false, message: 'Falta número de teléfono' });
+        }
+        const { resetDeviceUsage } = require('./deviceLimitService');
+        const reset = resetDeviceUsage(phone, email);
+        res.json({ success: true, message: 'Dispositivos reseteados exitosamente', reset });
+    } catch (e) {
+        console.error('Error al resetear dispositivos:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
 });
 
 
-
-app.get('/api/debug/wwebjs', async (req, res) => {
     try {
         let state = null;
         try {
@@ -8673,24 +8714,36 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
             if (matchesService) {
                 const { generateGPTCode, checkAndIncrementUsage } = require('./totpService');
-                const canRequest = checkAndIncrementUsage(realPhone, accountEmail);
-                if (!canRequest) {
-                    const limitMsg = "🤖 Has alcanzado el límite de códigos para este inicio de sesión. Por seguridad, por favor espera unos minutos o comunícate con un asesor.";
+                const deviceStatus = checkAndIncrementUsage(realPhone, accountEmail, 3);
+                if (!deviceStatus.canRequest) {
+                    const limitMsg = `🤖 *Límite de dispositivos alcanzado (3/3)*\n\n` +
+                        `Has alcanzado el límite de *3 dispositivos permitidos* para tu perfil de *${streamingName}*.\n\n` +
+                        `Por políticas del servicio y seguridad, no es posible autorizar más dispositivos.\n\n` +
+                        `Si cambiaste de equipo o necesitas transferir tu perfil, por favor comunícate con un asesor para ayudarte. 😊`;
                     await message.reply(limitMsg);
                     return {
                         success: false,
                         limitReached: true,
-                        message: "Has alcanzado el límite temporal de solicitudes de código (5 intentos cada 15 minutos). Por favor espera un momento o contacta a soporte."
+                        devicesUsed: deviceStatus.devicesUsed,
+                        devicesRemaining: 0,
+                        maxDevices: 3,
+                        message: "Has alcanzado el límite de 3 dispositivos permitidos para este servicio. Contacta a soporte para transferir tu acceso."
                     };
                 }
                 const code = generateGPTCode(accountEmail);
                 if (code) {
-                    await message.reply(`🔐 *Tu código de acceso (2FA) para ${streamingName}:* 🚀\n\n🔢 Código: *${code}*\n\n_Este código cambia cada 30 segundos. Úsalo pronto._`);
+                    const remainingMsg = deviceStatus.devicesRemaining === 1
+                        ? "Te queda *1 dispositivo disponible*"
+                        : `Te quedan *${deviceStatus.devicesRemaining} dispositivos disponibles*`;
+                    await message.reply(`🔐 *Tu código de acceso (2FA) para ${streamingName}:* 🚀\n\n🔢 Código: *${code}*\n\n📱 *Dispositivos:* ${remainingMsg} (${deviceStatus.devicesUsed}/${deviceStatus.maxDevices} usados).\n\n_Este código cambia cada 30 segundos. Úsalo pronto._`);
                     userStates.delete(userId);
                     return {
                         success: true,
                         code: code,
                         type: 'totp',
+                        devicesUsed: deviceStatus.devicesUsed,
+                        devicesRemaining: deviceStatus.devicesRemaining,
+                        maxDevices: deviceStatus.maxDevices,
                         message: `Código 2FA generado: ${code}`
                     };
                 }
@@ -8706,6 +8759,25 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 const codes = await findRecentCodes(accountEmail, 10);
 
                 if (codes && codes.length > 0) {
+                    const { registerDeviceRequest } = require('./deviceLimitService');
+                    const deviceStatus = registerDeviceRequest(realPhone, accountEmail || streamingName, null, 3);
+                    if (!deviceStatus.canRequest) {
+                        const limitMsg = `🤖 *Límite de dispositivos alcanzado (3/3)*\n\n` +
+                            `Has alcanzado el límite de *3 dispositivos permitidos* para tu perfil de *${streamingName}*.\n\n` +
+                            `Por políticas del servicio y seguridad, no es posible autorizar más dispositivos.\n\n` +
+                            `Si cambiaste de equipo o necesitas transferir tu perfil, por favor comunícate con un asesor para ayudarte. 😊`;
+                        await safeReply(message, limitMsg, userId);
+                        userStates.delete(userId);
+                        return {
+                            success: false,
+                            limitReached: true,
+                            devicesUsed: deviceStatus.devicesUsed,
+                            devicesRemaining: 0,
+                            maxDevices: 3,
+                            message: "Has alcanzado el límite de 3 dispositivos permitidos para este servicio. Contacta a soporte para transferir tu acceso."
+                        };
+                    }
+
                     const latest = codes[0];
                     const nameLower = streamingName.toLowerCase();
 
@@ -8769,6 +8841,12 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         }
                         response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.`;
                     }
+
+                    const remainingMsg = deviceStatus.devicesRemaining === 1
+                        ? "Te queda *1 dispositivo disponible*"
+                        : `Te quedan *${deviceStatus.devicesRemaining} dispositivos disponibles*`;
+                    response += `\n\n📱 *Dispositivos:* ${remainingMsg} (${deviceStatus.devicesUsed}/${deviceStatus.maxDevices} usados).`;
+
                     await safeReply(message, response, userId);
                     userStates.delete(userId);
                     return {
@@ -8777,6 +8855,9 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         link: latest.link || (nameLower.includes('netflix') ? validVerificationLink : null),
                         snippet: latest.snippet || null,
                         type: latest.link ? 'link' : (latest.code ? 'code' : 'general'),
+                        devicesUsed: deviceStatus.devicesUsed,
+                        devicesRemaining: deviceStatus.devicesRemaining,
+                        maxDevices: deviceStatus.maxDevices,
                         message: latest.code ? `Código encontrado: ${latest.code}` : (latest.link ? 'Enlace de acceso encontrado' : 'Código o enlace encontrado')
                     };
                 } else {

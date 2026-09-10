@@ -31,38 +31,17 @@ function generateGPTCode(email) {
 }
 
 /**
- * Increments the usage counter for a user (phone) and account (email).
- * Uses a 15-minute rolling window (max 5 requests per window) and normalizes phone numbers.
+ * Increments the device counter for a user (phone) and account (email).
+ * Enforces a 3-device limit with a 15-minute grace window for re-sending codes on the same device.
  * @param {string} phone 
  * @param {string} email 
- * @param {number} [maxAllowed=5]
+ * @param {number} [maxAllowed=3]
  * @param {number} [windowMs=900000] (15 mins)
- * @returns {boolean}
+ * @returns {Object} { canRequest, devicesUsed, devicesRemaining, maxDevices, limitReached }
  */
-function checkAndIncrementUsage(phone, email, maxAllowed = 5, windowMs = 15 * 60 * 1000) {
-    const usage = loadUsage();
-    const cleanPhone = (phone || '').toString().replace(/\D/g, '');
-    const normPhone = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
-    const key = `${normPhone}_${(email || '').toLowerCase().trim()}`;
-    const now = Date.now();
-
-    const record = usage[key];
-    if (!record || typeof record !== 'object' || !record.resetAt || now > record.resetAt) {
-        usage[key] = {
-            count: 1,
-            resetAt: now + windowMs
-        };
-        saveUsage(usage);
-        return true;
-    }
-
-    if (record.count >= maxAllowed) {
-        return false;
-    }
-
-    record.count++;
-    saveUsage(usage);
-    return true;
+function checkAndIncrementUsage(phone, email, maxAllowed = 3, windowMs = 15 * 60 * 1000) {
+    const { registerDeviceRequest } = require('./deviceLimitService');
+    return registerDeviceRequest(phone, email, null, maxAllowed, windowMs);
 }
 
 /**

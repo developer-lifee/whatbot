@@ -429,42 +429,88 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             const isExplicitNewAccount = (userState.isNewSale || userState.forceNewSale || /nueva|otra|adicional|segunda|comprar otra/i.test(lastMsgText));
 
             if (!isExplicitNewAccount) {
-                const existingAccount = allRows.find(r => {
-                    const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
-                    const whatsappVal = (r.whatsapp || "").toString().trim();
-                    const whatsappDigits = whatsappVal.replace(/\D/g, '');
-                    
-                    // Match by phone number
-                    let isPhoneMatch = false;
-                    if (rowPhone && rowPhone.includes(phone.slice(-10))) {
-                        isPhoneMatch = true;
-                    } else if (whatsappDigits && whatsappDigits.includes(phone.slice(-10))) {
-                        isPhoneMatch = true;
-                    }
+                const userPhoneDigits = (phone || "").toString().replace(/\D/g, '');
+                const userPhoneLast10 = userPhoneDigits.length >= 10 ? userPhoneDigits.slice(-10) : userPhoneDigits;
 
-                    // Match by name
-                    let isNameMatch = false;
-                    const cleanWhatsapp = whatsappVal.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
-                    const cleanName = (userState.nombre || "").toLowerCase().replace(/[^a-z0-9]/g, '').trim();
-                    const cleanPush = (userState.pushname || "").toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+                // PASO 1: Búsqueda estricta por TELÉFONO (Prioridad Absoluta)
+                let existingAccount = null;
+                if (userPhoneLast10 && userPhoneLast10.length >= 7) {
+                    existingAccount = allRows.find(r => {
+                        if (!isSamePlatformFamily(r.Streaming, platformName)) return false;
+                        const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
+                        const whatsappVal = (r.whatsapp || "").toString().trim();
+                        const whatsappDigits = whatsappVal.replace(/\D/g, '');
 
-                    if (!isPhoneMatch && cleanWhatsapp && !whatsappDigits) {
-                        // Solo si no coincidió por teléfono y hay un nombre válido en la celda
-                        if (cleanName === cleanWhatsapp || cleanPush === cleanWhatsapp) {
-                            isNameMatch = true;
-                        } else if (cleanName && getLevenshteinDistance(cleanName, cleanWhatsapp) <= 2) {
-                            isNameMatch = true;
-                        } else if (cleanPush && getLevenshteinDistance(cleanPush, cleanWhatsapp) <= 2) {
-                            isNameMatch = true;
-                        }
-                    }
+                        if (rowPhone && rowPhone.includes(userPhoneLast10)) return true;
+                        if (whatsappDigits && whatsappDigits.includes(userPhoneLast10)) return true;
+                        return false;
+                    });
+                }
 
-                    if ((isPhoneMatch || isNameMatch) && isSamePlatformFamily(r.Streaming, platformName)) {
-                        // Si el usuario ya tiene esta plataforma y no pidió explícitamente cuenta nueva, renovamos su fila existente
-                        return true;
+                // PASO 2: FALLBACK por NOMBRE (Únicamente si NO se encontró por teléfono)
+                // Reglas estrictas de seguridad para evitar sobreventa / colisiones:
+                // 1. La fila NO debe tener un teléfono registrado de otra persona (si tiene >= 10 dígitos y no es del cliente, se descarta).
+                // 2. Nombres de 1 sola palabra NUNCA usan Levenshtein (en español Cristian != Cristina, Daniel != Daniela, Carlos != Carla, etc.). Deben coincidir exactamente.
+                // 3. Nombres de 2+ palabras pueden permitir coincidencia si coinciden primer nombre y apellido.
+                if (!existingAccount) {
+                    const normalizeName = (s) => (s || "").toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim();
+                    const cleanName = normalizeName(userState.nombre);
+                    const cleanPush = normalizeName(userState.pushname);
+
+                    const nameTokens = cleanName.split(/\s+/).filter(t => t.length >= 3);
+                    const pushTokens = cleanPush.split(/\s+/).filter(t => t.length >= 3);
+                    const effectiveTokens = nameTokens.length > 0 ? nameTokens : pushTokens;
+                    const effectiveClean = nameTokens.length > 0 ? cleanName : cleanPush;
+
+                    if (effectiveClean && effectiveClean.length >= 3) {
+                        existingAccount = allRows.find(r => {
+                            if (!isSamePlatformFamily(r.Streaming, platformName)) return false;
+
+                            const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
+                            const whatsappVal = (r.whatsapp || "").toString().trim();
+                            const whatsappDigits = whatsappVal.replace(/\D/g, '');
+
+                            // Si la fila ya tiene un teléfono válido registrado (>=10 dígitos), pertenece a otra persona
+                            if (rowPhone.length >= 10 || whatsappDigits.length >= 10) {
+                                return false;
+                            }
+
+                            const cleanRowWhatsapp = normalizeName(whatsappVal);
+                            const rowClientName = normalizeName(`${r.Nombre || r.nombre || ''} ${r.Apellido || r.apellido || ''}`);
+
+                            if (cleanRowWhatsapp.includes('libre') || cleanRowWhatsapp.includes('vacio') || cleanRowWhatsapp.includes('disponible') || cleanRowWhatsapp.includes('reservado')) {
+                                return false;
+                            }
+                            if (rowClientName.includes('libre') || rowClientName.includes('vacio') || rowClientName.includes('disponible') || rowClientName.includes('reservado')) {
+                                return false;
+                            }
+
+                            // Si solo tiene 1 token (ej. "Cristian"): Coincidencia EXACTA únicamente
+                            if (effectiveTokens.length === 1) {
+                                const token = effectiveTokens[0];
+                                if (cleanRowWhatsapp === token) return true;
+                                if (rowClientName === token) return true;
+                                return false;
+                            }
+
+                            // Si tiene 2 o más tokens (ej. "Hugo Avila"):
+                            if (cleanRowWhatsapp && (cleanRowWhatsapp === effectiveClean || getLevenshteinDistance(cleanRowWhatsapp, effectiveClean) <= 1)) {
+                                return true;
+                            }
+
+                            const rowTokens = (rowClientName || cleanRowWhatsapp).split(/\s+/).filter(t => t.length >= 3);
+                            if (rowTokens.length >= 2 && effectiveTokens.length >= 2) {
+                                const firstNameMatch = (effectiveTokens[0] === rowTokens[0]);
+                                const lastNameMatch = effectiveTokens.slice(1).some(et => rowTokens.slice(1).includes(et));
+                                if (firstNameMatch && lastNameMatch) {
+                                    return true;
+                                }
+                            }
+
+                            return false;
+                        });
                     }
-                    return false;
-                });
+                }
 
                 if (existingAccount) {
                     finalRow = existingAccount._rowNumber || allRows.indexOf(existingAccount) + 2;

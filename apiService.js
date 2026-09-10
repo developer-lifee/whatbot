@@ -201,7 +201,9 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
           }
 
           // Si el input era un teléfono real (10-12 dígitos) y no un LID, solo permitimos match si la fila en Excel NO tiene un teléfono válido registrado (ej. celda con #NAME?, vacía o rota) para rescatar clientes cuyo número no se digitó bien.
-          if (isRealPhone && whatsappDigits && whatsappDigits.length >= 10) {
+          const rowDigits = (c.numero || c.Numero || c.celular || c.Celular || "").toString().replace(/\D/g, '');
+          const rowHasRealPhone = (whatsappDigits.length >= 10 && whatsappDigits.length <= 15) || (rowDigits.length >= 10 && rowDigits.length <= 15);
+          if (isRealPhone && rowHasRealPhone) {
             return false;
           }
 
@@ -216,7 +218,7 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
           }
 
           // Coincidencia estricta en campo WhatsApp (nombre completo en celda D)
-          if (cleanWhatsappNorm && (cleanWhatsappNorm === cleanContactNorm || getLevenshteinDistance(cleanWhatsappNorm, cleanContactNorm) <= 2)) {
+          if (cleanWhatsappNorm && (cleanWhatsappNorm === cleanContactNorm || getLevenshteinDistance(cleanWhatsappNorm, cleanContactNorm) <= 1)) {
             return true;
           }
 
