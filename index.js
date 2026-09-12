@@ -8090,6 +8090,8 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
         console.error('Error al solicitar 2FA desde web:', e.message);
         res.status(500).json({ success: false, error: e.message });
     }
+});
+
 // POST Reset Devices for a Customer / Account
 app.post('/api/admin/reset-devices', express.json(), async (req, res) => {
     try {
