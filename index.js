@@ -5243,6 +5243,41 @@ app.get('/api/whatsapp/status', (req, res) => {
     });
 });
 
+app.get('/api/whatsapp/debug', async (req, res) => {
+    try {
+        if (!client) return res.json({ error: 'No client' });
+        let pupInfo = null;
+        if (client.pupPage) {
+            pupInfo = await client.pupPage.evaluate(() => {
+                return {
+                    url: window.location.href,
+                    hasStore: !!window.Store,
+                    hasWWebJS: !!window.WWebJS,
+                    bodyText: (document.body ? document.body.innerText : '').slice(0, 1000)
+                };
+            }).catch(e => ({ evalError: e.message }));
+        }
+        res.json({
+            status: currentWhatsappStatus,
+            hasPupPage: !!client.pupPage,
+            pupInfo
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get('/api/whatsapp/screenshot', async (req, res) => {
+    try {
+        if (!client || !client.pupPage) return res.status(503).send('No pupPage');
+        const buffer = await client.pupPage.screenshot();
+        res.setHeader('Content-Type', 'image/png');
+        res.send(buffer);
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
 app.get('/api/whatsapp/status-stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
