@@ -137,6 +137,8 @@ async function fetchCustomersData(retries = 3, delay = 2000, force = false) {
             cliente._rowNumber = index + 2;
             if (!cliente.deben && cliente.Columna4) {
                 cliente.deben = cliente.Columna4;
+            } else if (!cliente.Columna4 && cliente.deben) {
+                cliente.Columna4 = cliente.deben;
             }
         }
         return cliente;
@@ -514,6 +516,14 @@ function procesarHistoricoArray(matriz2D) {
  */
 async function updateExcelData(rowNumber, updates) {
   try {
+    if (updates && typeof updates === 'object') {
+      // Sincronizar automáticamente 'deben' con 'Columna4' (columna de vencimiento del cliente en el Excel de Azure)
+      if (updates.deben !== undefined && updates.Columna4 === undefined) {
+        updates.Columna4 = updates.deben;
+      } else if (updates.Columna4 !== undefined && updates.deben === undefined) {
+        updates.deben = updates.Columna4;
+      }
+    }
     console.log(`[API Service] Intentando escribir en fila ${rowNumber}:`, JSON.stringify(updates));
     const response = await fetch(AZURE_WRITE_API_URL, {
       method: 'POST',

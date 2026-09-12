@@ -402,6 +402,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 console.log(`[Sales Registry] RENOVACIÓN detectada para ${realStreamingName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
                 const updates = {
                     "deben": nextPaymentDate,
+                    "Columna4": nextPaymentDate,
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
                 };
                 await updateExcelData(targetRow, updates);
@@ -526,6 +527,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
                 const updates = {
                     "deben": nextPaymentDate,
+                    "Columna4": nextPaymentDate,
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
                 };
                 await updateExcelData(finalRow, updates);
@@ -589,6 +591,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "Nombre": firstName,
                     "apellido": lastName,
                     "deben": nextPaymentDate,
+                    "Columna4": nextPaymentDate,
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
                 };
 
@@ -610,7 +613,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 // Marcar el row en nuestro array local como usado para evitar colisiones
                 if (allRows[slot.index - 2]) {
                     allRows[slot.index - 2].whatsapp = phone;
-                    allRows[slot.index - 2].deben = "RESERVADO";
+                    allRows[slot.index - 2].deben = nextPaymentDate;
+                    allRows[slot.index - 2].Columna4 = nextPaymentDate;
                 }
                 results.push({ 
                     name: slot.rowData.Streaming || platformName, 
