@@ -5299,6 +5299,25 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
     }
 });
 
+app.post('/api/whatsapp/sync', async (req, res) => {
+    try {
+        if (!client || !client.pupPage) return res.status(503).json({ success: false, error: 'No pupPage' });
+        const result = await client.pupPage.evaluate(() => {
+            const hasSynced = window.AuthStore && window.AuthStore.AppState && window.AuthStore.AppState.hasSynced;
+            const hasWWebJS = typeof window.WWebJS !== 'undefined';
+            let triggered = false;
+            if (typeof window.onAppStateHasSyncedEvent === 'function') {
+                window.onAppStateHasSyncedEvent();
+                triggered = true;
+            }
+            return { hasSynced, hasWWebJS, triggered };
+        });
+        res.json({ success: true, result });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.get('/api/whatsapp/status-stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -8182,6 +8201,27 @@ server.listen(port, () => {
                 currentWhatsappStatus = 'CONNECTED';
                 broadcastSseEvent('status', { status: currentWhatsappStatus });
             }
+
+            // Auto-descartar modales ("Novedades en WhatsApp Web", etc.) y forzar sync de WWebJS si quedó en pausa
+            try {
+                if (client.pupPage) {
+                    await client.pupPage.evaluate(() => {
+                        const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                        const continueBtn = buttons.find(b => b.innerText && (
+                            b.innerText.toLowerCase().includes('continuar') || 
+                            b.innerText.toLowerCase().includes('aceptar') ||
+                            b.innerText.toLowerCase().includes('entendido')
+                        ));
+                        if (continueBtn) continueBtn.click();
+
+                        if (typeof window.WWebJS === 'undefined' && window.AuthStore && window.AuthStore.AppState && window.AuthStore.AppState.hasSynced) {
+                            if (typeof window.onAppStateHasSyncedEvent === 'function') {
+                                window.onAppStateHasSyncedEvent();
+                            }
+                        }
+                    }).catch(() => {});
+                }
+            } catch (e) {}
 
             // Verificación de salud profunda: ¿Sigue respondiendo el navegador?
             if (client.info && client.info.wid) {
