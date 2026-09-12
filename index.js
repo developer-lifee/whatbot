@@ -5249,10 +5249,31 @@ app.get('/api/whatsapp/debug', async (req, res) => {
         let pupInfo = null;
         if (client.pupPage) {
             pupInfo = await client.pupPage.evaluate(() => {
+                let modalDismissed = false;
+                // Buscar y hacer clic en botones de modales como "Continuar", "Aceptar", etc.
+                const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                const continueBtn = buttons.find(b => b.innerText && (
+                    b.innerText.toLowerCase().includes('continuar') || 
+                    b.innerText.toLowerCase().includes('aceptar') ||
+                    b.innerText.toLowerCase().includes('entendido')
+                ));
+                if (continueBtn) {
+                    continueBtn.click();
+                    modalDismissed = true;
+                }
+
                 return {
                     url: window.location.href,
-                    hasStore: !!window.Store,
-                    hasWWebJS: !!window.WWebJS,
+                    hasStore: typeof window.Store !== 'undefined',
+                    hasWWebJS: typeof window.WWebJS !== 'undefined',
+                    hasConn: typeof window.Store !== 'undefined' && !!window.Store.Conn,
+                    hasUser: typeof window.Store !== 'undefined' && !!window.Store.User,
+                    userWid: typeof window.Store !== 'undefined' && window.Store.User ? (
+                        (typeof window.Store.User.getMaybeMePnUser === 'function' && window.Store.User.getMaybeMePnUser()) ||
+                        (typeof window.Store.User.getMaybeMeLidUser === 'function' && window.Store.User.getMaybeMeLidUser()) ||
+                        null
+                    ) : null,
+                    modalDismissed,
                     bodyText: (document.body ? document.body.innerText : '').slice(0, 1000)
                 };
             }).catch(e => ({ evalError: e.message }));
