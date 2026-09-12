@@ -385,9 +385,30 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                         isPhoneMatch = whatsappDigits.includes(phone.slice(-10));
                     }
                     
+                    // Fallback para LIDs o teléfonos no resueltos: verificar coincidencia de nombre
+                    if (!isPhoneMatch) {
+                        const normalizeName = (s) => (s || "").toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim();
+                        const clientName = normalizeName(userState.nombre || name);
+                        const rowName = normalizeName(`${tempRowData.Nombre || ''} ${tempRowData.apellido || ''} ${tempRowData.whatsapp || ''}`);
+                        const clientTokens = clientName.split(/\s+/).filter(t => t.length >= 3);
+                        if (clientTokens.length >= 2 && clientTokens.every(t => rowName.includes(t))) {
+                            isPhoneMatch = true;
+                        } else if (clientTokens.length === 1 && rowName.includes(clientTokens[0])) {
+                            isPhoneMatch = true;
+                        }
+                    }
+
                     if (isPhoneMatch) {
                         targetRow = tempRow;
                         excelRow = tempRowData;
+                        // Si el cliente estaba en un LID y la fila de Excel tiene teléfono real, registrarlo
+                        if (rowPhone && rowPhone.length >= 10 && (!userState.realPhone || userState.realPhone.includes('lid'))) {
+                            userState.realPhone = rowPhone;
+                            try {
+                                const { pool } = require('./database');
+                                pool.query('UPDATE chats SET customer_phone = ? WHERE chat_id = ?', [rowPhone, userId]).catch(() => null);
+                            } catch (e) {}
+                        }
                     } else {
                         console.log(`[Sales Registry] Advertencia: Desfase de fila detectado para ${platformName}. Fila sugerida ${tempRow} no coincide con el teléfono ${phone}. Buscando inteligentemente...`);
                     }
@@ -471,8 +492,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                             const whatsappVal = (r.whatsapp || "").toString().trim();
                             const whatsappDigits = whatsappVal.replace(/\D/g, '');
 
-                            // Si la fila ya tiene un teléfono válido registrado (>=10 dígitos), pertenece a otra persona
-                            if (rowPhone.length >= 10 || whatsappDigits.length >= 10) {
+                            // Si el cliente tiene un teléfono real conocido y la fila tiene otro teléfono diferente, pertenece a otra persona
+                            const userHasKnownPhone = userPhoneLast10 && userPhoneLast10.length === 10 && !isLid;
+                            if (userHasKnownPhone && (rowPhone.length >= 10 || whatsappDigits.length >= 10) && !rowPhone.includes(userPhoneLast10)) {
                                 return false;
                             }
 

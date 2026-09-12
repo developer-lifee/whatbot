@@ -326,6 +326,7 @@ userStates.delete = function (key) {
 
 const pendingConfirmations = new Map();
 const GROUP_ID = '120363102144405222@g.us';
+const ADMIN_GROUP_IDS = ['120363102144405222@g.us', '120363161345379149@g.us'];
 const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573133890800') + '@c.us';
 const ADMIN_RAW_PHONE = OPERATOR_NUMBER.replace('@c.us', '');
 let globalBotSleep = false;
@@ -9260,8 +9261,8 @@ async function baseProcessIncomingMessage(messages) {
     const authorPhone = authorId.replace('@c.us', '').replace(/\D/g, '');
     const chatPhone = userId.replace('@c.us', '').replace(/\D/g, '');
 
-    // Reconocimiento blindado del jefe (por su número personal, incluso en grupos)
-    const isFromAdmin = authorPhone.includes(ADMIN_RAW_PHONE) || authorPhone.includes('3133890800') || authorPhone.includes('573133890800') || firstMsg.fromMe;
+    // Reconocimiento blindado del jefe (por su número personal, incluso en grupos o vía LID)
+    const isFromAdmin = authorPhone.includes(ADMIN_RAW_PHONE) || authorPhone.includes('3133890800') || authorPhone.includes('573133890800') || authorId.includes('267091416482023') || firstMsg.fromMe;
 
     // --- CORRECCIÓN DE CONTEXTO ---
     // Si el mensaje es enviado por el jefe (fromMe), el ID de la conversación (userId) es el destinatario (to)
@@ -10038,7 +10039,7 @@ async function baseProcessIncomingMessage(messages) {
     }
 
     // Comandos de operador/administrador
-    if (message.from === OPERATOR_NUMBER || message.from === GROUP_ID) {
+    if (message.from === OPERATOR_NUMBER || message.from === GROUP_ID || ADMIN_GROUP_IDS.includes(message.from)) {
         const adminState = userStates.get(message.from) || {};
         const bodyLower = (message.body || '').trim().toLowerCase();
 
@@ -10220,8 +10221,8 @@ async function baseProcessIncomingMessage(messages) {
     }
 
     // Comandos de Grupo / Admin
-    const isBotCommand = (message.from === GROUP_ID || isFromAdmin) && message.body && message.body.toLowerCase().startsWith('@bot');
-    const isReplyConfirmation = message.from === GROUP_ID && message.hasQuotedMsg && (
+    const isBotCommand = (message.from === GROUP_ID || ADMIN_GROUP_IDS.includes(message.from) || isFromAdmin) && message.body && message.body.toLowerCase().startsWith('@bot');
+    const isReplyConfirmation = (message.from === GROUP_ID || ADMIN_GROUP_IDS.includes(message.from)) && message.hasQuotedMsg && (
         ['si', 'ya', 'listo', 'confirmado', 'vale', 'ok', 'claro'].includes(message.body.toLowerCase().trim()) ||
         message.body.toLowerCase().includes('confirmar') ||
         message.body.toLowerCase().includes('si me llego')
@@ -11033,8 +11034,8 @@ async function baseProcessIncomingMessage(messages) {
     }
 
     // MANEJO CONVERSACIONAL DEL GRUPO ADMIN (Respuestas)
-    if (message.from === GROUP_ID) {
-        const groupStateData = userStates.get(GROUP_ID);
+    if (message.from === GROUP_ID || ADMIN_GROUP_IDS.includes(message.from)) {
+        const groupStateData = userStates.get(message.from) || userStates.get(GROUP_ID);
         if (groupStateData && typeof groupStateData === 'object') {
             const gState = groupStateData.state;
             const targetResponse = message.body.trim();

@@ -1341,17 +1341,17 @@ async function notifyProviderExpiringAccounts(client) {
 }
 
 async function handleAdminForceRetrieve(message, command, client, targetUser = null) {
-    // Regex para extraer la plataforma de forma más precisa
-    const platformMatch = command.match(/(?:dame una de|pásame|pasa cuenta de|pasa la de|cuenta de|dame la de)\s+([a-zA-Z0-9\s.]+)/i);
-    const platformName = platformMatch ? platformMatch[1].trim().toLowerCase() : command.replace('@bot', '').trim().toLowerCase();
+    const { safeSend } = require('./billingService');
+    const platformMatch = (command || '').match(/(?:dame una de|pásame|pasa cuenta de|pasa la de|cuenta de|dame la de)\s+([a-zA-Z0-9\s.]+)/i);
+    const platformName = platformMatch ? platformMatch[1].trim().toLowerCase() : (command || '').replace('@bot', '').trim().toLowerCase();
 
-    if (!platformName || platformName.length > 30) { // Si es muy largo, probablemente no es solo la plataforma
-        return; // Dejar que pase a processAdminQuery en index.js
+    if (!platformName || platformName.length > 30) {
+        return;
     }
 
-    await message.reply(`🤖 Buscando cualquier cuenta disponible de *${platformName}* para ${targetUser || 'ti'}, jefe...`);
-
     try {
+        await safeSend(message, `🤖 Buscando cualquier cuenta disponible de *${platformName}* para ${targetUser || 'ti'}, jefe...`, message.from, client);
+
         const { fetchRawData } = require('./apiService');
         const allRows = await fetchRawData();
         const targetSearch = platformName.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -1360,16 +1360,22 @@ async function handleAdminForceRetrieve(message, command, client, targetUser = n
         let match = null;
         const rows = allRows.filter(r => {
             const rowStreaming = (r.Streaming || r.Plataforma || "").toString().toLowerCase().replace(/[^a-z0-9]/g, '');
-            return rowStreaming.includes(targetSearch) || targetSearch.includes(rowStreaming);
+            const hasEmail = (r.correo || r.Correo || r["E-mail"] || "").toString().trim().length > 3;
+            return hasEmail && (rowStreaming.includes(targetSearch) || targetSearch.includes(rowStreaming));
         });
 
         if (rows.length === 0) {
-            await message.reply(`❌ Jefe, no encontré ninguna fila que coincida con "${platformName}" en el Excel.`);
+            await safeSend(message, `❌ Jefe, no encontré ninguna cuenta con correo que coincida con "${platformName}" en el Excel.`, message.from, client);
             return;
         }
 
-        // Prioridad: 1. Libre, 2. Vencida, 3. Cualquiera
-        match = rows.find(r => !(r.whatsapp || r.whatsapp) || (r.Nombre || "").toLowerCase() === 'libre');
+        // Prioridad: 1. Libre (sin whatsapp o con valor de libre), 2. Vencida, 3. Cualquiera disponible
+        match = rows.find(r => {
+            const w = (r.whatsapp || "").toString().trim().toLowerCase();
+            const n = (r.Nombre || r.nombre || "").toString().trim().toLowerCase();
+            return !w || w === 'libre' || w === 'vacio' || w === 'disponible' || n === 'libre' || n === 'disponible';
+        });
+
         if (!match) {
             const { parseExcelDate } = require('./salesRegistryService');
             const now = new Date();
@@ -1381,7 +1387,7 @@ async function handleAdminForceRetrieve(message, command, client, targetUser = n
         if (!match) match = rows[0];
 
         // 2. IDENTIFICAR DESTINATARIO
-        let recipientId = message.from; // Por defecto el remitente (admin)
+        let recipientId = message.from; // Por defecto el chat actual (grupo o privado)
         let recipientDisplay = "ti, jefe";
 
         if (targetUser) {
@@ -1400,7 +1406,7 @@ async function handleAdminForceRetrieve(message, command, client, targetUser = n
                     recipientId = (tel.startsWith('57') ? tel : '57' + tel) + '@c.us';
                     recipientDisplay = `*${userRow.Nombre || targetUser}*`;
                 } else {
-                    await message.reply(`⚠️ Jefe, no encontré a nadie llamado "${targetUser}" en la base de datos para enviarle la cuenta. Te la paso a ti:`);
+                    await safeSend(message, `⚠️ Jefe, no encontré a nadie llamado "${targetUser}" en la base de datos para enviarle la cuenta. Te la paso a ti:`, message.from, client);
                 }
             }
         }
@@ -1415,18 +1421,19 @@ async function handleAdminForceRetrieve(message, command, client, targetUser = n
         response += `*Plataforma:* ${platformName.toUpperCase()}\n`;
         response += `*Correo:* ${correo}\n`;
         response += `*Clave:* ${clave}\n`;
-        if (perfil) response += `*Perfil:* ${perfil}\n`;
+        if (perfil && perfil.toLowerCase() !== 'libre') response += `*Perfil:* ${perfil}\n`;
         if (pin) response += `*PIN:* ${pin}\n`;
 
-        await client.sendMessage(recipientId, response);
+        console.log(`[Admin Force] Entregando cuenta de ${platformName} a ${recipientId}: ${correo}`);
+        await safeSend(message, response, recipientId, client);
 
         if (recipientId !== message.from) {
-            await message.reply(`✅ Cuenta de ${platformName.toUpperCase()} enviada exitosamente a ${recipientDisplay}.`);
+            await safeSend(message, `✅ Cuenta de ${platformName.toUpperCase()} enviada exitosamente a ${recipientDisplay}.`, message.from, client);
         }
 
     } catch (error) {
         console.error("[Admin Force] Error:", error);
-        await message.reply("❌ Error interno buscando la cuenta jefe.");
+        await safeSend(message, "❌ Error interno buscando la cuenta jefe: " + error.message, message.from, client);
     }
 }
 
