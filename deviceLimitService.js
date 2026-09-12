@@ -27,24 +27,38 @@ function saveDeviceUsage(data) {
     }
 }
 
-function getNormalizedKey(phone, emailOrPlatform) {
+/**
+ * Determina si una plataforma está sujeta al límite de 3 dispositivos/códigos (exclusivo para Claude y GPT).
+ */
+function isAiLimitedPlatform(platformName) {
+    if (!platformName) return false;
+    const p = platformName.toString().toLowerCase();
+    return p.includes('gpt') || p.includes('chatgpt') || p.includes('claude');
+}
+
+/**
+ * Genera la clave normalizada conectando el teléfono, la cuenta y el perfil asignado al cliente.
+ */
+function getNormalizedKey(phone, emailOrPlatform, profile = null) {
     const cleanPhone = (phone || '').toString().replace(/\D/g, '');
     const normPhone = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
     const cleanIdentifier = (emailOrPlatform || 'general').toString().toLowerCase().trim().replace(/[^a-z0-9@._-]/g, '');
-    return `${normPhone}_${cleanIdentifier}`;
+    const cleanProfile = profile ? `_${profile.toString().toLowerCase().trim().replace(/[^a-z0-9]/g, '')}` : '';
+    return `${normPhone}_${cleanIdentifier}${cleanProfile}`;
 }
 
 /**
  * Consulta el estado actual de dispositivos sin incrementar el conteo.
  */
-function getDeviceUsage(phone, emailOrPlatform, maxAllowed = 3) {
+function getDeviceUsage(phone, emailOrPlatform, maxAllowed = 3, profile = null) {
     if (!phone) {
         return { devicesUsed: 0, devicesRemaining: maxAllowed, maxDevices: maxAllowed, isBlocked: false };
     }
 
     const usage = loadDeviceUsage();
-    const key = getNormalizedKey(phone, emailOrPlatform);
-    const record = usage[key];
+    const key = getNormalizedKey(phone, emailOrPlatform, profile);
+    const legacyKey = profile ? getNormalizedKey(phone, emailOrPlatform, null) : key;
+    const record = usage[key] || usage[legacyKey];
 
     const used = record && typeof record.count === 'number' ? record.count : 0;
     const remaining = Math.max(0, maxAllowed - used);
@@ -60,25 +74,27 @@ function getDeviceUsage(phone, emailOrPlatform, maxAllowed = 3) {
 
 /**
  * Registra un intento de acceso / código.
+ * Conectado con el perfil asignado al cliente.
  * Si el usuario solicita varios códigos en la misma sesión (ventana de 15 minutos),
- * NO incrementa el número de dispositivos (permite reintentos por caducidad de TOTP/códigos).
- * Si es una nueva sesión (> 15 minutos), se cuenta como un nuevo dispositivo.
+ * NO incrementa el número de dispositivos.
  */
-function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllowed = 3, sessionWindowMs = 15 * 60 * 1000) {
+function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllowed = 3, sessionWindowMs = 15 * 60 * 1000, profile = null) {
     if (!phone) {
         return { canRequest: true, devicesUsed: 1, devicesRemaining: maxAllowed - 1, maxDevices: maxAllowed, isNewDevice: true };
     }
 
     const usage = loadDeviceUsage();
-    const key = getNormalizedKey(phone, emailOrPlatform);
+    const key = getNormalizedKey(phone, emailOrPlatform, profile);
+    const legacyKey = profile ? getNormalizedKey(phone, emailOrPlatform, null) : key;
     const now = Date.now();
 
-    let record = usage[key];
+    let record = usage[key] || usage[legacyKey];
 
     // Si no existe registro previo, es el dispositivo 1
     if (!record || typeof record !== 'object') {
         record = {
             count: 1,
+            profile: profile || null,
             firstSeenAt: now,
             lastSessionAt: now,
             lastRequestAt: now,
@@ -98,12 +114,18 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
         };
     }
 
+    // Actualizar perfil si no estaba fijado
+    if (!record.profile && profile) {
+        record.profile = profile;
+    }
+
     // Verificar si está dentro de la misma sesión activa (ventana de gracia)
     const timeSinceLastSession = now - (record.lastSessionAt || 0);
     const isSameSession = timeSinceLastSession < sessionWindowMs;
 
     if (isSameSession) {
         record.lastRequestAt = now;
+        usage[key] = record;
         saveDeviceUsage(usage);
 
         return {
@@ -149,11 +171,20 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
 /**
  * Resetea el contador de dispositivos (para soporte o tras renovación)
  */
-function resetDeviceUsage(phone, emailOrPlatform) {
+function resetDeviceUsage(phone, emailOrPlatform, profile = null) {
     const usage = loadDeviceUsage();
-    const key = getNormalizedKey(phone, emailOrPlatform);
+    const key = getNormalizedKey(phone, emailOrPlatform, profile);
+    const legacyKey = profile ? getNormalizedKey(phone, emailOrPlatform, null) : key;
+    let modified = false;
     if (usage[key]) {
         delete usage[key];
+        modified = true;
+    }
+    if (usage[legacyKey]) {
+        delete usage[legacyKey];
+        modified = true;
+    }
+    if (modified) {
         saveDeviceUsage(usage);
         return true;
     }
@@ -161,6 +192,7 @@ function resetDeviceUsage(phone, emailOrPlatform) {
 }
 
 module.exports = {
+    isAiLimitedPlatform,
     getDeviceUsage,
     registerDeviceRequest,
     resetDeviceUsage

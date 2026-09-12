@@ -39,9 +39,9 @@ function generateGPTCode(email) {
  * @param {number} [windowMs=900000] (15 mins)
  * @returns {Object} { canRequest, devicesUsed, devicesRemaining, maxDevices, limitReached }
  */
-function checkAndIncrementUsage(phone, email, maxAllowed = 3, windowMs = 15 * 60 * 1000) {
+function checkAndIncrementUsage(phone, email, maxAllowed = 3, windowMs = 15 * 60 * 1000, profile = null) {
     const { registerDeviceRequest } = require('./deviceLimitService');
-    return registerDeviceRequest(phone, email, null, maxAllowed, windowMs);
+    return registerDeviceRequest(phone, email, null, maxAllowed, windowMs, profile);
 }
 
 /**
