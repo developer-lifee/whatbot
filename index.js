@@ -5302,17 +5302,8 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
 app.post('/api/whatsapp/sync', async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.status(503).json({ success: false, error: 'No pupPage' });
-        const result = await client.pupPage.evaluate(() => {
-            const hasSynced = window.AuthStore && window.AuthStore.AppState && window.AuthStore.AppState.hasSynced;
-            const hasWWebJS = typeof window.WWebJS !== 'undefined';
-            let triggered = false;
-            if (typeof window.onAppStateHasSyncedEvent === 'function') {
-                window.onAppStateHasSyncedEvent();
-                triggered = true;
-            }
-            return { hasSynced, hasWWebJS, triggered };
-        });
-        res.json({ success: true, result });
+        const ready = await ensureClientReady();
+        res.json({ success: true, ready, status: currentWhatsappStatus, info: client.info ? client.info.wid : null });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
     }
@@ -8115,7 +8106,7 @@ app.post('/api/admin/reset-devices', express.json(), async (req, res) => {
     }
 });
 
-
+app.get('/api/whatsapp/status-diag', async (req, res) => {
     try {
         let state = null;
         try {
@@ -8140,6 +8131,69 @@ app.post('/api/admin/reset-devices', express.json(), async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+async function ensureClientReady() {
+    if (!client || !client.pupPage) return false;
+    try {
+        // Auto-cerrar modales ("Novedades en WhatsApp Web", etc.)
+        await client.pupPage.evaluate(() => {
+            const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+            const continueBtn = buttons.find(b => b.innerText && (
+                b.innerText.toLowerCase().includes('continuar') || 
+                b.innerText.toLowerCase().includes('aceptar') ||
+                b.innerText.toLowerCase().includes('entendido')
+            ));
+            if (continueBtn) continueBtn.click();
+        }).catch(() => {});
+
+        const hasStore = await client.pupPage.evaluate(() => typeof window.Store !== 'undefined');
+        if (!hasStore) return false;
+
+        const hasWWebJS = await client.pupPage.evaluate(() => typeof window.WWebJS !== 'undefined');
+        if (!hasWWebJS) {
+            console.log('🔧 [WhatsApp Fix] Inyectando LoadUtils en WhatsApp Web...');
+            const { LoadUtils } = require('whatsapp-web.js/src/util/Injected/Utils');
+            await client.pupPage.evaluate(LoadUtils);
+            console.log('🔧 [WhatsApp Fix] LoadUtils inyectado exitosamente.');
+        }
+
+        if (!client.info || !client.info.wid) {
+            const ClientInfo = require('whatsapp-web.js/src/structures/ClientInfo');
+            const InterfaceController = require('whatsapp-web.js/src/util/InterfaceController');
+            const infoData = await client.pupPage.evaluate(() => {
+                const user = window.Store.User ? (
+                    (typeof window.Store.User.getMaybeMePnUser === 'function' && window.Store.User.getMaybeMePnUser()) ||
+                    (typeof window.Store.User.getMaybeMeLidUser === 'function' && window.Store.User.getMaybeMeLidUser()) ||
+                    null
+                ) : null;
+                const conn = window.Store.Conn ? window.Store.Conn.serialize() : {};
+                return { ...conn, wid: user };
+            });
+            if (infoData && infoData.wid) {
+                client.info = new ClientInfo(client, infoData);
+                client.interface = new InterfaceController(client);
+                console.log('🔧 [WhatsApp Fix] ClientInfo inicializado para:', client.info.wid._serialized);
+            }
+        }
+
+        if (!client._eventsAttached) {
+            console.log('🔧 [WhatsApp Fix] Adjuntando listeners de eventos...');
+            await client.attachEventListeners();
+            client._eventsAttached = true;
+        }
+
+        if (currentWhatsappStatus !== 'CONNECTED') {
+            currentWhatsappStatus = 'CONNECTED';
+            console.log('🎉 [WhatsApp Fix] Conexión completada. Emitiendo ready...');
+            client.emit('ready');
+            broadcastSseEvent('status', { status: currentWhatsappStatus });
+        }
+        return true;
+    } catch (err) {
+        console.error('⚠️ [WhatsApp Fix] Error en ensureClientReady:', err.message);
+        return false;
+    }
+}
 
 const server = http.createServer(app);
 const port = process.env.PORT || 3000;
@@ -8219,26 +8273,8 @@ server.listen(port, () => {
                 broadcastSseEvent('status', { status: currentWhatsappStatus });
             }
 
-            // Auto-descartar modales ("Novedades en WhatsApp Web", etc.) y forzar sync de WWebJS si quedó en pausa
-            try {
-                if (client.pupPage) {
-                    await client.pupPage.evaluate(() => {
-                        const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                        const continueBtn = buttons.find(b => b.innerText && (
-                            b.innerText.toLowerCase().includes('continuar') || 
-                            b.innerText.toLowerCase().includes('aceptar') ||
-                            b.innerText.toLowerCase().includes('entendido')
-                        ));
-                        if (continueBtn) continueBtn.click();
-
-                        if (typeof window.WWebJS === 'undefined' && window.AuthStore && window.AuthStore.AppState && window.AuthStore.AppState.hasSynced) {
-                            if (typeof window.onAppStateHasSyncedEvent === 'function') {
-                                window.onAppStateHasSyncedEvent();
-                            }
-                        }
-                    }).catch(() => {});
-                }
-            } catch (e) {}
+            // Asegurar que WhatsApp Web tenga modales cerrados, LoadUtils inyectado y listeners activos
+            await ensureClientReady();
 
             // Verificación de salud profunda: ¿Sigue respondiendo el navegador?
             if (client.info && client.info.wid) {
