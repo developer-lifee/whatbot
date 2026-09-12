@@ -9356,6 +9356,33 @@ async function baseProcessIncomingMessage(messages) {
                 }
             }
         }
+
+        // Fallback rápido vía Store.Contact si es un LID y getContact() no trajo el número telefónico
+        if (!resolvedPhoneFromLid && userId.includes('@lid') && client && client.pupPage) {
+            try {
+                const storeContact = await client.pupPage.evaluate((targetLid) => {
+                    if (!window.Store || !window.Store.Contact) return null;
+                    const c = window.Store.Contact.get(targetLid);
+                    if (!c) return null;
+                    let pn = '';
+                    if (c.phoneNumber) pn = typeof c.phoneNumber === 'object' ? (c.phoneNumber.user || c.phoneNumber._serialized) : c.phoneNumber;
+                    else if (c.pn) pn = typeof c.pn === 'object' ? (c.pn.user || c.pn._serialized) : c.pn;
+                    else if (c.number) pn = c.number;
+                    return { pn: String(pn || '').replace(/\D/g, ''), name: c.name || c.pushname || '' };
+                }, userId).catch(() => null);
+
+                if (storeContact && storeContact.pn) {
+                    const cleanP = storeContact.pn;
+                    const botNum = (client.info && client.info.wid) ? client.info.wid.user : '3118587974';
+                    if (cleanP.length >= 7 && cleanP.length <= 13 && cleanP !== botNum && cleanP !== '573118587974') {
+                        resolvedPhoneFromLid = cleanP;
+                        if (!contact) contact = {};
+                        if (storeContact.name && !contact.name) contact.name = storeContact.name;
+                        console.log(`[LID Fast-Resolve] 📱 Teléfono resuelto vía Store.Contact para @${userId}: +${resolvedPhoneFromLid} (${storeContact.name})`);
+                    }
+                }
+            } catch (e) { }
+        }
     } catch (err) {
         console.warn("No se pudo obtener contacto del mensaje:", err.message);
     }
@@ -11411,12 +11438,21 @@ async function baseProcessIncomingMessage(messages) {
                             stateData.isAutoFilled = true;
                             stateData.isRenewal = false;
                             userStates.set(userId, stateData);
-                        } else if (userAccounts.length === 1 && !isNewRequested && (!check.amount || Math.abs(accountsWithPrices[0].calculatedPrice - check.amount) <= 1000)) {
-                            stateData.items = [userAccounts[0]];
-                            stateData.total = check.amount;
-                            stateData.isAutoFilled = true;
-                            stateData.isRenewal = true;
-                            userStates.set(userId, stateData);
+                        } else if (userAccounts.length === 1 && !isNewRequested) {
+                            const singlePrice = accountsWithPrices[0].calculatedPrice || 14000;
+                            const multiMonths = [12, 6, 4, 3, 2, 1];
+                            const detectedMultiMonth = check.amount ? multiMonths.find(m => Math.abs((singlePrice * m) - check.amount) <= 2500) : 1;
+                            const isSingleOrMultiMatch = !check.amount || detectedMultiMonth || (check.amount >= (singlePrice - 1000));
+
+                            if (isSingleOrMultiMatch) {
+                                stateData.items = [userAccounts[0]];
+                                stateData.total = check.amount || singlePrice;
+                                stateData.durationMonths = detectedMultiMonth || 1;
+                                stateData.isAutoFilled = true;
+                                stateData.isRenewal = true;
+                                userStates.set(userId, stateData);
+                                console.log(`[PAYMENT INTERCEPTOR] 🔄 Renovación detectada para ${userAccounts[0].Streaming}: ${detectedMultiMonth || 1} mes(es) por $${check.amount}`);
+                            }
                         } else if (userAccounts.length > 1 && !isNewRequested) {
                             stateData.items = userAccounts;
                             stateData.total = check.amount;
