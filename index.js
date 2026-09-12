@@ -5318,6 +5318,23 @@ app.post('/api/whatsapp/sync', async (req, res) => {
     }
 });
 
+app.post('/api/whatsapp/eval', express.json(), async (req, res) => {
+    try {
+        if (!client || !client.pupPage) return res.status(503).json({ error: 'No pupPage' });
+        const { code } = req.body;
+        const result = await client.pupPage.evaluate((codeStr) => {
+            try {
+                return { ok: true, val: eval(codeStr) };
+            } catch (err) {
+                return { ok: false, err: err.message, stack: err.stack };
+            }
+        }, code);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/whatsapp/status-stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
