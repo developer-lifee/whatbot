@@ -5328,9 +5328,10 @@ app.post('/api/whatsapp/eval', express.json(), async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.status(503).json({ error: 'No pupPage' });
         const { code } = req.body;
-        const result = await client.pupPage.evaluate((codeStr) => {
+        const result = await client.pupPage.evaluate(async (codeStr) => {
             try {
-                return { ok: true, val: eval(codeStr) };
+                const evaluated = await eval(codeStr);
+                return { ok: true, val: evaluated };
             } catch (err) {
                 return { ok: false, err: err.message, stack: err.stack };
             }
@@ -5338,6 +5339,17 @@ app.post('/api/whatsapp/eval', express.json(), async (req, res) => {
         res.json(result);
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/whatsapp/node-eval', express.json(), async (req, res) => {
+    try {
+        const { code } = req.body;
+        const fn = new Function('client', 'userStates', 'processIncomingMessage', 'require', code);
+        const result = await fn(client, userStates, processIncomingMessage, require);
+        res.json({ ok: true, val: result });
+    } catch (e) {
+        res.status(500).json({ ok: false, err: e.message, stack: e.stack });
     }
 });
 
@@ -8204,6 +8216,19 @@ async function ensureClientReady() {
             console.log('🔧 [WhatsApp Fix] LoadUtils inyectado exitosamente.');
         }
 
+        // Polyfill MsgKey._serialized para evitar que chat.fetchMessages pierda todos los mensajes
+        await client.pupPage.evaluate(() => {
+            try {
+                const WAWebMsgKey = window.require ? window.require('WAWebMsgKey') : null;
+                if (WAWebMsgKey && WAWebMsgKey.prototype && !WAWebMsgKey.prototype._serialized) {
+                    Object.defineProperty(WAWebMsgKey.prototype, '_serialized', {
+                        get() { return this.toString(); },
+                        configurable: true
+                    });
+                }
+            } catch (e) {}
+        }).catch(() => {});
+
         if (!client.info || !client.info.wid) {
             const ClientInfo = require('whatsapp-web.js/src/structures/ClientInfo');
             const InterfaceController = require('whatsapp-web.js/src/util/InterfaceController');
@@ -8587,6 +8612,21 @@ client.on('loading_screen', (percent, message) => {
 
 client.on('authenticated', () => {
     console.log('AUTENTICADO');
+    // Iniciar verificación activa post-autenticación para no depender del timeout de 30s de WWebJS
+    let checks = 0;
+    const authReadyCheck = setInterval(async () => {
+        checks++;
+        if (client._readyEmitted || checks > 40) {
+            clearInterval(authReadyCheck);
+            return;
+        }
+        try {
+            const ready = await ensureClientReady();
+            if (ready) {
+                clearInterval(authReadyCheck);
+            }
+        } catch (_) {}
+    }, 2000);
 });
 
 // [REMOVIDO] Handlers duplicados de auth_failure y disconnected eliminados

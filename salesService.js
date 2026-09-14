@@ -208,19 +208,38 @@ async function getChatHistoryText(message, limit = 25) {
 }
 
 /**
- * Encapsula fetchMessages con manejo de errores para evitar crasheos por waitForChatLoading.
+ * Encapsula fetchMessages con manejo de errores y fallback al Store para evitar pérdida de mensajes.
  */
 async function safeFetchMessages(chat, limit) {
     try {
         if (!chat) return [];
         await chat.syncHistory().catch(() => {});
-        return await chat.fetchMessages({ limit });
-    } catch (err) {
-        if (err.message.includes('waitForChatLoading') || err.message.includes('undefined')) {
-            // Error silencioso esperado en ráfagas o chats pesados
-            return [];
+        let msgs = await chat.fetchMessages({ limit }).catch(() => []);
+        if (msgs && msgs.length > 0) return msgs;
+
+        // Fallback robusto directo desde el Store del navegador si fetchMessages vino vacío
+        if (chat.client && chat.client.pupPage && chat.id && chat.id._serialized) {
+            const Message = require('whatsapp-web.js/src/structures/Message');
+            const rawModels = await chat.client.pupPage.evaluate((chatId, maxLimit) => {
+                try {
+                    const c = window.Store.Chat.get(chatId);
+                    if (!c || !c.msgs) return [];
+                    const models = c.msgs.getModelsArray();
+                    const filtered = models.filter(m => !m.isNotification);
+                    const sliced = filtered.slice(-maxLimit);
+                    return sliced.map(m => window.WWebJS ? window.WWebJS.getMessageModel(m) : null).filter(Boolean);
+                } catch (e) {
+                    return [];
+                }
+            }, chat.id._serialized, limit);
+
+            if (rawModels && rawModels.length > 0) {
+                return rawModels.map(m => new Message(chat.client, m));
+            }
         }
-        console.error(`[SAFE FETCH] Error en ${chat.id._serialized}:`, err.message);
+        return msgs || [];
+    } catch (err) {
+        console.error(`[SAFE FETCH] Error en ${chat.id?._serialized}:`, err.message);
         return [];
     }
 }
