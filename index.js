@@ -5310,6 +5310,20 @@ app.post('/api/whatsapp/sync', async (req, res) => {
     }
 });
 
+app.all('/api/whatsapp/scan-unread', async (req, res) => {
+    try {
+        if (!client || !client.info) {
+            await ensureClientReady();
+        }
+        const { processPendingChats } = require('./adminService');
+        const count = await processPendingChats(client, userStates, processIncomingMessage, true);
+        res.json({ success: true, processedCount: count, status: currentWhatsappStatus });
+    } catch (err) {
+        console.error('Error al forzar escaneo de no leídos:', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.post('/api/whatsapp/eval', express.json(), async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.status(503).json({ error: 'No pupPage' });
@@ -8211,11 +8225,34 @@ async function ensureClientReady() {
 
         if (!client._eventsAttached) {
             console.log('🔧 [WhatsApp Fix] Adjuntando listeners de eventos...');
-            await client.attachEventListeners();
-            client._eventsAttached = true;
+            try {
+                await Promise.race([
+                    client.attachEventListeners(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('attachEventListeners timeout (15s)')), 15000))
+                ]);
+                client._eventsAttached = true;
+                console.log('🔧 [WhatsApp Fix] Listeners de eventos adjuntados correctamente.');
+            } catch (attErr) {
+                console.warn('⚠️ [WhatsApp Fix] attachEventListeners falló o dio timeout:', attErr.message);
+                // Inyectar directamente el listener básico de mensajes en la página
+                await client.pupPage.evaluate(() => {
+                    try {
+                        if (window.Store && window.Store.Msg && typeof window.onAddMessageEvent === 'function') {
+                            window.Store.Msg.off('add');
+                            window.Store.Msg.on('add', (msg) => {
+                                if (msg && msg.isNewMsg && window.WWebJS) {
+                                    window.onAddMessageEvent(window.WWebJS.getMessageModel(msg));
+                                }
+                            });
+                        }
+                    } catch (_) {}
+                }).catch(() => {});
+                client._eventsAttached = true;
+            }
         }
 
-        if (currentWhatsappStatus !== 'CONNECTED') {
+        if (!client._readyEmitted) {
+            client._readyEmitted = true;
             currentWhatsappStatus = 'CONNECTED';
             console.log('🎉 [WhatsApp Fix] Conexión completada. Emitiendo ready...');
             client.emit('ready');
@@ -8412,6 +8449,7 @@ client.on('code', (code) => {
 });
 
 client.on('ready', () => {
+    client._readyEmitted = true;
     console.log('✅ Conexión establecida correctamente. ¡Bot listo!');
     currentWhatsappStatus = 'CONNECTED';
     latestQrCode = null;
@@ -8450,7 +8488,7 @@ client.on('ready', () => {
                 console.warn('⚠️ [ANTI-ZOMBIE] Ignorando error de escaneo durante el período de calentamiento inicial (primeros 2 min). El bot seguirá corriendo.');
             }
         }
-    }, 30000); // 30 segundos de gracia inicial
+    }, 4000); // 4 segundos de gracia inicial
 });
 
 client.on('disconnected', async (reason) => {
