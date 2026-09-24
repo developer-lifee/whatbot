@@ -455,7 +455,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
                 console.log(`[Sales Registry] RENOVACIÓN detectada para ${realStreamingName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
                 const updates = {
-                    "vencimiento": nextPaymentDate,
                     "deben": nextPaymentDate,
                     "Columna4": nextPaymentDate,
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
@@ -582,7 +581,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, baseDate);
 
                 const updates = {
-                    "vencimiento": nextPaymentDate,
                     "deben": nextPaymentDate,
                     "Columna4": nextPaymentDate,
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
@@ -647,7 +645,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "numero": finalPhoneToWrite,
                     "Nombre": firstName,
                     "apellido": lastName,
-                    "vencimiento": nextPaymentDate,
                     "deben": nextPaymentDate,
                     "Columna4": nextPaymentDate,
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`

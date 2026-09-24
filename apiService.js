@@ -184,6 +184,10 @@ async function writeRowToGraphDirect(rowNumber, updates) {
             const fallbacks = ["numero", "column1", "numero"];
             colIndex = headers.findIndex(h => h && fallbacks.includes(h.toLowerCase().trim()));
         }
+        if (colIndex === -1 && (key === "deben" || key === "Columna4" || key === "column4")) {
+            const fallbacks = ["deben", "columna4", "column4", "debe"];
+            colIndex = headers.findIndex(h => h && fallbacks.includes(h.toLowerCase().trim()));
+        }
         if (colIndex !== -1) {
             rowValues[colIndex] = value;
         } else {
@@ -317,38 +321,13 @@ async function fetchCustomersData(retries = 3, delay = 2000, force = false) {
     return data.map((cliente, index) => {
         if (cliente) {
             cliente._rowNumber = index + 2;
-            const dVenc = getJsDateFromExcel(cliente.vencimiento);
-            const dDeben = getJsDateFromExcel(cliente.deben);
-            const dCol4 = getJsDateFromExcel(cliente.Columna4);
-
-            // Determinar la fecha de vencimiento real más actualizada entre vencimiento, deben y Columna4
-            let maxDate = null;
-            let maxVal = null;
-            const dateCandidates = [
-              { d: dVenc, val: cliente.vencimiento },
-              { d: dDeben, val: cliente.deben },
-              { d: dCol4, val: cliente.Columna4 }
-            ];
-            for (const c of dateCandidates) {
-              if (c.d && !isNaN(c.d.getTime())) {
-                if (!maxDate || c.d.getTime() > maxDate.getTime()) {
-                  maxDate = c.d;
-                  maxVal = c.val;
-                }
-              }
+            // 'deben' es la fecha en que vence la suscripción del CLIENTE (antes Columna4, ahora 'deben' en Excel)
+            const clientDue = cliente.deben || cliente.Deben || cliente.Columna4;
+            if (clientDue !== undefined && clientDue !== null) {
+              cliente.deben = clientDue;
+              cliente.Columna4 = clientDue;
             }
-
-            if (maxVal !== null) {
-              cliente.deben = maxVal;
-              cliente.Columna4 = maxVal;
-              cliente.vencimiento = maxVal;
-            } else {
-              if (!cliente.deben && cliente.Columna4) {
-                cliente.deben = cliente.Columna4;
-              } else if (!cliente.Columna4 && cliente.deben) {
-                cliente.Columna4 = cliente.deben;
-              }
-            }
+            // 'vencimiento' es la fecha interna de Sheerit / cuenta maestra del proveedor (se mantiene intacta)
         }
         return cliente;
     }).filter(cliente => cliente !== null && cliente !== undefined);
@@ -761,12 +740,11 @@ function procesarHistoricoArray(matriz2D) {
 async function updateExcelData(rowNumber, updates) {
   try {
     if (updates && typeof updates === 'object') {
-      // Sincronizar automáticamente 'vencimiento', 'deben' y 'Columna4' (columnas de fecha de vencimiento en Excel y Azure)
-      const targetVenc = updates.vencimiento || updates.deben || updates.Columna4;
-      if (targetVenc !== undefined) {
-        if (updates.vencimiento === undefined) updates.vencimiento = targetVenc;
-        if (updates.deben === undefined) updates.deben = targetVenc;
-        if (updates.Columna4 === undefined) updates.Columna4 = targetVenc;
+      // Sincronizar automáticamente 'deben' con 'Columna4' (columna de vencimiento del cliente renombrada en Excel)
+      if (updates.deben !== undefined && updates.Columna4 === undefined) {
+        updates.Columna4 = updates.deben;
+      } else if (updates.Columna4 !== undefined && updates.deben === undefined) {
+        updates.deben = updates.Columna4;
       }
     }
     let isWriteSuccess = false;
