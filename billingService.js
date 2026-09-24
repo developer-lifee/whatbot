@@ -1638,7 +1638,17 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
       let accountDate = null;
       let diffDays = 0;
       
-      accountDate = getJsDateFromExcel(account.deben);
+      const d1 = getJsDateFromExcel(account.deben);
+      const d2 = getJsDateFromExcel(account.vencimiento);
+      const d3 = getJsDateFromExcel(account.Columna4);
+      for (const d of [d1, d2, d3]) {
+        if (d && !isNaN(d.getTime())) {
+          if (!accountDate || d.getTime() > accountDate.getTime()) {
+            accountDate = d;
+          }
+        }
+      }
+
       if (accountDate) {
         if (accountDate.getTime() <= tomorrow.getTime()) {
            isTargetDate = true;

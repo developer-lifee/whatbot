@@ -8309,7 +8309,7 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
 
         const { getAccountsByPhone, getJsDateFromExcel } = require('./apiService');
         const { getDeviceUsage, isAiLimitedPlatform, checkAccountAutomationStatus } = require('./deviceLimitService');
-        const userAccounts = await getAccountsByPhone(cleanPhone);
+        const userAccounts = await getAccountsByPhone(cleanPhone, null, true);
 
         const formattedAccounts = await Promise.all(userAccounts.map(async (acc) => {
             const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
@@ -8340,6 +8340,37 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
                 maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
             };
         }));
+
+        // Si aún no se ha sincronizado en la hoja de Excel pero la compra fue aprobada recientemente
+        if (formattedAccounts.length === 0) {
+            try {
+                const { pool } = require('./database');
+                const last10 = cleanPhone.slice(-10);
+                const [recentSales] = await pool.query(
+                    `SELECT * FROM web_sales_approved 
+                     WHERE (whatsapp LIKE ? OR whatsapp = ?) 
+                     AND approvedAt >= NOW() - INTERVAL 48 HOUR 
+                     ORDER BY approvedAt DESC`,
+                    [`%${last10}%`, cleanPhone]
+                );
+                if (recentSales && recentSales.length > 0) {
+                    recentSales.forEach(s => {
+                        formattedAccounts.push({
+                            id: `pending-${s.order_id}`,
+                            platform: (s.platformName || "SERVICIO").toUpperCase(),
+                            email: s.email || "Asignando cuenta...",
+                            password: "En proceso de entrega",
+                            profile: `${s.firstName || 'Cliente'} (En preparación)`,
+                            vencimiento: "Activación en curso",
+                            isPendingDelivery: true,
+                            isAutomated: false
+                        });
+                    });
+                }
+            } catch (dbSalesErr) {
+                console.warn('[verify-otp] Error buscando compras recientes en BD:', dbSalesErr.message);
+            }
+        }
 
         res.json({
             success: true,
@@ -8384,8 +8415,8 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
         }
 
         const { getAccountsByPhone, getJsDateFromExcel } = require('./apiService');
-        const { getDeviceUsage, isAiLimitedPlatform } = require('./deviceLimitService');
-        const userAccounts = await getAccountsByPhone(cleanPhone);
+        const { getDeviceUsage, isAiLimitedPlatform, checkAccountAutomationStatus } = require('./deviceLimitService');
+        const userAccounts = await getAccountsByPhone(cleanPhone, null, true);
 
         const formattedAccounts = await Promise.all(userAccounts.map(async (acc) => {
             const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
@@ -8416,6 +8447,37 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
                 maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
             };
         }));
+
+        // Si aún no se ha sincronizado en la hoja de Excel pero la compra fue aprobada recientemente
+        if (formattedAccounts.length === 0) {
+            try {
+                const { pool } = require('./database');
+                const last10 = cleanPhone.slice(-10);
+                const [recentSales] = await pool.query(
+                    `SELECT * FROM web_sales_approved 
+                     WHERE (whatsapp LIKE ? OR whatsapp = ?) 
+                     AND approvedAt >= NOW() - INTERVAL 48 HOUR 
+                     ORDER BY approvedAt DESC`,
+                    [`%${last10}%`, cleanPhone]
+                );
+                if (recentSales && recentSales.length > 0) {
+                    recentSales.forEach(s => {
+                        formattedAccounts.push({
+                            id: `pending-${s.order_id}`,
+                            platform: (s.platformName || "SERVICIO").toUpperCase(),
+                            email: s.email || "Asignando cuenta...",
+                            password: "En proceso de entrega",
+                            profile: `${s.firstName || 'Cliente'} (En preparación)`,
+                            vencimiento: "Activación en curso",
+                            isPendingDelivery: true,
+                            isAutomated: false
+                        });
+                    });
+                }
+            } catch (dbSalesErr) {
+                console.warn('[auto-session] Error buscando compras recientes en BD:', dbSalesErr.message);
+            }
+        }
 
         res.json({
             success: true,
@@ -15364,10 +15426,13 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                     }
 
                 } else if (check.amount === null && !check.isReceipt) {
-                    // La IA no lo reconoció como comprobante
-                    console.log(`[AUTO-VALIDATE] La imagen no fue reconocida como comprobante de pago.`);
-                    await message.reply("🤖 No pude identificar esta imagen como un comprobante de pago bancario. Por favor envía una captura de pantalla clara de la confirmación de tu transferencia. 😊");
-                    return;
+                    if (check.ocrError) {
+                        console.warn(`[AUTO-VALIDATE] Error técnico de OCR en IA (${check.errorDetails || 'Error desconocido'}). Pasando a flujo de revisión manual de asesores.`);
+                    } else {
+                        console.log(`[AUTO-VALIDATE] Comprobante no auto-validado por OCR. Pasando a flujo de revisión manual de asesores.`);
+                    }
+                    // No rechazar tajantemente al cliente con "no pude identificar esta imagen...".
+                    // Caer fluidamente al fallback manual para alertar a los asesores en GROUP_ID y confirmar al cliente.
                 }
             } catch (autoErr) {
                 console.error(`[AUTO-VALIDATE] Error durante validación automática:`, autoErr.message);
@@ -15378,7 +15443,7 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
         try {
             const chat = await client.getChatById(GROUP_ID);
             if (chat) {
-                const type = message.hasMedia ? "📸 Comprobante (llave no legible)" : "✅ Confirmación de pago por texto";
+                const type = message.hasMedia ? "📸 Comprobante de pago" : "✅ Confirmación de pago por texto";
                 let contact;
                 try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
                 const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');

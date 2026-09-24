@@ -184,10 +184,9 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-flash-lite-latest",  // Prioridad 1: Rápido, alta cuota y excelente visión OCR
-  "gemini-3.1-flash-lite",     // Respaldo de alta cuota
-  "gemini-3.5-flash-lite",     // Respaldo secundario
-  "gemini-flash-latest"        // Fallback
+  "gemini-3.1-flash-lite",     // Prioridad 1: Modelo vigente de alta cuota y visión multimodal precisa
+  "gemini-3.5-flash",          // Respaldo de alta capacidad
+  "gemini-3.1-flash-lite-preview" // Fallback preview
 ];
 
 /**
@@ -579,6 +578,7 @@ Realiza una extracción precisa (OCR) y describe detalladamente lo que se ve en 
    - Extrae el nombre del banco o medio (Nequi, Daviplata, Bancolombia, Bre-B, etc.).
    - Extrae el monto exacto de la transacción (ej: "$ 33.000,00" -> 33000), fecha, hora y número de referencia (ej: M17954814).
    - Extrae el nombre del destinatario ("Para: Sheerit Esteban Avila"), la Llave ("Llave: 0087387259") o cuenta destino.
+   - NOTA BANCOLOMBIA: Capturas de la app Bancolombia (incluyendo modo oscuro) que muestren "Datos de la transferencia", "Valor de la transferencia", "Producto destino" (ej: "Esteban David Avila Diagama"), "Costo de la transferencia", fecha u hora: extrae todos sus datos como comprobante de transferencia bancaria exitosa.
    - NOTA NEQUI/BRE-V: Si la imagen muestra un encabezado "Pago realizado" y un código QR arriba con el texto "¡Escanea este QR con Nequi para verificar tu envio al instante!", es el comprobante oficial de transferencia exitosa de Nequi / Bre-V. Extrae todos sus datos como comprobante de pago exitoso.
 
 2. Si es una pantalla de INICIO DE SESIÓN, CÓDIGO DE ACCESO o 2FA:
@@ -1056,6 +1056,8 @@ Reglas:
   - Pon "amount": el valor numérico en dólares (ej: 4.88). Queda ESTRICTAMENTE PROHIBIDO redondear 4.88 USD a 4 o 5 pesos colombianos (COP).
 - REGLA CRÍTICA (PASARELA BOLD): Si el recibo muestra "Bold", "sheerit", "Payment Completed", "Purchase reference: LNK_..." o "Authorization code":
   - "isReceipt": true, "bank": "Bold", "confidence": 1.0. Es un pago 100% aprobado por pasarela.
+- REGLA CRÍTICA (BANCOLOMBIA): Capturas de la app Bancolombia (incluyendo modo oscuro) que muestren "Datos de la transferencia", "Valor de la transferencia", "Producto destino" (ej: "Esteban David Avila Diagama", "Esteban Avila") corresponden a una transferencia confirmada:
+  - "isReceipt": true, "bank": "Bancolombia", "confidence": 1.0.
 - REGLA CRÍTICA (COMPROBANTES MODERNOS NEQUI / BRE-V CON QR): Los comprobantes de Nequi y Bre-V incluyen un código QR en la parte superior con el texto "¡Escanea este QR con Nequi para verificar tu envio al instante!" junto con "Pago realizado", "Para: Sheerit Esteban Avila", "Llave: 0087387259", "¿Cuánto?: $ ...", "Referencia: M...". ESTO ES UN COMPROBANTE DE PAGO EXITOSO Y VÁLIDO (isReceipt: true, confidence: 1.0). NUNCA lo consideres como factura pendiente ni como QR de cobro.
 - Si indica ERROR, TRANSACCIÓN RECHAZADA o CUENTA SUSPENDIDA, marca isReceipt: false.
 - Para 'inferredPlatform': Examina el [Historial reciente] o texto adjunto. Si el cliente menciona "office", "office 365", pon "Microsoft 365". Si el cliente habla de HBO, Netflix, Disney, pon esa plataforma exacta.`;
@@ -1127,7 +1129,7 @@ Reglas:
     };
   } catch (error) {
     console.error("Error recognizing payment proof:", error);
-    return { isReceipt: false, amount: null, bank: null, destinationKey: null, destinationName: null };
+    return { isReceipt: false, amount: null, bank: null, destinationKey: null, destinationName: null, ocrError: true, errorDetails: error.message };
   }
 }
 

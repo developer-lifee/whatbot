@@ -317,10 +317,37 @@ async function fetchCustomersData(retries = 3, delay = 2000, force = false) {
     return data.map((cliente, index) => {
         if (cliente) {
             cliente._rowNumber = index + 2;
-            if (!cliente.deben && cliente.Columna4) {
+            const dVenc = getJsDateFromExcel(cliente.vencimiento);
+            const dDeben = getJsDateFromExcel(cliente.deben);
+            const dCol4 = getJsDateFromExcel(cliente.Columna4);
+
+            // Determinar la fecha de vencimiento real más actualizada entre vencimiento, deben y Columna4
+            let maxDate = null;
+            let maxVal = null;
+            const dateCandidates = [
+              { d: dVenc, val: cliente.vencimiento },
+              { d: dDeben, val: cliente.deben },
+              { d: dCol4, val: cliente.Columna4 }
+            ];
+            for (const c of dateCandidates) {
+              if (c.d && !isNaN(c.d.getTime())) {
+                if (!maxDate || c.d.getTime() > maxDate.getTime()) {
+                  maxDate = c.d;
+                  maxVal = c.val;
+                }
+              }
+            }
+
+            if (maxVal !== null) {
+              cliente.deben = maxVal;
+              cliente.Columna4 = maxVal;
+              cliente.vencimiento = maxVal;
+            } else {
+              if (!cliente.deben && cliente.Columna4) {
                 cliente.deben = cliente.Columna4;
-            } else if (!cliente.Columna4 && cliente.deben) {
+              } else if (!cliente.Columna4 && cliente.deben) {
                 cliente.Columna4 = cliente.deben;
+              }
             }
         }
         return cliente;
@@ -339,7 +366,13 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
       const rowNumber = c.numero || c.Numero || c.whatsapp || c.WhatsApp || c.celular || c.Celular;
       if (!rowNumber) return false;
       const normalizedJsonNumber = rowNumber.toString().replace(/\D/g, '');
-      return normalizedJsonNumber === cleanInputPhone || (normalizedJsonNumber.length >= 10 && cleanInputPhone.endsWith(normalizedJsonNumber.slice(-10)));
+      const last10Json = normalizedJsonNumber.slice(-10);
+      const last10Input = cleanInputPhone.slice(-10);
+      const isMatch = normalizedJsonNumber === cleanInputPhone ||
+                      (last10Json.length === 10 && last10Input.length === 10 && last10Json === last10Input) ||
+                      (normalizedJsonNumber.length >= 10 && cleanInputPhone.endsWith(last10Json)) ||
+                      (cleanInputPhone.length >= 10 && normalizedJsonNumber.endsWith(last10Input));
+      return isMatch;
     });
 
     const isLid = phoneNumber.toString().includes('@lid') || cleanInputPhone.length > 12 || (!cleanInputPhone.startsWith('57') && !cleanInputPhone.startsWith('52') && cleanInputPhone.length > 10);
