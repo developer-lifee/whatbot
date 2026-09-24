@@ -14657,12 +14657,39 @@ client.on('message', async (message) => {
 
     // Filtros de grupo
     if (message.from.includes('@g.us')) {
+        let chat = null;
         try {
-            const chat = await message.getChat();
-            console.log(`[GROUP MSG] Grupo: "${chat.name}" | ID: ${message.from} | De: ${message.author || message.from} | Mensaje: ${message.body || '[Sin texto]'}`);
+            chat = await message.getChat();
+            console.log(`[GROUP MSG] Grupo: "${chat ? chat.name : ''}" | ID: ${message.from} | De: ${message.author || message.from} | Mensaje: ${message.body || '[Sin texto]'}`);
         } catch (e) {
             console.log(`[GROUP MSG] ID: ${message.from} | De: ${message.author || message.from} | Mensaje: ${message.body || '[Sin texto]'}`);
         }
+
+        const { isErrorDiagnosticGroup, handleAdvisorErrorReport } = require('./errorDiagnosticService');
+        const isErrGroup = isErrorDiagnosticGroup(message.from, chat ? chat.name : '');
+
+        // Si es el grupo de errores ("errors bot", etc.)
+        if (isErrGroup) {
+            if (!ADMIN_GROUP_IDS.includes(message.from)) {
+                ADMIN_GROUP_IDS.push(message.from);
+            }
+
+            const b = message.body ? message.body.toLowerCase().trim() : '';
+            const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot');
+
+            if (isBotCommand) {
+                await processIncomingMessage([message]);
+                return;
+            }
+
+            // Diagnosticar reporte con imagen o texto descriptivo
+            if (message.hasMedia || b.length > 5) {
+                await handleAdvisorErrorReport(message, client, userStates);
+                return;
+            }
+            return;
+        }
+
         // Los mensajes de grupo se procesan si contienen comando @bot o confirmaciones
         const b = message.body ? message.body.toLowerCase().trim() : '';
         const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot');
