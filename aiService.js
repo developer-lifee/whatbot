@@ -184,8 +184,9 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-3.1-flash-lite",     // Prioridad 1: Modelo vigente de alta cuota y visión multimodal precisa
+  "gemini-3.8-flash",          // Prioridad 1: Modelo más reciente para razonamiento técnico y velocidad
   "gemini-3.5-flash",          // Respaldo de alta capacidad
+  "gemini-3.1-flash-lite",     // Respaldo ligero de alta cuota
   "gemini-3.1-flash-lite-preview" // Fallback preview
 ];
 

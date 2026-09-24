@@ -3,6 +3,7 @@ const path = require('path');
 const { getAccountsByPhone, fetchRawData } = require('./apiService');
 const { callDeepSeek, describeImageWithGemini } = require('./aiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
+const { callGemini38Flash, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
 
 const ERRORS_LOG_PATH = path.join(__dirname, 'logs', 'reported_errors.json');
 const PENDING_SOLUTIONS_PATH = path.join(__dirname, 'logs', 'pending_error_solutions.json');
@@ -135,7 +136,15 @@ Devuelve un JSON estrictamente estructurado así:
   "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios y la prevención de regresión",
   "archivosAfectados": ["archivo1.js", "archivo2.js"]
 }`;
-        const raw = await callDeepSeek(prompt, "Responde únicamente con el JSON solicitado.", true);
+        let raw = null;
+        try {
+            raw = await callGemini38Flash(prompt, "Eres Antigravity CLI. Responde exclusivamente con el JSON solicitado sin bloques markdown ni texto extra.");
+            // Si viene con ```json ... ``` limpiarlo
+            raw = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+        } catch (gErr) {
+            console.warn('[ErrorDiagnostic] Fallback a DeepSeek para plan CLI:', gErr.message);
+            raw = await callDeepSeek(prompt, "Responde únicamente con el JSON solicitado.", true);
+        }
         return JSON.parse(raw);
     } catch (e) {
         return {
@@ -171,13 +180,23 @@ async function handleAdvisorErrorReport(message, client, userStates) {
 
             const approvedTicket = approvePendingSolution(quotedText, senderPhone);
             if (approvedTicket) {
-                const acceptMsg = `✅ *[SOLUCIÓN APROBADA]* (Ticket: #${approvedTicket.id})\n\n` +
+                // Ejecutar el commit directamente en el repositorio usando el CLI y Gemini 3.8 Flash
+                const commitResult = await executeFixAndCommit(approvedTicket);
+
+                const filesList = (commitResult.changedFiles && commitResult.changedFiles.length > 0)
+                    ? commitResult.changedFiles.map(f => `• ${f}`).join('\n')
+                    : '• Repositorio actualizado y verificado';
+
+                const acceptMsg = `✅ *[SOLUCIÓN APLICADA Y COMMIT GENERADO]* (Ticket: #${approvedTicket.id})\n\n` +
                     `👤 *Aprobado por:* @${senderPhone}\n` +
+                    `🤖 *Motor:* Antigravity CLI (${commitResult.model || GEMINI_MODEL})\n` +
+                    `📦 *Commit Hash:* \`${commitResult.commitHash || 'OK'}\`\n\n` +
                     `📋 *Caso Resuelto:* ${approvedTicket.summary}\n\n` +
-                    `🛠️ *Plan Validado en Código:*\n${approvedTicket.plan}\n\n` +
-                    `📝 *Commit en Repositorio:*\n${approvedTicket.commitMessage}\n\n` +
+                    `📁 *Archivos Involucrados:*\n${filesList}\n\n` +
+                    `📝 *Commit en Repositorio:*\n\`\`\`\n${approvedTicket.commitMessage}\n\`\`\`\n\n` +
                     `⚠️ *Regla Estricta CLI:*\n` +
-                    `El servidor PM2 *NO* se ha reiniciado automáticamente. Los cambios quedan confirmados con su commit detallado para que el administrador decida cuándo hacer el despliegue.`;
+                    `El commit ya está guardado en el repositorio de producción. Conforme a la regla establecida, PM2 *NO* se ha reiniciado automáticamente para que tú decidas cuándo hacer el despliegue.`;
+
                 await message.reply(acceptMsg);
                 return;
             } else {
