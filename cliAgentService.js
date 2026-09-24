@@ -15,7 +15,27 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { execSync } = require('child_process');
 
 const REPO_DIR = path.resolve(__dirname);
-const GEMINI_MODEL = 'gemini-3.8-flash';
+const AGY_MODEL = 'gemini-3.8-flash-high';
+
+/**
+ * Invoca directamente el CLI oficial de Antigravity (agy) autenticado con la cuenta de Google
+ */
+async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
+    const fullPrompt = `${systemInstruction}\n\n${prompt}`;
+    try {
+        const output = execSync(`agy -p ${JSON.stringify(fullPrompt)} --model ${AGY_MODEL} --dangerously-skip-permissions`, {
+            cwd: REPO_DIR,
+            encoding: 'utf8',
+            timeout: 60000,
+            env: { ...process.env, PATH: `/root/.local/bin:/usr/local/bin:${process.env.PATH}` }
+        }).trim();
+        if (output) return output;
+    } catch (e) {
+        console.warn('[Antigravity CLI] Advertencia ejecutando binario agy:', e.message);
+    }
+    // Fallback a HTTP si fuera necesario
+    return await callGemini38FlashHttp(prompt, systemInstruction);
+}
 
 function getGeminiApiKeys() {
     return [
@@ -27,9 +47,12 @@ function getGeminiApiKeys() {
 
 /**
  * Llama a la API oficial de Google Gemini usando gemini-3.8-flash (con fallback a gemini-3.5-flash si hay picos de demanda)
+/**
+ * Fallback HTTP a Google Gemini en caso de indisponibilidad del binario agy
  */
-async function callGemini38Flash(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
+async function callGemini38FlashHttp(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
     const keys = getGeminiApiKeys();
+    const GEMINI_MODEL = 'gemini-3.8-flash';
     if (keys.length === 0) throw new Error("No se encontró clave API de Gemini válida en .env");
 
     const modelsToTry = [GEMINI_MODEL, 'gemini-3.5-flash'];
@@ -148,7 +171,8 @@ if (require.main === module) {
 }
 
 module.exports = {
-    callGemini38Flash,
+    callGemini38Flash: callAgyCli,
+    callAgyCli,
     executeFixAndCommit,
-    GEMINI_MODEL
+    GEMINI_MODEL: AGY_MODEL
 };
