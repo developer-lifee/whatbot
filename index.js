@@ -324,7 +324,7 @@ userStates.delete = function (key) {
 
 const pendingConfirmations = new Map();
 const GROUP_ID = '120363102144405222@g.us';
-const ADMIN_GROUP_IDS = ['120363102144405222@g.us', '120363161345379149@g.us'];
+const ADMIN_GROUP_IDS = ['120363102144405222@g.us', '120363161345379149@g.us', '120363427163636523@g.us'];
 const OPERATOR_NUMBER = (process.env.OPERATOR_NUMBER || '573133890800') + '@c.us';
 const ADMIN_RAW_PHONE = OPERATOR_NUMBER.replace('@c.us', '');
 let globalBotSleep = false;

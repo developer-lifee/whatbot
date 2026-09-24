@@ -11,6 +11,7 @@ const ERRORS_LOG_PATH = path.join(__dirname, 'logs', 'reported_errors.json');
  */
 function isErrorDiagnosticGroup(chatId, chatName = '') {
     if (!chatId || !chatId.endsWith('@g.us')) return false;
+    if (chatId === '120363427163636523@g.us') return true;
     const nameLower = (chatName || '').toLowerCase();
     const isNameMatch = /error|errores|bug|bugs|falla|fallas|incidencia|incidencias/i.test(nameLower);
     return isNameMatch;
