@@ -420,44 +420,56 @@ async function handleSendBulkCredentials(message, command, client, getAccountsBy
 }
 
 function getDynamicSupportExpectationMessage() {
-    const { getTodayInBogota } = require('./apiService');
-    const now = getTodayInBogota();
+    const { getSupportScheduleConfig } = require('./supportScheduleService');
+    const config = getSupportScheduleConfig();
+    const dateStr = new Date().toLocaleString("en-US", { timeZone: "America/Bogota" });
+    const now = new Date(dateStr);
     const day = now.getDay(); // 0 is Sunday, 6 is Saturday
     const hours = now.getHours();
     const mins = now.getMinutes();
     const timeValue = hours + mins / 60;
 
+    const isWeekend = (day === 0 || day === 6);
+    const startStr = isWeekend ? (config.weekend_start || "09:00") : (config.weekday_start || "09:00");
+    const endStr = isWeekend ? (config.weekend_end || "21:00") : (config.weekday_end || "22:00");
+
+    const [startHour, startMin] = startStr.split(':').map(Number);
+    const [endHour, endMin] = endStr.split(':').map(Number);
+    const startVal = startHour + (startMin || 0) / 60;
+    const endVal = endHour + (endMin || 0) / 60;
+
+    const format12 = (h, m) => {
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const h12 = h % 12 || 12;
+        return (m === 0 || !m) ? `${h12}:00 ${ampm}` : `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+    };
+
     let isWorking = false;
     let nextShift = "en el próximo turno de soporte";
 
-    if (day >= 1 && day <= 5) { // Lunes a Viernes (10:00 AM a 10:00 PM)
-        if (timeValue >= 10 && timeValue < 22) {
-            isWorking = true;
+    if (timeValue >= startVal && timeValue < endVal) {
+        isWorking = true;
+    } else {
+        if (timeValue < startVal) {
+            nextShift = `hoy a partir de las ${format12(startHour, startMin)}`;
         } else {
-            if (timeValue < 10) {
-                nextShift = "hoy a partir de las 10:00 AM";
-            } else {
-                nextShift = day === 5 ? "mañana a partir de las 4:00 PM" : "mañana a partir de las 10:00 AM";
-            }
-        }
-    } else { // Fin de semana (Sábado y Domingo: 4:00 PM a 10:00 PM)
-        if (timeValue >= 16 && timeValue < 22) {
-            isWorking = true;
-        } else {
-            if (timeValue < 16) {
-                nextShift = "hoy a partir de las 4:00 PM";
-            } else if (day === 6) {
-                nextShift = "mañana a partir de las 4:00 PM";
-            } else {
-                nextShift = "el Lunes a partir de las 10:00 AM";
-            }
+            const nextDay = (day + 1) % 7;
+            const nextIsWeekend = (nextDay === 0 || nextDay === 6);
+            const nextStartStr = nextIsWeekend ? (config.weekend_start || "09:00") : (config.weekday_start || "09:00");
+            const [nxtH, nxtM] = nextStartStr.split(':').map(Number);
+            nextShift = `mañana a partir de las ${format12(nxtH, nxtM)}`;
         }
     }
 
     if (isWorking) {
         return "Un asesor está activo en este momento y te atenderá por este chat en unos minutos. ¡Gracias por tu paciencia! 😊";
     } else {
-        return `Ten en cuenta que nuestro horario de soporte es de Lunes a Viernes de 10:00 AM a 10:00 PM, y Sábados y Domingos de 4:00 PM a 10:00 PM. Un asesor te atenderá ${nextShift}. ¡Muchas gracias por tu comprensión! 😊`;
+        const [wdSH, wdSM] = (config.weekday_start || "09:00").split(':').map(Number);
+        const [wdEH, wdEM] = (config.weekday_end || "22:00").split(':').map(Number);
+        const [weSH, weSM] = (config.weekend_start || "09:00").split(':').map(Number);
+        const [weEH, weEM] = (config.weekend_end || "21:00").split(':').map(Number);
+        const scheduleSummary = `Lunes a Viernes de ${format12(wdSH, wdSM)} a ${format12(wdEH, wdEM)}, y Sábados y Domingos de ${format12(weSH, weSM)} a ${format12(weEH, weEM)}`;
+        return `Ten en cuenta que nuestro horario de soporte es de ${scheduleSummary}. Un asesor te atenderá ${nextShift}. ¡Muchas gracias por tu comprensión! 😊`;
     }
 }
 
@@ -492,6 +504,22 @@ async function executePaymentValidation(userId, userState, client, userStates, a
         await adminMessage.reply(report);
     } else {
         try {
+            const renewalItems = results.filter(res => res.type === 'renewal' || res.isRenewal || userState.isRenewal);
+            const newSaleItems = results.filter(res => !(res.type === 'renewal' || res.isRenewal || userState.isRenewal));
+
+            if (renewalItems.length > 0 && newSaleItems.length === 0) {
+                const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
+                const venc = renewalItems[0].vencimiento ? formatVencimientoDate(renewalItems[0].vencimiento) : "";
+                const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
+                let renewalMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\nPuedes seguir disfrutando de tu servicio con tus mismas credenciales y perfil habitual. ¡Muchas gracias por tu fidelidad! 😊🎬`;
+                if (userState.leftoverAmount && userState.leftoverAmount >= 2000) {
+                    renewalMsg += `\n\n💰 *Nota:* Tienes un saldo a favor de *$${userState.leftoverAmount.toLocaleString('es-CO')}* COP. Un asesor lo revisará con calma. 😊`;
+                }
+                await client.sendMessage(targetJid, renewalMsg);
+                userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                return { success: true };
+            }
+
             let credentialsMsg = "🤖 ¡Tu pago ha sido verificado! Tus servicios han sido activados. 🎉\n\n";
             if (userState.leftoverAmount && userState.leftoverAmount >= 2000) {
                 const totalPaid = userState.total || 0;
@@ -1137,6 +1165,10 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
     try {
         const results = await recordNewSale(userId, activeStateData, "Confirmado por Admin", overrideMonths);
 
+        if (!results || !Array.isArray(results) || results.length === 0) {
+            throw new Error("No se obtuvieron resultados válidos del registro de venta.");
+        }
+
         if (activeStateData && activeStateData.webOrderId) {
             try {
                 const { pool } = require('./database');
@@ -1174,6 +1206,19 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         await message.reply(report);
 
         const manualItems = results.filter(res => res.status !== 'success');
+        const renewalItems = results.filter(res => res.type === 'renewal' || res.isRenewal || (activeStateData && activeStateData.isRenewal));
+        const newSaleItems = results.filter(res => !(res.type === 'renewal' || res.isRenewal || (activeStateData && activeStateData.isRenewal)));
+
+        if (renewalItems.length > 0 && newSaleItems.length === 0) {
+            const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
+            const venc = renewalItems[0].vencimiento ? formatVencimientoDate(renewalItems[0].vencimiento) : "";
+            const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
+            const renewalMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\nPuedes seguir disfrutando de tu servicio con tus mismas credenciales y perfil habitual. ¡Muchas gracias por tu fidelidad! 😊🎬`;
+            await client.sendMessage(userId, renewalMsg);
+            userStates.set(userId, { state: 'main_menu', nombre: (activeStateData && activeStateData.nombre) || "Cliente", lastPaymentValidated: Date.now() });
+            return;
+        }
+
         const hasAnyCredentials = results.some(res => res.status === 'success' && res.correo);
 
         if (hasAnyCredentials) {

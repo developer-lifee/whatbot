@@ -191,6 +191,30 @@ function findAvailableSlot(platformName, allRows) {
 
             // Solo usamos filas que están vacías o marcadas como 'libre' (STOCK real)
             if (!whatsapp && (!nombre || nombre.toLowerCase() === 'libre')) {
+                // VERIFICACIÓN ESTRICTA CONTRA SOBREVENTA:
+                // Si la fila tiene correo, verificar que esa cuenta NO haya alcanzado el número máximo de perfiles ocupados
+                if (email) {
+                    const occupiedInAccount = allRows.filter(r => {
+                        const rEmail = (r.correo || r.Correo || "").toString().toLowerCase().trim();
+                        const rStreaming = normalizeStreamingName(r.Streaming || r.Plataforma);
+                        const rWhatsapp = (r.whatsapp || "").toString().trim();
+                        const rNombre = (r.Nombre || "").toString().trim();
+                        const isOccupied = rWhatsapp !== "" || (rNombre !== "" && rNombre.toLowerCase() !== 'libre');
+                        return rEmail === email && rStreaming === rowStreaming && isOccupied;
+                    }).length;
+
+                    let maxProfiles = 5;
+                    if (rowStreaming.includes('disney')) maxProfiles = 7;
+                    else if (rowStreaming.includes('prime')) maxProfiles = 6;
+                    else if (rowStreaming.includes('crunchy')) maxProfiles = 4;
+                    else if (rowStreaming.includes('extra')) maxProfiles = 1;
+
+                    if (occupiedInAccount >= maxProfiles) {
+                        console.warn(`[Sales Registry Anti-Sobreventa] ⚠️ Cuenta ${email} (${rowStreaming}) ya tiene ${occupiedInAccount}/${maxProfiles} cupos ocupados. Omitiendo fila vacía para evitar sobreventa.`);
+                        continue;
+                    }
+                }
+
                 return { rowData: row, index: i + 2 };
             }
         }
@@ -369,6 +393,15 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             }
             const lowerName = platformName.toLowerCase();
 
+            // Determinar duración y tipo de suscripción para el ítem (ej: Platzi Trimestral Personal = 3 meses)
+            let itemSubscriptionType = subscriptionType;
+            let itemMonths = months;
+            const isPlatziPersonal = (lowerName.includes('platzi') && !lowerName.includes('compartida')) || planName.toLowerCase().includes('trimestral') || item.price === 150000;
+            if (isPlatziPersonal && (!itemMonths || itemMonths === 1) && itemSubscriptionType === 'mensual') {
+                itemSubscriptionType = 'trimestral';
+                itemMonths = 3;
+            }
+
             // 1. CASO RENOVACIÓN: Ya tenemos la fila
             let targetRow = null;
             let excelRow = null;
@@ -417,7 +450,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
             if (targetRow && excelRow) {
                 const baseDate = item.deben || null;
-                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, months, baseDate);
+                const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, baseDate);
                 const realStreamingName = excelRow.Streaming || excelRow.Plataforma || platformName;
 
                 console.log(`[Sales Registry] RENOVACIÓN detectada para ${realStreamingName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
@@ -545,7 +578,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
             if (finalRow) {
                 const baseDate = matchedRow ? (matchedRow.deben || matchedRow.Deben) : null;
-                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, months, baseDate);
+                const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, baseDate);
 
                 const updates = {
                     "deben": nextPaymentDate,
@@ -590,7 +623,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             const slot = findAvailableSlot(platformName, allRows);
 
             if (slot) {
-                const nextPaymentDate = calculateNextPaymentDate(subscriptionType, months);
+                const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths);
                 console.log(`[Sales Registry] Cupo encontrado para ${platformName} en fila ${slot.index}`);
 
                 // Lógica de separación de nombres limpia
@@ -674,10 +707,12 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
     } catch (error) {
         console.error("[Sales Registry] Error en proceso inteligente:", error.message);
+        throw error;
     }
 }
 
 module.exports = {
     recordNewSale,
-    isSamePlatformFamily
+    isSamePlatformFamily,
+    calculateNextPaymentDate
 };

@@ -191,9 +191,70 @@ function resetDeviceUsage(phone, emailOrPlatform, profile = null) {
     return false;
 }
 
+/**
+ * Helper unificado para determinar si una cuenta streaming cuenta con extracción 2FA automatizada
+ */
+async function checkAccountAutomationStatus(accountEmail, platform) {
+    const emailLower = String(accountEmail || "").trim().toLowerCase();
+    const platUpper = String(platform || "").trim().toUpperCase();
+
+    if (!emailLower) {
+        return { isAutomated: false, type: 'manual', label: 'Manual (Sin Correo)' };
+    }
+
+    // 1. Netflix: automatizado mediante portal de Hogar Sheerit
+    if (platUpper.includes('NETFLIX')) {
+        return { isAutomated: true, type: 'netflix', label: 'Hogar Netflix (Sheerit)' };
+    }
+
+    // 2. Token de Gmail activo en carpeta tokens/
+    const tokensDir = path.join(__dirname, 'tokens');
+    const tokenPath = path.join(tokensDir, `token_${emailLower}.json`);
+    if (fs.existsSync(tokenPath)) {
+        return { isAutomated: true, type: 'gmail', label: 'Gmail API (Token Activo)' };
+    }
+
+    // 3. TOTP Offline (ChatGPT, Amazon con secreto)
+    const gptSecretsPath = path.join(tokensDir, 'gpt_secrets.json');
+    if (fs.existsSync(gptSecretsPath)) {
+        try {
+            const gptSecrets = JSON.parse(fs.readFileSync(gptSecretsPath, 'utf8'));
+            if (gptSecrets[emailLower]) {
+                return { isAutomated: true, type: 'totp', label: 'TOTP 2FA (Generador)' };
+            }
+        } catch (e) {}
+    }
+
+    // 4. Receta RPA vinculada en stream_accounts
+    try {
+        const { pool } = require('./database');
+        const [rows] = await pool.query(
+            `SELECT sa.rpa_recipe_id, r.name as recipe_name 
+             FROM stream_accounts sa 
+             JOIN rpa_recipes r ON sa.rpa_recipe_id = r.id 
+             WHERE LOWER(sa.account_email) = ? 
+             LIMIT 1`,
+            [emailLower]
+        );
+        if (rows.length > 0 && rows[0].rpa_recipe_id) {
+            return { 
+                isAutomated: true, 
+                type: 'rpa', 
+                label: `Receta RPA (${rows[0].recipe_name})`,
+                rpaRecipeId: rows[0].rpa_recipe_id,
+                rpaRecipeName: rows[0].recipe_name
+            };
+        }
+    } catch (e) {}
+
+    // 5. Manual / Sin automatización configurada
+    return { isAutomated: false, type: 'manual', label: 'Manual (Sin Automatización)' };
+}
+
 module.exports = {
     isAiLimitedPlatform,
     getDeviceUsage,
     registerDeviceRequest,
-    resetDeviceUsage
+    resetDeviceUsage,
+    checkAccountAutomationStatus
 };

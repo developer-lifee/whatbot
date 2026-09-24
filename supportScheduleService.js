@@ -6,10 +6,10 @@ const SCHEDULE_FILE = path.join(__dirname, 'support_schedule.json');
 
 const DEFAULT_CONFIG = {
   manual_status: "auto", // "online", "offline", "auto"
-  weekday_start: "10:00",
+  weekday_start: "09:00",
   weekday_end: "22:00",
-  weekend_start: "16:00",
-  weekend_end: "22:00",
+  weekend_start: "09:00",
+  weekend_end: "21:00",
   offline_message: "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos. Te responderemos tan pronto regresemos.",
   allow_overtime: true,
   hourly_rate: 8333,
@@ -380,6 +380,184 @@ async function getOfflineReplyMessage(userId, userStates) {
   return offlineMsg + " 🤖";
 }
 
+function formatTime12h(t) {
+  if (!t) return "";
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return m === 0 ? `${h12}:00 ${ampm}` : `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
+async function getDynamicSupportSchedule() {
+  const fallbackConfig = getSupportScheduleConfig();
+  let weekdayText = `Lunes a Viernes de ${formatTime12h(fallbackConfig.weekday_start || "09:00")} a ${formatTime12h(fallbackConfig.weekday_end || "22:00")}`;
+  let weekendText = `Sábados y Domingos de ${formatTime12h(fallbackConfig.weekend_start || "09:00")} a ${formatTime12h(fallbackConfig.weekend_end || "21:00")}`;
+  let todaySchedule = "";
+  let nextOpeningText = "";
+  let activeAdvisorsList = [];
+  let todayAdvisorsList = [];
+  let todayShiftsList = [];
+  let currentAdvisorsList = [];
+  const today = getNowInBogota();
+
+  try {
+    const { pool } = require('./database');
+    const day = today.getDay(); // 0 is Sunday, 1 is Monday...
+
+    const dayOffset = day === 0 ? -6 : 1 - day;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + dayOffset);
+    const year = monday.getFullYear();
+    const month = String(monday.getMonth() + 1).padStart(2, '0');
+    const dateVal = String(monday.getDate()).padStart(2, '0');
+    const currentWeekStart = `${year}-${month}-${dateVal}`;
+
+    const [allSchedules] = await pool.query(
+      "SELECT s.*, a.fullname FROM agent_schedules s JOIN agents a ON s.agent_id = a.id WHERE s.week_start = ? OR s.week_start = 'default' ORDER BY s.day_of_week ASC, s.start_time ASC",
+      [currentWeekStart]
+    );
+
+    if (allSchedules && allSchedules.length > 0) {
+      const agentsWithCustomWeek = new Set(
+        allSchedules.filter(s => s.week_start === currentWeekStart).map(s => s.agent_id)
+      );
+
+      const activeSlots = allSchedules.filter(s => {
+        if (agentsWithCustomWeek.has(s.agent_id)) {
+          return s.week_start === currentWeekStart;
+        }
+        return s.week_start === 'default';
+      });
+
+      // Distinct active advisors registered for this week
+      activeAdvisorsList = Array.from(new Set(activeSlots.map(s => s.fullname).filter(Boolean)));
+
+      const weekdaySlots = activeSlots.filter(s => s.day_of_week >= 1 && s.day_of_week <= 5);
+      const weekendSlots = activeSlots.filter(s => s.day_of_week === 0 || s.day_of_week === 6);
+
+      if (weekdaySlots.length > 0) {
+        const wdStarts = weekdaySlots.map(s => s.start_time).sort();
+        const wdEnds = weekdaySlots.map(s => s.end_time).sort().reverse();
+        weekdayText = `Lunes a Viernes de ${formatTime12h(wdStarts[0])} a ${formatTime12h(wdEnds[0])}`;
+      }
+
+      if (weekendSlots.length > 0) {
+        const satSlots = activeSlots.filter(s => s.day_of_week === 6);
+        const sunSlots = activeSlots.filter(s => s.day_of_week === 0);
+        if (satSlots.length > 0 && sunSlots.length > 0) {
+          const satStarts = satSlots.map(s => s.start_time).sort();
+          const satEnds = satSlots.map(s => s.end_time).sort().reverse();
+          const sunStarts = sunSlots.map(s => s.start_time).sort();
+          const sunEnds = sunSlots.map(s => s.end_time).sort().reverse();
+
+          if (satStarts[0] === sunStarts[0] && satEnds[0] === sunEnds[0]) {
+            weekendText = `Sábados y Domingos de ${formatTime12h(satStarts[0])} a ${formatTime12h(satEnds[0])}`;
+          } else {
+            weekendText = `Sábados de ${formatTime12h(satStarts[0])} a ${formatTime12h(satEnds[0])}, y Domingos de ${formatTime12h(sunStarts[0])} a ${formatTime12h(sunEnds[0])}`;
+          }
+        } else {
+          const weStarts = weekendSlots.map(s => s.start_time).sort();
+          const weEnds = weekendSlots.map(s => s.end_time).sort().reverse();
+          weekendText = `Fines de semana de ${formatTime12h(weStarts[0])} a ${formatTime12h(weEnds[0])}`;
+        }
+      }
+
+      const todaySlots = activeSlots.filter(s => s.day_of_week === day);
+      if (todaySlots.length > 0) {
+        todayAdvisorsList = Array.from(new Set(todaySlots.map(s => s.fullname).filter(Boolean)));
+        todayShiftsList = todaySlots.map(s => ({
+          fullname: s.fullname,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          break_type: s.break_type,
+          break_start: s.break_start
+        }));
+
+        const tStarts = todaySlots.map(s => s.start_time).sort();
+        const tEnds = todaySlots.map(s => s.end_time).sort().reverse();
+        todaySchedule = `Hoy de ${formatTime12h(tStarts[0])} a ${formatTime12h(tEnds[0])}`;
+
+        const currentMinutes = today.getHours() * 60 + today.getMinutes();
+        const [firstH, firstM] = tStarts[0].split(':').map(Number);
+        const [lastH, lastM] = tEnds[0].split(':').map(Number);
+        const firstMin = firstH * 60 + firstM;
+        const lastMin = lastH * 60 + lastM;
+
+        // Advisors on shift right now (not on break)
+        for (const slot of todaySlots) {
+          const [sh, sm] = slot.start_time.split(':').map(Number);
+          const [eh, em] = slot.end_time.split(':').map(Number);
+          const slotStartMin = sh * 60 + sm;
+          const slotEndMin = eh * 60 + em;
+          if (currentMinutes >= slotStartMin && currentMinutes <= slotEndMin) {
+            let onBreak = false;
+            if (slot.break_type && slot.break_type !== 'none' && slot.break_start) {
+              const [bh, bm] = slot.break_start.split(':').map(Number);
+              const breakStartMin = bh * 60 + bm;
+              const breakDuration = slot.break_type === 'break_30' ? 30 : 60;
+              if (currentMinutes >= breakStartMin && currentMinutes <= (breakStartMin + breakDuration)) {
+                onBreak = true;
+              }
+            }
+            if (!onBreak && slot.fullname) {
+              currentAdvisorsList.push(slot.fullname);
+            }
+          }
+        }
+        currentAdvisorsList = Array.from(new Set(currentAdvisorsList));
+
+        if (currentMinutes < firstMin) {
+          nextOpeningText = `hoy a partir de las ${formatTime12h(tStarts[0])}`;
+        } else if (currentMinutes > lastMin) {
+          const tomorrowDay = (day + 1) % 7;
+          const tomorrowSlots = activeSlots.filter(s => s.day_of_week === tomorrowDay);
+          if (tomorrowSlots.length > 0) {
+            const tomStarts = tomorrowSlots.map(s => s.start_time).sort();
+            nextOpeningText = `mañana a partir de las ${formatTime12h(tomStarts[0])}`;
+          } else {
+            nextOpeningText = "en el próximo turno de atención";
+          }
+        } else {
+          nextOpeningText = "en unos minutos (un asesor está en turno)";
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[Support Schedule Service] Error calculating dynamic schedule:", err.message);
+  }
+
+  const fullScheduleSummary = `${weekdayText}, y ${weekendText}`;
+  if (!todaySchedule) {
+    todaySchedule = (today.getDay() === 0 || today.getDay() === 6) ? weekendText : weekdayText;
+  }
+  if (!nextOpeningText) {
+    nextOpeningText = "en el próximo turno de soporte";
+  }
+
+  const activeAdvisorsText = activeAdvisorsList.length > 0 ? activeAdvisorsList.join(', ') : 'Equipo de Asesores';
+  const todayAdvisorsText = todayAdvisorsList.length > 0 ? todayAdvisorsList.join(', ') : activeAdvisorsText;
+  const currentAdvisorsText = currentAdvisorsList.length > 0 ? currentAdvisorsList.join(', ') : 'Ninguno en este momento';
+  const todayShiftsDetail = todayShiftsList.length > 0
+    ? todayShiftsList.map(s => `${s.fullname} (${formatTime12h(s.start_time)} a ${formatTime12h(s.end_time)})`).join(', ')
+    : '';
+
+  return {
+    weekdayText,
+    weekendText,
+    fullScheduleSummary,
+    todaySchedule,
+    nextOpeningText,
+    activeAdvisors: activeAdvisorsList,
+    activeAdvisorsText,
+    todayAdvisors: todayAdvisorsList,
+    todayAdvisorsText,
+    todayShiftsList,
+    todayShiftsDetail,
+    currentAdvisors: currentAdvisorsList,
+    currentAdvisorsText
+  };
+}
+
 module.exports = {
   getSupportScheduleConfig,
   saveSupportScheduleConfig,
@@ -387,5 +565,7 @@ module.exports = {
   getQueuePosition,
   checkUpcomingDayCoverage,
   getTodayScheduledShifts,
-  getOfflineReplyMessage
+  getOfflineReplyMessage,
+  getDynamicSupportSchedule,
+  formatTime12h
 };

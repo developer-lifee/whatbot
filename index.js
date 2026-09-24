@@ -93,17 +93,15 @@ const { saveMessage } = require('./messageLogger');
 function isCriticalBrowserError(err) {
     if (!err || !err.message) return false;
     const msg = err.message.toLowerCase();
+    // Navegación normal o cambio de frame no son caídas críticas del navegador
+    if (msg.includes('detached frame') || msg.includes('execution context was destroyed')) {
+        return false;
+    }
     return msg.includes('target closed') ||
         msg.includes('session closed') ||
         msg.includes('browser has disconnected') ||
         msg.includes('target crashed') ||
-        msg.includes('detached frame') ||
-        msg.includes('detached') ||
-        msg.includes('execution context was destroyed') ||
-        msg.includes('frame') ||
-        msg.includes('protocol error') ||
-        msg.includes('unresponsive') ||
-        msg.includes('connection closed');
+        msg.includes('unresponsive');
 }
 const { pool } = require('./database');
 
@@ -383,6 +381,26 @@ async function isProviderSender(userId) {
     return false;
 }
 
+function isExplicitPaymentMessage(text) {
+    if (!text) return false;
+    const clean = text.toLowerCase().trim();
+    const explicitPaymentPhrases = [
+        "ya pagu", "ya realice el pago", "ya realice pago", "ya hice el pago", "ya hice pago",
+        "ya transferi", "ya deposite", "ya envie el pago", "ya mande el pago", "ya consigne",
+        "comprobante de pago", "comprobante", "pantallazo del pago", "aqui esta el pago",
+        "ya qued", "ya quedó", "ya quedo", "listo el pago", "listo ya", "ya cancele", "ya cancelé",
+        "pagado", "ya pase", "ya pasé", "ya se pago", "ya se pagó", "ya mande", "ya mandé",
+        "ya envie", "ya envié", "acabo de pagar", "acabo de transferir", "acabo de enviar",
+        "ya deposité", "ya consigné", "consignado", "transferido", "ahi te mande", "ahí te mandé",
+        "ahi te envie", "ahí te envié", "te envie", "te envié", "te mande", "te mandé",
+        "ya te envie", "ya te envié", "ya te mande", "ya te mandé", "te pase", "te pasé"
+    ];
+    return explicitPaymentPhrases.some(phrase => clean.includes(phrase)) ||
+        clean === 'listo' || clean.startsWith('listo ') ||
+        clean === 'ya' || clean.startsWith('ya ') ||
+        clean === 'hecho' || clean === 'ok listo';
+}
+
 let globalLastPaymentUserId = null; // Memoria del último usuario que envió un comprobante o pidió ayuda
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
 const lastResponseTimestamps = new Map(); // Para evitar múltiples respuestas seguidas
@@ -590,8 +608,8 @@ app.get('/api/music/play', async (req, res) => {
 // Netflix Verification Endpoint
 app.post('/api/netflix/verify', async (req, res) => {
     try {
-        const { phone } = req.body;
-        let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+        const { phone, email } = req.body;
+        let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
 
         // Clean IP (remove ipv6 wrapper if present)
         if (clientIp.includes('::ffff:')) {
@@ -607,39 +625,95 @@ app.post('/api/netflix/verify', async (req, res) => {
             userAccounts = await getAccountsByPhone(phone);
         }
 
-        // Check if they have a non-extra Netflix account
-        const netflixAcct = userAccounts.find(c => {
+        // All netflix accounts for this user
+        const allNetflixAccounts = userAccounts.filter(c => {
             const streamingName = (c.Streaming || "").toLowerCase();
-            return streamingName.includes('netflix') && !streamingName.includes('extra');
-        }) || userAccounts[0];
+            return streamingName.includes('netflix');
+        });
+
+        if (allNetflixAccounts.length === 0 && userAccounts.length === 0) {
+            return res.status(404).json({ success: false, message: "No se encontró cuenta de Netflix asociada a este número." });
+        }
+
+        // Selected account: if email provided, match by email, otherwise default to first
+        let netflixAcct = null;
+        if (email) {
+            const cleanTargetEmail = String(email).trim().toLowerCase();
+            netflixAcct = allNetflixAccounts.find(c => (c.correo || "").trim().toLowerCase() === cleanTargetEmail)
+                       || userAccounts.find(c => (c.correo || "").trim().toLowerCase() === cleanTargetEmail);
+        }
+
+        if (!netflixAcct) {
+            netflixAcct = allNetflixAccounts.find(c => !(c.Streaming || "").toLowerCase().includes('extra'))
+                       || allNetflixAccounts[0]
+                       || userAccounts[0];
+        }
 
         if (!netflixAcct) {
             return res.status(404).json({ success: false, message: "No se encontró cuenta de Netflix asociada a este número." });
         }
 
-        // Capture the IP natively into Microsoft Graph Excels (Operador column)
-        if (netflixAcct._rowNumber) {
-            const oldOperador = (netflixAcct.operador || netflixAcct.Operador || "").toString();
-            let newOperadorRecord = oldOperador;
+        const formattedAccountsList = allNetflixAccounts.map(a => ({
+            email: a.correo || '',
+            profile: a.Nombre || a.Perfil || a.perfil || 'Perfil',
+            platform: (a.Streaming || 'NETFLIX').toUpperCase()
+        }));
 
-            // Only append IP if it's not already recorded
-            if (!oldOperador.includes(clientIp)) {
-                newOperadorRecord = oldOperador ? `${oldOperador} | IP: ${clientIp}` : `IP: ${clientIp}`;
-                await updateExcelData(netflixAcct._rowNumber, { "operador": newOperadorRecord });
-                console.log(`[NETFLIX API] Saved IP ${clientIp} for @${phone} (Row ${netflixAcct._rowNumber})`);
-            } else {
-                console.log(`[NETFLIX API] IP ${clientIp} was already recorded for @${phone}`);
+        // Capture the IP in the background into Microsoft Graph Excels (without technical text for the client)
+        if (netflixAcct._rowNumber && clientIp) {
+            try {
+                const oldOperador = (netflixAcct.operador || netflixAcct.Operador || "").toString();
+                let newOperadorRecord = oldOperador;
+
+                if (!oldOperador.includes(clientIp)) {
+                    newOperadorRecord = oldOperador ? `${oldOperador} | IP: ${clientIp}` : `IP: ${clientIp}`;
+                    await updateExcelData(netflixAcct._rowNumber, { "operador": newOperadorRecord });
+                    console.log(`[NETFLIX API] Saved IP ${clientIp} for @${phone} (Row ${netflixAcct._rowNumber})`);
+                }
+            } catch (err) {
+                console.warn('[NETFLIX API] Failed to update IP in excel:', err.message);
             }
         }
 
         // Automated Netflix code/link extraction with retry loop
         let code = null;
         let link = null;
+        let isConfirmed = false;
         try {
             const { findRecentCodes } = require('./gmailService');
-            for (let attempt = 0; attempt < 3; attempt++) {
+            // Intentar hasta 4 veces con pausa de 2s para dar tiempo a que Netflix entregue el email
+            for (let attempt = 0; attempt < 4; attempt++) {
                 console.log(`[NETFLIX API] Checking recent codes for ${netflixAcct.correo} (Attempt ${attempt + 1})...`);
-                const recentCodes = await findRecentCodes(netflixAcct.correo, 15, 'netflix');
+                // Tolerancia de 45 minutos para enlaces de Hogar / códigos
+                const recentCodes = await findRecentCodes(netflixAcct.correo, 45, 'netflix');
+                
+                // 1. Buscar si ya se confirmó el hogar recientemente
+                const confirmedMail = recentCodes.find(item =>
+                    (item.subject || "").toLowerCase().includes('se ha confirmado tu hogar') ||
+                    (item.snippet || "").toLowerCase().includes('se ha confirmado tu hogar')
+                );
+                if (confirmedMail) {
+                    isConfirmed = true;
+                    console.log(`[NETFLIX API] Netflix household already confirmed for ${netflixAcct.correo}`);
+                    break;
+                }
+
+                // 2. Buscar enlace prioritario de actualización de hogar
+                const updateMail = recentCodes.find(item => item.link && (
+                    item.link.includes('update-primary-location') ||
+                    item.link.includes('update_household') ||
+                    item.link.includes('update-household') ||
+                    item.link.includes('travel/verify')
+                ));
+
+                if (updateMail) {
+                    link = updateMail.link;
+                    code = updateMail.code;
+                    console.log(`[NETFLIX API] Found Netflix Hogar link for ${netflixAcct.correo}: Link=${link}`);
+                    break;
+                }
+
+                // 3. Fallback a cualquier código o enlace de Netflix
                 const netflixMail = recentCodes.find(item =>
                     (item.subject || "").toLowerCase().includes('netflix') ||
                     (item.snippet || "").toLowerCase().includes('netflix')
@@ -651,12 +725,23 @@ app.post('/api/netflix/verify', async (req, res) => {
                     console.log(`[NETFLIX API] Found Netflix code/link for ${netflixAcct.correo}: Code=${code}, Link=${link}`);
                     break;
                 }
-                if (attempt < 2) {
-                    await new Promise(r => setTimeout(r, 1500));
+
+                if (attempt < 3) {
+                    await new Promise(r => setTimeout(r, 2000));
                 }
             }
         } catch (mailErr) {
             console.error(`[NETFLIX API] Failed to search Netflix codes for ${netflixAcct.correo}:`, mailErr.message);
+        }
+
+        if (isConfirmed) {
+            return res.json({
+                success: true,
+                message: "¡Tu hogar de Netflix ya se encuentra confirmado y activo! Abre Netflix en tu televisor para continuar viendo tus series y películas.",
+                account: netflixAcct.correo,
+                accounts: formattedAccountsList,
+                isConfirmed: true
+            });
         }
 
         if (!code && !link) {
@@ -664,14 +749,16 @@ app.post('/api/netflix/verify', async (req, res) => {
             if (!fs.existsSync(tokenPath)) {
                 return res.json({
                     success: false,
-                    message: `Se registró tu conexión, pero la bandeja de correo de la cuenta (${netflixAcct.correo}) no está vinculada al bot. Por favor, solicita el código al soporte técnico de Sheerit para recibirlo manualmente.`,
-                    account: netflixAcct.correo
+                    message: `La bandeja de correo de la cuenta (${netflixAcct.correo}) requiere atención de un asesor. Por favor solicita el código al soporte técnico para recibirlo manualmente.`,
+                    account: netflixAcct.correo,
+                    accounts: formattedAccountsList
                 });
             } else {
                 return res.json({
                     success: false,
-                    message: `Se registró tu conexión, pero no pudimos extraer ningún código o enlace reciente de Netflix para la cuenta ${netflixAcct.correo}. Por favor, asegúrate de presionar 'Actualizar Hogar' en tu TV para enviar el correo y refresca esta página en unos momentos.`,
-                    account: netflixAcct.correo
+                    message: `Aún no detectamos el correo de Netflix para ${netflixAcct.correo}. Asegúrate de haber presionado "Actualizar Hogar" o "Enviar correo" en tu TV y pulsa "Consultar Código" de nuevo en 10 segundos.`,
+                    account: netflixAcct.correo,
+                    accounts: formattedAccountsList
                 });
             }
         }
@@ -679,9 +766,10 @@ app.post('/api/netflix/verify', async (req, res) => {
         res.json({
             success: true,
             message: link
-                ? `¡Conexión verificada! Haz clic en el botón rojo de abajo para autorizar este dispositivo.`
-                : `¡Conexión verificada! Ingresa el código mostrado a continuación en tu pantalla de Netflix.`,
+                ? `¡Enlace de Hogar encontrado! Haz clic en el botón rojo de abajo para autorizar este dispositivo en tu televisor.`
+                : `¡Código generado con éxito! Ingresa el código mostrado a continuación en tu pantalla de Netflix.`,
             account: netflixAcct.correo,
+            accounts: formattedAccountsList,
             code,
             link
         });
@@ -890,7 +978,15 @@ app.post('/api/bold/generate-token', async (req, res) => {
             const boldData = await boldRes.json();
             if (boldData && boldData.payload && boldData.payload.url) {
                 paymentUrl = boldData.payload.url;
-                console.log(`[Bold API] ✅ Link de pago creado exitosamente para orden ${orderId}: ${paymentUrl}`);
+                const paymentLink = boldData.payload.payment_link || null;
+                console.log(`[Bold API] ✅ Link de pago creado exitosamente para orden ${orderId}: ${paymentUrl} (link: ${paymentLink})`);
+                if (paymentLink) {
+                    try {
+                        await pool.query('UPDATE web_sales_pending SET payment_link = ? WHERE order_id = ?', [paymentLink, orderId]);
+                    } catch (pLinkErr) {
+                        console.error('[Bold API] Error guardando payment_link:', pLinkErr.message);
+                    }
+                }
             } else {
                 console.error("[Bold API] Error en respuesta de Bold:", boldData);
             }
@@ -1017,9 +1113,24 @@ async function approveBoldOrder(orderId) {
     }
     const numericPhone = parseInt(formattedPhone) || 0;
 
+    let durationMonths = 1;
+    let subscriptionType = 'mensual';
+    const platLower = (customerData.platformName || '').toLowerCase();
+    if (platLower.includes('3 meses') || platLower.includes('3 mes') || platLower.includes('trimestral')) {
+        durationMonths = 3;
+        subscriptionType = 'trimestral';
+    } else if (platLower.includes('6 meses') || platLower.includes('6 mes') || platLower.includes('semestral')) {
+        durationMonths = 6;
+        subscriptionType = 'semestral';
+    } else if (platLower.includes('12 meses') || platLower.includes('1 año') || platLower.includes('anual') || platLower.includes('ano')) {
+        durationMonths = 12;
+        subscriptionType = 'anual';
+    }
+
     const userState = {
         items: [{ platform: { name: customerData.platformName } }],
-        subscriptionType: 'mensual',
+        subscriptionType: subscriptionType,
+        durationMonths: durationMonths,
         nombre: `${customerData.firstName} ${customerData.lastName}`,
         phoneData: {
             raw: formattedPhone,
@@ -1029,7 +1140,7 @@ async function approveBoldOrder(orderId) {
     };
 
     const phoneId = `${formattedPhone}@c.us`;
-    const results = await recordNewSale(phoneId, userState, "Bold Pagos");
+    const results = await recordNewSale(phoneId, userState, "Bold Pagos", durationMonths);
     console.log("[Bold Approve] Resultados guardado en Excel via Bold:", results);
 
     let credentialsMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente. 🎉\n\n`;
@@ -1186,7 +1297,7 @@ async function approveBoldOrder(orderId) {
 
     try {
         await pool.query(
-            'INSERT INTO web_sales_approved (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO web_sales_approved (order_id, firstName, lastName, email, whatsapp, platformName, amount, numbersStr, createdAt, payment_link) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 orderId,
                 customerData.firstName || '',
@@ -1196,7 +1307,8 @@ async function approveBoldOrder(orderId) {
                 customerData.platformName || '',
                 customerData.amount || 0,
                 customerData.numbersStr || '',
-                customerData.createdAt ? new Date(customerData.createdAt) : null
+                customerData.createdAt ? new Date(customerData.createdAt) : null,
+                customerData.payment_link || null
             ]
         );
         await pool.query('DELETE FROM web_sales_pending WHERE order_id = ?', [orderId]);
@@ -1226,27 +1338,28 @@ app.get('/api/bold/check-status/:orderId', async (req, res) => {
         if (pendingRows.length === 0) {
             return res.status(404).json({ success: false, message: 'Orden no encontrada' });
         }
+        const pendingSale = pendingRows[0];
 
         // 3. Consultar estado en tiempo real a la API de Bold o verificar parámetro de redirección exitosa
         const apiKey = process.env.BOLD_IDENTITY_KEY;
         let boldStatus = 'PENDING';
         const isSuccessRedirect = req.query.payment === 'success' || req.query.status === 'APPROVED' || req.query.status === 'success';
 
-        if (apiKey) {
+        if (apiKey && pendingSale.payment_link) {
             try {
                 const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-                const boldRes = await fetch(`https://integrations.api.bold.co/online/payment/v1/orders/${orderId}`, {
+                const boldRes = await fetch(`https://integrations.api.bold.co/online/link/v1/${pendingSale.payment_link}`, {
                     method: 'GET',
                     headers: {
-                        'x-api-key': apiKey,
+                        'Authorization': `x-api-key ${apiKey}`,
                         'Content-Type': 'application/json'
                     }
                 });
 
                 if (boldRes.ok) {
                     const boldData = await boldRes.json();
-                    const bState = (boldData.status || boldData.data?.status || boldData.payment_status || '').toUpperCase();
-                    if (bState === 'APPROVED' || bState === 'SALE_APPROVED' || bState === 'SUCCESS' || bState === 'PAID') {
+                    const bState = (boldData.status || boldData.data?.status || '').toUpperCase();
+                    if (bState === 'PAID' || bState === 'APPROVED' || bState === 'SUCCESS') {
                         boldStatus = 'APPROVED';
                     }
                 }
@@ -4011,6 +4124,59 @@ app.get('/api/admin/audit-logs', (req, res) => {
     }
 });
 
+// ==========================================
+// DATA STUDIO / RELATIONAL DB STUDIO ENDPOINTS
+// ==========================================
+const dataStudioService = require('./dataStudioService');
+
+app.get('/api/admin/database/tables', async (req, res) => {
+    try {
+        const tables = await dataStudioService.getTablesOverview();
+        res.json({ success: true, tables });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/database/query', async (req, res) => {
+    try {
+        const { sql, allowWrite, limit } = req.body;
+        const result = await dataStudioService.executeStudioQuery(sql, { allowWrite, limit });
+        res.json(result);
+    } catch (e) {
+        res.status(400).json({ success: false, error: e.message });
+    }
+});
+
+app.get('/api/admin/database/schema-graph', async (req, res) => {
+    try {
+        const graph = await dataStudioService.getSchemaGraph();
+        res.json({ success: true, graph });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/database/import-preview', (req, res) => {
+    try {
+        const { headers, rows, targetEntity } = req.body;
+        const preview = dataStudioService.previewDataImport(headers, rows, targetEntity);
+        res.json({ success: true, preview });
+    } catch (e) {
+        res.status(400).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/database/import-execute', async (req, res) => {
+    try {
+        const { targetEntity, mapping, rows, tenantId, options } = req.body;
+        const result = await dataStudioService.executeDataImport({ targetEntity, mapping, rows, tenantId, options });
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/admin/gpt-accounts/save', (req, res) => {
     try {
         const { email, secret, service, password, agentEmail, agentName } = req.body;
@@ -4391,6 +4557,248 @@ app.post('/api/admin/provider-emails/delete', (req, res) => {
         }
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * Helper unificado para determinar si una cuenta streaming cuenta con extracción 2FA automatizada
+ */
+async function checkAccountAutomationStatus(accountEmail, platform) {
+    const emailLower = String(accountEmail || "").trim().toLowerCase();
+    const platUpper = String(platform || "").trim().toUpperCase();
+
+    if (!emailLower) {
+        return { isAutomated: false, type: 'manual', label: 'Manual (Sin Correo)' };
+    }
+
+    // 1. Netflix: automatizado mediante portal de Hogar Sheerit
+    if (platUpper.includes('NETFLIX')) {
+        return { isAutomated: true, type: 'netflix', label: 'Hogar Netflix (Sheerit)' };
+    }
+
+    // 2. Token de Gmail activo en carpeta tokens/
+    const tokensDir = path.join(__dirname, 'tokens');
+    const tokenPath = path.join(tokensDir, `token_${emailLower}.json`);
+    if (fs.existsSync(tokenPath)) {
+        return { isAutomated: true, type: 'gmail', label: 'Gmail API (Token Activo)' };
+    }
+
+    // 3. TOTP Offline (ChatGPT, Amazon con secreto)
+    const gptSecretsPath = path.join(tokensDir, 'gpt_secrets.json');
+    if (fs.existsSync(gptSecretsPath)) {
+        try {
+            const gptSecrets = JSON.parse(fs.readFileSync(gptSecretsPath, 'utf8'));
+            if (gptSecrets[emailLower]) {
+                return { isAutomated: true, type: 'totp', label: 'TOTP 2FA (Generador)' };
+            }
+        } catch (e) {}
+    }
+
+    // 4. Receta RPA vinculada en stream_accounts
+    try {
+        const { pool } = require('./database');
+        const [rows] = await pool.query(
+            `SELECT sa.rpa_recipe_id, r.name as recipe_name 
+             FROM stream_accounts sa 
+             JOIN rpa_recipes r ON sa.rpa_recipe_id = r.id 
+             WHERE LOWER(sa.account_email) = ? 
+             LIMIT 1`,
+            [emailLower]
+        );
+        if (rows.length > 0 && rows[0].rpa_recipe_id) {
+            return { 
+                isAutomated: true, 
+                type: 'rpa', 
+                label: `Receta RPA (${rows[0].recipe_name})`,
+                rpaRecipeId: rows[0].rpa_recipe_id,
+                rpaRecipeName: rows[0].recipe_name
+            };
+        }
+    } catch (e) {}
+
+    // 5. Manual / Sin automatización configurada
+    return { isAutomated: false, type: 'manual', label: 'Manual (Sin Automatización)' };
+}
+
+// GET Cuentas de streaming consolidadas (Excel + MySQL) con estado de automatización 2FA
+app.get('/api/admin/streaming-accounts/overview', async (req, res) => {
+    try {
+        const { fetchCustomersData } = require('./apiService');
+        const excelRows = await fetchCustomersData(3, 2000, false);
+        const accountsMap = new Map();
+
+        excelRows.forEach(row => {
+            const emailRaw = String(row.correo || '').trim();
+            if (!emailRaw || !emailRaw.includes('@')) return;
+            const emailLower = emailRaw.toLowerCase();
+
+            const platform = String(row.Streaming || '').trim().toUpperCase() || 'STREAMING';
+            const password = String(row["contraseña"] || row.contraseña || row.clave || row.Password || row.password || '').trim();
+            const clientName = `${row.Nombre || ''} ${row.apellido || ''}`.trim() || String(row.whatsapp || '').trim() || 'Cliente';
+            const phone = String(row.numero || row.Numero || row.whatsapp || row.celular || '').replace(/\D/g, '');
+            const pin = String(row["pin perfil"] || row.pin || '').trim();
+            const venc = String(row.deben || row.Columna4 || row.vencimiento || '').trim();
+
+            if (!accountsMap.has(emailLower)) {
+                accountsMap.set(emailLower, {
+                    email: emailRaw,
+                    emailLower,
+                    platform,
+                    password,
+                    profiles: [],
+                    isProvider: false
+                });
+            }
+
+            const acc = accountsMap.get(emailLower);
+            acc.profiles.push({
+                rowNumber: row._rowNumber,
+                clientName,
+                phone,
+                pin,
+                venc
+            });
+            if (!acc.password && password) acc.password = password;
+            if (!acc.platform && platform) acc.platform = platform;
+        });
+
+        // Complementar con stream_accounts de MySQL
+        try {
+            const { pool } = require('./database');
+            const [dbAccounts] = await pool.query(
+                `SELECT sa.account_email, sa.streaming_platform, sa.account_password, sa.provider_name, sa.status, sa.rpa_recipe_id, r.name as recipe_name
+                 FROM stream_accounts sa
+                 LEFT JOIN rpa_recipes r ON sa.rpa_recipe_id = r.id`
+            );
+            dbAccounts.forEach(dba => {
+                const emailLower = String(dba.account_email || '').trim().toLowerCase();
+                if (!emailLower) return;
+                if (!accountsMap.has(emailLower)) {
+                    accountsMap.set(emailLower, {
+                        email: dba.account_email,
+                        emailLower,
+                        platform: dba.streaming_platform,
+                        password: dba.account_password || '',
+                        profiles: [],
+                        isProvider: true,
+                        providerName: dba.provider_name,
+                        rpaRecipeId: dba.rpa_recipe_id,
+                        rpaRecipeName: dba.recipe_name
+                    });
+                } else {
+                    const acc = accountsMap.get(emailLower);
+                    acc.rpaRecipeId = dba.rpa_recipe_id;
+                    acc.rpaRecipeName = dba.recipe_name;
+                    if (dba.provider_name) acc.providerName = dba.provider_name;
+                }
+            });
+        } catch (eDb) {
+            console.error('[Overview MySQL error]:', eDb.message);
+        }
+
+        // Evaluar estado de automatización para cada cuenta
+        const accountsList = [];
+        for (const [_, acc] of accountsMap) {
+            const autoStatus = await checkAccountAutomationStatus(acc.emailLower, acc.platform);
+            accountsList.push({
+                email: acc.email,
+                platform: acc.platform,
+                password: acc.password,
+                clientCount: acc.profiles.length,
+                profiles: acc.profiles.slice(0, 10),
+                providerName: acc.providerName || null,
+                isAutomated: autoStatus.isAutomated,
+                automationType: autoStatus.type,
+                automationLabel: autoStatus.label,
+                rpaRecipeId: autoStatus.rpaRecipeId || acc.rpaRecipeId || null,
+                rpaRecipeName: autoStatus.rpaRecipeName || acc.rpaRecipeName || null
+            });
+        }
+
+        accountsList.sort((a, b) => b.clientCount - a.clientCount);
+
+        res.json({
+            success: true,
+            totalAccounts: accountsList.length,
+            automatedCount: accountsList.filter(a => a.isAutomated).length,
+            manualCount: accountsList.filter(a => !a.isAutomated).length,
+            accounts: accountsList
+        });
+    } catch (e) {
+        console.error('[streaming-accounts/overview error]:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Sincronizar Cuentas y Suscripciones desde Excel hacia MySQL
+app.post('/api/admin/streaming-accounts/sync-excel', async (req, res) => {
+    try {
+        const { fetchCustomersData } = require('./apiService');
+        const rows = await fetchCustomersData(3, 2000, true);
+        const { pool } = require('./database');
+
+        let syncedAccounts = 0;
+        let syncedSubs = 0;
+
+        const conn = await pool.getConnection();
+        try {
+            await conn.beginTransaction();
+
+            for (const row of rows) {
+                const email = String(row.correo || '').trim();
+                const platform = String(row.Streaming || '').trim().toUpperCase();
+                const password = String(row["contraseña"] || row.contraseña || row.clave || row.Password || row.password || '').trim();
+                const phone = String(row.numero || row.Numero || row.whatsapp || row.celular || '').replace(/\D/g, '');
+                const clientName = `${row.Nombre || ''} ${row.apellido || ''}`.trim() || 'Cliente';
+                const pin = String(row["pin perfil"] || row.pin || '').trim();
+
+                if (email && email.includes('@') && platform) {
+                    await conn.query(`
+                        INSERT INTO stream_accounts (account_email, streaming_platform, account_password, is_provider, status)
+                        VALUES (?, ?, ?, 1, 'active')
+                        ON DUPLICATE KEY UPDATE 
+                            account_password = IF(account_password IS NULL OR account_password = '', VALUES(account_password), account_password)
+                    `, [email, platform, password || null]);
+                    syncedAccounts++;
+                }
+
+                if (phone && phone.length >= 10 && email && email.includes('@')) {
+                    const cleanPhone = phone.length === 10 && phone.startsWith('3') ? '57' + phone : phone;
+                    await conn.query(`
+                        INSERT INTO customers (phone, fullname)
+                        VALUES (?, ?)
+                        ON DUPLICATE KEY UPDATE fullname = IF(fullname = 'Cliente', VALUES(fullname), fullname)
+                    `, [cleanPhone, clientName]);
+
+                    await conn.query(`
+                        INSERT INTO subscriptions (customer_phone, streaming_platform, account_email, account_password, profile_pin, status)
+                        VALUES (?, ?, ?, ?, ?, 'active')
+                        ON DUPLICATE KEY UPDATE 
+                            profile_pin = COALESCE(VALUES(profile_pin), profile_pin),
+                            account_password = COALESCE(VALUES(account_password), account_password)
+                    `, [cleanPhone, platform || 'STREAMING', email, password || null, pin || null]);
+                    syncedSubs++;
+                }
+            }
+
+            await conn.commit();
+        } catch (txErr) {
+            await conn.rollback();
+            throw txErr;
+        } finally {
+            conn.release();
+        }
+
+        res.json({
+            success: true,
+            message: `Sincronización completada: ${rows.length} registros analizados desde Excel.`,
+            totalRows: rows.length,
+            syncedAccounts,
+            syncedSubs
+        });
+    } catch (e) {
+        console.error('[sync-excel error]:', e);
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
@@ -5382,7 +5790,11 @@ app.post('/api/whatsapp/request-pairing-code', express.json(), async (req, res) 
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Contraseña incorrecta' });
         if (!phone) return res.status(400).json({ success: false, message: 'Falta el número de teléfono' });
 
-        const cleanPhone = phone.replace(/\D/g, '');
+        let cleanPhone = phone.replace(/\D/g, '');
+        // Si es número celular colombiano de 10 dígitos (empieza por 3), anteponer prefijo internacional 57
+        if (cleanPhone.length === 10 && cleanPhone.startsWith('3')) {
+            cleanPhone = '57' + cleanPhone;
+        }
 
         if (!client) {
             return res.status(503).json({ success: false, message: 'El cliente de WhatsApp no está inicializado' });
@@ -5403,8 +5815,14 @@ app.post('/api/whatsapp/request-pairing-code', express.json(), async (req, res) 
 
         res.json({ success: true, message: 'Solicitud enviada al servidor de WhatsApp...' });
     } catch (e) {
-        console.error('Error al solicitar código de vinculación:', e.message);
-        res.status(500).json({ success: false, error: e.message });
+        let errStr = e.message || String(e);
+        let serialized = '';
+        try { serialized = JSON.stringify(e); } catch (_) {}
+        if (errStr === 't' || serialized.includes('rate-overlimit') || serialized.includes('429') || e.name === 'CompanionHelloError') {
+            errStr = 'WhatsApp limitó temporalmente las solicitudes para este número (Demasiados intentos seguidos / Límite 429). Espera 3-5 minutos o vincula escaneando el código QR.';
+        }
+        console.error('Error al solicitar código de vinculación:', errStr);
+        res.status(500).json({ success: false, error: errStr });
     }
 });
 
@@ -7890,10 +8308,10 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
         }
 
         const { getAccountsByPhone, getJsDateFromExcel } = require('./apiService');
-        const { getDeviceUsage, isAiLimitedPlatform } = require('./deviceLimitService');
+        const { getDeviceUsage, isAiLimitedPlatform, checkAccountAutomationStatus } = require('./deviceLimitService');
         const userAccounts = await getAccountsByPhone(cleanPhone);
 
-        const formattedAccounts = userAccounts.map(acc => {
+        const formattedAccounts = await Promise.all(userAccounts.map(async (acc) => {
             const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
             const rawPerfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
             const perfil = rawPerfil || "N/A";
@@ -7904,6 +8322,7 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
 
             const isAi = isAiLimitedPlatform(acc.Streaming || acc.platform);
             const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, 3, rawPerfil || pin) : null;
+            const autoStatus = await checkAccountAutomationStatus(acc.correo, acc.Streaming);
 
             return {
                 id: acc.id || acc._rowNumber,
@@ -7912,12 +8331,15 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
                 password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
                 profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
                 vencimiento: vencFormatted,
+                isAutomated: autoStatus.isAutomated,
+                automationType: autoStatus.type,
+                automationLabel: autoStatus.label,
                 isLimitedPlatform: isAi,
                 devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
                 devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
                 maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
             };
-        });
+        }));
 
         res.json({
             success: true,
@@ -7965,7 +8387,7 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
         const { getDeviceUsage, isAiLimitedPlatform } = require('./deviceLimitService');
         const userAccounts = await getAccountsByPhone(cleanPhone);
 
-        const formattedAccounts = userAccounts.map(acc => {
+        const formattedAccounts = await Promise.all(userAccounts.map(async (acc) => {
             const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
             const rawPerfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
             const perfil = rawPerfil || "N/A";
@@ -7976,6 +8398,7 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
 
             const isAi = isAiLimitedPlatform(acc.Streaming || acc.platform);
             const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, 3, rawPerfil || pin) : null;
+            const autoStatus = await checkAccountAutomationStatus(acc.correo, acc.Streaming);
 
             return {
                 id: acc.id || acc._rowNumber,
@@ -7984,12 +8407,15 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
                 password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
                 profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
                 vencimiento: vencFormatted,
+                isAutomated: autoStatus.isAutomated,
+                automationType: autoStatus.type,
+                automationLabel: autoStatus.label,
                 isLimitedPlatform: isAi,
                 devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
                 devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
                 maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
             };
-        });
+        }));
 
         res.json({
             success: true,
@@ -8010,7 +8436,10 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
             return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
         }
 
-        const cleanPhone = phone.replace(/\D/g, '');
+        let cleanPhone = phone.replace(/\D/g, '');
+        if (cleanPhone.length === 10 && cleanPhone.startsWith('3')) {
+            cleanPhone = '57' + cleanPhone;
+        }
         const isDemo = isDemoClientPhone(cleanPhone);
         const userJid = isDemo ? (ADMIN_DEMO_RECIPIENT_PHONE + '@c.us') : (cleanPhone + '@c.us');
 
@@ -8090,6 +8519,17 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
             return res.status(404).json({ success: false, message: 'Cuenta no encontrada o no vinculada a tu número' });
         }
 
+        // Si la cuenta no está automatizada, no permitir solicitar código desde la web para no saturar al grupo admin
+        const autoStatus = await checkAccountAutomationStatus(targetAccount.correo, targetAccount.Streaming);
+        if (!autoStatus.isAutomated) {
+            console.log(`[2FA Request REJECTED - Unautomated Account]: ${targetAccount.correo} (${targetAccount.Streaming})`);
+            return res.status(200).json({
+                success: false,
+                unautomated: true,
+                message: 'Este servicio no cuenta con entrega automatizada de códigos. Comunícate con tu asesor por WhatsApp para recibir asistencia.'
+            });
+        }
+
         const mockMessage = {
             id: { _serialized: `web_request_${Date.now()}` },
             from: userJid,
@@ -8098,7 +8538,12 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
             reply: async (text) => {
                 console.log(`[Web OTP Request Reply]: ${text}`);
                 if (client) {
-                    try { await client.sendMessage(userJid, text); } catch(e) {}
+                    try {
+                        const { safeSend } = require('./billingService');
+                        await safeSend(null, text, userJid, client);
+                    } catch(e) {
+                        try { await client.sendMessage(userJid, text); } catch(err) {}
+                    }
                 }
                 return text;
             }
@@ -8115,6 +8560,15 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
                 devicesRemaining: 0,
                 maxDevices: extractionResult.maxDevices ?? 3,
                 message: extractionResult.message || "Has alcanzado el límite de 3 dispositivos permitidos para este servicio. Por favor comunícate con un asesor para transferir tu acceso."
+            });
+        }
+
+        if (extractionResult && extractionResult.manualRequired) {
+            return res.json({
+                success: true,
+                manualRequired: true,
+                message: extractionResult.message || "Esta cuenta requiere verificación manual. Notificamos a tu asesor para que te entregue el código por WhatsApp en breve.",
+                account: targetAccount.correo
             });
         }
 
@@ -8351,6 +8805,13 @@ server.listen(port, () => {
                     console.log(`⏳ Heartbeat: Calentamiento en progreso (${Math.round((Date.now() - botProcessStartTime)/1000)}s). Estado: ${state || 'null'}`);
                     return;
                 }
+
+                if (currentWhatsappStatus === 'QR_READY' || currentWhatsappStatus === 'PAIRING_CODE_READY') {
+                    console.log('⏳ [ESPERANDO VINCULACIÓN] Cliente esperando escaneo de QR o código en el panel. Manteniendo proceso vivo...');
+                    nonConnectedHeartbeatCount = 0;
+                    return;
+                }
+
                 nonConnectedHeartbeatCount++;
                 console.warn(`⚠️ Heartbeat: Cliente en estado NO-CONECTADO ('${state}'). Intento sin conexión #${nonConnectedHeartbeatCount}`);
 
@@ -8457,6 +8918,7 @@ process.on('SIGTERM', shutdown);
 
 // Generar QR para conexión
 client.on('qr', (qr) => {
+    if (qr === latestQrCode) return;
     qrcode.generate(qr, { small: true });
     latestQrCode = qr;
     latestPairingCode = null;
@@ -8523,18 +8985,14 @@ client.on('disconnected', async (reason) => {
     latestQrCode = null;
     latestPairingCode = null;
     broadcastSseEvent('status', { status: currentWhatsappStatus, reason: reason });
-    // Cierre limpio de Puppeteer antes de reiniciar para evitar corrupción de sesión
-    console.log('⚠️ Cerrando Puppeteer limpiamente...');
-    try { await client.destroy(); } catch (e) { console.error('Error al cerrar cliente:', e.message); }
 
     if (wasConnected) {
+        console.log('⚠️ Cerrando Puppeteer limpiamente...');
+        try { await client.destroy(); } catch (e) { console.error('Error al cerrar cliente:', e.message); }
         console.log('🔄 El bot estaba conectado previamente. Forzando reinicio inmediato para PM2...');
         process.exit(1);
     } else {
-        console.log('⏳ El bot se desconectó durante la fase de inicio. Esperando 15 segundos antes de reiniciar para evitar bucles rápidos de PM2...');
-        setTimeout(() => {
-            process.exit(1);
-        }, 15000);
+        console.log('⏳ Desconexión recibida durante fase no-conectada. Se mantendrá el proceso vivo para reintento de vinculación.');
     }
 });
 
@@ -8887,12 +9345,20 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                 }
 
                 let ticketTag = "";
+                const { pool } = require('./database');
+
+                // 1. Upsert del chat en DB (falla silenciosa — no bloquea el ticket)
                 try {
-                    const { pool } = require('./database');
                     await pool.query(
-                        'INSERT INTO chats (chat_id, customer_name, customer_phone, last_message_text, updated_at) VALUES (?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE updated_at = NOW()',
-                        [userId, contactName || null, cleanNum || null, (message.body || '').substring(0, 500)]
+                        'INSERT INTO chats (chat_id, customer_phone, last_message_text, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE last_message_text = VALUES(last_message_text), updated_at = NOW()',
+                        [userId, cleanNum || null, (message.body || '').substring(0, 500)]
                     );
+                } catch (chatErr) {
+                    console.warn("[Escalamiento] Error actualizando chat en DB (no crítico):", chatErr.message);
+                }
+
+                // 2. Crear o actualizar ticket — try/catch propio para que siempre se ejecute
+                try {
                     // Evitar duplicar tickets abiertos para la misma conversación
                     const [existingTickets] = await pool.query(
                         'SELECT id FROM tickets WHERE chat_id = ? AND status = "open" LIMIT 1',
@@ -8907,6 +9373,7 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                             [(message.body || 'Revisión de soporte requerida').substring(0, 500), existingId]
                         );
                         tRes = { insertId: existingId };
+                        console.log(`[Escalamiento] Ticket existente actualizado: TK-${existingId}`);
                     } else {
                         const [insRes] = await pool.query(
                             'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
@@ -8919,13 +9386,15 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                             ]
                         );
                         tRes = insRes;
+                        console.log(`[Escalamiento] ✅ Nuevo ticket creado: TK-${insRes.insertId}`);
                     }
                     if (tRes && tRes.insertId) {
                         ticketTag = ` (#TK-${tRes.insertId})`;
                     }
                 } catch (tErr) {
-                    console.error("Error guardando ticket en DB:", tErr.message);
+                    console.error("[Escalamiento] ❌ Error guardando ticket en DB:", tErr.message);
                 }
+
 
                 await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE*${ticketTag} de ${userTag}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
             }
@@ -9225,15 +9694,34 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
         if (qIdx !== -1) global.supportQueue.splice(qIdx, 1);
         global.supportQueue.push(userId);
 
-        try {
-            const groupChat = await client.getChatById(GROUP_ID);
-            if (groupChat) {
-                await groupChat.sendMessage(`🚨 *CÓDIGO MANUAL REQUERIDO* de @${realPhone}\n📺 Plataforma: *${streamingName}*\n📧 Cuenta: *${accountEmail}*\n\n_Por favor entrega el código manualmente y vincula su token de Gmail si aplica._`);
+        const isWebOrigin = message && message.id && String(message.id._serialized || '').startsWith('web_request_');
+        const originTag = isWebOrigin ? "\n🌐 _Origen: Solicitud desde la Web (sheerit.co/mis-servicios)_" : "\n💬 _Origen: WhatsApp_";
+
+        // Anti-Spam: evitar alertar al grupo múltiples veces por el mismo usuario y cuenta en menos de 5 minutos
+        if (!global.recentManualCodeAlerts) global.recentManualCodeAlerts = new Map();
+        const alertKey = `${realPhone}_${accountEmail.toLowerCase()}`;
+        const lastAlertTime = global.recentManualCodeAlerts.get(alertKey) || 0;
+        const now = Date.now();
+
+        if (now - lastAlertTime > 5 * 60 * 1000) {
+            global.recentManualCodeAlerts.set(alertKey, now);
+            try {
+                const groupChat = await client.getChatById(GROUP_ID);
+                if (groupChat) {
+                    await groupChat.sendMessage(`🚨 *CÓDIGO MANUAL REQUERIDO* de @${realPhone}\n📺 Plataforma: *${streamingName}*\n📧 Cuenta: *${accountEmail}*${originTag}\n\n_Por favor entrega el código manualmente y vincula su token de Gmail si aplica._`);
+                }
+            } catch (err) {
+                console.error("Error notificando al grupo sobre código manual:", err.message);
             }
-        } catch (err) {
-            console.error("Error notificando al grupo sobre código manual:", err.message);
+        } else {
+            console.log(`[Manual Code Alert] 🛑 Ignorando alerta duplicada para ${alertKey} enviada hace menos de 5 min.`);
         }
-        return;
+
+        return {
+            success: true,
+            manualRequired: true,
+            message: `Tu cuenta de ${streamingName} (${accountEmail}) requiere entrega manual. Ya notificamos a tu asesor para que te entregue el código por WhatsApp en breve.`
+        };
     }
 }
 
@@ -9761,26 +10249,38 @@ async function baseProcessIncomingMessage(messages) {
         }
     } catch (e) { }
 
-    const bodyMsgLower = (message.body || '').trim().toLowerCase();
-    const isDirectCodeOrCredentialsReq = [
-        'código', 'codigo', 'código de verificación', 'codigo de verificacion',
-        'código de acceso', 'codigo de acceso', '2fa', 'authenticator', 'hogar',
-        'actualizar hogar', 'contraseña', 'clave'
-    ].some(kw => bodyMsgLower.includes(kw));
+    if (hasRecentHuman && !message.body?.toLowerCase().includes('@bot') && message.body?.trim().toLowerCase() !== 'menu') {
+        // En lugar de una lista de keywords frágil, usamos la IA para decidir si el mensaje
+        // es algo que el bot puede resolver solo (credenciales, código 2FA, etc.)
+        // Si la intención es claramente resoluble, el bot responde aunque haya un asesor activo.
+        let isBotSolvable = false;
+        try {
+            const { detectInitialIntent } = require('./aiService');
+            const quickHist = await getChatHistoryText(message, 5);
+            const quickDetection = await detectInitialIntent(message.body || '', quickHist, null, []);
+            const solvableByBot = ['credenciales', 'codigo', 'soporte'];
+            if (quickDetection && solvableByBot.includes(quickDetection.intent)) {
+                isBotSolvable = true;
+                console.log(`[BOT MUTE BYPASS] IA detectó intención resoluble '${quickDetection.intent}' para @${userId}. Permitiendo respuesta del bot aunque haya asesor activo.`);
+            }
+        } catch (e) {
+            console.warn('[BOT MUTE BYPASS] Error en detección de intención rápida:', e.message);
+        }
 
-    if (hasRecentHuman && !message.body?.toLowerCase().includes('@bot') && message.body?.trim().toLowerCase() !== 'menu' && !isDirectCodeOrCredentialsReq) {
-        console.log(`[BOT MUTE ACTIVE] Intervención humana reciente (<45 min) detectada en el chat de @${userId}. Bot silenciado estrictamente.`);
-        const muteObj = {
-            ...(typeof currentStateData === 'object' ? currentStateData : {}),
-            state: 'waiting_human',
-            waitingCount: 0,
-            lastHumanInteraction: Date.now(),
-            waiting_human_mode: 'advisor',
-            nombre: foundName
-        };
-        userStates.set(userId, muteObj);
-        userStates.set(cleanPhoneJid, muteObj);
-        return;
+        if (!isBotSolvable) {
+            console.log(`[BOT MUTE ACTIVE] Intervención humana reciente (<45 min) detectada en el chat de @${userId}. Bot silenciado estrictamente.`);
+            const muteObj = {
+                ...(typeof currentStateData === 'object' ? currentStateData : {}),
+                state: 'waiting_human',
+                waitingCount: 0,
+                lastHumanInteraction: Date.now(),
+                waiting_human_mode: 'advisor',
+                nombre: foundName
+            };
+            userStates.set(userId, muteObj);
+            userStates.set(cleanPhoneJid, muteObj);
+            return;
+        }
     }
 
     if (currentState === 'waiting_human') {
@@ -9798,6 +10298,13 @@ async function baseProcessIncomingMessage(messages) {
 
         if (minutesSinceLastHuman < 120 || (currentStateData && currentStateData.agent) || mode === 'advisor') {
             console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} (Asesor activo hace ${minutesSinceLastHuman.toFixed(1)} mins o asignado a ${currentStateData ? currentStateData.agent : 'humano'}).`);
+            // Registrar que el cliente respondió para que aparezca en el panel de tickets
+            if (!currentStateData.clientWaitingSince) {
+                const updatedState = { ...currentStateData, clientWaitingSince: Date.now() };
+                userStates.set(userId, updatedState);
+                if (cleanPhoneJid) userStates.set(cleanPhoneJid, updatedState);
+                console.log(`[Tickets Panel] clientWaitingSince registrado para @${userId} — aparecerá en panel de asesores.`);
+            }
             return;
         }
 
@@ -9851,6 +10358,25 @@ async function baseProcessIncomingMessage(messages) {
             if (isProv) {
                 console.log(`[PROVIDER MSG] @${userId.replace('@c.us', '')} es un proveedor. No se reactiva el bot.`);
                 userStates.set(userId, { state: 'waiting_human', waiting_human_mode: 'advisor', is_provider: true });
+                return;
+            }
+
+            const lastValidated = (currentStateData && currentStateData.lastPaymentValidated) || 
+                                  (userStates.get(userId) && userStates.get(userId).lastPaymentValidated) || 
+                                  (cleanPhoneJid && userStates.get(cleanPhoneJid) && userStates.get(cleanPhoneJid).lastPaymentValidated) || 0;
+            const isRecentlyPaid = lastValidated && (Date.now() - lastValidated < 1000 * 60 * 20);
+
+            // Si el cliente tiene un pago recién validado (<20 min) y está en waiting_human (esperando entrega/activación)
+            if (isRecentlyPaid) {
+                console.log(`[BOT MUTE] @${userId} tiene pago reciente (<20m) y está en waiting_human. Mensaje: "${cleanBody}"`);
+                await message.reply("🤖 ¡Hola! Ya tenemos registrado tu pago con éxito. 🎉 Tu servicio se encuentra en proceso de entrega/activación por parte de un asesor. ¡Muchas gracias por tu paciencia! 😊");
+                return;
+            }
+
+            // Si el cliente afirma haber pagado por texto sin comprobante mientras está en waiting_human
+            if (isExplicitPaymentMessage(cleanBody) && !message.hasMedia) {
+                console.log(`[BOT MUTE] @${userId} afirma haber pagado sin comprobante en waiting_human. Solicitando comprobante.`);
+                await message.reply("🤖 ¡Hola! Para poder verificar tu pago y proceder con la entrega/activación de inmediato, por favor envíanos la *captura de pantalla o foto del comprobante de transferencia* 📸. ¡Quedo muy atento! 😊");
                 return;
             }
 
@@ -12146,9 +12672,15 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     const groupChat = await client.getChatById(GROUP_ID);
                     if (groupChat) {
                         const displayTarget = realPhone || userId.replace('@c.us', '').replace('@lid', '');
-                        let adminMsg = `🚨 *COMPROBANTE DETECTADO* (@${displayTarget})\n` +
+                        const isRenewal = stateData.isRenewal === true;
+                        const serviceNames = (stateData.items && stateData.items.length > 0)
+                            ? stateData.items.map(i => i.Streaming || (i.platform ? i.platform.name : '') || i.name).filter(Boolean).join(', ')
+                            : (check.inferredPlatform || 'No especificado');
+
+                        let adminMsg = `🚨 *COMPROBANTE DETECTADO - ${isRenewal ? 'RENOVACIÓN' : 'VENTA NUEVA'}* (@${displayTarget})\n` +
+                            `Servicio: *${serviceNames}*\n` +
                             `Banco: ${check.bank || 'No identificado'}\n` +
-                            `Monto: ${check.amount || 'No legible'}\n\n`;
+                            `Monto: ${check.amount ? `$${Number(check.amount).toLocaleString('es-CO')} COP` : 'No legible'}\n\n`;
 
                         if (leftoverAmount > 0) {
                             adminMsg += `💰 *EXCEDENTE DETECTADO:* Sobran *$${leftoverAmount.toLocaleString('es-CO')}* COP.\n\n`;
@@ -12164,10 +12696,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     if (stateData.isRenewal && stateData.items && stateData.items.length > 0) {
                         const { updateExcelData } = require('./apiService');
                         for (const item of stateData.items) {
-                            if (item._rowNumber) {
+                            const rNum = item._rowNumber || item.rowNumber;
+                            if (rNum) {
                                 try {
-                                    await updateExcelData(item._rowNumber, { observaciones: "⚠️ REVISAR COMPROBANTE EN CHAT" });
-                                    console.log(`[PAYMENT] Excel actualizado con nota de revisión para la fila ${item._rowNumber}`);
+                                    await updateExcelData(rNum, { observaciones: "⚠️ REVISAR COMPROBANTE EN CHAT" });
+                                    console.log(`[PAYMENT] Excel actualizado con nota de revisión para la fila ${rNum}`);
                                 } catch (err) {
                                     console.error("Error actualizando observaciones en Excel para comprobante:", err.message);
                                 }
@@ -12178,6 +12711,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 } catch (adminErr) {
                     console.error("Error notificando al grupo sobre pago interceptado:", adminErr.message);
                 }
+
+                // El comprobante ya fue notificado y respondido al cliente.
+                // IMPORTANTE: Terminar la ejecución para no caer en el fallback genérico/escalamiento con cola de espera.
+                return;
             }
         }
 
@@ -12854,17 +13391,17 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     console.log(`[Web Sale Check] Detectada venta pendiente en BD para ${realPhone}: Orden ${pendingSale.order_id}`);
                     const apiKey = process.env.BOLD_IDENTITY_KEY;
                     let isApprovedInBold = false;
-                    if (apiKey) {
+                    if (apiKey && pendingSale.payment_link) {
                         try {
                             const fetch = (...args) => import('node-fetch').then(({ default: fetch }) => fetch(...args));
-                            const boldRes = await fetch(`https://integrations.api.bold.co/online/payment/v1/orders/${pendingSale.order_id}`, {
+                            const boldRes = await fetch(`https://integrations.api.bold.co/online/link/v1/${pendingSale.payment_link}`, {
                                 method: 'GET',
-                                headers: { 'x-api-key': apiKey, 'Content-Type': 'application/json' }
+                                headers: { 'Authorization': `x-api-key ${apiKey}`, 'Content-Type': 'application/json' }
                             });
                             if (boldRes.ok) {
                                 const boldData = await boldRes.json();
-                                const bState = (boldData.status || boldData.data?.status || boldData.payment_status || '').toUpperCase();
-                                if (bState === 'APPROVED' || bState === 'SALE_APPROVED' || bState === 'SUCCESS' || bState === 'PAID') {
+                                const bState = (boldData.status || boldData.data?.status || '').toUpperCase();
+                                if (bState === 'PAID' || bState === 'APPROVED' || bState === 'SUCCESS') {
                                     isApprovedInBold = true;
                                 }
                             }
@@ -12873,18 +13410,19 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
                     const lowerInput = (inputToUse || '').toLowerCase();
                     const isRejectingOrder = /no he pedido|no ped[ií]|no compr[eé]|error|no es m[ií]o/i.test(lowerInput);
-                    const isSupportOrIssue = /problema|se cay[oó]|no tengo suscripci[oó]n|pantalla|ca[ií]da|soporte|asesor|ayuda|no funciona|falla/i.test(lowerInput);
-                    const isPaymentQuery = message.hasMedia || /ya pagu[eé]|comprobante|mi pedido|mis claves|mi orden|mi cuenta/i.test(lowerInput);
+                    const isPaymentQuery = message.hasMedia || 
+                        /ya pagu[eé]|comprobante|mi pedido|mis claves|mi orden|mi cuenta|compr[eé]|pagu[eé]|no me lleg[oó]|no me ha llegado|no recib[ií]|no me aparece|qu[eé] debo hacer|haciendo mal/i.test(lowerInput) ||
+                        (pendingSale.platformName && lowerInput.includes(pendingSale.platformName.toLowerCase().split(' ')[0]));
 
                     if (isApprovedInBold) {
                         console.log(`[Web Sale Check] ✅ ¡Orden ${pendingSale.order_id} aprobada en Bold API! Ejecutando entrega inmediata...`);
                         await approveBoldOrder(pendingSale.order_id);
                         return;
-                    } else if (isPaymentQuery && !isRejectingOrder && !isSupportOrIssue) {
+                    } else if (isPaymentQuery && !isRejectingOrder) {
                         const amountFmt = pendingSale.amount ? `$${Number(pendingSale.amount).toLocaleString('es-CO')} COP` : '';
                         await message.reply(
-                            `🤖 ¡Hola ${pendingSale.firstName || ''}! 👋 Veo que tu pedido de *${pendingSale.platformName}* (${amountFmt}) está registrado en nuestro sistema (Orden \`${pendingSale.order_id}\`). 🎉\n\n` +
-                            `En este momento estamos monitoreando la confirmación de tu banco (Nequi/PSE) en tiempo real. Tan pronto como tu banco confirme la transacción a nuestra pasarela, recibirás tus claves automáticamente por este mismo chat. 😊`
+                            `🤖 ¡Hola ${pendingSale.firstName || ''}! 👋 Veo que registraste una compra de *${pendingSale.platformName}* (${amountFmt}) en nuestra página web (Orden \`${pendingSale.order_id}\`). 🎉\n\n` +
+                            `En este momento estamos monitoreando la confirmación de tu pago en la pasarela (Bold / PSE / Tarjeta). Si ya realizaste el pago y se debitó de tu cuenta, por favor envíanos la foto o captura del comprobante aquí para validarlo y entregarte tus credenciales de inmediato. 😊`
                         );
                         return;
                     }
@@ -12979,7 +13517,14 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 // SI EL USUARIO TIENE CUENTAS Y NO MENCIONA UNA PLATAFORMA NUEVA, ASUMIMOS QUE ES RENOVACIÓN/PAGO
                 const isExplicitPurchase = ['comprar', 'nueva', 'nuevo', 'interesado', 'interesada', 'adquirir', 'quiero', 'venden', 'precio', 'cotizar', 'cuenta de', 'cuentas de'].some(kw => inputToUse.toLowerCase().includes(kw));
 
-                if (userAccounts.length > 0 && !isExplicitPurchase) {
+                const requestedPlatLower = (detection.detectedPlatform || "").toLowerCase().trim();
+                const userHasRequestedPlat = requestedPlatLower && userAccounts.some(acc => {
+                    const plat = (acc.Streaming || "").toLowerCase();
+                    return plat.includes(requestedPlatLower) || requestedPlatLower.includes(plat);
+                });
+
+                // Solo redirigir a processCheckPrices si NO mencionó una plataforma nueva, Y (ya tiene contratada esa plataforma o no especificó ninguna)
+                if (userAccounts.length > 0 && !isExplicitPurchase && (!requestedPlatLower || userHasRequestedPlat)) {
                     const durationMonths = getDurationMonths(detection, inputToUse);
                     await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
                     return;
@@ -13019,6 +13564,22 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 await startPurchaseProcess(message, userId, userStates);
                 return;
             } else if (detection.intent === 'renovar') {
+                const stateData = userStates.get(userId) || {};
+                const lastValidated = stateData.lastPaymentValidated || 
+                                      (userStates.get(userId) && userStates.get(userId).lastPaymentValidated) ||
+                                      (cleanPhoneJid && userStates.get(cleanPhoneJid) && userStates.get(cleanPhoneJid).lastPaymentValidated) ||
+                                      (cachedState && cachedState.lastPaymentValidated) || 0;
+                if (lastValidated && (Date.now() - lastValidated < 1000 * 60 * 20)) {
+                    console.log(`[Intent Renovar] Pago recién validado para @${userId} (<20m). Confirmando recepción.`);
+                    await message.reply("🤖 ¡Tu pago ya fue recibido y verificado con éxito! 🎉 Nuestro equipo ya tiene tu servicio en proceso de entrega/activación. ¡Muchas gracias por tu paciencia! 😊");
+                    return;
+                }
+                if (!message.hasMedia && isExplicitPaymentMessage(inputToUse || message.body)) {
+                    console.log(`[Intent Renovar] Cliente @${userId} afirma haber pagado sin comprobante: "${inputToUse || message.body}". Solicitando comprobante.`);
+                    await message.reply("🤖 ¡Hola! Para poder verificar tu pago y proceder con la entrega/renovación de inmediato, por favor envíanos la *captura de pantalla o foto del comprobante de transferencia* 📸. ¡Quedo muy atento! 😊");
+                    userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation' });
+                    return;
+                }
                 const durationMonths = getDurationMonths(detection, inputToUse);
                 await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
                 return;
@@ -13031,6 +13592,29 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 return;
             } else if (detection.intent === 'pagar') {
                 const stateData = userStates.get(userId) || {};
+                const lastValidated = stateData.lastPaymentValidated || 
+                                      (userStates.get(userId) && userStates.get(userId).lastPaymentValidated) ||
+                                      (cleanPhoneJid && userStates.get(cleanPhoneJid) && userStates.get(cleanPhoneJid).lastPaymentValidated) ||
+                                      (cachedState && cachedState.lastPaymentValidated) || 0;
+                if (lastValidated && (Date.now() - lastValidated < 1000 * 60 * 20)) {
+                    console.log(`[Intent Pagar] Pago recién validado para @${userId} (<20m). Confirmando recepción.`);
+                    await message.reply("🤖 ¡Tu pago ya fue recibido y verificado con éxito! 🎉 Nuestro equipo ya tiene tu servicio en proceso de entrega/activación. ¡Muchas gracias por tu paciencia! 😊");
+                    return;
+                }
+                if (!message.hasMedia && isExplicitPaymentMessage(inputToUse || message.body)) {
+                    console.log(`[Intent Pagar] Cliente @${userId} afirma haber pagado sin comprobante: "${inputToUse || message.body}". Solicitando comprobante.`);
+                    await message.reply("🤖 ¡Hola! Para poder verificar tu pago y proceder con la entrega/renovación de inmediato, por favor envíanos la *captura de pantalla o foto del comprobante de transferencia* 📸. ¡Quedo muy atento! 😊");
+                    userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation' });
+                    return;
+                }
+
+                if (message.hasMedia && mediaData && mediaData.length > 0) {
+                    console.log(`[Intent Pagar Media] Cliente @${userId} envió comprobante de pago. Delegando a handleAwaitingPaymentConfirmation.`);
+                    userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation' });
+                    await handleAwaitingPaymentConfirmation(message, userId, true, mediaData[0]);
+                    return;
+                }
+
                 if (userAccounts.length === 0 && stateData.items && stateData.items.length > 0) {
                     await handleAwaitingPaymentMethod(message, userId, false, null, inputToUse);
                 } else {
@@ -13163,7 +13747,32 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     await safeReply(message, `🤖 ¡Hola! He recibido la captura de pantalla del error que me enviaste. 📺\n\nYa notifiqué a nuestro equipo de soporte técnico para revisar la falla y darte solución lo antes posible. ¡Gracias por tu paciencia! 😊`, userId);
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', nombre: foundName });
                 } else {
-                    await safeReply(message, `🤖 ¡Hola! Entiendo que tienes un inconveniente con tu cuenta. Para poder ayudarte a solucionarlo lo antes posible (e incluso resolverlo automáticamente si es un código de acceso o restablecimiento de hogar), por favor **envíame una foto del error que te aparece en pantalla o descríbeme detalladamente qué plataforma es y qué error te sale**. 📲`, userId);
+                    // El usuario envió texto describiendo un problema o preguntando algo (ej: "por qué sale actualización de hogar")
+                    const hasDescriptiveContent = cleanText.length > 12 || [
+                        'hogar', 'actualizar', 'pantalla', 'error', 'clave', 'contraseña', 'correo', 'perfil', 'anuncio',
+                        'publicidad', 'caido', 'caído', 'pausado', 'netflix', 'disney', 'youtube', 'spotify', 'max', 'prime',
+                        'por que', 'por qué', 'como', 'cómo', 'ayuda con', 'no me deja', 'no puedo', 'cerró', 'cerro', 'acceso',
+                        'tiempo', 'siempre', 'pide'
+                    ].some(kw => cleanText.includes(kw));
+
+                    if (hasDescriptiveContent) {
+                        const historyForFallback = await getChatHistoryText(message);
+                        let accs = [];
+                        try { accs = await getAccountsByPhone(realPhone, foundName); } catch (e) {}
+                        const fallbackResult = await generateEmpatheticFallback(message.body || "", false, historyForFallback, null, accs, userId, userStates);
+                        const fallbackMsg = typeof fallbackResult === 'string' ? fallbackResult : (fallbackResult?.replyMessage || "");
+
+                        if (fallbackMsg && fallbackMsg.replace(/🤖|👍|👋|\s/g, '').length >= 3) {
+                            console.log(`[Support Direct Answer] Respondiendo duda técnica/soporte directamente con IA a @${userId}`);
+                            await safeReply(message, fallbackMsg, userId);
+                            if (typeof fallbackResult === 'object' && fallbackResult.needsEscalation) {
+                                userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', nombre: foundName });
+                            }
+                            return;
+                        }
+                    }
+
+                    await safeReply(message, `🤖 ¡Hola! Entiendo que tienes un inconveniente con tu cuenta. Para poder ayudarte a resolverlo de inmediato, por favor **cuéntame qué plataforma es y qué te aparece en pantalla, o envíame una foto del error**. 📲`, userId);
                     userStates.set(userId, { state: 'awaiting_support_details', timestamp: Date.now(), platform: platform, nombre: foundName });
                 }
                 return;
@@ -13171,6 +13780,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
             // 6. FLUJO POR DEFECTO (Más sutil y conversacional)
             const historyForFallback = await getChatHistoryText(message);
+
+            // Si el cliente envió una imagen en el flujo libre/por defecto, verificar si es un comprobante de pago antes de hacer fallback
+            if (message.hasMedia && mediaData && mediaData.length > 0) {
+                try {
+                    const { isPaymentReceipt } = require('./aiService');
+                    const check = await isPaymentReceipt(mediaData[0], historyForFallback);
+                    if (check && check.isReceipt) {
+                        console.log(`[Auto-Intercept Receipt] Imagen identificada como comprobante de pago ($${check.amount}). Redirigiendo a handleAwaitingPaymentConfirmation para @${userId}`);
+                        const currentStateData = userStates.get(userId) || {};
+                        userStates.set(userId, { ...currentStateData, state: 'awaiting_payment_confirmation' });
+                        await handleAwaitingPaymentConfirmation(message, userId, true, mediaData[0]);
+                        return;
+                    }
+                } catch (receiptErr) {
+                    console.error("[Auto-Intercept Receipt Error]:", receiptErr.message);
+                }
+            }
 
             userAccounts = [];
             try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
@@ -13618,8 +14244,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         await processCheckCredentials(userId, client, reason, "");
                         return;
                     } else if (analysis.action === 'soporte') {
-                        await message.reply("🤖 Entiendo que experimentas un problema técnico. Para ayudarte a solucionarlo de inmediato, por favor indícame con qué plataforma tienes el inconveniente o envíame una captura de pantalla del error.");
-                        userStates.set(userId, { state: 'main_menu', nombre: foundName });
+                        try {
+                            const chat = await client.getChatById(GROUP_ID);
+                            if (chat) {
+                                let realPhone = userId.replace(/\D/g, '');
+                                try {
+                                    const contact = await message.getContact();
+                                    if (contact && contact.number) realPhone = contact.number;
+                                } catch (e) { }
+                                const platInfo = analysis.detectedPlatform ? ` (${analysis.detectedPlatform})` : '';
+                                await chat.sendMessage(`🚨 *Soporte Técnico Requerido* (@${realPhone})${platInfo}\n\nMotivo del cliente: "${inputToUse}"`);
+                            }
+                        } catch (error) {
+                            console.error('Error enviando mensaje de soporte al grupo:', error);
+                        }
+                        const platText = analysis.detectedPlatform ? ` sobre tu servicio de *${analysis.detectedPlatform}*` : '';
+                        await message.reply(`🤖 Entendido. He transferido tu caso de soporte técnico${platText} a un asesor humano junto con el detalle que nos indicaste. Un asesor te responderá por este chat lo antes posible. He silenciado mis respuestas automáticas para no interrumpir.`);
+                        userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', advisorReason: inputToUse.trim() });
                         return;
                     }
                 }
@@ -14009,6 +14650,19 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                     await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
                     return;
                 } else if (detection.intent === 'pagar' || detection.intent === 'renovar') {
+                    const lastValidated = existingState.lastPaymentValidated || 
+                                          (userStates.get(userId) && userStates.get(userId).lastPaymentValidated) || 0;
+                    if (lastValidated && (Date.now() - lastValidated < 1000 * 60 * 20)) {
+                        console.log(`[Menu Intent ${detection.intent}] Pago recién validado para @${userId} (<20m).`);
+                        await message.reply("🤖 ¡Tu pago ya fue recibido y verificado con éxito! 🎉 Nuestro equipo ya tiene tu servicio en proceso de entrega/activación. ¡Muchas gracias por tu paciencia! 😊");
+                        return;
+                    }
+                    if (!message.hasMedia && isExplicitPaymentMessage(inputToUse || message.body)) {
+                        console.log(`[Menu Intent ${detection.intent}] Cliente @${userId} afirma haber pagado sin comprobante: "${inputToUse || message.body}".`);
+                        await message.reply("🤖 ¡Hola! Para poder verificar tu pago y proceder con la entrega/renovación de inmediato, por favor envíanos la *captura de pantalla o foto del comprobante de transferencia* 📸. ¡Quedo muy atento! 😊");
+                        userStates.set(userId, { ...existingState, state: 'awaiting_payment_confirmation' });
+                        return;
+                    }
                     const durationMonths = getDurationMonths(detection, inputToUse);
                     await processCheckPrices(message, userId, userStates, inputToUse, detection.detectedPlatform, durationMonths);
                     return;
@@ -14242,14 +14896,29 @@ async function handleAwaitingPaymentMethod(message, userId, isMedia = false, sin
     const textToUse = text || message.body || '';
     const stateData = userStates.get(userId) || {};
 
-    // Si tenemos plataformas de churn pendientes de razón y el cliente responde con texto (no un comprobante ni método)
-    const hasChurnPlatforms = stateData.churnPlatforms && stateData.churnPlatforms.length > 0;
-    const isPaymentMethod = ['nequi', 'daviplata', 'bancolombia', 'llave', 'qr', 'efectivo', 'pagar', 'comprobante', 'recibo', 'medio', 'transf', 'banco'].some(k => textToUse.toLowerCase().includes(k));
+    const hasMediaFlag = Boolean(isMedia || message.hasMedia || singleMediaData);
 
-    if (hasChurnPlatforms && !isPaymentMethod && !message.hasMedia && textToUse.trim().length > 3) {
+    // 1. Si el usuario envió comprobante o afirma explícitamente que ya pagó/transfirió
+    const isPaymentAffirmation = /aqu[ií]\s*pagu[eé]|ya\s*pagu[eé]|ya\s*pague|\bpagu[eé]\b|ya\s*transfer[ií]|ya\s*hice\s*el\s*pago|te\s*pagu[eé]|te\s*transfer[ií]|adjunto\s*comprobante|ah[ií]\s*est[aá]\s*el\s*pago|\bcomprobante\b|\brecibo\b/i.test(textToUse);
+
+    if (hasMediaFlag) {
+        return await handleAwaitingPaymentConfirmation(message, userId, true, singleMediaData);
+    }
+
+    if (isPaymentAffirmation) {
+        await message.reply("🤖 ¡Hola! Para poder verificar tu pago y proceder con la entrega/renovación de inmediato, por favor envíanos la *captura de pantalla o foto del comprobante de transferencia* 📸. ¡Quedo muy atento! 😊");
+        userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation' });
+        return;
+    }
+
+    // 2. Si tenemos plataformas de churn pendientes de razón y el cliente da una razón EXPLÍCITA de cancelación
+    const hasChurnPlatforms = stateData.churnPlatforms && stateData.churnPlatforms.length > 0;
+    const isExplicitChurnFeedback = /\b(no\s*(la|lo|los|las)?\s*(uso|utilizo|veo|quiero|deseo|puedo|tengo)|muy\s*car[oa]|costos[oa]|mala|falla|cancelo|cancelar|no\s*me\s*gust[oó]|aburrid[oa]|tiempo)\b/i.test(textToUse);
+
+    if (hasChurnPlatforms && isExplicitChurnFeedback && !isPaymentAffirmation && textToUse.trim().length > 3) {
         const { updateExcelData } = require('./apiService');
         const cleanReason = textToUse.trim();
-        console.log(`[Churn Auto-Collector] Recibida razón de churn de @${userId}: "${cleanReason}" para filas:`, stateData.churnPlatforms);
+        console.log(`[Churn Auto-Collector] Recibida razón de churn legítima de @${userId}: "${cleanReason}" para filas:`, stateData.churnPlatforms);
         for (const row of stateData.churnPlatforms) {
             await updateExcelData(row, { observaciones: `cortar - ${cleanReason} (bot)` }).catch(e => { });
         }
@@ -14263,7 +14932,36 @@ async function handleAwaitingPaymentMethod(message, userId, isMedia = false, sin
     const wasModified = await handleRenewalModification(message, userId, textToUse, stateData);
     if (wasModified) return;
 
-    await processPaymentSelection(message, userId, textToUse, isMedia, singleMediaData);
+    // 3. Si el usuario está en proceso de compra nueva y menciona o cambia de plan (ej: "compartido", "personal", "1", "2")
+    if (!stateData.isRenewal && stateData.items && stateData.items.length > 0 && !hasMediaFlag && !isPaymentAffirmation) {
+        const lower = textToUse.toLowerCase().trim();
+        const singleItem = stateData.items[0];
+        const plat = singleItem.platform;
+        if (plat && Array.isArray(plat.plans)) {
+            let matchedPlan = plat.plans.find(p => {
+                const pName = p.name.toLowerCase().trim();
+                return lower.includes(pName) || (pName === 'compartida' && lower.includes('compartid')) || (pName === 'personal' && lower.includes('personal'));
+            });
+
+            if (!matchedPlan && /^[1-9]$/.test(lower)) {
+                const planIdx = parseInt(lower) - 1;
+                if (planIdx >= 0 && planIdx < plat.plans.length) {
+                    matchedPlan = plat.plans[planIdx];
+                }
+            }
+
+            if (matchedPlan) {
+                console.log(`[Sales Service] 🔄 Cliente cambió/seleccionó plan "${matchedPlan.name}" ($${matchedPlan.price}) para ${plat.name} en awaiting_payment_method.`);
+                singleItem.chosenPlan = matchedPlan;
+                stateData.selected = stateData.items;
+                const { calculateAndShowPrice } = require('./salesService');
+                await calculateAndShowPrice(message, userId, userStates);
+                return;
+            }
+        }
+    }
+
+    await processPaymentSelection(message, userId, textToUse, hasMediaFlag, singleMediaData);
 }
 
 async function processPaymentSelection(message, userId, text, isMedia = false, singleMediaData = null) {

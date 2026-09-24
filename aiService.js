@@ -45,7 +45,7 @@ async function getSystemPromptTemplate() {
 }
 
 // Supported API Keys array for automated rotation and failover (detecta dinámicamente cualquier GEMINI_API_KEY* o GOOGLE_API_KEY*)
-const GEMINI_KEYS = Array.from(new Set(
+let activeGeminiKeys = Array.from(new Set(
   Object.entries(process.env)
     .filter(([key, val]) => (key.startsWith('GEMINI_API_KEY') || key.startsWith('GOOGLE_API_KEY')) && val && val.trim().length > 10)
     .map(([_, val]) => val.trim())
@@ -54,15 +54,23 @@ const GEMINI_KEYS = Array.from(new Set(
 let currentKeyIndex = 0;
 
 function getActiveGeminiKey() {
-  if (GEMINI_KEYS.length === 0) return null;
-  return GEMINI_KEYS[currentKeyIndex % GEMINI_KEYS.length];
+  if (activeGeminiKeys.length === 0) return null;
+  return activeGeminiKeys[currentKeyIndex % activeGeminiKeys.length];
 }
 
 function rotateGeminiKey() {
-  if (GEMINI_KEYS.length > 1) {
-    currentKeyIndex = (currentKeyIndex + 1) % GEMINI_KEYS.length;
+  if (activeGeminiKeys.length > 1) {
+    currentKeyIndex = (currentKeyIndex + 1) % activeGeminiKeys.length;
     const activeKey = getActiveGeminiKey() || "";
     console.log(`[Gemini Failover] Rotando clave a índice ${currentKeyIndex}. Clave activa ahora termina en: ...${activeKey.slice(-6)}`);
+  }
+}
+
+function disableGeminiKey(keyToDisable) {
+  if (activeGeminiKeys.length > 1) {
+    activeGeminiKeys = activeGeminiKeys.filter(k => k !== keyToDisable);
+    currentKeyIndex = currentKeyIndex % activeGeminiKeys.length;
+    console.warn(`[Gemini Failover] 🚫 Clave permanentemente inhabilitada (...${keyToDisable.slice(-6)}). Claves activas restantes: ${activeGeminiKeys.length}`);
   }
 }
 
@@ -72,20 +80,24 @@ const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek
 /**
  * Convierte el JSON de sabiduría en un texto legible para el prompt de la IA.
  */
-function summarizeWisdom(wisdom) {
+function summarizeWisdom(wisdom, dynamicSchedule = null) {
   if (!wisdom) return "";
   let summary = "";
 
   if (wisdom.company_info) {
-    summary += `EMPRESA: ${wisdom.company_info.name}\nMISIÓN: ${wisdom.company_info.mission}\n\n`;
+    summary += `EMPRESA: ${wisdom.company_info.name}\nMISIÓN: ${wisdom.company_info.mission}\n`;
+    if (wisdom.company_info.owner) {
+      summary += `TITULAR / DUEÑO: ${wisdom.company_info.owner}\n`;
+    }
+    summary += "\n";
   }
 
-  if (wisdom.human_support_schedule) {
-    summary += "HORARIOS DE ATENCIÓN HUMANA:\n";
-    wisdom.human_support_schedule.forEach(s => {
-      summary += `- ${s.days} (${s.staff}): ${s.details}\n`;
-    });
-    summary += "\n";
+  if (dynamicSchedule && dynamicSchedule.fullScheduleSummary) {
+    summary += "HORARIOS DE ATENCIÓN HUMANA (DINÁMICOS - TURNOS EN VIVO):\n";
+    summary += `- Horario Oficial: ${dynamicSchedule.fullScheduleSummary}\n`;
+    summary += `- Horario de Hoy: ${dynamicSchedule.todaySchedule}\n`;
+    summary += `- Asesores del equipo esta semana: ${dynamicSchedule.activeAdvisorsText || 'Equipo de Asesores'}\n`;
+    summary += `- Asesores programados para hoy: ${dynamicSchedule.todayAdvisorsText || 'Equipo de Asesores'}\n\n`;
   }
 
   if (wisdom.platform_rules) {
@@ -172,8 +184,10 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-flash-latest",       // Modelo principal: Máxima Inteligencia y Visión Flash
-  "gemini-flash-lite-latest"   // Respaldo ultra rápido
+  "gemini-flash-lite-latest",  // Prioridad 1: Rápido, alta cuota y excelente visión OCR
+  "gemini-3.1-flash-lite",     // Respaldo de alta cuota
+  "gemini-3.5-flash-lite",     // Respaldo secundario
+  "gemini-flash-latest"        // Fallback
 ];
 
 /**
@@ -382,8 +396,12 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
         // If the key is blocked or auth fails (400/403/401)
         if (response.status === 400 || response.status === 403 || response.status === 401) {
           const errText = await response.text();
-          console.warn(`⚠️ [Gemini API] Error de autenticación/clave ${response.status} en intento ${attempt}/${attempts}. Rotando API Key... Detalle: ${errText}`);
-          rotateGeminiKey();
+          console.warn(`⚠️ [Gemini API] Error de autenticación/clave ${response.status} en intento ${attempt}/${attempts}. Detalle: ${errText}`);
+          if (response.status === 403 && (errText.includes('PERMISSION_DENIED') || errText.includes('denied access'))) {
+            disableGeminiKey(activeKey);
+          } else {
+            rotateGeminiKey();
+          }
           await new Promise(r => setTimeout(r, delay));
           continue;
         }
@@ -615,8 +633,9 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
     - Solo agrega plataformas si el mensaje actual ("${messageContent}") las menciona explícitamente o si el historial reciente indica una continuación lógica inmediata.
     - Normaliza los nombres de planes y plataformas (ej. "Netflix - Básico" -> platform: "Netflix", plan: "Básico").
     - **REGLA CRÍTICA PARA MICROSOFT:** 
-        * Si el usuario dice "Microsoft" o "Office" a secas (sin la palabra "compartida"), el plan es "Personal".
-        * Si el usuario dice explícitamente "Microsoft compartida" o "Microsoft 365 compartida", el plan es "Compartida".
+        * Si el usuario dice explícitamente "personal", "propio", "en mi correo" o "correo propio", el plan es "Personal".
+        * Si el usuario dice explícitamente "compartida", "compartido", "perfil" o menciona el precio de 5.000, el plan es "Compartida".
+        * Si el usuario dice "Microsoft" u "Office" a secas (sin aclarar si es personal o compartida), pon null en "plan" para que el bot le muestre ambas opciones con sus precios.
     - **REGLA CRÍTICA PARA GEMINI:** 
         * Si el usuario dice "Gemini" o "Gemini Pro" a secas (sin la palabra "compartida"), el plan es "Correo Propio".
         * Si el usuario dice explícitamente "Gemini compartida", el plan es "Compartida".
@@ -625,7 +644,10 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
         * Si el usuario dice "Apple tv", el plan es "Apple TV+".
     - **REGLA CRÍTICA PARA SPOTIFY:** 
         * Si el usuario dice "Spotify" a secas o "cuenta de spotify", el plan es "Cuenta Nueva o Renovación".
-        * Si menciona "en mi correo", "personal", "mi cuenta" o "activación", el plan es "Personal (Tu Correo)".
+    - **REGLA CRÍTICA PARA PLATZI:** 
+        * Platzi tiene 2 planes: "Compartida" ($20.000 COP/mes) y "Trimestral Personal" ($150.000 COP/3 meses).
+        * Si el usuario pide "Platzi" a secas, "Platzi personal", "en mi correo", o menciona $150.000, el plan es "Trimestral Personal" y "subscriptionType" DEBE ser "trimestral".
+        * Si el usuario pide "Platzi compartida" o menciona $20.000, el plan es "Compartida" y "subscriptionType" es "mensual".
     - Si no se especifica plan para otras plataformas, pon null en "plan".
     - Si detectas "ChatGPT", normalizalo como platform: "ChatGPT".
     - Revisa las fechas/horas en el contexto. Si ha pasado mucho tiempo (varias horas o 1 día) entre el último mensaje del usuario y la respuesta (Hora actual del sistema), genera un breve "empathyGreeting". Si no hay demora significativa, déjalo en null.
@@ -1164,45 +1186,107 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
     }
   }
 
+  // Si no se pasaron cuentas del cliente (o llegaron vacías), intentar cargarlas en tiempo real
+  // para evitar que el LLM diga incorrectamente que "no encontramos tu servicio".
+  if ((!userAccounts || userAccounts.length === 0) && userId) {
+    try {
+      const { getAccountsByPhone } = require('./apiService');
+      let resolvedPhone = null;
+
+      // Intentar obtener el teléfono real del userState
+      if (userStates) {
+        const stateData = userStates.get(userId);
+        if (stateData && stateData.realPhone) {
+          resolvedPhone = String(stateData.realPhone).replace(/\D/g, '');
+        }
+      }
+
+      // Fallback: extraer dígitos del userId
+      if (!resolvedPhone) {
+        const digitsFromId = String(userId).replace(/\D/g, '');
+        if (digitsFromId.length >= 10 && digitsFromId.length <= 13) {
+          resolvedPhone = digitsFromId;
+        }
+      }
+
+      if (resolvedPhone) {
+        const fetched = await getAccountsByPhone(resolvedPhone).catch(() => []);
+        if (fetched && fetched.length > 0) {
+          userAccounts = fetched;
+          console.log(`[AI Empathetic Fallback] ✅ Cuentas cargadas en tiempo real para @${userId}: ${fetched.map(a => a.Streaming || '?').join(', ')}`);
+        }
+      }
+    } catch (e) {
+      console.warn('[AI Empathetic Fallback] No se pudieron cargar cuentas en tiempo real:', e.message);
+    }
+  }
+
   let accountSummary = summarizeAccounts(userAccounts);
 
   if (userAccounts && userAccounts.length > 0) {
     const platNames = userAccounts.map(a => a.Streaming || a.streaming || a.platform || '').filter(Boolean);
     if (platNames.length > 0) {
       const activeListStr = platNames.join(', ');
-      accountSummary = `🎯 PLATAFORMAS REALES Y ACTIVAS DE ESTE CLIENTE: [ ${activeListStr.toUpperCase()} ]\n` +
-        `⚠️ (REGLA DE COHERENCIA: Habla ÚNICAMENTE de las plataformas listadas arriba. Queda estrictamente PROHIBIDO inventar o asumir que el cliente habla de Spotify, Netflix o Disney si no la tiene contratada o si no la mencionó explícitamente).\n\n` +
+      accountSummary = `🎯 PLATAFORMAS CONTRATADAS PREVIAMENTE POR ESTE CLIENTE: [ ${activeListStr.toUpperCase()} ]\n` +
+        `⚠️ (REGLA DE COHERENCIA Y NUEVAS COMPRAS: Las plataformas listadas arriba son servicios previamente registrados en el historial del cliente. Si el cliente consulta o reporta fallas sobre sus cuentas existentes, habla de esas cuentas. SIN EMBARGO, si el cliente menciona que acaba de comprar, pagar o adquirir una plataforma DIFERENTE (o si tiene una orden web en curso), Queda TERMINANTEMENTE PROHIBIDO decirle "en nuestro sistema tu cuenta solo tiene X servicio" o invalidar su compra. Un cliente puede comprar productos nuevos en cualquier momento. Tampoco digas "no vendemos planes de 3 meses", ya que en la tienda web de Sheerit los clientes pueden adquirir combos y trimestres pagados por adelantado).\n\n` +
         accountSummary;
     }
   }
+
+  // Inyectar compras web pendientes si existen
+  try {
+    const rawId = userId ? String(userId) : "";
+    const cleanPhone = rawId.replace(/\D/g, "");
+    if (cleanPhone.length >= 10) {
+      const { checkPendingWebSaleForPhone } = require('./billingService');
+      const pendingSale = await checkPendingWebSaleForPhone(cleanPhone);
+      if (pendingSale) {
+        const pendingWebSaleText = `🛒 ORDEN DE COMPRA WEB RECIENTE DETECTADA (sheerit.co):
+- Orden: ${pendingSale.order_id}
+- Plataforma comprada: ${pendingSale.platformName}
+- Valor: $${Number(pendingSale.amount || 0).toLocaleString('es-CO')} COP
+- Fecha: ${pendingSale.createdAt}
+⚠️ ATENCIÓN: El cliente acaba de registrar esta compra en la web de Sheerit. Si pregunta por su compra, entrega, activación o comprobante, RECONOCE DE INMEDIATO este pedido. Queda TERMINANTEMENTE PROHIBIDO decirle que no existe o limitarlo a sus servicios anteriores.\n\n`;
+        accountSummary = pendingWebSaleText + accountSummary;
+      }
+    }
+  } catch (pErr) { }
   const platformDocs = await getPlatformKnowledge();
   const wisdomData = await getWisdomKnowledge();
   const supportDocs = await getSupportKnowledge();
 
+  const { isSupportOpen, getSupportScheduleConfig, getQueuePosition, getDynamicSupportSchedule } = require('./supportScheduleService');
+  const supportStatus = await isSupportOpen();
+  const queuePos = (userId && userStates) ? getQueuePosition(userId, userStates) : null;
+  const supportScheduleConfig = getSupportScheduleConfig();
+  const dynamicSchedule = await getDynamicSupportSchedule();
+
   const platformContext = summarizePlatformKnowledge(platformDocs);
-  const wisdomContext = summarizeWisdom(wisdomData);
+  const wisdomContext = summarizeWisdom(wisdomData, dynamicSchedule);
   const supportContext = summarizeSupportKnowledge(supportDocs);
 
   const { getActiveIncidentsText, getSpecificAccountsIncidentsText } = require('./availabilityService');
   const activeIncidents = getActiveIncidentsText();
   const specificAccountIncidents = getSpecificAccountsIncidentsText(userAccounts);
 
-  const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
-  const supportStatus = await isSupportOpen();
-  const queuePos = (userId && userStates) ? getQueuePosition(userId, userStates) : null;
-  const supportScheduleConfig = getSupportScheduleConfig();
-
   const supportStatusText = `
-ESTADO ACTUAL DEL SOPORTE HUMANO EN ESTE MOMENTO:
-- Horario de Atención Asesores: Lunes a Viernes de ${supportScheduleConfig.weekday_start} a ${supportScheduleConfig.weekday_end}, Sábado y Domingo de ${supportScheduleConfig.weekend_start} a ${supportScheduleConfig.weekend_end}.
+ESTADO ACTUAL DEL SOPORTE HUMANO EN ESTE MOMENTO (según Turnos Reales en Pagos y Horarios):
+- Horario Oficial de Atención de Asesores: ${dynamicSchedule.fullScheduleSummary}.
+- Horario de Atención de Hoy: ${dynamicSchedule.todaySchedule}.
+- Asesores programados para hoy: ${dynamicSchedule.todayAdvisorsText}${dynamicSchedule.todayShiftsDetail ? ' [' + dynamicSchedule.todayShiftsDetail + ']' : ''}.
+- Asesor(es) actualmente en turno en este momento: ${dynamicSchedule.currentAdvisorsText}.
+- Próximo turno de atención si está cerrado: ${dynamicSchedule.nextOpeningText}.
 - Estado del Canal de Soporte Humano: ${supportStatus.open ? 'ONLINE / ABIERTO' : 'OFFLINE / CERRADO'}
 - Contexto del Estado: ${supportStatus.reason}
 - Mensaje Fuera de Horario: "${supportScheduleConfig.offline_message}"
 ${queuePos ? `- Turno actual del cliente en la cola de espera: #${queuePos}\n` : ''}
 
 REGLAS DE ATENCIÓN DE SOPORTE HUMANO:
-1. Si el cliente pide hablar con un asesor o requiere soporte que requiere escalamiento, y el soporte está OFFLINE/CERRADO, infórmale con amabilidad y calidez que en este momento no hay asesores activos, indicando el horario de soporte y pidiéndole que tenga paciencia, ya que su ticket fue guardado.
-2. Si el soporte está ONLINE/ABIERTO y el cliente está en la cola, menciónale amablemente que ya tiene el turno #${queuePos || 'X'} en la cola y que un asesor lo atenderá muy pronto.
+1. Cuando menciones o recuerdes el horario de atención humana a un cliente, usa OBLIGATORIAMENTE el Horario Oficial de Atención (${dynamicSchedule.fullScheduleSummary}) y los asesores reales programados. Si el cliente escribe antes de que abra el soporte, infórmale con amabilidad que un asesor lo atenderá ${dynamicSchedule.nextOpeningText}. Queda TERMINANTEMENTE PROHIBIDO inventar o mencionar horarios fijos u obsoletos (como "10:00 AM" o "4:00 PM") que no coincidan con la programación real de turnos.
+2. Si mencionas o te refieres al asesor o equipo de soporte, refiérete al equipo de asesores o menciona únicamente los asesores reales programados para hoy (${dynamicSchedule.todayAdvisorsText}). Queda TERMINANTEMENTE PROHIBIDO inventar nombres de personas que no estén en la lista de asesores programados.
+3. Si el cliente solicita explícitamente hablar con un asesor o requiere escalamiento técnico por falla comprobada, y el soporte está OFFLINE/CERRADO, infórmale con amabilidad que en este momento no hay asesores activos, indicando el horario de soporte (${dynamicSchedule.fullScheduleSummary}) y pidiéndole paciencia.
+4. Si el soporte está ONLINE/ABIERTO y el cliente SOLICITÓ explícitamente hablar con un asesor, menciónale amablemente que un asesor lo atenderá muy pronto (${dynamicSchedule.currentAdvisorsText !== 'Ninguno en este momento' ? 'asesor en turno: ' + dynamicSchedule.currentAdvisorsText : 'un asesor se conectará en unos minutos'}).
+5. ⛔ PROHIBICIÓN DE IMPONER TURNOS O ESCALAMIENTOS EN VENTAS O CONSULTAS: En preguntas comerciales, dudas de catálogo o preguntas generales sobre plataformas, NUNCA digas "dejo tu caso con un asesor" ni impongas turnos de cola (#1, #2...). Ofrece la opción de hablar con un asesor únicamente como una ALTERNATIVA OPCIONAL si el cliente así lo desea.
 `;
 
   const template = await getSystemPromptTemplate();
@@ -1886,17 +1970,16 @@ async function analyzeAdvisorReason(reason, chatHistory = "") {
     1. Comprar un servicio nuevo ("comprar").
     2. Pagar, renovar o consultar el precio de su cuenta actual ("pagar" / "renovar").
     3. Solicitar credenciales, cambiar contraseña o consultar PIN ("credenciales").
-    4. Fallas técnicas comunes o errores de pantalla en plataformas ("soporte").
-    5. Preguntas, dudas sobre características, disponibilidad de planes, tipos de cuentas (ej. si hay cuentas individuales o compartidas), o cómo funciona un servicio ("duda").
+    4. Preguntas generales o dudas sobre características, disponibilidad de planes o cómo funciona un servicio ("duda").
     
-    Si el cliente está enojado, tiene problemas de saldos, quejas de atención, o pide un reembolso, el bot NO puede resolverlo y debe ser atendido por un humano (canResolve: false).
+    CUALQUIER problema técnico, falla de reproducción, cuenta expirada o caída, problema con IPTV, error en pantalla o solicitud de soporte técnico ("soporte"), así como clientes molestos o quejas, el bot NO puede resolverlo automáticamente y DEBE ser atendido por un asesor humano (canResolve: false, action: null).
     
     Salida esperada JSON:
     {
-      "canResolve": boolean, // true si el bot puede resolverlo automáticamente usando uno de los flujos de arriba.
-      "action": "comprar" | "pagar" | "renovar" | "credenciales" | "soporte" | "duda" | null, // null si canResolve es false.
-      "detectedPlatform": string | null, // Ej: "Claude", "Netflix", "Disney" si se menciona o se deduce del historial.
-      "explanation": string // Una frase muy corta justificando la decisión (ej. "Pregunta por cuentas individuales").
+      "canResolve": boolean, // true SOLO si el bot puede resolverlo automáticamente usando comprar, pagar/renovar, credenciales o duda.
+      "action": "comprar" | "pagar" | "renovar" | "credenciales" | "duda" | null, // null si canResolve es false.
+      "detectedPlatform": string | null, // Ej: "IPTV", "Claude", "Netflix", "Disney" si se menciona o se deduce del historial.
+      "explanation": string // Una frase muy corta justificando la decisión (ej. "Problema técnico con IPTV expirado").
     }
   `;
 

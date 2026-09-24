@@ -55,6 +55,160 @@ function getJsDateFromExcel(excelDate) {
 }
 
 
+const MS_TOKEN_PATH = path.join(__dirname, 'ms_graph_token.json');
+
+function excelSerialToDateString(serial) {
+    if (!serial || isNaN(serial)) return serial;
+    let utc_days = Math.floor(serial - 25569);
+    let utc_value = utc_days * 86400;
+    let date_info = new Date(utc_value * 1000);
+    let year = date_info.getUTCFullYear();
+    let month = String(date_info.getUTCMonth() + 1).padStart(2, '0');
+    let day = String(date_info.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+async function getGraphAccessToken() {
+    if (!fs.existsSync(MS_TOKEN_PATH)) return null;
+    let tokenData;
+    try {
+        tokenData = JSON.parse(fs.readFileSync(MS_TOKEN_PATH, 'utf8'));
+    } catch (e) {
+        return null;
+    }
+    if (!tokenData || !tokenData.refresh_token) return null;
+
+    const tokenEndpoint = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+    const bodyParams = new URLSearchParams({
+        client_id: tokenData.client_id || 'dd590625-bd57-487f-94c9-c8fb4c44ebfb',
+        grant_type: 'refresh_token',
+        refresh_token: tokenData.refresh_token,
+        scope: 'Files.Read.All Files.ReadWrite.All offline_access'
+    });
+
+    const tokenRes = await fetch(tokenEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: bodyParams
+    });
+    const tokenJson = await tokenRes.json();
+    if (!tokenRes.ok) {
+        console.warn('[MS Graph Direct] Error renovando access_token:', tokenJson.error_description || tokenJson.error || tokenJson);
+        return null;
+    }
+
+    // Auto-guardado del rolling token de Microsoft para que NUNCA expire
+    if (tokenJson.refresh_token && tokenJson.refresh_token !== tokenData.refresh_token) {
+        tokenData.refresh_token = tokenJson.refresh_token;
+        tokenData.updated_at = new Date().toISOString();
+        try {
+            fs.writeFileSync(MS_TOKEN_PATH, JSON.stringify(tokenData, null, 2), 'utf8');
+            console.log('[MS Graph Direct] 🔄 Token rotativo actualizado y persistido.');
+        } catch (e) {
+            console.error('[MS Graph Direct] Error guardando token rotativo:', e.message);
+        }
+    }
+
+    return tokenJson.access_token;
+}
+
+async function fetchDirectFromGraph() {
+    const accessToken = await getGraphAccessToken();
+    if (!accessToken) return null;
+
+    const graphEndpoint = "https://graph.microsoft.com/v1.0/me/drive/root:/Documentos/neflis_negro.xlsx:/workbook/worksheets('Hoja1')/usedRange";
+    const graphRes = await fetch(graphEndpoint, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    const graphJson = await graphRes.json();
+    if (!graphRes.ok || !graphJson.values) {
+        console.warn('[MS Graph Direct] Error leyendo hoja de Excel en Graph:', graphJson.error ? graphJson.error.message : graphJson);
+        return null;
+    }
+
+    const rows = graphJson.values || [];
+    if (rows.length === 0) return [];
+    const headers = rows[0] || [];
+    const dataRows = rows.slice(1);
+
+    return dataRows.map((row, index) => {
+        let obj = { rowNumber: index + 2 };
+        headers.forEach((headerName, headerIndex) => {
+            let finalHeader = headerName;
+            if (headerName === 'Column1' || headerName === 'Numero' || headerName === 'numero') {
+                finalHeader = 'numero';
+            }
+            let val = row[headerIndex];
+            if (finalHeader === 'vencimiento' && typeof val === 'number') {
+                val = excelSerialToDateString(val);
+            }
+            obj[finalHeader] = val;
+        });
+        return obj;
+    });
+}
+
+async function writeRowToGraphDirect(rowNumber, updates) {
+    const token = await getGraphAccessToken();
+    if (!token) throw new Error("No hay access_token disponible para Graph Direct");
+
+    const filePath = "Documentos/neflis_negro.xlsx";
+    const worksheetName = "Hoja1";
+
+    // 1. Obtener encabezados A1:Z1
+    const headersUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${filePath}:/workbook/worksheets('${worksheetName}')/range(address='A1:Z1')`;
+    const headersRes = await fetch(headersUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const headersJson = await headersRes.json();
+    if (!headersRes.ok || !headersJson.values || !headersJson.values[0]) {
+        throw new Error(`Error obteniendo encabezados Graph: ${headersJson.error ? headersJson.error.message : headersRes.statusText}`);
+    }
+    const headers = headersJson.values[0];
+
+    // 2. Obtener fila actual A{rowNumber}:Z{rowNumber}
+    const rowUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${filePath}:/workbook/worksheets('${worksheetName}')/range(address='A${rowNumber}:Z${rowNumber}')`;
+    const rowRes = await fetch(rowUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+    });
+    const rowJson = await rowRes.json();
+    if (!rowRes.ok || !rowJson.values || !rowJson.values[0]) {
+        throw new Error(`Error obteniendo fila ${rowNumber} Graph: ${rowJson.error ? rowJson.error.message : rowRes.statusText}`);
+    }
+    let rowValues = [...rowJson.values[0]];
+
+    // 3. Modificar columnas
+    for (const [key, value] of Object.entries(updates)) {
+        let colIndex = headers.findIndex(h => h && h.toLowerCase().trim() === key.toLowerCase().trim());
+        if (colIndex === -1 && (key === "numero" || key === "Column1" || key === "Numero")) {
+            const fallbacks = ["numero", "column1", "numero"];
+            colIndex = headers.findIndex(h => h && fallbacks.includes(h.toLowerCase().trim()));
+        }
+        if (colIndex !== -1) {
+            rowValues[colIndex] = value;
+        } else {
+            console.warn(`[MS Graph Direct Write] Columna '${key}' no encontrada en encabezados de Excel.`);
+        }
+    }
+
+    // 4. Guardar fila actualizada vía PATCH
+    const patchRes = await fetch(rowUrl, {
+        method: 'PATCH',
+        headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ values: [rowValues] })
+    });
+    const patchJson = await patchRes.json();
+    if (!patchRes.ok) {
+        throw new Error(`Error guardando fila ${rowNumber} en Graph: ${patchJson.error ? patchJson.error.message : patchRes.statusText}`);
+    }
+
+    console.log(`[MS Graph Direct Write] ✅ Fila ${rowNumber} escrita exitosamente en Excel Online.`);
+    return patchJson;
+}
+
 let rawDataCache = null;
 let rawDataCacheTime = 0;
 let historicoCache = null;
@@ -62,6 +216,10 @@ let historicoCacheTime = 0;
 const CACHE_DURATION = 30000; // 30 segundos
 
 async function fetchRawData(retries = 3, delay = 2000, force = false) {
+  if (typeof retries === 'boolean') {
+    force = retries;
+    retries = 3;
+  }
   const now = Date.now();
   if (force) {
     rawDataCache = null;
@@ -78,6 +236,25 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
   const localCachePath = path.join(__dirname, 'excel_cache.json');
   
   global.activeRawDataPromise = (async () => {
+    // 1. Intentar conexión DIRECTA a Microsoft Graph (tiempo real sin depender de Azure)
+    try {
+      const directData = await fetchDirectFromGraph();
+      if (Array.isArray(directData) && directData.length > 0) {
+        try {
+          fs.writeFileSync(localCachePath, JSON.stringify(directData, null, 2), 'utf8');
+        } catch (err) {
+          console.error('[API Service] Error guardando cache de excel:', err.message);
+        }
+        rawDataCache = directData;
+        rawDataCacheTime = Date.now();
+        syncPendingExcelUpdates().catch(() => {});
+        return directData;
+      }
+    } catch (graphErr) {
+      console.warn('[API Service] Fallo lectura directa MS Graph, intentando Azure API...', graphErr.message);
+    }
+
+    // 2. Si falla Graph directo, intentar Azure API con reintentos
     for (let i = 0; i < retries; i++) {
       try {
         const response = await fetch(AZURE_API_URL);
@@ -94,6 +271,7 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
         
         rawDataCache = data;
         rawDataCacheTime = Date.now();
+        syncPendingExcelUpdates().catch(() => {});
         return data;
         
       } catch (error) {
@@ -129,6 +307,10 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
 }
 
 async function fetchCustomersData(retries = 3, delay = 2000, force = false) {
+  if (typeof retries === 'boolean') {
+    force = retries;
+    retries = 3;
+  }
   try {
     const data = await fetchRawData(retries, delay, force);
     if (!Array.isArray(data)) return [];
@@ -524,36 +706,131 @@ async function updateExcelData(rowNumber, updates) {
         updates.deben = updates.Columna4;
       }
     }
-    console.log(`[API Service] Intentando escribir en fila ${rowNumber}:`, JSON.stringify(updates));
-    const response = await fetch(AZURE_WRITE_API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ rowNumber, updates })
-    });
-    
-    if (!response.ok) {
-       let errorDetails = "";
-       try {
-           errorDetails = await response.text();
-       } catch(e) {}
-       console.error(`[API Service] Error HTTP ${response.status}: ${errorDetails}`);
-       throw new Error(`HTTP Error al escribir! Status: ${response.status} - ${errorDetails}`);
+    let isWriteSuccess = false;
+    let result = null;
+
+    // 1. Intentar escribir DIRECTAMENTE en Microsoft Graph (OneDrive)
+    try {
+      result = await writeRowToGraphDirect(rowNumber, updates);
+      isWriteSuccess = true;
+    } catch (graphErr) {
+      console.warn(`[API Service] ⚠️ Falló escritura directa en Graph: ${graphErr.message}. Intentando Azure...`);
+      // 2. Fallback a Azure Function
+      try {
+        const response = await fetch(AZURE_WRITE_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rowNumber, updates }),
+          timeout: 8000
+        });
+        if (response.ok) {
+          result = await response.json();
+          console.log(`[API Service] ✅ Respuesta exitosa de Azure:`, JSON.stringify(result, null, 2));
+          isWriteSuccess = true;
+        } else {
+          let errorDetails = "";
+          try { errorDetails = await response.text(); } catch(e) {}
+          console.error(`[API Service] Error HTTP ${response.status} de Azure: ${errorDetails}`);
+        }
+      } catch (fetchErr) {
+        console.error(`[API Service] Error de conexión con Azure:`, fetchErr.message);
+      }
     }
-    
-    const result = await response.json();
-    console.log(`[API Service] ✅ Respuesta exitosa de Azure:`, JSON.stringify(result, null, 2));
-    
-    // Invalidate local cache
+
+    // SIEMPRE actualizar excel_cache.json localmente para que el bot y las consultas reflejen la venta de inmediato
+    try {
+      const localCachePath = path.join(__dirname, 'excel_cache.json');
+      if (fs.existsSync(localCachePath)) {
+        const cachedRaw = fs.readFileSync(localCachePath, 'utf8');
+        const cachedList = JSON.parse(cachedRaw);
+        if (Array.isArray(cachedList)) {
+          const rowIndex = cachedList.findIndex(r => r && (r.rowNumber === rowNumber || r._rowNumber === rowNumber));
+          if (rowIndex !== -1) {
+            cachedList[rowIndex] = { ...cachedList[rowIndex], ...updates };
+          } else if (rowNumber >= 2 && (rowNumber - 2) < cachedList.length) {
+            cachedList[rowNumber - 2] = { ...cachedList[rowNumber - 2], ...updates };
+          }
+          fs.writeFileSync(localCachePath, JSON.stringify(cachedList, null, 2));
+          console.log(`[API Service] 💾 Fila ${rowNumber} actualizada exitosamente en excel_cache.json local.`);
+        }
+      }
+    } catch (cacheErr) {
+      console.error(`[API Service] Error actualizando excel_cache.json local:`, cacheErr.message);
+    }
+
+    // Invalidate in-memory cache
     rawDataCache = null;
     rawDataCacheTime = 0;
-    
-    return result;
+
+    if (isWriteSuccess) {
+      return result;
+    }
+
+    // Si falló tanto Graph como Azure, encolar en pending_excel_updates.json
+    try {
+      const pendingPath = path.join(__dirname, 'pending_excel_updates.json');
+      let pendingList = [];
+      if (fs.existsSync(pendingPath)) {
+        try { pendingList = JSON.parse(fs.readFileSync(pendingPath, 'utf8')); } catch(e) {}
+      }
+      pendingList.push({ rowNumber, updates, timestamp: new Date().toISOString() });
+      fs.writeFileSync(pendingPath, JSON.stringify(pendingList, null, 2));
+      console.warn(`[API Service] ⚠️ Escritura encolada en pending_excel_updates.json (Fila ${rowNumber}) por fallo de conexión.`);
+    } catch (queueErr) {
+      console.error(`[API Service] Error encolando actualización pendiente:`, queueErr.message);
+    }
+
+    return { success: true, localOnly: true, rowNumber, updates, message: "Actualizado localmente en caché (Encolado para sincronización)" };
   } catch (error) {
     console.error("[API Service] ❌ Error crítico al escribir en Excel:", error.message);
     throw error;
   }
+}
+
+/**
+ * Sincroniza las actualizaciones pendientes con Graph/Azure cuando el servicio esté disponible.
+ */
+async function syncPendingExcelUpdates() {
+  const pendingPath = path.join(__dirname, 'pending_excel_updates.json');
+  if (!fs.existsSync(pendingPath)) return;
+  
+  let pendingList = [];
+  try {
+    pendingList = JSON.parse(fs.readFileSync(pendingPath, 'utf8'));
+  } catch(e) { return; }
+
+  if (!Array.isArray(pendingList) || pendingList.length === 0) return;
+
+  console.log(`[API Service] 🔄 Intentando sincronizar ${pendingList.length} actualizaciones pendientes de Excel con Graph...`);
+  const remaining = [];
+
+  for (const item of pendingList) {
+    try {
+      await writeRowToGraphDirect(item.rowNumber, item.updates);
+      console.log(`[API Service] ✅ Fila ${item.rowNumber} sincronizada exitosamente con Graph.`);
+    } catch(err) {
+      // Fallback a Azure si falla Graph
+      try {
+        const response = await fetch(AZURE_WRITE_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rowNumber: item.rowNumber, updates: item.updates }),
+          timeout: 8000
+        });
+        if (response.ok) {
+          console.log(`[API Service] ✅ Fila ${item.rowNumber} sincronizada exitosamente con Azure.`);
+        } else {
+          remaining.push(item);
+        }
+      } catch(azureErr) {
+        remaining.push(item);
+      }
+    }
+  }
+
+  try {
+    fs.writeFileSync(pendingPath, JSON.stringify(remaining, null, 2));
+  } catch(e) {}
 }
 
 /**
@@ -667,6 +944,7 @@ module.exports = {
   fetchHistoricoData,
   procesarHistoricoArray,
   updateExcelData,
+  syncPendingExcelUpdates,
   getSupportKnowledge,
   getTodayInBogota,
   getJsDateFromExcel,

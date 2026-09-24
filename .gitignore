@@ -18,6 +18,7 @@ tokens/gpt_secrets.json
 tokens/gpt_usage.json
 tokens/device_usage.json
 tokens/*.json
+ms_graph_token.json
 recommended_combo.json
 platforms.json
 uploads/

@@ -560,3 +560,40 @@ Para evitar bloqueos por parte de los sistemas automatizados de WhatsApp y asegu
 ### 4. 🛡️ Guardrails y Reglas de Negocio Estrictas
 * 🚫 **Prohibición de Claves Inventadas**: La IA tiene prohibido generar contraseñas temporales ficticias (ej: `sheerit2026*`). Si el cliente reporta clave incorrecta, el sistema consulta de inmediato las credenciales reales en MariaDB.
 * 📅 **Coherencia Temporal**: Regla de cálculo estricto de fechas (si vence hoy, decir *"vence hoy"*, nunca *"venció el día de ayer"*).
+
+---
+
+## 🛠️ Actualizaciones Recientes (Septiembre 2026)
+
+### 1. 🗄️ Módulo Data Studio Administrativo (DBeaver Web + Modelo ER + Ingesta Multi-Tenant)
+* **Query Studio Seguro (`dataStudioService.js` / `DataStudioView.tsx`)**:
+  - Consola de ejecución de consultas SQL con selector de tablas, preajustes de negocio (cuentas activas, deudas, tickets), paginación y exportación de resultados a Excel.
+  - Bloqueo de operaciones destructivas no autorizadas (`DROP`, `TRUNCATE`, `ALTER`) para proteger la integridad transaccional.
+* **Modelo Entidad-Relación (ER) Interactivo**:
+  - Visualización gráfica de tablas (`customers`, `stream_accounts`, `subscriptions`, `tickets`, etc.), llaves primarias/foráneas, tipos de datos y relaciones lógicas con controles de zoom y pan.
+* **Importador & Mapeador Multi-Tenant**:
+  - Asistente para cargar archivos `.xlsx` y `.csv` con detección inteligente de columnas (inferencia semántica de nombres, plataformas, pines, teléfonos y vencimientos).
+  - Inserción transaccional ACID en MySQL respetando `tenantId` para transición progresiva de hojas de cálculo a base de datos relacional.
+
+### 2. ⚡ Reestructuración de Soporte Técnico sin Loops Robóticos
+* **Transferencia Directa a Humanos**:
+  - Se eliminó el bloqueo robótico rígido en `awaiting_advisor_reason` que le volvía a pedir la plataforma o una captura de pantalla a clientes que ya habían explicado su problema (ej: *"No puedo ver la tv por medio del iptv ya que me dice que expiro"*).
+  - El bot reconoce la plataforma reportada mediante IA (`analysis.detectedPlatform`), genera de inmediato la alerta estructurada en el grupo administrativo de WhatsApp (`🚨 Soporte Técnico Requerido`) y confirma la derivación al usuario.
+  - Activación automática de `state: 'waiting_human'` para silenciar respuestas automáticas mientras el asesor atiende el chat.
+
+### 3. 📺 Verificación de Hogar Netflix (`/verificar`) Amigable y Multi-Cuenta
+* **Eliminación de Mensajes Técnicos de IP**:
+  - Se removió el texto intimidante para el cliente (`Se registró tu conexión (IP: 38.50.39.35)`). El registro de auditoría de red se sigue almacenando silenciosamente en la columna de operador del Excel/BD sin exponer tecnicismos al usuario.
+* **Selector Multi-Cuenta para Hogar Netflix**:
+  - Si un mismo número telefónico posee dos o más cuentas de Netflix contratadas, el portal `/verificar` presenta un selector visual e interactivo de cuentas para alternar la consulta con un solo toque.
+  - Detección nativa del parámetro `?email=...` en el enlace enviado por el bot para seleccionar la cuenta objetivo de forma automática.
+
+### 4. 🔐 Portal de Autoservicio de Clientes (`/mis-servicios`)
+* **Diferenciación Clara entre Cuentas Automatizadas y Manuales**:
+  - Si una cuenta cuenta con token de Gmail API o TOTP, muestra la insignia `⚡ Código Automático` y permite consultar el buzón en 2 segundos.
+  - Si la cuenta pertenece a proveedores externos o es manual (sin automatización de buzón), muestra la insignia `⚠️ Código con Asesor` y sustituye el botón de 2FA por un acceso directo de WhatsApp prellenado para solicitar asistencia sin disparar alertas erróneas al grupo.
+
+### 5. 🛡️ Estabilidad y Conexión WhatsApp Web (`whatsapp-web.js`)
+* **Parche Anti-Cuelgue y Handshake Estable**:
+  - Corrección de la condición de carrera en `framenavigated` donde los iframes internos del apretón de manos criptográfico de WhatsApp Web reiniciaban la inyección del cliente y generaban códigos QR duplicados en el mismo segundo.
+  - Sesión estable protegida contra desconexiones repetitivas.

@@ -80,9 +80,10 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
         .filter(j => !j.includes(botNum) && !j.includes('573118587974'));
 
     if (activeClient) {
+        const sendOpts = { linkPreview: false };
         for (const jid of jidsToTry) {
             try {
-                const res = await activeClient.sendMessage(jid, text).catch((err) => {
+                const res = await activeClient.sendMessage(jid, text, sendOpts).catch((err) => {
                     console.error(`[safeSend activeClient error] for ${jid}:`, err ? err.message : 'null');
                     return null;
                 });
@@ -93,7 +94,7 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
                     return null;
                 });
                 if (chat && typeof chat.sendMessage === 'function') {
-                    const resChat = await chat.sendMessage(text).catch((err) => {
+                    const resChat = await chat.sendMessage(text, sendOpts).catch((err) => {
                         console.error(`[safeSend chat.sendMessage error] for ${jid}:`, err ? err.message : 'null');
                         return null;
                     });
@@ -107,7 +108,7 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
 
     if (message && typeof message.reply === 'function') {
         try {
-            return await message.reply(text);
+            return await message.reply(text, undefined, { linkPreview: false });
         } catch (e) {
             console.error(`[safeSend] message.reply error:`, e.message);
         }
@@ -323,22 +324,26 @@ function isValidCustomerEmail(email) {
     return true;
 }
 
-function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
+function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUse = "") {
     if (!accountOrStreaming) return 0;
     let streamingName = "";
     let isPersonal = false;
     let fallbackExcelPrice = 0;
+    let obsText = "";
+    let cMail = "";
 
     if (typeof accountOrStreaming === 'object' && accountOrStreaming !== null) {
         const rawP = accountOrStreaming['Ingreso Mensual2'] || accountOrStreaming['ingreso mensual'] || accountOrStreaming.precio || accountOrStreaming.Precio || accountOrStreaming['precio cobrado'];
         if (rawP && !isNaN(Number(rawP)) && Number(rawP) >= 4000) {
             fallbackExcelPrice = Number(rawP);
         }
-        const cMail = (accountOrStreaming['customer mail'] || accountOrStreaming['Customer Mail'] || '').toString().trim();
+        cMail = (accountOrStreaming['customer mail'] || accountOrStreaming['Customer Mail'] || '').toString().trim();
         const pinText = (accountOrStreaming['pin perfil'] || accountOrStreaming.pin || '').toString().toLowerCase();
-        const obsText = (accountOrStreaming.observaciones || accountOrStreaming.Observaciones || '').toString().toLowerCase();
-        if (isValidCustomerEmail(cMail) ||
-            obsText.includes('propia') || obsText.includes('personal') || obsText.includes('correo propio') || obsText.includes('tu correo')) {
+        obsText = (accountOrStreaming.observaciones || accountOrStreaming.Observaciones || '').toString().toLowerCase();
+        const extraCols = (accountOrStreaming['Columna3'] || accountOrStreaming['columna3'] || accountOrStreaming['Columna2'] || accountOrStreaming['pin perfil'] || accountOrStreaming.pin || accountOrStreaming.link || accountOrStreaming['#VALUE!'] || '').toString().toLowerCase();
+        const hasSpotifyInvite = extraCols.includes('spotify.com') || extraCols.includes('family/join') || extraCols.includes('/invite/');
+        if (isValidCustomerEmail(cMail) || hasSpotifyInvite ||
+            obsText.includes('propia') || obsText.includes('personal') || obsText.includes('correo propio') || obsText.includes('tu correo') || obsText.includes('invitacion') || obsText.includes('invitación')) {
             isPersonal = true;
         }
         streamingName = accountOrStreaming.Streaming || accountOrStreaming.Plataforma || accountOrStreaming.name || "";
@@ -350,6 +355,44 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
     const cleanName = streamingName.toString().trim().toUpperCase();
     if ((cleanName.includes('PERSONAL') || cleanName.includes('PROPIA') || cleanName.includes('PROPIO') || cleanName.includes('TU CORREO') || cleanName.includes('CORREO PROPIO')) && !cleanName.includes('OWNER')) {
         isPersonal = true;
+    }
+
+    const inputClean = (inputToUse || "").toString().toLowerCase();
+
+    // Microsoft / Office logic:
+    // En la base de datos de Sheerit, "MICROSOFT COMPARTIDA" es compartida ($5.000).
+    // "MICROSOFT" a secas, con precio >= 10.000, o si el usuario pide personal, es Microsoft Personal ($12.000 / $13.000).
+    if (cleanName.includes('MICROSOFT') || cleanName.includes('OFFICE')) {
+        if (cleanName.includes('COMPARTIDA') || obsText.includes('compartida')) {
+            isPersonal = false;
+        } else if (fallbackExcelPrice >= 10000 || cleanName.includes('PERSONAL') || inputClean.includes('microsoft personal') || inputClean.includes('office personal') || (!cleanName.includes('COMPARTIDA') && !cleanName.includes('PERFIL'))) {
+            isPersonal = true;
+        }
+    }
+
+    // Spotify logic:
+    if (cleanName.includes('SPOTIFY')) {
+        const extraCols = typeof accountOrStreaming === 'object' && accountOrStreaming !== null
+            ? (accountOrStreaming['Columna3'] || accountOrStreaming['columna3'] || accountOrStreaming['Columna2'] || accountOrStreaming['pin perfil'] || accountOrStreaming.pin || accountOrStreaming.link || accountOrStreaming['#VALUE!'] || '').toString().toLowerCase()
+            : '';
+        const hasInviteLink = extraCols.includes('spotify.com') || extraCols.includes('family/join') || extraCols.includes('/invite/');
+
+        if (cleanName.includes('OWNER') || obsText.includes('owner') || obsText.includes('cuenta completa')) {
+            isPersonal = false;
+        } else if (hasInviteLink || fallbackExcelPrice >= 9000 || cleanName.includes('PERSONAL') || inputClean.includes('spotify personal') || inputClean.includes('correo personal') || inputClean.includes('personal')) {
+            isPersonal = true;
+        } else if (fallbackExcelPrice > 0 && fallbackExcelPrice <= 8500 && !isValidCustomerEmail(cMail)) {
+            isPersonal = false;
+        }
+    }
+
+    // Gemini logic:
+    if (cleanName.includes('GEMINI')) {
+        if (cleanName.includes('COMPARTIDA')) {
+            isPersonal = false;
+        } else if (fallbackExcelPrice >= 18000 || inputClean.includes('gemini personal') || inputClean.includes('propio')) {
+            isPersonal = true;
+        }
     }
     
     // High-priority alias detection (Specific names before generic)
@@ -394,7 +437,8 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
             const isMatch = pName === targetName || pNameNorm === targetNorm || pName.includes(targetName) || targetName.includes(pName) ||
                             (targetNorm.includes('CLAUDE') && pNameNorm.includes('CLAUDE')) ||
                             (targetNorm.includes('CRUNCHY') && pNameNorm.includes('CRUNCHY')) ||
-                            (targetNorm.includes('APPLE') && pNameNorm.includes('APPLE'));
+                            (targetNorm.includes('APPLE') && pNameNorm.includes('APPLE')) ||
+                            (targetNorm.includes('MICROSOFT') && pNameNorm.includes('MICROSOFT'));
 
             if (isMatch) {
                 if (Array.isArray(p.plans) && p.plans.length > 0) {
@@ -408,6 +452,18 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
                     if (fallbackExcelPrice > 0) {
                         const exactPlan = p.plans.find(pl => Number(pl.price) === fallbackExcelPrice);
                         if (exactPlan && exactPlan.price) return exactPlan.price;
+                    }
+
+                    if (targetName === 'MICROSOFT 365') {
+                        if (isPersonal) {
+                            const persPlan = p.plans.find(pl => pl.isPersonalEmail || (pl.name && pl.name.toLowerCase().includes('personal')));
+                            if (persPlan && persPlan.price) return persPlan.price;
+                            return 13000;
+                        } else {
+                            const sharedPlan = p.plans.find(pl => !pl.isPersonalEmail);
+                            if (sharedPlan && sharedPlan.price) return sharedPlan.price;
+                            return 5000;
+                        }
                     }
 
                     if (targetName === 'APPLE ONE') {
@@ -458,6 +514,7 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
                     if (isPersonal) {
                         const persPlan = p.plans.find(pl => pl.isPersonalEmail || (pl.name && (pl.name.toLowerCase().includes('personal') || pl.name.toLowerCase().includes('tu correo') || pl.name.toLowerCase().includes('extra'))));
                         if (persPlan && persPlan.price) return persPlan.price;
+                        if (fallbackExcelPrice > 0) return fallbackExcelPrice;
                     } else {
                         const sharedPlan = p.plans.find(pl => !pl.isPersonalEmail && (pl.name && (
                             pl.name.toLowerCase().includes('compartida') ||
@@ -498,6 +555,8 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         'spotify': 8000,
         'spotify_owner': 8000,
         'spotify owner': 8000,
+        'spotify_personal': 10000,
+        'spotify personal': 10000,
         'amazon': 10000,
         'prime': 10000,
         'netflix': 13000,
@@ -531,6 +590,10 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = []) {
         'iptv': 10000,
         'paramount': 8000
     };
+
+    if (isPersonal && (cleanName.includes('SPOTIFY') || targetName.includes('SPOTIFY'))) {
+        return (fallbackExcelPrice >= 9500) ? fallbackExcelPrice : 10000;
+    }
 
     const targetNorm = normalizeStreamingName(streamingName);
     if (targetNorm && fallbackPrices[targetNorm]) {
@@ -780,6 +843,26 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
                 stateData.leftoverAmount = 0;
                 return;
             }
+
+            // Si es una COMPRA NUEVA (1 ítem) y el monto pagado coincide con otro plan válido de la misma plataforma (ej: $5.000 para Microsoft Compartida, $150.000 para Platzi Trimestral)
+            if (!stateData.isRenewal && stateData.items.length === 1) {
+                const singleItem = stateData.items[0];
+                const platformObj = singleItem.platform;
+                if (platformObj && Array.isArray(platformObj.plans)) {
+                    const matchedPlan = platformObj.plans.find(p => p.price === paidAmount);
+                    if (matchedPlan) {
+                        console.log(`[Duration Adjuster] 🎯 Monto pagado ($${paidAmount}) coincide exactamente con el plan "${matchedPlan.name}" de ${platformObj.name}. Reajustando pedido a "${matchedPlan.name}".`);
+                        singleItem.chosenPlan = matchedPlan;
+                        stateData.total = matchedPlan.price;
+                        stateData.leftoverAmount = 0;
+                        if (matchedPlan.name.toLowerCase().includes('trimestral') || (platformObj.name.toLowerCase().includes('platzi') && matchedPlan.price === 150000)) {
+                            stateData.durationMonths = 3;
+                            stateData.subscriptionType = 'trimestral';
+                        }
+                        return;
+                    }
+                }
+            }
         }
 
         const phoneNumber = await resolveRealPhoneFromJid(userId);
@@ -836,6 +919,19 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
 
         // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta por M meses
         for (const acc of userAccounts) {
+            const accStream = (acc.Streaming || "").toUpperCase();
+            const isPlatziPersonal = accStream.includes('PLATZI') && !accStream.includes('COMPARTIDA');
+            if (isPlatziPersonal && Math.abs(paidAmount - 150000) < 500) {
+                console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con Platzi Trimestral Personal (3 meses).`);
+                stateData.durationMonths = 3;
+                stateData.subscriptionType = 'trimestral';
+                stateData.total = paidAmount;
+                stateData.items = [acc];
+                stateData.isRenewal = true;
+                stateData.leftoverAmount = 0;
+                return;
+            }
+
             const price = getPlatformPriceFromExcel(acc, platforms);
 
             for (let m = 1; m <= 12; m++) {
@@ -887,6 +983,14 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             console.warn("[processCheckPrices] No se pudo obtener contacto del mensaje:", contactErr.message);
         }
 
+        const currentState = userStates ? (userStates.get(userId) || {}) : {};
+        const lastVal = currentState.lastPaymentValidated || 0;
+        if (lastVal && (Date.now() - lastVal < 1000 * 60 * 20)) {
+            console.log(`[processCheckPrices] Omitiendo resumen de cobro para @${userId}: Pago recién validado hace ${Math.round((Date.now() - lastVal) / 1000)}s.`);
+            await safeSend(message, "🤖 ¡Tu pago ya fue recibido y verificado con éxito! 🎉 Nuestro equipo ya tiene tu servicio en proceso de entrega/activación. ¡Muchas gracias por tu paciencia! 😊", userId);
+            return;
+        }
+
         const userAccounts = await getAccountsByPhone(phoneNumber, contactName);
 
         if (userAccounts.length === 0) {
@@ -929,6 +1033,10 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             });
             if (filtered.length > 0) {
                 accountsToProcess = filtered;
+            } else {
+                const platNames = matchedKeywords.map(k => k.toUpperCase()).join(', ');
+                await safeSend(message, `🤖 No encontré una cuenta activa de *${platNames}* registrada a tu nombre para renovar. Si deseas adquirir este servicio como una compra nueva, por favor escribe *1* o indícanos y con gusto te colaboramos. 😊`, userId);
+                return;
             }
         } else {
             // Si no hay plataforma específica, filtramos para renovar solo servicios vencidos o por vencer pronto (próximos 5 días)
@@ -949,33 +1057,81 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             }
         }
 
-        accountsToProcess.forEach(acc => {
-            const streaming = (acc.Streaming || "").toUpperCase();
+        // Si después del filtro no hay cuentas aplicables
+        if (accountsToProcess.length === 0) {
+            await safeSend(message, "🤖 Todas tus cuentas se encuentran actualmente al día y vigentes. Si deseas consultar tus credenciales escribe *credenciales*, o para un servicio nuevo escribe *1*.", userId);
+            return;
+        }
+
+        // Buscar si el cliente tiene un correo personal conocido en cualquiera de sus cuentas activas
+        const knownCustomerEmail = validUserAccounts
+            .map(a => (a['customer mail'] || a['Customer Mail'] || "").toString().trim())
+            .find(m => isValidCustomerEmail(m)) || "";
+
+        accountsToProcess.forEach((acc, index) => {
             const vencimientoRaw = acc.deben || acc.vencimiento;
             const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
             
-            // Buscar precio priorizando el precio del cliente en Excel y luego catálogo de la página
-            let price = getPlatformPriceFromExcel(acc, platforms);
+            let status = "✅ Vigente";
+            let dateStr = "Fecha no disponible";
+            
+            if (vencimientoDate) {
+                dateStr = `${vencimientoDate.getDate()}/${vencimientoDate.getMonth() + 1}/${vencimientoDate.getFullYear()}`;
+                const diffTime = vencimientoDate.getTime() - today.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24));
+                
+                if (diffDays < 0) {
+                    status = `❌ Venció hace ${Math.abs(diffDays)} día(s)`;
+                } else if (diffDays === 0) {
+                    status = "⚠️ VENCE HOY";
+                } else if (diffDays <= 3) {
+                    status = `⚠️ Vence en ${diffDays} día(s)`;
+                }
+            }
+
+            const price = getPlatformPriceFromExcel(acc, platforms, inputToUse);
             if (price === 0) hasZeroPrice = true;
             
-            const isExpired = vencimientoDate && vencimientoDate < today;
-            const isToday = vencimientoDate && vencimientoDate.getTime() === today.getTime();
+            const profile = acc['pin perfil'] || acc['Nombre'] || "";
+            const profileStr = profile ? ` (Perfil: ${profile})` : "";
             
-            let status = "✅ Vigente";
-            if (isExpired) status = "⚠️ VENCIDO";
-            else if (isToday) status = "⚠️ VENCE HOY";
+            const rawStreaming = (acc.Streaming || 'SERVICIO').toString().trim().toUpperCase();
+            const rawCustomerMail = (acc['customer mail'] || acc['Customer Mail'] || "").toString().trim();
+            const email = (acc.correo || "").toString().trim();
 
-            const dateStr = vencimientoDate ? vencimientoDate.toLocaleDateString('es-CO') : 'N/A';
+            // Detectar si esta cuenta específica es Personal
+            const isMicrosoft = rawStreaming.includes('MICROSOFT') || rawStreaming.includes('OFFICE');
+            const isMicrosoftPersonal = isMicrosoft && 
+                !rawStreaming.includes('COMPARTIDA') && 
+                (price >= 10000 || inputLower.includes('microsoft personal') || inputLower.includes('personal') || !rawStreaming.includes('COMPARTIDA'));
 
-            const rawCustomerMail = (acc["customer mail"] || acc["Customer Mail"] || "").toString().trim();
-            const isValidCustomer = isValidCustomerEmail(rawCustomerMail);
-            let emailToShow = isValidCustomer ? rawCustomerMail : "";
-            if (!emailToShow) {
-                const adminMail = (acc.correo || 'Sin correo').toString().trim();
-                emailToShow = acc.correo ? `${adminMail} *(Administrador)*` : adminMail;
+            const isSpotify = rawStreaming.includes('SPOTIFY');
+            const isSpotifyPersonal = isSpotify && !rawStreaming.includes('OWNER') && (price >= 9500 || rawStreaming.includes('PERSONAL'));
+                
+            let displayStreaming = rawStreaming;
+            if (isMicrosoftPersonal && !displayStreaming.includes('PERSONAL')) {
+                displayStreaming = `${displayStreaming} (PERSONAL)`;
+            } else if (isSpotifyPersonal && !displayStreaming.includes('PERSONAL')) {
+                displayStreaming = `${displayStreaming} (PERSONAL / TU CORREO)`;
             }
-            response += `📺 *${streaming}*\n`;
-            response += `📧 ${emailToShow}\n`;
+
+            let emailToShow = "";
+            if (isValidCustomerEmail(rawCustomerMail)) {
+                emailToShow = rawCustomerMail;
+            } else if ((isMicrosoftPersonal || isSpotifyPersonal) && knownCustomerEmail) {
+                emailToShow = knownCustomerEmail;
+            } else if (isValidCustomerEmail(email)) {
+                emailToShow = email;
+            } else if (isMicrosoftPersonal || isSpotifyPersonal) {
+                emailToShow = "(Plan Personal / Tu Correo)";
+            } else if (email && email.includes('@')) {
+                emailToShow = email;
+            }
+
+            const shouldShowProfile = profile && (!isMicrosoftPersonal || acc['pin perfil']);
+            const emailStr = emailToShow ? `\n📧 ${emailToShow}${shouldShowProfile ? ` (Perfil: ${profile})` : ''}` : profileStr;
+
+            response += `📺 *${displayStreaming}*${emailStr}\n`;
             response += `📅 Vence: ${dateStr} (${status})\n`;
             if (durationMonths > 1) {
                 const multiPrice = price * durationMonths;
@@ -1054,15 +1210,6 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 
         response += `*TOTAL A PAGAR: $${total}*\n\n`;
 
-        const currentState = userStates.get(userId) || {};
-        const isPaymentAlreadyReceived = currentState.state === 'awaiting_payment_confirmation' || currentState.state === 'waiting_human' || (currentState.lastPaymentValidated && Date.now() - currentState.lastPaymentValidated < 1000 * 60 * 20);
-
-        if (isPaymentAlreadyReceived) {
-            response += `✅ *Comprobante Registrado:* He asociado estos servicios (*${itemsForRenewal.map(i => i.platform?.name || 'Servicio').join(', ')}*) a tu pago realizado. Un asesor o el sistema automático actualizará las fechas de vencimiento de tus pantallas de inmediato. ¡Gracias! 😊`;
-            await safeSend(message, response, userId);
-            return;
-        }
-
         response += "🤖 ¿Por cuál medio deseas realizar la transferencia?\n\n⭐ *QR Negocios (RECOMENDADO - ENTREGA INMEDIATA ⚡)*\n⭐ *Llave Bre-V (AUTOMÁTICA ⚡)*:\n   • Celular: *0087387259*\n⭐ *Bancolombia (Abono Directo - VALIDACIÓN AUTOMÁTICA ⚡)*:\n   • Ahorros: *46772753713* (CC: 1032936324)\n\n💡 *Tip de Renovación:* Si pagas por un medio automático (QR, Llave Bre-V o Bancolombia), tu servicio se renovará al instante. **¡Así no se te volverá a repetir este recordatorio de cobro ya que tu fecha de vencimiento se actualiza de inmediato!** ⚡🤖";
         
         if (churnText) {
@@ -1135,10 +1282,11 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
     try {
       const userAccounts = await getAccountsByPhone(r.phone);
       if (userAccounts && userAccounts.length > 0) {
-        const billedServicesList = [];
-        
-        // Match only services that are expiring or expired
+        // Match only services that are specifically due in this notice (from r.services)
+        // or strictly expired / due tomorrow (diffDays <= 1). NEVER grab accounts 2-5 days in advance.
         const today = getTodayInBogota();
+        const dueServicesRaw = (r.services || []).map(s => (s || '').toString().toLowerCase().split('(')[0].trim()).filter(Boolean);
+        
         const expiredOrExpiring = userAccounts.filter(acc => {
             const vencimientoRaw = acc.deben || acc.vencimiento;
             const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
@@ -1147,11 +1295,15 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
             const isExpired = vencimientoDate < today;
             const diffTime = vencimientoDate.getTime() - today.getTime();
             const diffDays = Math.ceil(diffTime / (1000 * 3600 * 24));
+            const isDueNow = isExpired || diffDays <= 1;
             
-            return isExpired || diffDays <= 5;
+            const accStream = (acc.Streaming || '').toString().toLowerCase().trim();
+            const matchesNoticeService = dueServicesRaw.length === 0 || dueServicesRaw.some(ds => accStream.includes(ds) || ds.includes(accStream));
+            
+            return isDueNow && matchesNoticeService;
         });
 
-        targetAccounts = expiredOrExpiring.length > 0 ? expiredOrExpiring : userAccounts;
+        targetAccounts = expiredOrExpiring;
 
         targetAccounts.forEach(acc => {
           const streaming = (acc.Streaming || "").toUpperCase();
@@ -1160,7 +1312,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
           totalSum += price;
         });
 
-        // Apply combo discount in automatic charging notice
+        // Apply combo discount in automatic charging notice ONLY if accounts share the same expiration cycle
         const imminentRenewals = targetAccounts.filter(acc => {
             const expDate = getJsDateFromExcel(acc.deben || acc.vencimiento);
             if (!expDate) return false;
@@ -1196,14 +1348,31 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
                 console.log(`[Auto-Billing] Cleared waiting_human state for ${dest} to allow automated interactions.`);
             }
 
-            userStates.set(dest, {
+            const cobroStateObj = {
                 state: 'awaiting_payment_confirmation',
                 total: totalSum || 0,
                 isRenewal: true,
                 items: targetAccounts || [],
-                timestamp: Date.now()
-            });
+                timestamp: Date.now(),
+                realPhone: r.phone
+            };
+
+            userStates.set(dest, cobroStateObj);
             console.log(`[Auto-Billing] Persisted cobro total $${totalSum} for ${dest} in userStates.`);
+
+            // Sincronizar también con el JID tipo LID (@lid) si este cliente se comunica por privacidad LID
+            try {
+                const { pool } = require('./database');
+                const cleanDigits = String(r.phone).replace(/\D/g, '');
+                const [chatRows] = await pool.query(
+                    'SELECT chat_id FROM chats WHERE (customer_phone = ? OR customer_phone = ?) AND chat_id LIKE "%@lid" LIMIT 1',
+                    [cleanDigits, cleanDigits.startsWith('57') ? cleanDigits.slice(2) : `57${cleanDigits}`]
+                );
+                if (chatRows && chatRows.length > 0 && chatRows[0].chat_id) {
+                    userStates.set(chatRows[0].chat_id, cobroStateObj);
+                    console.log(`[Auto-Billing] Synchronized cobro state to LID chat: ${chatRows[0].chat_id}`);
+                }
+            } catch (syncErr) { }
         }
         exitosos++;
     } catch(e) {

@@ -17,7 +17,7 @@ const SEED_STREAMING_COSTS = [
   { platform: 'APPLE ONE', email: '', total_cost: 83900, profile_slots: 5, duration_days: 30, expiration_date: null },
   { platform: 'MICROSOFT', email: '', total_cost: 46000, profile_slots: 5, duration_days: 31, expiration_date: null },
   { platform: 'GEMINI', email: '', total_cost: 79900, profile_slots: 6, duration_days: 32, expiration_date: null },
-  { platform: 'PLATZI', email: '', total_cost: 169154, profile_slots: 3, duration_days: 30, expiration_date: null },
+  { platform: 'PLATZI', email: '', total_cost: 169154, profile_slots: 3, duration_days: 90, expiration_date: null },
   { platform: 'NETFLIX EXTRA', email: '', total_cost: 9900, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'HBO PLATINO', email: '', total_cost: 30000, profile_slots: 5, duration_days: 30, expiration_date: null },
   { platform: 'APPLE TV', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },

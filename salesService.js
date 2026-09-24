@@ -262,7 +262,15 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
       const { generateEmpatheticFallback } = require('./aiService');
       const fallback = await generateEmpatheticFallback(mensaje, false, chatHistoryText, null, [], userId, userStates);
       if (fallback && fallback.replyMessage) {
-        await message.reply(fallback.replyMessage);
+        let cleanReply = fallback.replyMessage;
+        // En consultas comerciales, NO forzar turnos de cola ni promesas de asesor si el cliente no pidió asesor
+        const wantsAdvisor = cleanText.includes('asesor') || cleanText.includes('humano') || cleanText === '5';
+        if (!wantsAdvisor) {
+          cleanReply = cleanReply
+            .replace(/\n*📌\s*\*?Tu turno en la cola de espera:\*?[^\n\.]*[\n\.]*/gi, '')
+            .replace(/dejo tu caso para que un asesor lo eval[uú]e/gi, 'si de todas formas deseas que un asesor lo evalúe, puedes pedirlo escribiendo *asesor*');
+        }
+        await message.reply(cleanReply);
         return;
       }
     }
