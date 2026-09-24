@@ -452,6 +452,35 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
       }
     }
 
+    // COMPLEMENTO INTELIGENTE: Si ya encontramos cuentas por teléfono, verificar si existen otras filas
+    // del mismo cliente cuyo teléfono en Excel esté incompleto (ej. 11 dígitos en vez de 12 como '57 316 272751')
+    // o con el mismo nombre y apellido exactos (como Paramount para Carlos Libreros).
+    if (userAccounts.length > 0 && clientes && clientes.length > 0) {
+      const firstAcc = userAccounts[0];
+      const normalizeStr = (s) => (s || "").toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim();
+      const clientName = normalizeStr(`${firstAcc.Nombre || firstAcc.nombre || ''} ${firstAcc.Apellido || firstAcc.apellido || ''}`);
+      const clientTokens = clientName.split(/\s+/).filter(t => t.length >= 3);
+
+      if (clientTokens.length >= 2) {
+        const existingRowNums = new Set(userAccounts.map(a => a.rowNumber || a._rowNumber));
+        clientes.forEach(c => {
+          const rNum = c.rowNumber || c._rowNumber;
+          if (rNum && existingRowNums.has(rNum)) return;
+          const cName = normalizeStr(`${c.Nombre || c.nombre || ''} ${c.Apellido || c.apellido || ''}`);
+          const cTokens = cName.split(/\s+/).filter(t => t.length >= 3);
+          if (cTokens.length >= 2 && cTokens[0] === clientTokens[0] && cTokens[1] === clientTokens[1]) {
+            const rawPhone = (c.numero || c.Numero || c.celular || c.Celular || "").toString().replace(/\D/g, '');
+            const isPartialPhone = !rawPhone || (cleanInputPhone.startsWith(rawPhone) && rawPhone.length >= 8) || (rawPhone.startsWith(cleanInputPhone.slice(0, 10)));
+            if (isPartialPhone) {
+              console.log(`[getAccountsByPhone] 🎯 Cuenta complementaria recuperada por nombre exacto "${cName}" en fila ${rNum} (${c.Streaming})`);
+              userAccounts.push(c);
+              existingRowNums.add(rNum);
+            }
+          }
+        });
+      }
+    }
+
     return userAccounts;
   } catch (error) {
     console.error("[API Service] Error buscando cuentas por número:", error);
@@ -778,6 +807,26 @@ async function updateExcelData(rowNumber, updates) {
       console.warn(`[API Service] ⚠️ Escritura encolada en pending_excel_updates.json (Fila ${rowNumber}) por fallo de conexión.`);
     } catch (queueErr) {
       console.error(`[API Service] Error encolando actualización pendiente:`, queueErr.message);
+    }
+
+    // 🚨 NOTIFICAR INMEDIATAMENTE AL GRUPO DE ASESORES PARA EVITAR SOBREVENTAS O DESFASES
+    try {
+      const activeClient = (typeof global !== 'undefined' ? global.client : null);
+      if (activeClient) {
+        const groupId = process.env.GROUP_ID || '120363102144405222@g.us';
+        const clientName = updates.Nombre || updates.nombre || updates.whatsapp || 'Cliente';
+        const streamingName = updates.Streaming || updates.streaming || updates.Plataforma || 'Servicio';
+        const vencDate = updates.deben || updates.Columna4 || 'N/A';
+        const adminAlert = `🚨 *¡ALERTA CRÍTICA: FALLÓ ESCRITURA EN EXCEL ONLINE!* ⚠️\n\n` +
+          `El bot procesó una entrega o renovación pero *NO se pudo guardar en el Excel de OneDrive* (Fila ${rowNumber}).\n` +
+          `👤 *Cliente:* ${clientName}\n` +
+          `📺 *Servicio:* ${streamingName}\n` +
+          `📅 *Vence:* ${vencDate}\n\n` +
+          `👉 *Acción requerida para asesores:* Por favor anoten esta fila manualmente en el Excel Online para evitar sobreventas o alertas desfasadas de cobro.`;
+        activeClient.sendMessage(groupId, adminAlert).catch(e => console.error('[API Service] Error enviando alerta al grupo:', e.message));
+      }
+    } catch (alertErr) {
+      console.error('[API Service] Error disparando alerta de desincronización:', alertErr.message);
     }
 
     return { success: true, localOnly: true, rowNumber, updates, message: "Actualizado localmente en caché (Encolado para sincronización)" };

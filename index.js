@@ -12099,18 +12099,55 @@ async function baseProcessIncomingMessage(messages) {
                             userStates.set(userId, stateData);
                         } else if (userAccounts.length === 1 && !isNewRequested) {
                             const singlePrice = accountsWithPrices[0].calculatedPrice || 14000;
-                            const multiMonths = [12, 6, 4, 3, 2, 1];
-                            const detectedMultiMonth = check.amount ? multiMonths.find(m => Math.abs((singlePrice * m) - check.amount) <= 2500) : 1;
-                            const isSingleOrMultiMatch = !check.amount || detectedMultiMonth || (check.amount >= (singlePrice - 1000));
 
-                            if (isSingleOrMultiMatch) {
-                                stateData.items = [userAccounts[0]];
-                                stateData.total = check.amount || singlePrice;
-                                stateData.durationMonths = detectedMultiMonth || 1;
+                            let mixedMatchedPlat = null;
+                            if (check.amount && check.amount > singlePrice * 1.3 && platforms && platforms.length > 0) {
+                                for (const plat of platforms) {
+                                    const candidatePlans = plat.plans && plat.plans.length > 0 ? plat.plans : [{ name: plat.name, price: plat.price }];
+                                    for (const pl of candidatePlans) {
+                                        const pPrice = pl.price || plat.price;
+                                        const expCombo = (singlePrice + pPrice) - 1000;
+                                        const expReg = singlePrice + pPrice;
+                                        if (Math.abs(check.amount - expCombo) <= 1000 || Math.abs(check.amount - expReg) <= 1000) {
+                                            mixedMatchedPlat = { plat, plan: pl, price: pPrice };
+                                            break;
+                                        }
+                                    }
+                                    if (mixedMatchedPlat) break;
+                                }
+                            }
+
+                            if (mixedMatchedPlat) {
+                                console.log(`[PAYMENT INTERCEPTOR] 🎯 Pago mixto detectado: Renovación ${userAccounts[0].Streaming} + Compra ${mixedMatchedPlat.plat.name} ($${check.amount})`);
+                                stateData.items = [
+                                    { ...userAccounts[0], isRenewal: true },
+                                    {
+                                        Streaming: mixedMatchedPlat.plan.name !== mixedMatchedPlat.plat.name ? `${mixedMatchedPlat.plat.name} - ${mixedMatchedPlat.plan.name}` : mixedMatchedPlat.plat.name,
+                                        platform: mixedMatchedPlat.plat,
+                                        chosenPlan: mixedMatchedPlat.plan,
+                                        price: mixedMatchedPlat.price,
+                                        isRenewal: false
+                                    }
+                                ];
+                                stateData.total = check.amount;
+                                stateData.durationMonths = 1;
                                 stateData.isAutoFilled = true;
-                                stateData.isRenewal = true;
+                                stateData.isRenewal = false;
                                 userStates.set(userId, stateData);
-                                console.log(`[PAYMENT INTERCEPTOR] 🔄 Renovación detectada para ${userAccounts[0].Streaming}: ${detectedMultiMonth || 1} mes(es) por $${check.amount}`);
+                            } else {
+                                const multiMonths = [12, 6, 4, 3, 2, 1];
+                                const detectedMultiMonth = check.amount ? multiMonths.find(m => Math.abs((singlePrice * m) - check.amount) <= 1000) : 1;
+                                const isSingleOrMultiMatch = !check.amount || detectedMultiMonth || (Math.abs(check.amount - singlePrice) <= 1000);
+
+                                if (isSingleOrMultiMatch) {
+                                    stateData.items = [userAccounts[0]];
+                                    stateData.total = check.amount || singlePrice;
+                                    stateData.durationMonths = detectedMultiMonth || 1;
+                                    stateData.isAutoFilled = true;
+                                    stateData.isRenewal = true;
+                                    userStates.set(userId, stateData);
+                                    console.log(`[PAYMENT INTERCEPTOR] 🔄 Renovación detectada para ${userAccounts[0].Streaming}: ${detectedMultiMonth || 1} mes(es) por $${check.amount}`);
+                                }
                             }
                         } else if (userAccounts.length > 1 && !isNewRequested) {
                             stateData.items = userAccounts;

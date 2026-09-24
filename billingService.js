@@ -748,7 +748,28 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             });
 
             if (!hasPlatform) {
-                await safeSend(null, `🤖 Veo que actualmente no tienes una suscripción activa de *${requestedPlatform}* con nosotros.\n\n¿Te gustaría adquirir un plan? Escribe *1* para ver nuestro catálogo y comprar. 🛒\n\nSi crees que esto es un error, no te preocupes, en un momento un asesor humano revisará este chat para ayudarte. 🧑‍💻`, userId, client);
+                const hadRecentPayment24h = existingState && existingState.lastPaymentValidated && (Date.now() - existingState.lastPaymentValidated < 1000 * 60 * 60 * 24);
+                if (hadRecentPayment24h) {
+                    await safeSend(null, `🤖 ¡Hola! Veo que registraste un pago recientemente con nosotros. 📝\n\nUn asesor humano ya tiene tu solicitud de *${requestedPlatform}* y te entregará tus credenciales por aquí en breve. ¡Muchas gracias por tu paciencia! 😊⏳`, userId, client);
+                    try {
+                        const activeClient = client || (typeof global !== 'undefined' ? global.client : null);
+                        if (activeClient) {
+                            const groupId = process.env.GROUP_ID || '120363102144405222@g.us';
+                            const groupChat = await activeClient.getChatById(groupId);
+                            if (groupChat) {
+                                const displayTarget = (phoneNumber || userId || '').replace('@c.us', '').replace('@lid', '');
+                                await groupChat.sendMessage(`🚨 *CLIENTE SOLICITA CREDENCIALES DE PAGO RECIENTE* (@${displayTarget})\n` +
+                                    `👤 Nombre: ${existingState.nombre || 'Cliente'}\n` +
+                                    `📺 Servicio solicitado: *${requestedPlatform}*\n` +
+                                    `⚠️ El cliente realizó un pago en las últimas 24 horas pero aún no tiene la cuenta entregada en Excel. Por favor entregar accesos a la brevedad.`);
+                            }
+                        }
+                    } catch (groupErr) {
+                        console.error('[Billing Service] Error notificando al grupo sobre credenciales pendientes:', groupErr.message);
+                    }
+                } else {
+                    await safeSend(null, `🤖 Veo que actualmente no tienes una suscripción activa de *${requestedPlatform}* con nosotros.\n\n¿Te gustaría adquirir un plan? Escribe *1* para ver nuestro catálogo y comprar. 🛒\n\nSi crees que esto es un error, no te preocupes, en un momento un asesor humano revisará este chat para ayudarte. 🧑‍💻`, userId, client);
+                }
                 // Activar modo humano para que el asesor pueda revisar el error si el cliente responde
                 if (userStates) {
                     const existing = userStates.get(userId);
@@ -871,7 +892,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
 
         const platforms = await getPlatformKnowledge();
 
-        // 1. REGLA ESTRICTA DE COMBO: El combo y su descuento SOLO aplican si las cuentas tienen la MISMA fecha de vencimiento.
+        // 1. REGLA ESTRICTA DE COMBO: Agrupar por fecha de vencimiento
         const dateGroups = {};
         userAccounts.forEach(acc => {
             const dateKey = (acc.deben || acc.vencimiento || '').toString().trim();
@@ -884,14 +905,21 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
             const comboAccs = dateGroups[dateKey];
             if (comboAccs.length > 1) {
                 let comboBase = 0;
+                let excelSum = 0;
                 comboAccs.forEach(acc => {
                     comboBase += getPlatformPriceFromExcel(acc, platforms);
+                    const rawIng = parseFloat(acc["Ingreso Mensual2"] || acc.precio || 0);
+                    if (!isNaN(rawIng) && rawIng > 0) excelSum += rawIng;
                 });
                 const comboWithDiscount = Math.max(0, comboBase - ((comboAccs.length - 1) * 1000));
 
-                // 1.1 Coincidencia mensual exacta para el combo de misma fecha
-                if (paidAmount === comboWithDiscount || paidAmount === comboBase) {
-                    console.log(`[Duration Adjuster] ✅ Cliente tiene combo de ${comboAccs.length} cuentas en la misma fecha (${dateKey}) y pagó monto exacto $${paidAmount}. Renovando combo.`);
+                // 1.1 Coincidencia mensual (exacta o fuzzy ± 1500) para el combo de misma fecha
+                const matches1m = (Math.abs(paidAmount - comboWithDiscount) <= 1500) ||
+                                  (Math.abs(paidAmount - comboBase) <= 1500) ||
+                                  (excelSum > 0 && Math.abs(paidAmount - excelSum) <= 1500);
+
+                if (matches1m) {
+                    console.log(`[Duration Adjuster] ✅ Cliente tiene combo de ${comboAccs.length} cuentas en la misma fecha (${dateKey}) y pagó monto coincidente $${paidAmount}. Renovando combo.`);
                     stateData.durationMonths = 1;
                     stateData.total = paidAmount;
                     stateData.items = comboAccs;
@@ -900,12 +928,16 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
                     return;
                 }
 
-                // 1.2 Múltiples meses exactos para el combo
+                // 1.2 Múltiples meses para el combo
                 for (let m = 2; m <= 12; m++) {
                     const multiDiscount = Math.max(0, (comboBase * m) - ((comboAccs.length - 1) * 1000 * m));
                     const multiBase = comboBase * m;
-                    if (paidAmount === multiDiscount || paidAmount === multiBase) {
-                        console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide exactamente con renovación de ${m} meses para combo de ${comboAccs.length} cuentas.`);
+                    const multiExcel = excelSum * m;
+                    const matchesMm = (Math.abs(paidAmount - multiDiscount) <= 1500) ||
+                                      (Math.abs(paidAmount - multiBase) <= 1500) ||
+                                      (excelSum > 0 && Math.abs(paidAmount - multiExcel) <= 1500);
+                    if (matchesMm) {
+                        console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con renovación de ${m} meses para combo de ${comboAccs.length} cuentas.`);
                         stateData.durationMonths = m;
                         stateData.total = paidAmount;
                         stateData.items = comboAccs;
@@ -917,32 +949,109 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
             }
         }
 
-        // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta por M meses
-        for (const acc of userAccounts) {
-            const accStream = (acc.Streaming || "").toUpperCase();
-            const isPlatziPersonal = accStream.includes('PLATZI') && !accStream.includes('COMPARTIDA');
-            if (isPlatziPersonal && Math.abs(paidAmount - 150000) < 500) {
-                console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con Platzi Trimestral Personal (3 meses).`);
-                stateData.durationMonths = 3;
-                stateData.subscriptionType = 'trimestral';
+        // 1.3 Combo multi-cuenta por ventana de vencimiento cercana (dentro de 10 días o ya vencidas)
+        const expiringAccounts = userAccounts.filter(acc => {
+            const d = acc.deben || acc.vencimiento;
+            if (!d) return true;
+            const jsD = getJsDateFromExcel(d);
+            if (!jsD || isNaN(jsD.getTime())) return true;
+            const diffDays = Math.round((jsD.getTime() - Date.now()) / (86400 * 1000));
+            return diffDays <= 10;
+        });
+
+        if (expiringAccounts.length > 1) {
+            let totalExpBase = 0;
+            let totalExpExcel = 0;
+            expiringAccounts.forEach(acc => {
+                totalExpBase += getPlatformPriceFromExcel(acc, platforms);
+                const rawIng = parseFloat(acc["Ingreso Mensual2"] || acc.precio || 0);
+                if (!isNaN(rawIng) && rawIng > 0) totalExpExcel += rawIng;
+            });
+            const expWithDiscount = Math.max(0, totalExpBase - ((expiringAccounts.length - 1) * 1000));
+            if (Math.abs(paidAmount - expWithDiscount) <= 2000 || Math.abs(paidAmount - totalExpBase) <= 2000 || (totalExpExcel > 0 && Math.abs(paidAmount - totalExpExcel) <= 2000)) {
+                console.log(`[Duration Adjuster] ✅ Cliente tiene ${expiringAccounts.length} cuentas por vencer y el monto $${paidAmount} cubre la totalidad. Renovando cuentas.`);
+                stateData.durationMonths = 1;
                 stateData.total = paidAmount;
-                stateData.items = [acc];
+                stateData.items = expiringAccounts;
                 stateData.isRenewal = true;
                 stateData.leftoverAmount = 0;
                 return;
             }
+        }
 
-            const price = getPlatformPriceFromExcel(acc, platforms);
+        // 1.4 DETECCIÓN MIXTA: 1 Renovación + 1 Compra Nueva (ej. Caso Julian Rodríguez: Amazon + Netflix = $22.000)
+        if (userAccounts.length === 1 && platforms && platforms.length > 0) {
+            const singleAcc = userAccounts[0];
+            const singlePrice = getPlatformPriceFromExcel(singleAcc, platforms);
+            if (paidAmount > singlePrice * 1.3) {
+                // Probar qué plataforma del catálogo complementa este pago
+                for (const plat of platforms) {
+                    const candidatePrices = [];
+                    if (plat.price) candidatePrices.push({ name: plat.name, price: plat.price, plan: null });
+                    if (Array.isArray(plat.plans)) {
+                        plat.plans.forEach(plan => {
+                            if (plan.price) candidatePrices.push({ name: `${plat.name} - ${plan.name}`, price: plan.price, plan });
+                        });
+                    }
 
-            for (let m = 1; m <= 12; m++) {
-                if (price > 0 && (price * m) === paidAmount) {
-                    console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con renovación individual de ${acc.Streaming} por ${m} mes(es).`);
-                    stateData.durationMonths = m;
+                    for (const cand of candidatePrices) {
+                        const expectedCombo = (singlePrice + cand.price) - 1000;
+                        const expectedRegular = singlePrice + cand.price;
+                        if (Math.abs(paidAmount - expectedCombo) <= 1000 || Math.abs(paidAmount - expectedRegular) <= 1000) {
+                            console.log(`[Duration Adjuster] 🎯 Detección mixta: Renovación de ${singleAcc.Streaming} + Compra nueva de ${cand.name} por $${paidAmount}.`);
+                            stateData.items = [
+                                { ...singleAcc, isRenewal: true },
+                                { Streaming: cand.name, platform: plat, chosenPlan: cand.plan, price: cand.price, isRenewal: false }
+                            ];
+                            stateData.durationMonths = 1;
+                            stateData.total = paidAmount;
+                            stateData.isRenewal = false;
+                            stateData.leftoverAmount = 0;
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta por M meses
+        // ¡REGLA DE SEGURIDAD ESTRICTA!: Si el cliente tiene múltiples cuentas activas (>= 2) que están venciendo en la misma fecha o ciclo,
+        // NUNCA debemos asignar arbitrariamente el pago completo a meses adelantados de 1 sola cuenta ignorando las demás!
+        const hasMultipleExpiring = userAccounts.filter(acc => {
+            const d = acc.deben || acc.vencimiento;
+            if (!d) return false;
+            const jsD = getJsDateFromExcel(d);
+            if (!jsD || isNaN(jsD.getTime())) return false;
+            return Math.round((jsD.getTime() - Date.now()) / (86400 * 1000)) <= 10;
+        }).length >= 2;
+
+        if (!hasMultipleExpiring) {
+            for (const acc of userAccounts) {
+                const accStream = (acc.Streaming || "").toUpperCase();
+                const isPlatziPersonal = accStream.includes('PLATZI') && !accStream.includes('COMPARTIDA');
+                if (isPlatziPersonal && Math.abs(paidAmount - 150000) < 500) {
+                    console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con Platzi Trimestral Personal (3 meses).`);
+                    stateData.durationMonths = 3;
+                    stateData.subscriptionType = 'trimestral';
                     stateData.total = paidAmount;
                     stateData.items = [acc];
                     stateData.isRenewal = true;
                     stateData.leftoverAmount = 0;
                     return;
+                }
+
+                const price = getPlatformPriceFromExcel(acc, platforms);
+
+                for (let m = 1; m <= 12; m++) {
+                    if (price > 0 && Math.abs((price * m) - paidAmount) <= 500) {
+                        console.log(`[Duration Adjuster] ✅ Monto pagado $${paidAmount} coincide con renovación individual de ${acc.Streaming} por ${m} mes(es).`);
+                        stateData.durationMonths = m;
+                        stateData.total = paidAmount;
+                        stateData.items = [acc];
+                        stateData.isRenewal = true;
+                        stateData.leftoverAmount = 0;
+                        return;
+                    }
                 }
             }
         }
