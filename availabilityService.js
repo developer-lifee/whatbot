@@ -131,7 +131,7 @@ async function checkSpreadsheetStock(platformName) {
 
                     let maxProfiles = 5;
                     if (targetSearch.includes('disney')) maxProfiles = 7;
-                    else if (targetSearch.includes('prime')) maxProfiles = 6;
+                    else if (targetSearch.includes('prime') || targetSearch.includes('amazon')) maxProfiles = 6;
                     else if (targetSearch.includes('crunchy')) maxProfiles = 4;
                     else if (targetSearch.includes('extra')) maxProfiles = 1;
 

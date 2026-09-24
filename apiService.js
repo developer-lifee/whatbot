@@ -761,11 +761,12 @@ function procesarHistoricoArray(matriz2D) {
 async function updateExcelData(rowNumber, updates) {
   try {
     if (updates && typeof updates === 'object') {
-      // Sincronizar automáticamente 'deben' con 'Columna4' (columna de vencimiento del cliente en el Excel de Azure)
-      if (updates.deben !== undefined && updates.Columna4 === undefined) {
-        updates.Columna4 = updates.deben;
-      } else if (updates.Columna4 !== undefined && updates.deben === undefined) {
-        updates.deben = updates.Columna4;
+      // Sincronizar automáticamente 'vencimiento', 'deben' y 'Columna4' (columnas de fecha de vencimiento en Excel y Azure)
+      const targetVenc = updates.vencimiento || updates.deben || updates.Columna4;
+      if (targetVenc !== undefined) {
+        if (updates.vencimiento === undefined) updates.vencimiento = targetVenc;
+        if (updates.deben === undefined) updates.deben = targetVenc;
+        if (updates.Columna4 === undefined) updates.Columna4 = targetVenc;
       }
     }
     let isWriteSuccess = false;

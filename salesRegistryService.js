@@ -205,7 +205,7 @@ function findAvailableSlot(platformName, allRows) {
 
                     let maxProfiles = 5;
                     if (rowStreaming.includes('disney')) maxProfiles = 7;
-                    else if (rowStreaming.includes('prime')) maxProfiles = 6;
+                    else if (rowStreaming.includes('prime') || rowStreaming.includes('amazon')) maxProfiles = 6;
                     else if (rowStreaming.includes('crunchy')) maxProfiles = 4;
                     else if (rowStreaming.includes('extra')) maxProfiles = 1;
 
@@ -455,6 +455,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
                 console.log(`[Sales Registry] RENOVACIÓN detectada para ${realStreamingName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
                 const updates = {
+                    "vencimiento": nextPaymentDate,
                     "deben": nextPaymentDate,
                     "Columna4": nextPaymentDate,
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
@@ -581,6 +582,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, baseDate);
 
                 const updates = {
+                    "vencimiento": nextPaymentDate,
                     "deben": nextPaymentDate,
                     "Columna4": nextPaymentDate,
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
@@ -645,6 +647,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "numero": finalPhoneToWrite,
                     "Nombre": firstName,
                     "apellido": lastName,
+                    "vencimiento": nextPaymentDate,
                     "deben": nextPaymentDate,
                     "Columna4": nextPaymentDate,
                     "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
