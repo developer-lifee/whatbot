@@ -159,10 +159,10 @@ if (require.main === module) {
     const args = process.argv.slice(2);
     const query = args.join(' ').trim() || "Auditoría general de errores";
     (async () => {
-        console.log(`[Antigravity CLI] 🧠 Analizando con ${GEMINI_MODEL}: "${query}"`);
+        console.log(`[Antigravity CLI] 🧠 Analizando con ${AGY_MODEL}: "${query}"`);
         try {
-            const answer = await callGemini38Flash(`Analiza este requerimiento o error en el proyecto whatbot: "${query}". Describe la solución técnica.`);
-            console.log('\n--- DIAGNÓSTICO GEMINI 3.8 FLASH ---');
+            const answer = await callAgyCli(`Analiza este requerimiento o error en el proyecto whatbot: "${query}". Describe la solución técnica.`);
+            console.log('\n--- DIAGNÓSTICO ANTIGRAVITY CLI ---');
             console.log(answer);
         } catch (e) {
             console.error('Error:', e.message);
