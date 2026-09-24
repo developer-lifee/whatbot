@@ -9,9 +9,9 @@
  * Regla de Oro: NUNCA reiniciar o iniciar PM2 de forma automática.
  */
 
-require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { execSync } = require('child_process');
 
 const REPO_DIR = path.resolve(__dirname);
