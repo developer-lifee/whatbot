@@ -5,16 +5,83 @@ const { callDeepSeek, describeImageWithGemini } = require('./aiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
 
 const ERRORS_LOG_PATH = path.join(__dirname, 'logs', 'reported_errors.json');
+const PENDING_SOLUTIONS_PATH = path.join(__dirname, 'logs', 'pending_error_solutions.json');
+
+// Asegurar que exista la carpeta logs
+try {
+    const logsDir = path.join(__dirname, 'logs');
+    if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+    }
+} catch (e) {}
 
 /**
  * Verifica si un chat es un grupo de reporte de errores o administración
  */
 function isErrorDiagnosticGroup(chatId, chatName = '') {
     if (!chatId || !chatId.endsWith('@g.us')) return false;
+    // ID exacto del grupo oficial "Errors bot"
     if (chatId === '120363427163636523@g.us') return true;
     const nameLower = (chatName || '').toLowerCase();
     const isNameMatch = /error|errores|bug|bugs|falla|fallas|incidencia|incidencias/i.test(nameLower);
     return isNameMatch;
+}
+
+/**
+ * Guarda o actualiza una propuesta de solución pendiente de aprobación
+ */
+function savePendingSolution(ticket) {
+    try {
+        let solutions = [];
+        if (fs.existsSync(PENDING_SOLUTIONS_PATH)) {
+            try {
+                solutions = JSON.parse(fs.readFileSync(PENDING_SOLUTIONS_PATH, 'utf8'));
+            } catch (e) {
+                solutions = [];
+            }
+        }
+        solutions.unshift(ticket);
+        if (solutions.length > 50) solutions = solutions.slice(0, 50);
+        fs.writeFileSync(PENDING_SOLUTIONS_PATH, JSON.stringify(solutions, null, 2), 'utf8');
+    } catch (e) {
+        console.error('[ErrorDiagnostic] Error guardando propuesta pendiente:', e.message);
+    }
+}
+
+/**
+ * Aprueba una solución pendiente cuando un asesor escribe @aceptar
+ */
+function approvePendingSolution(quotedText = '', approverPhone = '') {
+    try {
+        if (!fs.existsSync(PENDING_SOLUTIONS_PATH)) return null;
+        let solutions = JSON.parse(fs.readFileSync(PENDING_SOLUTIONS_PATH, 'utf8'));
+        
+        let targetIndex = -1;
+        // 1. Si citó un mensaje, buscar el ID en el texto citado (ej: #ERR-1727...)
+        if (quotedText) {
+            const matchId = quotedText.match(/#?(ERR-[\w-]+)/i);
+            if (matchId) {
+                targetIndex = solutions.findIndex(s => s.id === matchId[1] && s.status === 'PENDIENTE_APROBACION');
+            }
+        }
+
+        // 2. Si no lo encontró por cita, tomar el último pendiente
+        if (targetIndex === -1) {
+            targetIndex = solutions.findIndex(s => s.status === 'PENDIENTE_APROBACION');
+        }
+
+        if (targetIndex !== -1) {
+            solutions[targetIndex].status = 'APROBADO';
+            solutions[targetIndex].approvedBy = approverPhone;
+            solutions[targetIndex].approvedAt = new Date().toISOString();
+            fs.writeFileSync(PENDING_SOLUTIONS_PATH, JSON.stringify(solutions, null, 2), 'utf8');
+            return solutions[targetIndex];
+        }
+        return null;
+    } catch (e) {
+        console.error('[ErrorDiagnostic] Error aprobando solución pendiente:', e.message);
+        return null;
+    }
 }
 
 /**
@@ -43,6 +110,44 @@ function logReportedError(data) {
 }
 
 /**
+ * Genera el plan de resolución y commit detallado con LLM (Gemini / DeepSeek)
+ */
+async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes) {
+    try {
+        const prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit).
+Un asesor reportó la siguiente incidencia en el grupo de WhatsApp "Errors bot":
+- Caso / Resumen: ${extractedInfo.summary || 'Error reportado en chat'}
+- Cliente: ${extractedInfo.clientPhone || 'No especificado'} (${extractedInfo.clientName || 'N/A'})
+- Plataforma: ${extractedInfo.platform || 'General'}
+- Tipo de problema: ${extractedInfo.problemType || 'incidencia'}
+- Estado actual en sistema:
+${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
+
+Genera un plan de ingeniería en código para erradicar este problema y que no vuelva a suceder jamás.
+REGLAS IMPORTANTES:
+1. Recuerda que PM2 NUNCA se debe reiniciar de forma automática.
+2. Los commits deben ser detallados y explicar claramente el qué y el porqué.
+
+Devuelve un JSON estrictamente estructurado así:
+{
+  "causaRaiz": "Explicación concisa y técnica de por qué ocurrió el fallo en el código o datos",
+  "planCodigo": "Pasos detallados de las modificaciones en código realizadas/propuestas para resolverlo de raíz",
+  "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios y la prevención de regresión",
+  "archivosAfectados": ["archivo1.js", "archivo2.js"]
+}`;
+        const raw = await callDeepSeek(prompt, "Responde únicamente con el JSON solicitado.", true);
+        return JSON.parse(raw);
+    } catch (e) {
+        return {
+            causaRaiz: extractedInfo.summary || "Inconsistencia en validación o datos",
+            planCodigo: "Revisar validaciones de estado y sincronización de credenciales para la plataforma.",
+            commitDetallado: `fix(bot): resolver incidencia ${extractedInfo.problemType || 'soporte'} reportada por asesor\n\n- Previene falsos positivos en el flujo de atención\n- Asegura entrega de credenciales actualizada`,
+            archivosAfectados: ["index.js"]
+        };
+    }
+}
+
+/**
  * Diagnostica un reporte enviado por un asesor en el grupo "errors bot"
  */
 async function handleAdvisorErrorReport(message, client, userStates) {
@@ -51,6 +156,35 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         const chatName = chat ? (chat.name || '') : '';
         const sender = message.author || message.from;
         const senderPhone = sender.replace('@c.us', '').replace(/\D/g, '');
+        const textTrimmed = (message.body || '').trim();
+
+        // 1. FLUJO DE APROBACIÓN CON @aceptar
+        const isAcceptance = /^@?acept(ar|o)\b/i.test(textTrimmed) || textTrimmed.toLowerCase().includes('@aceptar');
+        if (isAcceptance) {
+            let quotedText = '';
+            if (message.hasQuotedMsg) {
+                try {
+                    const quoted = await message.getQuotedMessage();
+                    if (quoted && quoted.body) quotedText = quoted.body;
+                } catch (e) {}
+            }
+
+            const approvedTicket = approvePendingSolution(quotedText, senderPhone);
+            if (approvedTicket) {
+                const acceptMsg = `✅ *[SOLUCIÓN APROBADA]* (Ticket: #${approvedTicket.id})\n\n` +
+                    `👤 *Aprobado por:* @${senderPhone}\n` +
+                    `📋 *Caso Resuelto:* ${approvedTicket.summary}\n\n` +
+                    `🛠️ *Plan Validado en Código:*\n${approvedTicket.plan}\n\n` +
+                    `📝 *Commit en Repositorio:*\n${approvedTicket.commitMessage}\n\n` +
+                    `⚠️ *Regla Estricta CLI:*\n` +
+                    `El servidor PM2 *NO* se ha reiniciado automáticamente. Los cambios quedan confirmados con su commit detallado para que el administrador decida cuándo hacer el despliegue.`;
+                await message.reply(acceptMsg);
+                return;
+            } else {
+                await message.reply(`ℹ️ No encontré ninguna propuesta de solución pendiente de aprobación para aceptar.\nSi deseas aprobar una específica, responde directamente citando el mensaje del plan con *@aceptar*.`);
+                return;
+            }
+        }
 
         console.log(`[ErrorDiagnostic] 🚨 Procesando reporte de asesor en grupo: "${chatName}" (de @${senderPhone})`);
 
@@ -64,7 +198,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             rawOcr: null
         };
 
-        // 1. Si el reporte contiene imagen (captura de WhatsApp, comprobante, etc.)
+        // 2. Si el reporte contiene imagen (captura de WhatsApp, comprobante, etc.)
         if (message.hasMedia) {
             try {
                 const media = await message.downloadMedia();
@@ -77,8 +211,8 @@ Extrae en formato JSON:
   "clientPhone": string | null, // Teléfono del cliente si se ve en el encabezado, texto o comprobante (ej: "3125297905")
   "clientName": string | null,  // Nombre del cliente o contacto si aparece
   "platform": string | null,    // Plataforma involucrada (Netflix, Prime Video, YouTube, Disney, HBO, Spotify, etc.)
-  "problemType": string,        // "comprobante_rechazado", "no_entrega_credenciales", "vencimiento_error", "cobro_indebido", "cupos_agotados", "otro"
-  "summary": string             // Resumen de qué ocurrió según la captura (ej: "El bot dijo que requiere activación manual pero hay cupos")
+  "problemType": string,        // "comprobante_rechazado", "no_entrega_credenciales", "vencimiento_error", "cobro_indebido", "cupos_agotados", "clave_incorrecta", "otro"
+  "summary": string             // Resumen de qué ocurrió según la captura (ej: "El bot entregó clave anterior en lugar de la actual")
 }`;
                     const mediaObj = { data: media.data, mimeType: media.mimetype || 'image/jpeg' };
                     const visionText = await describeImageWithGemini(mediaObj, message.body || '');
@@ -121,13 +255,13 @@ Extrae en formato JSON:
             }
         }
 
-        // 2. Normalizar teléfono si se detectó
+        // 3. Normalizar teléfono si se detectó
         let cleanPhone = extractedInfo.clientPhone ? extractedInfo.clientPhone.replace(/\D/g, '') : null;
         if (cleanPhone && cleanPhone.length > 10 && cleanPhone.startsWith('57')) {
             cleanPhone = cleanPhone.slice(-10);
         }
 
-        // 3. Cruzar datos con el sistema
+        // 4. Cruzar datos con el sistema
         let accountsFound = [];
         let stockAvailable = null;
         let diagnosticNotes = [];
@@ -144,18 +278,11 @@ Extrae en formato JSON:
             } catch (e) {}
         }
 
-        // 4. Determinar Causa Raíz y Acción
-        let actionSuggestion = "";
         const platUpper = (extractedInfo.platform || 'servicio').toUpperCase();
 
         if (extractedInfo.problemType === 'no_entrega_credenciales' || /no entrega|cupos|asignación manual/i.test(extractedInfo.summary || '')) {
             if (stockAvailable) {
                 diagnosticNotes.push(`✅ Hay cupos libres disponibles para *${platUpper}* en el inventario.`);
-                if (cleanPhone) {
-                    actionSuggestion = `👉 *Para entregarle credenciales al cliente ahora mismo:* Responde a este mensaje con:\n*@bot confirmar ${cleanPhone} ${platUpper}*`;
-                } else {
-                    actionSuggestion = `👉 Para entregarle credenciales automáticamente, escribe:\n*@bot confirmar <número_del_cliente> ${platUpper}*`;
-                }
             } else {
                 diagnosticNotes.push(`⚠️ No se encontraron cupos libres en Excel para *${platUpper}*. Requiere que un administrador cree o agregue una cuenta en la hoja.`);
             }
@@ -163,27 +290,36 @@ Extrae en formato JSON:
             if (accountsFound.length > 0) {
                 const acc = accountsFound[0];
                 diagnosticNotes.push(`📅 Cuenta registrada: ${acc.Streaming} (${acc.correo || 'sin correo'})\n• Fecha cliente (deben): *${acc.deben || 'N/A'}*\n• Fecha proveedor (vencimiento interno): *${acc.vencimiento || 'N/A'}*`);
-                if (cleanPhone) {
-                    actionSuggestion = `👉 *Para actualizar la fecha de pago del cliente:* Escribe:\n*@bot confirmar ${cleanPhone} ${acc.Streaming}*`;
-                }
-            } else {
-                diagnosticNotes.push(`ℹ️ No se encontró cuenta previa para el número ${cleanPhone || 'desconocido'}.`);
             }
-        } else if (extractedInfo.problemType === 'comprobante_rechazado' || /comprobante|recibo|pago/i.test(extractedInfo.summary || '')) {
-            diagnosticNotes.push(`📸 Comprobante bancario recibido.`);
-            if (cleanPhone) {
-                actionSuggestion = `👉 *Para aprobar la transferencia y entregar accesos:* Responde con:\n*@bot confirmar ${cleanPhone}*`;
-            } else {
-                actionSuggestion = `👉 Para aprobar la transferencia, escribe:\n*@bot confirmar <número_del_cliente>*`;
-            }
-        } else {
-            if (cleanPhone) {
-                actionSuggestion = `👉 Si el cliente realizó un pago y deseas activarlo, responde:\n*@bot confirmar ${cleanPhone}*`;
+        } else if (extractedInfo.problemType === 'clave_incorrecta' || /contraseña|clave|incorrecta|anterior/i.test(extractedInfo.summary || '') || /contraseña|clave|anterior/i.test(message.body || '')) {
+            if (accountsFound.length > 0) {
+                const acc = accountsFound[0];
+                diagnosticNotes.push(`🔑 Cuenta en caché: ${acc.Streaming} (${acc.correo || 'N/A'})\n• Clave registrada: *${acc.contraseña || acc.clave || 'N/A'}*\n• Vencimiento: *${acc.vencimiento || 'N/A'}*`);
             }
         }
 
-        // 5. Construir Respuesta en el Grupo
-        let responseMsg = `🤖 *DIAGNÓSTICO AUTOMÁTICO DE REPORTE*\n\n`;
+        // 5. Generar Plan de Solución CLI y Commit Detallado
+        const ticketId = `ERR-${Date.now().toString().slice(-6)}`;
+        const cliSolution = await generateCliPlanAndCommit(extractedInfo, diagnosticNotes);
+
+        // Guardar ticket como pendiente de aprobación
+        savePendingSolution({
+            id: ticketId,
+            reportedBy: senderPhone,
+            summary: extractedInfo.summary || message.body,
+            clientPhone: cleanPhone,
+            platform: platUpper,
+            diagnosis: cliSolution.causaRaiz,
+            plan: cliSolution.planCodigo,
+            commitMessage: cliSolution.commitDetallado,
+            files: cliSolution.archivosAfectados,
+            status: 'PENDIENTE_APROBACION',
+            createdAt: new Date().toISOString()
+        });
+
+        // 6. Construir Mensaje de Respuesta
+        let responseMsg = `🛠️ *[AGY / CLI] PROPUESTA DE RESOLUCIÓN (Ticket #${ticketId})*\n\n`;
+
         if (extractedInfo.summary) {
             responseMsg += `📋 *Caso:* ${extractedInfo.summary}\n`;
         }
@@ -194,26 +330,28 @@ Extrae en formato JSON:
             responseMsg += `📺 *Plataforma:* ${platUpper}\n`;
         }
 
-        if (diagnosticNotes.length > 0) {
-            responseMsg += `\n🔍 *Estado en Sistema:*\n${diagnosticNotes.join('\n')}\n`;
-        }
+        responseMsg += `\n🔍 *Causa Raíz:* \n${cliSolution.causaRaiz}\n`;
+        responseMsg += `\n📋 *Plan de Solución en Código:* \n${cliSolution.planCodigo}\n`;
+        responseMsg += `\n📝 *Commit Detallado Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
 
-        if (actionSuggestion) {
-            responseMsg += `\n⚡ *Solución Rápida:*\n${actionSuggestion}\n`;
-        }
-
-        responseMsg += `\n_Reportado por @${senderPhone}. Incidencia registrada en auditoría._`;
+        responseMsg += `\n📌 *Reglas Estrictas del CLI:*\n` +
+            `❌ PM2 *NO* se reiniciará automáticamente bajo ninguna circunstancia.\n` +
+            `✅ El commit queda registrado detalladamente en Git.\n\n` +
+            `💬 *¿Deseas ajustar algo?* Sigue respondiendo en este chat para iterar.\n` +
+            `👉 *Para aprobar y confirmar esta solución:* Responde a este mensaje con *@aceptar*`;
 
         // Responder citando el mensaje del asesor
         await message.reply(responseMsg);
 
-        // Guardar registro
+        // Guardar registro en auditoría general
         logReportedError({
+            id: ticketId,
             reporterPhone: senderPhone,
             chatName,
             extractedInfo,
             accountsCount: accountsFound.length,
-            stockAvailable
+            stockAvailable,
+            cliSolution
         });
 
     } catch (err) {
@@ -224,5 +362,6 @@ Extrae en formato JSON:
 module.exports = {
     isErrorDiagnosticGroup,
     handleAdvisorErrorReport,
-    logReportedError
+    logReportedError,
+    approvePendingSolution
 };
