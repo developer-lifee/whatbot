@@ -17,49 +17,60 @@ const { execSync } = require('child_process');
 const REPO_DIR = path.resolve(__dirname);
 const GEMINI_MODEL = 'gemini-3.8-flash';
 
-function getGeminiApiKey() {
-    return process.env.GEMINI_API_KEY_6324 || 
-           process.env.GEMINI_API_KEY_182 || 
-           process.env.GEMINI_API_KEY;
+function getGeminiApiKeys() {
+    return [
+        process.env.GEMINI_API_KEY_6324,
+        process.env.GEMINI_API_KEY_182,
+        process.env.GEMINI_API_KEY
+    ].filter(Boolean);
 }
 
 /**
- * Llama a la API oficial de Google Gemini usando gemini-3.8-flash
+ * Llama a la API oficial de Google Gemini usando gemini-3.8-flash (con fallback a gemini-3.5-flash si hay picos de demanda)
  */
 async function callGemini38Flash(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
-    const key = getGeminiApiKey();
-    if (!key) throw new Error("No se encontró clave API de Gemini válida en .env");
+    const keys = getGeminiApiKeys();
+    if (keys.length === 0) throw new Error("No se encontró clave API de Gemini válida en .env");
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
-    const payload = {
-        systemInstruction: {
-            parts: [{ text: systemInstruction }]
-        },
-        contents: [{
-            parts: [{ text: prompt }]
-        }],
-        generationConfig: {
-            temperature: 0.1,
-            topP: 0.95
+    const modelsToTry = [GEMINI_MODEL, 'gemini-3.5-flash'];
+    let lastError = null;
+
+    for (const model of modelsToTry) {
+        for (const key of keys) {
+            try {
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+                const payload = {
+                    systemInstruction: {
+                        parts: [{ text: systemInstruction }]
+                    },
+                    contents: [{
+                        parts: [{ text: prompt }]
+                    }],
+                    generationConfig: {
+                        temperature: 0.1,
+                        topP: 0.95
+                    }
+                };
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+                if (response.ok && data.candidates && data.candidates[0] && data.candidates[0].content) {
+                    return data.candidates[0].content.parts.map(p => p.text).join('').trim();
+                } else {
+                    lastError = new Error(`Gemini API Error (${model}): ${data.error ? data.error.message : JSON.stringify(data)}`);
+                }
+            } catch (err) {
+                lastError = err;
+            }
         }
-    };
-
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-        throw new Error(`Gemini API Error: ${data.error ? data.error.message : JSON.stringify(data)}`);
     }
 
-    if (!data.candidates || data.candidates.length === 0 || !data.candidates[0].content) {
-        throw new Error("Respuesta vacía de Gemini");
-    }
-
-    return data.candidates[0].content.parts.map(p => p.text).join('').trim();
+    throw lastError || new Error("Error inesperado en llamada a Gemini");
 }
 
 /**
