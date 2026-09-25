@@ -66,3 +66,16 @@
   * Se mantiene la prohibición estricta de reinicio automático de PM2.
 
 
+
+### 6. Renovación Integral de OneDrive Graph API, Alertas Proactivas y Comando @restart
+- **Problema:** El token de acceso y refresh token de Microsoft Graph API estaban desactualizados/expirados, provocando que las lecturas y escrituras al archivo `Documentos/neflis_negro.xlsx` en OneDrive fallaran silenciosamente y recurrieran al `excel_cache.json` desactualizado sin que los administradores recibieran una alerta inmediata.
+- **Solución y Mejoras Desarrolladas:**
+  * **Módulo `oneDriveAuthService.js`:** Implementación con `@azure/msal-node` utilizando el flujo público Device Code Flow (`Files.Read Files.Read.All Files.ReadWrite.All offline_access`). Permite renovar el token en cualquier momento sin tocar la consola ni servidores.
+  * **Token Renovado:** Se autorizó exitosamente con Microsoft la sesión de OneDrive, capturando un nuevo Refresh Token rotativo y sincronizando inmediatamente 1,114 filas vivas de Excel Online y 51 actualizaciones pendientes.
+  * **Monitoreo Proactivo de Salud:** En `apiService.js`, se implementó `recordOneDriveHealth()`, `getOneDriveHealth()` y `notifyAdminOfOneDriveIssue()` que envía alertas automáticas a los grupos administrativos (`120363102144405222@g.us` y `120363427163636523@g.us`) ante cualquier fallo de sincronización con OneDrive o caída al fallback de caché (con límite inteligente de 1 alerta cada 4 horas para no saturar).
+  * **Comandos de Autoservicio en WhatsApp:**
+    - `@bot renovar-onedrive`: Genera un código de dispositivo de Microsoft y enlace directo en el chat para que cualquier administrador autorice OneDrive desde su celular/navegador en segundos.
+    - `@bot estado`: Informa el estado en tiempo real de OneDrive, Antigravity CLI, WhatsApp Web y la fecha/hora de la última sincronización.
+    - `@restart` / `!restart`: Permite a los administradores reiniciar el proceso PM2 de forma segura directamente desde WhatsApp.
+  * **Endpoints Web de Administración:** Se expuso `/api/admin/system-health` y `/api/admin/onedrive/renew` para monitorear el estado y forzar renovaciones desde el dashboard web administrativo.
+- **Despliegue:** Sincronizado en VPS y reiniciado en PM2 bajo autorización explícita.

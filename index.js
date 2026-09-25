@@ -9227,9 +9227,20 @@ client.on('message_create', async (msg) => {
         saveMessage(msg).catch(err => console.error("[DB Save Error] message_create:", err.message));
     }
 
-    // Si el mensaje lo envío yo mismo (fromMe) a un grupo con comando @bot
+    // Si el mensaje lo envío yo mismo (fromMe) a un grupo con comando @bot o @restart
     if (msg.fromMe && ((msg.to && msg.to.includes('@g.us')) || (msg.from && msg.from.includes('@g.us')))) {
-        if (msg.body && (msg.body.toLowerCase().includes('@bot') || msg.body.toLowerCase().startsWith('!bot'))) {
+        const lowerBody = (msg.body || '').toLowerCase().trim();
+        if (lowerBody === '@restart' || lowerBody === '!restart' || lowerBody === '@reiniciar' || lowerBody === '!reiniciar' || lowerBody.startsWith('@bot restart') || lowerBody.startsWith('@bot reiniciar')) {
+            const { exec } = require('child_process');
+            console.log('[RESTART fromMe] Reiniciando PM2 por comando propio...');
+            setTimeout(() => {
+                exec('pm2 restart whatbot', (err) => {
+                    if (err) console.error('[RESTART fromMe] Error:', err);
+                });
+            }, 1000);
+            return;
+        }
+        if (msg.body && (lowerBody.includes('@bot') || lowerBody.startsWith('!bot'))) {
             processIncomingMessage([msg]).catch(err => console.error('Error procesando comando @bot de grupo en message_create:', err));
             return;
         }
@@ -10949,6 +10960,34 @@ async function baseProcessIncomingMessage(messages) {
     }
 
     // Comandos de Grupo / Admin
+    const cleanLowerBody = (message.body || '').toLowerCase().trim();
+    const isRestartCommand = (message.from === GROUP_ID || ADMIN_GROUP_IDS.includes(message.from) || isFromAdmin) && (
+        cleanLowerBody === '@restart' ||
+        cleanLowerBody === '!restart' ||
+        cleanLowerBody === '@reiniciar' ||
+        cleanLowerBody === '!reiniciar' ||
+        cleanLowerBody.startsWith('@bot restart') ||
+        cleanLowerBody.startsWith('@bot reiniciar')
+    );
+
+    if (isRestartCommand) {
+        console.log(`[RESTART] 🔄 Comando de reinicio recibido de ${message.author || message.from}: "${message.body}"`);
+        const confirmMsg = '🔄 *REINICIANDO SERVICIO DEL BOT...*\n\nAplicando cambios y reiniciando proceso en PM2. En unos segundos el bot estará activo nuevamente con la última versión.';
+        try {
+            await message.reply(confirmMsg);
+        } catch (e) {
+            await client.sendMessage(message.from, confirmMsg).catch(() => {});
+        }
+        const { exec } = require('child_process');
+        setTimeout(() => {
+            exec('pm2 restart whatbot', (err, stdout, stderr) => {
+                if (err) console.error('[RESTART] Error ejecutando pm2 restart:', err);
+                else console.log('[RESTART] pm2 restart ejecutado:', stdout);
+            });
+        }, 1200);
+        return;
+    }
+
     const isBotCommand = (message.from === GROUP_ID || ADMIN_GROUP_IDS.includes(message.from) || isFromAdmin) && message.body && message.body.toLowerCase().startsWith('@bot');
     const isReplyConfirmation = (message.from === GROUP_ID || ADMIN_GROUP_IDS.includes(message.from)) && message.hasQuotedMsg && (
         ['si', 'ya', 'listo', 'confirmado', 'vale', 'ok', 'claro'].includes(message.body.toLowerCase().trim()) ||
@@ -14788,7 +14827,7 @@ client.on('message', async (message) => {
             }
 
             const b = message.body ? message.body.toLowerCase().trim() : '';
-            const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot');
+            const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot') || b === '@restart' || b === '!restart' || b === '@reiniciar' || b.startsWith('@bot restart') || b.startsWith('@bot reiniciar');
 
             if (isBotCommand) {
                 await processIncomingMessage([message]);
@@ -14805,7 +14844,7 @@ client.on('message', async (message) => {
 
         // Los mensajes de grupo se procesan si contienen comando @bot o confirmaciones
         const b = message.body ? message.body.toLowerCase().trim() : '';
-        const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot');
+        const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot') || b === '@restart' || b === '!restart' || b === '@reiniciar' || b.startsWith('@bot restart') || b.startsWith('@bot reiniciar');
         let groupState = userStates.get(message.from);
         if (groupState && typeof groupState === 'object') groupState = groupState.state;
 

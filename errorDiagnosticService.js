@@ -113,8 +113,15 @@ function logReportedError(data) {
 /**
  * Genera el plan de resolución y commit detallado con LLM (Gemini / DeepSeek)
  */
-async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes) {
-    try {
+async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = []) {
+    const fallbackResponse = {
+        causaRaiz: extractedInfo.summary || "Inconsistencia en validación o datos de la plataforma",
+        planCodigo: "Revisar validaciones de estado y sincronización de credenciales para la plataforma.",
+        commitDetallado: `fix(bot): resolver incidencia ${extractedInfo.problemType || 'soporte'} reportada por asesor\n\n- Previene falsos positivos en el flujo de atención\n- Asegura entrega de credenciales actualizada`,
+        archivosAfectados: ["index.js"]
+    };
+
+    const generatePromise = async () => {
         const prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit).
 Un asesor reportó la siguiente incidencia en el grupo de WhatsApp "Errors bot":
 - Caso / Resumen: ${extractedInfo.summary || 'Error reportado en chat'}
@@ -126,7 +133,7 @@ ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 Genera un plan de ingeniería en código para erradicar este problema y que no vuelva a suceder jamás.
 REGLAS IMPORTANTES:
-1. Recuerda que PM2 NUNCA se debe reiniciar de forma automática.
+1. Si se requiere reiniciar el servicio para aplicar los cambios, se indicará el uso de @restart.
 2. Los commits deben ser detallados y explicar claramente el qué y el porqué.
 
 Devuelve un JSON estrictamente estructurado así:
@@ -139,20 +146,20 @@ Devuelve un JSON estrictamente estructurado así:
         let raw = null;
         try {
             raw = await callGemini38Flash(prompt, "Eres Antigravity CLI. Responde exclusivamente con el JSON solicitado sin bloques markdown ni texto extra.");
-            // Si viene con ```json ... ``` limpiarlo
             raw = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+            return JSON.parse(raw);
         } catch (gErr) {
             console.warn('[ErrorDiagnostic] Fallback a DeepSeek para plan CLI:', gErr.message);
             raw = await callDeepSeek(prompt, "Responde únicamente con el JSON solicitado.", true);
+            return JSON.parse(raw);
         }
-        return JSON.parse(raw);
+    };
+
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 12000));
+    try {
+        return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {
-        return {
-            causaRaiz: extractedInfo.summary || "Inconsistencia en validación o datos",
-            planCodigo: "Revisar validaciones de estado y sincronización de credenciales para la plataforma.",
-            commitDetallado: `fix(bot): resolver incidencia ${extractedInfo.problemType || 'soporte'} reportada por asesor\n\n- Previene falsos positivos en el flujo de atención\n- Asegura entrega de credenciales actualizada`,
-            archivosAfectados: ["index.js"]
-        };
+        return fallbackResponse;
     }
 }
 
@@ -353,14 +360,19 @@ Extrae en formato JSON:
         responseMsg += `\n📋 *Plan de Solución en Código:* \n${cliSolution.planCodigo}\n`;
         responseMsg += `\n📝 *Commit Detallado Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
 
-        responseMsg += `\n📌 *Reglas Estrictas del CLI:*\n` +
-            `❌ PM2 *NO* se reiniciará automáticamente bajo ninguna circunstancia.\n` +
-            `✅ El commit queda registrado detalladamente en Git.\n\n` +
-            `💬 *¿Deseas ajustar algo?* Sigue respondiendo en este chat para iterar.\n` +
-            `👉 *Para aprobar y confirmar esta solución:* Responde a este mensaje con *@aceptar*`;
+        responseMsg += `\n📌 *Comandos de Control:*\n` +
+            `👉 *Para aprobar y aplicar esta solución:* Responde a este mensaje con *@aceptar*\n` +
+            `🔄 *Para reiniciar el bot:* Escribe *@restart* en cualquier momento.`;
 
-        // Responder citando el mensaje del asesor
-        await message.reply(responseMsg);
+        // Responder citando el mensaje del asesor o directamente si falla el quote
+        try {
+            await message.reply(responseMsg);
+        } catch (repErr) {
+            console.warn('[ErrorDiagnostic] Fallback enviando con client.sendMessage:', repErr.message);
+            if (client && client.sendMessage) {
+                await client.sendMessage(message.from, responseMsg).catch(err => console.error('[ErrorDiagnostic] Error en fallback de envío:', err.message));
+            }
+        }
 
         // Guardar registro en auditoría general
         logReportedError({
