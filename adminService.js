@@ -198,6 +198,7 @@ async function showAdminFunctions(message) {
 5. *Liberar:* \`@bot libera a [nombre]\` o \`liberar [tel]\`
 6. *Pagar:* \`confirmar [tel]\` o \`si me llego [tel]\`
 7. *Cobros:* \`@bot cobros automáticos\`
+8. *Salud / Conexión:* \`@bot estado\` o \`@bot renovar-onedrive\`
 
 ✨ *Tip:* Puedes preguntarme cosas como:
 - "¿Qué acabaste de hacer?"

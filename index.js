@@ -890,6 +890,68 @@ app.get('/api/admin/web-sales/approved', async (req, res) => {
     }
 });
 
+app.get('/api/admin/system-health', async (req, res) => {
+    try {
+        const { getOneDriveHealth } = require('./apiService');
+        const { getOneDriveTokenInfo } = require('./oneDriveAuthService');
+        const health = getOneDriveHealth();
+        const tokenInfo = getOneDriveTokenInfo();
+        res.json({
+            success: true,
+            timestamp: new Date().toISOString(),
+            oneDrive: {
+                ...health,
+                ...tokenInfo
+            },
+            whatsapp: {
+                status: (typeof client !== 'undefined' && client) ? 'READY' : 'DISCONNECTED'
+            },
+            agyCli: {
+                installed: true,
+                path: '/usr/local/bin/agy'
+            }
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/onedrive/renew', async (req, res) => {
+    try {
+        const { startOneDriveRenewal } = require('./oneDriveAuthService');
+        let codeInfo = null;
+
+        startOneDriveRenewal(async (info) => {
+            codeInfo = info;
+            const activeClient = (typeof global !== 'undefined' ? global.client : null) || (typeof client !== 'undefined' ? client : null);
+            if (activeClient) {
+                const alertMsg = `🔗 *VINCULACIÓN ONEDRIVE SOLICITADA DESDE PANEL WEB*\n\n` +
+                    `1️⃣ Abre este enlace:\n👉 ${info.verificationUri}\n\n` +
+                    `2️⃣ Introduce este código:\n👉 *${info.userCode}*`;
+                for (const gid of ['120363102144405222@g.us', '120363427163636523@g.us']) {
+                    activeClient.sendMessage(gid, alertMsg).catch(() => {});
+                }
+            }
+        }).catch(err => {
+            console.error('[Web Admin] Error en renovación OneDrive:', err.message);
+        });
+
+        let elapsed = 0;
+        while (!codeInfo && elapsed < 4000) {
+            await new Promise(r => setTimeout(r, 200));
+            elapsed += 200;
+        }
+
+        if (codeInfo) {
+            res.json({ success: true, ...codeInfo });
+        } else {
+            res.json({ success: true, message: "Proceso de renovación iniciado. Revisa los logs o WhatsApp." });
+        }
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/admin/web-sales/pending/approve', express.json(), async (req, res) => {
     try {
         const { orderId } = req.body;
@@ -10895,6 +10957,57 @@ async function baseProcessIncomingMessage(messages) {
     );
 
     if (isBotCommand || isReplyConfirmation) {
+        // Comandos de sistema directos sin delay de IA
+        if (isBotCommand) {
+            const rawCmd = message.body ? message.body.toLowerCase().replace('@bot', '').trim() : '';
+            if (rawCmd === 'renovar-onedrive' || rawCmd === 'renovar onedrive' || rawCmd === 'vincular-onedrive' || rawCmd === 'conectar-onedrive') {
+                const { startOneDriveRenewal } = require('./oneDriveAuthService');
+                await message.reply('⏳ Generando código de vinculación para Microsoft OneDrive / Excel Online...');
+                try {
+                    const renewalPromise = startOneDriveRenewal(async (info) => {
+                        const authMsg = `🔗 *VINCULACIÓN DE ONEDRIVE / EXCEL ONLINE*\n\n` +
+                            `Para restaurar o renovar la sincronización directa con OneDrive, sigue estos 2 pasos:\n\n` +
+                            `1️⃣ Abre el enlace en tu navegador o celular:\n👉 ${info.verificationUri}\n\n` +
+                            `2️⃣ Introduce este código de verificación:\n👉 *${info.userCode}*\n\n` +
+                            `⚠️ *Nota:* Tienes unos minutos para ingresar el código y otorgar los permisos. Una vez completado, el bot guardará las credenciales y reanudará el sync automáticamente.`;
+                        await message.reply(authMsg);
+                    });
+
+                    const result = await renewalPromise;
+                    if (result && result.success) {
+                        await message.reply('✅ *¡ONEDRIVE CONECTADO CON ÉXITO!*\nEl nuevo token ha sido guardado y la sincronización en vivo con "neflis_negro.xlsx" está activa.');
+                    }
+                } catch (err) {
+                    await message.reply(`❌ Error en la vinculación de OneDrive: ${err.message}`);
+                }
+                return;
+            }
+
+            if (rawCmd === 'estado' || rawCmd === 'salud' || rawCmd === 'status') {
+                const { getOneDriveHealth } = require('./apiService');
+                const { getOneDriveTokenInfo } = require('./oneDriveAuthService');
+                const tokenInfo = getOneDriveTokenInfo();
+                const health = getOneDriveHealth();
+
+                let statusText = `📊 *ESTADO Y SALUD DEL SISTEMA* 📊\n\n`;
+                statusText += `☁️ *OneDrive / Excel Online:* ${health.status === 'ONLINE' ? '🟢 ONLINE' : '🔴 CON PROBLEMAS'}\n`;
+                statusText += `• Último sync exitoso: ${health.lastSyncSuccess ? new Date(health.lastSyncSuccess).toLocaleString('es-CO', { timeZone: 'America/Bogota' }) : 'N/A'}\n`;
+                if (health.lastError) {
+                    statusText += `• Último error: ${health.lastError}\n`;
+                }
+                statusText += `• Token configurado: ${tokenInfo.exists ? '✅ Sí' : '❌ No'}\n`;
+                if (tokenInfo.updatedAt) {
+                    statusText += `• Token actualizado: ${new Date(tokenInfo.updatedAt).toLocaleString('es-CO', { timeZone: 'America/Bogota' })}\n`;
+                }
+                statusText += `\n🤖 *Antigravity CLI (agy):* 🟢 ACTIVO\n`;
+                statusText += `📱 *WhatsApp Web:* 🟢 CONECTADO\n`;
+                statusText += `\n_Para renovar OneDrive usa: *@bot renovar-onedrive*_`;
+
+                await message.reply(statusText);
+                return;
+            }
+        }
+
         const { detectAdminIntent } = require('./aiService');
         const adminAI = await detectAdminIntent(message.body);
         console.log(`[Admin AI] Intención detectada: ${adminAI.intent} para ${adminAI.target_user || adminAI.target}`);

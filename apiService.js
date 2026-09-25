@@ -57,6 +57,51 @@ function getJsDateFromExcel(excelDate) {
 
 const MS_TOKEN_PATH = path.join(__dirname, 'ms_graph_token.json');
 
+let oneDriveHealthState = {
+    status: 'ONLINE',
+    lastSyncSuccess: new Date().toISOString(),
+    lastError: null,
+    lastAlertSent: 0
+};
+
+function recordOneDriveHealth(status, error = null) {
+    oneDriveHealthState.status = status;
+    if (status === 'ONLINE') {
+        oneDriveHealthState.lastSyncSuccess = new Date().toISOString();
+        oneDriveHealthState.lastError = null;
+    } else {
+        oneDriveHealthState.lastError = error ? (error.message || String(error)) : 'Error desconocido';
+    }
+}
+
+function getOneDriveHealth() {
+    return { ...oneDriveHealthState };
+}
+
+function notifyAdminOfOneDriveIssue(errorMessage) {
+    const now = Date.now();
+    // Throttle: enviar alerta máximo cada 4 horas para no saturar, pero alertar de inmediato al fallar
+    if (now - oneDriveHealthState.lastAlertSent < 4 * 60 * 60 * 1000) {
+        return;
+    }
+    oneDriveHealthState.lastAlertSent = now;
+
+    const activeClient = (typeof global !== 'undefined' ? global.client : null);
+    if (!activeClient) return;
+
+    const alertMsg = `🚨 *ALERTA CRÍTICA: TOKEN DE ONEDRIVE DESCONECTADO* 🚨\n\n` +
+        `⚠️ *Detalle:* La conexión de Microsoft Graph con "neflis_negro.xlsx" ha caducado o requiere re-autenticación.\n` +
+        `📉 *Impacto:* El bot ha entrado en modo de contingencia (usando excel_cache.json local).\n` +
+        `🛠️ *Error:* \`\`\`${String(errorMessage).slice(0, 180)}\`\`\`\n\n` +
+        `👉 *Para renovar la sincronización en vivo inmediatamente:* Escribe en este grupo:\n` +
+        `*@bot renovar-onedrive*`;
+
+    const targetGroups = ['120363102144405222@g.us', '120363427163636523@g.us'];
+    for (const gid of targetGroups) {
+        activeClient.sendMessage(gid, alertMsg).catch(e => console.error(`[API Service] Error enviando alerta a ${gid}:`, e.message));
+    }
+}
+
 function excelSerialToDateString(serial) {
     if (!serial || isNaN(serial)) return serial;
     let utc_days = Math.floor(serial - 25569);
@@ -69,14 +114,21 @@ function excelSerialToDateString(serial) {
 }
 
 async function getGraphAccessToken() {
-    if (!fs.existsSync(MS_TOKEN_PATH)) return null;
+    if (!fs.existsSync(MS_TOKEN_PATH)) {
+        recordOneDriveHealth('ERROR', 'Archivo ms_graph_token.json no encontrado');
+        return null;
+    }
     let tokenData;
     try {
         tokenData = JSON.parse(fs.readFileSync(MS_TOKEN_PATH, 'utf8'));
     } catch (e) {
+        recordOneDriveHealth('ERROR', e.message);
         return null;
     }
-    if (!tokenData || !tokenData.refresh_token) return null;
+    if (!tokenData || !tokenData.refresh_token) {
+        recordOneDriveHealth('ERROR', 'No hay refresh_token en ms_graph_token.json');
+        return null;
+    }
 
     const tokenEndpoint = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
     const bodyParams = new URLSearchParams({
@@ -93,7 +145,10 @@ async function getGraphAccessToken() {
     });
     const tokenJson = await tokenRes.json();
     if (!tokenRes.ok) {
-        console.warn('[MS Graph Direct] Error renovando access_token:', tokenJson.error_description || tokenJson.error || tokenJson);
+        const errDesc = tokenJson.error_description || tokenJson.error || JSON.stringify(tokenJson);
+        console.warn('[MS Graph Direct] Error renovando access_token:', errDesc);
+        recordOneDriveHealth('ERROR', errDesc);
+        notifyAdminOfOneDriveIssue(errDesc);
         return null;
     }
 
@@ -109,6 +164,7 @@ async function getGraphAccessToken() {
         }
     }
 
+    recordOneDriveHealth('ONLINE', null);
     return tokenJson.access_token;
 }
 
@@ -122,7 +178,10 @@ async function fetchDirectFromGraph() {
     });
     const graphJson = await graphRes.json();
     if (!graphRes.ok || !graphJson.values) {
-        console.warn('[MS Graph Direct] Error leyendo hoja de Excel en Graph:', graphJson.error ? graphJson.error.message : graphJson);
+        const err = graphJson.error ? graphJson.error.message : 'Error leyendo hoja de Excel en Graph';
+        console.warn('[MS Graph Direct] Error leyendo hoja de Excel en Graph:', err);
+        recordOneDriveHealth('ERROR', err);
+        notifyAdminOfOneDriveIssue(err);
         return null;
     }
 
@@ -1011,6 +1070,7 @@ module.exports = {
   getJsDateFromExcel,
   getPlatformKnowledge,
   getWisdomKnowledge,
-  getPricingRules
+  getPricingRules,
+  getOneDriveHealth
 };
 
