@@ -9229,11 +9229,20 @@ client.on('message_create', async (msg) => {
 
     // Si el mensaje lo envío yo mismo (fromMe) a un grupo con comando @bot, @restart o reporte en grupo de errores
     const groupJid = (msg.to && msg.to.includes('@g.us')) ? msg.to : ((msg.from && msg.from.includes('@g.us')) ? msg.from : null);
-    if (msg.fromMe && groupJid) {
+    if (msg.fromMe) {
         const lowerBody = (msg.body || '').toLowerCase().trim();
         if (lowerBody === '@restart' || lowerBody === '!restart' || lowerBody === '@reiniciar' || lowerBody === '!reiniciar' || lowerBody.startsWith('@bot restart') || lowerBody.startsWith('@bot reiniciar')) {
             const { exec } = require('child_process');
             console.log('[RESTART fromMe] Reiniciando PM2 por comando propio...');
+            const restartNotice = '🔄 *REINICIANDO SERVICIO DEL BOT...*\n\nAplicando cambios y reiniciando proceso en PM2. En unos segundos el bot estará activo nuevamente.';
+            try {
+                await msg.reply(restartNotice);
+            } catch (e) {
+                const targetDest = groupJid || msg.to || msg.from;
+                if (targetDest && client && client.sendMessage) {
+                    await client.sendMessage(targetDest, restartNotice).catch(() => {});
+                }
+            }
             setTimeout(() => {
                 exec('pm2 restart whatbot', (err) => {
                     if (err) console.error('[RESTART fromMe] Error:', err);
@@ -9241,33 +9250,38 @@ client.on('message_create', async (msg) => {
             }, 1000);
             return;
         }
-        if (msg.body && (lowerBody.includes('@bot') || lowerBody.startsWith('!bot'))) {
-            processIncomingMessage([msg]).catch(err => console.error('Error procesando comando @bot de grupo en message_create:', err));
-            return;
-        }
 
-        // Diagnóstico en grupo de errores (incluso si fue enviado por el administrador / dueño fromMe)
-        const { isErrorDiagnosticGroup, handleAdvisorErrorReport } = require('./errorDiagnosticService');
-        let chat = null;
-        try { chat = await msg.getChat(); } catch (e) {}
-        const isErrGroup = isErrorDiagnosticGroup(groupJid, chat ? chat.name : '');
-        if (isErrGroup) {
-            // Ignorar respuestas generadas por el propio bot para no entrar en bucle
-            const isBotSelfMessage = msg.body && (
-                msg.body.includes('🤖') ||
-                msg.body.includes('[AGY / CLI]') ||
-                msg.body.includes('PROPUESTA DE RESOLUCIÓN') ||
-                msg.body.includes('[SOLUCIÓN APLICADA') ||
-                msg.body.includes('DIAGNÓSTICO Y RESPUESTA') ||
-                msg.body.includes('[DIAGNÓSTICO') ||
-                msg.body.includes('Ticket #ERR-') ||
-                msg.body.includes('🛠️')
-            );
-            if (!isBotSelfMessage) {
-                if (msg.hasMedia || lowerBody.length > 5) {
-                    console.log(`[ErrorDiagnostic fromMe] 🚨 Detectado reporte de error propio en ${groupJid}: "${msg.body || '[Media]'}"`);
-                    handleAdvisorErrorReport(msg, client, userStates).catch(err => console.error('[ErrorDiagnostic fromMe] Error:', err.message));
-                    return;
+        if (groupJid) {
+            if (msg.body && (lowerBody.includes('@bot') || lowerBody.startsWith('!bot'))) {
+                processIncomingMessage([msg]).catch(err => console.error('Error procesando comando @bot de grupo en message_create:', err));
+                return;
+            }
+
+            // Diagnóstico en grupo de errores (incluso si fue enviado por el administrador / dueño fromMe)
+            const { isErrorDiagnosticGroup, handleAdvisorErrorReport } = require('./errorDiagnosticService');
+            let chat = null;
+            try { chat = await msg.getChat(); } catch (e) {}
+            const isErrGroup = isErrorDiagnosticGroup(groupJid, chat ? chat.name : '');
+            if (isErrGroup) {
+                // Ignorar respuestas generadas por el propio bot para no entrar en bucle
+                const isBotSelfMessage = msg.body && (
+                    msg.body.includes('🤖') ||
+                    msg.body.includes('[AGY / CLI]') ||
+                    msg.body.includes('PROPUESTA DE RESOLUCIÓN') ||
+                    msg.body.includes('[SOLUCIÓN APLICADA') ||
+                    msg.body.includes('[DIAGNÓSTICO') ||
+                    msg.body.includes('DIAGNÓSTICO Y RESPUESTA') ||
+                    msg.body.includes('Ticket #ERR-') ||
+                    msg.body.includes('Ticket: #ERR-') ||
+                    msg.body.includes('🛠️') ||
+                    msg.body.includes('REINICIANDO SERVICIO')
+                );
+                if (!isBotSelfMessage) {
+                    if (msg.hasMedia || lowerBody.length > 5) {
+                        console.log(`[ErrorDiagnostic fromMe] 🚨 Detectado reporte de error propio en ${groupJid}: "${msg.body || '[Media]'}"`);
+                        handleAdvisorErrorReport(msg, client, userStates).catch(err => console.error('[ErrorDiagnostic fromMe] Error:', err.message));
+                        return;
+                    }
                 }
             }
         }
@@ -10049,15 +10063,49 @@ async function baseProcessIncomingMessage(messages) {
     const combinedBody = validMessages.map(m => m.body || "").filter(b => b !== "").join("\n");
     message.combinedBody = combinedBody;
 
+    // --- REINICIO DIRECTO ULTRA RÁPIDO PARA ADMINS ---
+    const rawBodyLower = (message.body || '').toLowerCase().trim();
+    const isRestartRequested = (message.from === GROUP_ID || ADMIN_GROUP_IDS.includes(message.from) || isFromAdmin) && (
+        rawBodyLower === '@restart' ||
+        rawBodyLower === '!restart' ||
+        rawBodyLower === '@reiniciar' ||
+        rawBodyLower === '!reiniciar' ||
+        rawBodyLower.startsWith('@bot restart') ||
+        rawBodyLower.startsWith('@bot reiniciar')
+    );
+
+    if (isRestartRequested) {
+        console.log(`[RESTART Fast-Path] 🔄 Comando de reinicio recibido de ${message.author || message.from}: "${message.body}"`);
+        const confirmMsg = '🔄 *REINICIANDO SERVICIO DEL BOT...*\n\nAplicando cambios y reiniciando proceso en PM2. En unos segundos el bot estará activo nuevamente.';
+        try {
+            await message.reply(confirmMsg);
+        } catch (e) {
+            await client.sendMessage(message.from, confirmMsg).catch(() => {});
+        }
+        const { exec } = require('child_process');
+        setTimeout(() => {
+            exec('pm2 restart whatbot', (err, stdout, stderr) => {
+                if (err) console.error('[RESTART Fast-Path] Error ejecutando pm2 restart:', err);
+                else console.log('[RESTART Fast-Path] pm2 restart ejecutado:', stdout);
+            });
+        }, 1000);
+        return;
+    }
+
     // --- INTERCEPTOR ESPECIAL ADMINISTRADOR ---
     if (isFromAdmin) {
         const adminStateData = userStates.get(userId) || {};
         const cleanBody = (message.body || "").trim().toLowerCase();
         const isSimulating = adminStateData.state === 'simulating_client';
 
-        if (!cleanBody.startsWith("@bot") && !message.fromMe && !message.hasMedia && !isSimulating) {
-            const { handleAdminSuggestions } = require('./adminService');
-            await handleAdminSuggestions(message, userStates);
+        if (!cleanBody.startsWith("@") && !cleanBody.startsWith("!") && !message.fromMe && !message.hasMedia && !isSimulating) {
+            try {
+                if (typeof handleAdminSuggestions === 'function') {
+                    await handleAdminSuggestions(message, userStates);
+                }
+            } catch (err) {
+                console.error('[AdminSuggestions] Error procesando sugerencias admin:', err.message);
+            }
         }
     }
 
@@ -13863,7 +13911,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 return;
             } else if (detection.intent === 'credenciales') {
                 const { processCheckCredentials } = require('./billingService');
-                await processCheckCredentials(userId, client, message.body, "", userStates);
+                await processCheckCredentials(userId, client, message.body, "", userStates, userAccounts);
                 return;
             } else if (detection.intent === 'catalogo') {
                 await message.reply("🤖 ¡Claro! Puedes ver nuestro catálogo actualizado con todos los precios y realizar tu compra directamente en nuestra página web: https://sheerit.co/ 🌐\n\nSi tienes alguna duda específica sobre un servicio, ¡cuéntame!");

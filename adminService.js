@@ -404,8 +404,8 @@ async function handleSendBulkCredentials(message, command, client, getAccountsBy
     for (const phone of phones) {
         try {
             const cleanPhone = phone.replace(/\s+/g, '');
-            const accounts = await getAccountsByPhone(cleanPhone, null, true);
-            const targetAccount = accounts.find(a => (a.Streaming || '').toLowerCase().includes(requestedPlatform));
+            const { isStreamingMatch } = require('./billingService');
+            const targetAccount = accounts.find(a => isStreamingMatch(a.Streaming, requestedPlatform));
 
             if (targetAccount) {
                 const creds = `🔐 *CREDENCIALES ${requestedPlatform.toUpperCase()}*\n\n📧 Correo: ${targetAccount.correo}\n🔒 Clave: ${targetAccount.contraseña}${targetAccount['pin perfil'] ? `\n🔢 PIN: ${targetAccount['pin perfil']}` : ''}`;

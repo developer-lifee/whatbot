@@ -162,6 +162,20 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
     const isLid = jid.includes('@lid') || (jid.includes('@c.us') && !clean.startsWith('57') && clean.length > 10) || clean.length > 12;
     if (!isLid && jid.includes('@c.us') && clean.length <= 13) return clean;
 
+    // 0. Búsqueda directa en tabla chats de la base de datos (si ya fue resuelto previamente)
+    if (isLid || jid.includes('@lid')) {
+        try {
+            const { pool } = require('./database');
+            const [chatRows] = await pool.query('SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1', [jid]);
+            if (chatRows.length > 0 && chatRows[0].customer_phone) {
+                const dbPhone = chatRows[0].customer_phone.replace(/\D/g, '');
+                if (dbPhone.length >= 7 && dbPhone.length <= 13 && !dbPhone.includes('3118587974')) {
+                    return dbPhone;
+                }
+            }
+        } catch (e) {}
+    }
+
     const activeClient = client || (typeof global !== 'undefined' ? global.client : null);
     if (activeClient && activeClient.pupPage) {
         try {
@@ -283,20 +297,24 @@ async function resolveRealPhoneFromJid(jid, client = null, knownName = null) {
         } catch (e) {}
     }
 
-    // 6. Extraer número de teléfono de 10 dígitos (ej: 3227922392) directamente del texto de mensajes en MariaDB
+    // 6. Extraer número de teléfono de 10 dígitos directamente del texto de mensajes del cliente en MariaDB
+    // (EXCLUYENDO números del bot y cuentas de pago oficiales del negocio)
     try {
         const { pool } = require('./database');
+        const KNOWN_STORE_NUMS = ['3118587974', '573118587974', '0087387259', '1032936324', '46772753713', '24111572331'];
         const [msgs] = await pool.query(
-            "SELECT body FROM messages WHERE (chat_id = ? OR sender_id = ?) AND body REGEXP '3[0-9]{9}' ORDER BY created_at DESC LIMIT 10",
+            "SELECT body FROM messages WHERE chat_id = ? AND sender_id = ? AND is_from_me = 0 AND body REGEXP '3[0-9]{9}' ORDER BY created_at DESC LIMIT 10",
             [jid, jid]
         );
         if (msgs && msgs.length > 0) {
             for (const m of msgs) {
-                const phoneMatch = (m.body || '').match(/3\d{9}/);
-                if (phoneMatch) {
-                    const extracted = '57' + phoneMatch[0];
-                    console.log(`[LID Resolver] 📱 Número +${extracted} extraído del texto de los mensajes en BD para LID ${jid}`);
-                    return extracted;
+                const phoneMatches = (m.body || '').match(/3\d{9}/g) || [];
+                for (const match of phoneMatches) {
+                    if (!KNOWN_STORE_NUMS.some(sn => sn.includes(match))) {
+                        const extracted = '57' + match;
+                        console.log(`[LID Resolver] 📱 Número +${extracted} extraído del texto de los mensajes en BD para LID ${jid}`);
+                        return extracted;
+                    }
                 }
             }
         }
@@ -608,6 +626,26 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
     return 0;
 }
 
+function isStreamingMatch(accStreaming, reqPlatform) {
+    if (!reqPlatform) return true;
+    const s1 = (accStreaming || "").toString().toUpperCase().trim();
+    const s2 = (reqPlatform || "").toString().toUpperCase().trim();
+    if (!s1) return false;
+    if (s1.includes(s2) || s2.includes(s1)) return true;
+
+    // Normalización de availabilityService (crunchyroll, amazon, hbo, disney, etc.)
+    const norm1 = normalizeStreamingName(s1);
+    const norm2 = normalizeStreamingName(s2);
+    if (norm1 && norm2 && (norm1 === norm2 || norm1.includes(norm2) || norm2.includes(norm1))) return true;
+
+    // Comparación limpia eliminando espacios y caracteres no alfanuméricos
+    const clean1 = s1.replace(/[^A-Z0-9]/g, '');
+    const clean2 = s2.replace(/[^A-Z0-9]/g, '');
+    if (clean1 && clean2 && (clean1.includes(clean2) || clean2.includes(clean1))) return true;
+
+    return false;
+}
+
 function extractPlatformFromText(text) {
     if (!text) return null;
     const txt = text.toLowerCase().trim();
@@ -652,30 +690,48 @@ async function checkPendingWebSaleForPhone(phone, name = '') {
 /**
  * Procesa la solicitud de credenciales de un usuario.
  */
-async function processCheckCredentials(userId, client, triggerMessage = "", history = "", userStates = null) {
+async function processCheckCredentials(userId, client, triggerMessage = "", history = "", userStates = null, preloadedAccounts = null) {
     try {
         if (!userId || userId.endsWith('@newsletter')) return;
-        let phoneNumber = await resolveRealPhoneFromJid(userId, client);
+        let phoneNumber = null;
         let contactName = null;
+
+        if (userStates) {
+            const st = userStates.get(userId);
+            if (st && st.realPhone) {
+                phoneNumber = st.realPhone;
+            }
+            if (st && (st.nombre || st.userName)) {
+                contactName = st.nombre || st.userName;
+            }
+        }
+
+        if (!phoneNumber) {
+            phoneNumber = await resolveRealPhoneFromJid(userId, client);
+        }
         if (userId.includes('@lid')) {
-            try {
-                const { pool } = require('./database');
-                const [chatRows] = await pool.query('SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1', [userId]);
-                if (chatRows.length > 0 && chatRows[0].customer_phone) {
-                    phoneNumber = chatRows[0].customer_phone.replace(/\D/g, '');
-                }
-            } catch (e) { }
+            if (!phoneNumber) {
+                try {
+                    const { pool } = require('./database');
+                    const [chatRows] = await pool.query('SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1', [userId]);
+                    if (chatRows.length > 0 && chatRows[0].customer_phone) {
+                        phoneNumber = chatRows[0].customer_phone.replace(/\D/g, '');
+                    }
+                } catch (e) { }
+            }
 
-            try {
-                const contact = await Promise.race([
-                    client.getContactById(userId),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getContactById")), 1500))
-                ]).catch(() => null);
+            if (!contactName) {
+                try {
+                    const contact = await Promise.race([
+                        client.getContactById(userId),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout getContactById")), 1500))
+                    ]).catch(() => null);
 
-                if (contact) {
-                    contactName = contact.name || contact.pushname;
-                }
-            } catch (e) { }
+                    if (contact) {
+                        contactName = contact.name || contact.pushname;
+                    }
+                } catch (e) { }
+            }
         }
 
         // Validar si tiene un pago en proceso de validación humana
@@ -687,7 +743,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             }
         }
 
-        if (!isPendingValidation) {
+        if (!isPendingValidation && phoneNumber) {
             try {
                 const { pool } = require('./database');
                 const [pendingSales] = await pool.query(
@@ -732,7 +788,9 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             return;
         }
 
-        let userAccounts = await getAccountsByPhone(phoneNumber, contactName);
+        let userAccounts = (preloadedAccounts && Array.isArray(preloadedAccounts) && preloadedAccounts.length > 0)
+            ? preloadedAccounts
+            : await getAccountsByPhone(phoneNumber, contactName);
 
         if (userAccounts.length === 0) {
             await safeSend(null, "🤖 No encontré servicios activos vinculados a este número. Si compraste desde otro número, por favor dímelo para ayudarte a buscar o contacta a un asesor.", userId, client);
@@ -743,8 +801,8 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
         const requestedPlatform = extractPlatformFromText(triggerMessage);
         if (requestedPlatform) {
             const hasPlatform = userAccounts.some(acc => {
-                const streaming = (acc.Streaming || acc.streaming || "").toUpperCase();
-                return streaming.includes(requestedPlatform) || requestedPlatform.includes(streaming);
+                const streaming = acc.Streaming || acc.streaming || "";
+                return isStreamingMatch(streaming, requestedPlatform);
             });
 
             if (!hasPlatform) {
@@ -789,8 +847,8 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             } else {
                 // Filtrar las cuentas de usuario para enviar únicamente las de la plataforma solicitada
                 userAccounts = userAccounts.filter(acc => {
-                    const streaming = (acc.Streaming || acc.streaming || "").toUpperCase();
-                    return streaming.includes(requestedPlatform) || requestedPlatform.includes(streaming);
+                    const streaming = acc.Streaming || acc.streaming || "";
+                    return isStreamingMatch(streaming, requestedPlatform);
                 });
             }
         }
@@ -1874,5 +1932,7 @@ module.exports = {
   adjustDurationToMatchAmount,
   checkPendingWebSaleForPhone,
   resolveRealPhoneFromJid,
-  isNameMatch
+  isNameMatch,
+  isStreamingMatch,
+  extractPlatformFromText
 };

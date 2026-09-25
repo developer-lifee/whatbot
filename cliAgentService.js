@@ -24,12 +24,12 @@ const GEMINI_MODEL = AGY_MODEL;
 async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
     const fullPrompt = `${systemInstruction}\n\n${prompt}`;
     try {
-        const agyBin = fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy';
+        const agyBin = fs.existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : (fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy');
         const output = execFileSync(agyBin, ['-p', fullPrompt, '--model', AGY_MODEL, '--dangerously-skip-permissions'], {
             cwd: REPO_DIR,
             encoding: 'utf8',
             timeout: 60000,
-            env: { ...process.env, PATH: `/root/.local/bin:/usr/local/bin:${process.env.PATH}` }
+            env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
         }).trim();
         if (output) return output;
     } catch (e) {
@@ -48,16 +48,13 @@ function getGeminiApiKeys() {
 }
 
 /**
- * Llama a la API oficial de Google Gemini usando gemini-3.8-flash (con fallback a gemini-3.5-flash si hay picos de demanda)
-/**
  * Fallback HTTP a Google Gemini en caso de indisponibilidad del binario agy
  */
 async function callGemini38FlashHttp(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
     const keys = getGeminiApiKeys();
-    const GEMINI_MODEL = 'gemini-3.8-flash';
     if (keys.length === 0) throw new Error("No se encontró clave API de Gemini válida en .env");
 
-    const modelsToTry = [GEMINI_MODEL, 'gemini-3.5-flash'];
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
     let lastError = null;
 
     for (const model of modelsToTry) {

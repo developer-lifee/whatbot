@@ -170,6 +170,22 @@ Devuelve un JSON estrictamente estructurado así:
  */
 async function handleAdvisorErrorReport(message, client, userStates) {
     try {
+        if (!message || (!message.body && !message.hasMedia)) return;
+        const bodyLower = (message.body || '').toLowerCase().trim();
+        // Evitar bucles recursivos ignorando mensajes autogenerados del bot
+        if (
+            bodyLower.includes('[diagnóstico') ||
+            bodyLower.includes('ticket #err-') ||
+            bodyLower.includes('ticket: #err-') ||
+            bodyLower.includes('[agy / cli]') ||
+            bodyLower.includes('propuesta de resolución') ||
+            bodyLower.includes('[solución aplicada') ||
+            bodyLower.includes('reiniciando servicio') ||
+            bodyLower.includes('🤖')
+        ) {
+            return;
+        }
+
         const chat = await message.getChat();
         const chatName = chat ? (chat.name || '') : '';
         const sender = message.author || message.from;
