@@ -239,21 +239,38 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             rawOcr: null
         };
 
-        // 2. Si el reporte contiene imagen (captura de WhatsApp, comprobante, etc.)
-        if (message.hasMedia) {
+        // Buscar contexto previo en el chat (por si enviaron una captura o mensaje anterior con el nombre/cliente)
+        let targetMediaMsg = message.hasMedia ? message : null;
+        let recentChatContext = '';
+        if (chat && chat.fetchMessages) {
             try {
-                const media = await message.downloadMedia();
+                const recents = await chat.fetchMessages({ limit: 5 });
+                const validRecents = recents.filter(m => m && Math.abs(message.timestamp - m.timestamp) < 600);
+                if (!targetMediaMsg) {
+                    const mediaMsg = validRecents.reverse().find(m => m.hasMedia);
+                    if (mediaMsg) targetMediaMsg = mediaMsg;
+                }
+                recentChatContext = validRecents.map(m => `[${m.author || m.from}]: ${m.body || (m.hasMedia ? '[Captura/Imagen]' : '')}`).join('\n');
+            } catch (e) {}
+        }
+
+        // 2. Si el reporte contiene o está asociado a una imagen (captura de WhatsApp, comprobante, etc.)
+        if (targetMediaMsg && targetMediaMsg.hasMedia) {
+            try {
+                const media = await targetMediaMsg.downloadMedia();
                 if (media && media.data) {
                     const ocrPrompt = `Analiza esta captura de pantalla enviada al grupo de errores de soporte técnico.
 Puede ser una conversación de WhatsApp con un cliente, un comprobante bancario, una pantalla de la web o un error de sistema.
+Contexto reciente del chat:
+${recentChatContext}
 
 Extrae en formato JSON:
 {
   "clientPhone": string | null, // Teléfono del cliente si se ve en el encabezado, texto o comprobante (ej: "3125297905")
-  "clientName": string | null,  // Nombre del cliente o contacto si aparece
-  "platform": string | null,    // Plataforma involucrada (Netflix, Prime Video, YouTube, Disney, HBO, Spotify, etc.)
-  "problemType": string,        // "comprobante_rechazado", "no_entrega_credenciales", "vencimiento_error", "cobro_indebido", "cupos_agotados", "clave_incorrecta", "otro"
-  "summary": string             // Resumen de qué ocurrió según la captura (ej: "El bot entregó clave anterior en lugar de la actual")
+  "clientName": string | null,  // Nombre del cliente o contacto si aparece (ej: "Jhanca Goez")
+  "platform": string | null,    // Plataforma involucrada (Netflix, Apple One, Prime Video, YouTube, Disney, HBO, Spotify, etc.)
+  "problemType": string,        // "cobro_indebido", "no_renovado", "comprobante_rechazado", "no_entrega_credenciales", "vencimiento_error", "clave_incorrecta", "otro"
+  "summary": string             // Resumen conciso y claro de qué ocurrió según la captura y el mensaje
 }`;
                     const mediaObj = { data: media.data, mimeType: media.mimetype || 'image/jpeg' };
                     const visionText = await describeImageWithGemini(mediaObj, message.body || '');
@@ -261,7 +278,7 @@ Extrae en formato JSON:
 
                     try {
                         const jsonParsed = await callDeepSeek(
-                            `A partir de la siguiente descripción visual de la captura y el comentario del asesor, extrae los datos solicitados en formato JSON:\n\nCOMENTARIO ASESOR: "${message.body || ''}"\n\nDESCRIPCIÓN CAPTURA:\n${visionText}\n\n` + ocrPrompt,
+                            `A partir de la siguiente descripción visual de la captura y los mensajes del chat, extrae los datos solicitados en formato JSON:\n\nMENSAJE ASESOR: "${message.body || ''}"\n\nCONTEXTO RECIENTE:\n${recentChatContext}\n\nDESCRIPCIÓN CAPTURA:\n${visionText}\n\n` + ocrPrompt,
                             "Responde únicamente con el JSON solicitado.",
                             true
                         );
@@ -275,10 +292,10 @@ Extrae en formato JSON:
                 console.error('[ErrorDiagnostic] Error descargando imagen de reporte:', mediaErr.message);
             }
         } else {
-            // Si es solo texto
+            // Si es solo texto, analizarlo junto con los últimos mensajes del grupo
             try {
                 const textParsed = await callDeepSeek(
-                    `Analiza este reporte de error enviado por un asesor:\n"${message.body}"\n\nExtrae en JSON:
+                    `Analiza este reporte de error enviado por un asesor y el contexto reciente del grupo:\nREPORTE: "${message.body}"\n\nCONTEXTO RECIENTE DEL GRUPO:\n${recentChatContext}\n\nExtrae en JSON:
 {
   "clientPhone": string | null,
   "clientName": string | null,
@@ -359,25 +376,30 @@ Extrae en formato JSON:
         });
 
         // 6. Construir Mensaje de Respuesta
-        let responseMsg = `🛠️ *[AGY / CLI] PROPUESTA DE RESOLUCIÓN (Ticket #${ticketId})*\n\n`;
+        let responseMsg = `🛠️ *[DIAGNÓSTICO Y RESPUESTA]* (Ticket #${ticketId})\n\n`;
 
-        if (extractedInfo.summary) {
-            responseMsg += `📋 *Caso:* ${extractedInfo.summary}\n`;
+        const reportedText = (message.body || '').trim();
+        if (reportedText) {
+            responseMsg += `💬 *En respuesta a:* "${reportedText.length > 80 ? reportedText.slice(0, 80) + '...' : reportedText}"\n`;
         }
-        if (cleanPhone) {
-            responseMsg += `👤 *Cliente:* +57 ${cleanPhone}${extractedInfo.clientName ? ` (${extractedInfo.clientName})` : ''}\n`;
+        if (extractedInfo.clientName || cleanPhone) {
+            responseMsg += `👤 *Cliente:* ${extractedInfo.clientName || 'Identificado'} ${cleanPhone ? `(+57 ${cleanPhone})` : ''}\n`;
         }
         if (extractedInfo.platform) {
             responseMsg += `📺 *Plataforma:* ${platUpper}\n`;
         }
+        if (extractedInfo.summary) {
+            responseMsg += `📋 *Situación:* ${extractedInfo.summary}\n`;
+        }
 
-        responseMsg += `\n🔍 *Causa Raíz:* \n${cliSolution.causaRaiz}\n`;
-        responseMsg += `\n📋 *Plan de Solución en Código:* \n${cliSolution.planCodigo}\n`;
-        responseMsg += `\n📝 *Commit Detallado Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
+        responseMsg += `\n🔍 *Explicación:* \n${cliSolution.causaRaiz}\n`;
+        responseMsg += `\n💡 *Acción / Solución:* \n${cliSolution.planCodigo}\n`;
 
-        responseMsg += `\n📌 *Comandos de Control:*\n` +
-            `👉 *Para aprobar y aplicar esta solución:* Responde a este mensaje con *@aceptar*\n` +
-            `🔄 *Para reiniciar el bot:* Escribe *@restart* en cualquier momento.`;
+        if (cliSolution.commitDetallado && !cliSolution.commitDetallado.includes('incidencia soporte')) {
+            responseMsg += `\n📝 *Commit Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
+            responseMsg += `👉 *Para aplicar cambio en código:* Escribe *@aceptar*\n`;
+        }
+        responseMsg += `\n🔄 *Para reiniciar el bot:* Escribe *@restart*`;
 
         // Responder citando el mensaje del asesor o directamente si falla el quote
         try {
