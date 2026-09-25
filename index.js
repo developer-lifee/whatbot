@@ -9257,7 +9257,11 @@ client.on('message_create', async (msg) => {
                 msg.body.includes('🤖') ||
                 msg.body.includes('[AGY / CLI]') ||
                 msg.body.includes('PROPUESTA DE RESOLUCIÓN') ||
-                msg.body.includes('[SOLUCIÓN APLICADA')
+                msg.body.includes('[SOLUCIÓN APLICADA') ||
+                msg.body.includes('DIAGNÓSTICO Y RESPUESTA') ||
+                msg.body.includes('[DIAGNÓSTICO') ||
+                msg.body.includes('Ticket #ERR-') ||
+                msg.body.includes('🛠️')
             );
             if (!isBotSelfMessage) {
                 if (msg.hasMedia || lowerBody.length > 5) {
@@ -10052,7 +10056,7 @@ async function baseProcessIncomingMessage(messages) {
         const isSimulating = adminStateData.state === 'simulating_client';
 
         if (!cleanBody.startsWith("@bot") && !message.fromMe && !message.hasMedia && !isSimulating) {
-            const { handleAdminSuggestions } = require('./adminQueries');
+            const { handleAdminSuggestions } = require('./adminService');
             await handleAdminSuggestions(message, userStates);
         }
     }
