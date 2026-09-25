@@ -15,7 +15,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const { execSync, execFileSync } = require('child_process');
 
 const REPO_DIR = path.resolve(__dirname);
-const AGY_MODEL = 'gemini-3.8-flash-high';
+const AGY_MODEL = 'Gemini 3.8 Flash (High)';
 const GEMINI_MODEL = AGY_MODEL;
 
 /**
