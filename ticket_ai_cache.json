@@ -633,7 +633,8 @@
     "573115335970": "Solicitud renovación de suscripción",
     "573193293171": "Confirmación método pago Nequi",
     "573112222525": "Cliente agradece servicio finalizado",
-    "125735318618135": "Solicitud de asistencia técnica"
+    "125735318618135": "Solicitud de asistencia técnica",
+    "249723021713571@lid": "Envío de cuentas renovadas"
   },
   "cache": {
     "3013645738": {
@@ -2943,6 +2944,11 @@
     },
     "125735318618135@lid": {
       "lastMessage": "",
+      "state": "waiting_human",
+      "summary": ""
+    },
+    "249723021713571@lid": {
+      "lastMessage": "spotinetcombo+11@gmail.com\tHboMax2135\nspotinetcombo+12@gmail.com\tMaxHbo4433\n\n*RENOVADAS*",
       "state": "waiting_human",
       "summary": ""
     }
