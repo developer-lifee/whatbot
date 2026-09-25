@@ -115,10 +115,12 @@ function logReportedError(data) {
  */
 async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = []) {
     const fallbackResponse = {
-        causaRaiz: extractedInfo.summary || "Inconsistencia en validación o datos de la plataforma",
-        planCodigo: "Revisar validaciones de estado y sincronización de credenciales para la plataforma.",
-        commitDetallado: `fix(bot): resolver incidencia ${extractedInfo.problemType || 'soporte'} reportada por asesor\n\n- Previene falsos positivos en el flujo de atención\n- Asegura entrega de credenciales actualizada`,
-        archivosAfectados: ["index.js"]
+        causaRaiz: extractedInfo.summary || "Desfase temporal en lectura o sincronización de datos con Excel Online.",
+        planCodigo: diagnosticNotes.length > 0 
+            ? diagnosticNotes.join('\n') 
+            : "Validar estado de la cuenta en Excel Online y forzar sincronización de fecha de corte.",
+        commitDetallado: "",
+        archivosAfectados: []
     };
 
     const generatePromise = async () => {
@@ -155,7 +157,7 @@ Devuelve un JSON estrictamente estructurado así:
         }
     };
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 12000));
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 45000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {
