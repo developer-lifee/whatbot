@@ -849,8 +849,8 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
 
   let accountsToFormat = userAccounts;
   if (requestedPlatform) {
-    const term = requestedPlatform.toLowerCase();
-    accountsToFormat = userAccounts.filter(acc => (acc.Streaming || "").toLowerCase().includes(term));
+    const { isStreamingMatch } = require('./billingService');
+    accountsToFormat = userAccounts.filter(acc => isStreamingMatch(acc.Streaming, requestedPlatform));
   }
 
   if (accountsToFormat.length === 0) return null;
