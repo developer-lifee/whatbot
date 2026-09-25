@@ -12,10 +12,11 @@
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 const REPO_DIR = path.resolve(__dirname);
 const AGY_MODEL = 'gemini-3.8-flash-high';
+const GEMINI_MODEL = AGY_MODEL;
 
 /**
  * Invoca directamente el CLI oficial de Antigravity (agy) autenticado con la cuenta de Google
@@ -23,7 +24,8 @@ const AGY_MODEL = 'gemini-3.8-flash-high';
 async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
     const fullPrompt = `${systemInstruction}\n\n${prompt}`;
     try {
-        const output = execSync(`agy -p ${JSON.stringify(fullPrompt)} --model ${AGY_MODEL} --dangerously-skip-permissions`, {
+        const agyBin = fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy';
+        const output = execFileSync(agyBin, ['-p', fullPrompt, '--model', AGY_MODEL, '--dangerously-skip-permissions'], {
             cwd: REPO_DIR,
             encoding: 'utf8',
             timeout: 60000,
