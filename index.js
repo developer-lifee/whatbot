@@ -9227,8 +9227,9 @@ client.on('message_create', async (msg) => {
         saveMessage(msg).catch(err => console.error("[DB Save Error] message_create:", err.message));
     }
 
-    // Si el mensaje lo envío yo mismo (fromMe) a un grupo con comando @bot o @restart
-    if (msg.fromMe && ((msg.to && msg.to.includes('@g.us')) || (msg.from && msg.from.includes('@g.us')))) {
+    // Si el mensaje lo envío yo mismo (fromMe) a un grupo con comando @bot, @restart o reporte en grupo de errores
+    const groupJid = (msg.to && msg.to.includes('@g.us')) ? msg.to : ((msg.from && msg.from.includes('@g.us')) ? msg.from : null);
+    if (msg.fromMe && groupJid) {
         const lowerBody = (msg.body || '').toLowerCase().trim();
         if (lowerBody === '@restart' || lowerBody === '!restart' || lowerBody === '@reiniciar' || lowerBody === '!reiniciar' || lowerBody.startsWith('@bot restart') || lowerBody.startsWith('@bot reiniciar')) {
             const { exec } = require('child_process');
@@ -9243,6 +9244,28 @@ client.on('message_create', async (msg) => {
         if (msg.body && (lowerBody.includes('@bot') || lowerBody.startsWith('!bot'))) {
             processIncomingMessage([msg]).catch(err => console.error('Error procesando comando @bot de grupo en message_create:', err));
             return;
+        }
+
+        // Diagnóstico en grupo de errores (incluso si fue enviado por el administrador / dueño fromMe)
+        const { isErrorDiagnosticGroup, handleAdvisorErrorReport } = require('./errorDiagnosticService');
+        let chat = null;
+        try { chat = await msg.getChat(); } catch (e) {}
+        const isErrGroup = isErrorDiagnosticGroup(groupJid, chat ? chat.name : '');
+        if (isErrGroup) {
+            // Ignorar respuestas generadas por el propio bot para no entrar en bucle
+            const isBotSelfMessage = msg.body && (
+                msg.body.includes('🤖') ||
+                msg.body.includes('[AGY / CLI]') ||
+                msg.body.includes('PROPUESTA DE RESOLUCIÓN') ||
+                msg.body.includes('[SOLUCIÓN APLICADA')
+            );
+            if (!isBotSelfMessage) {
+                if (msg.hasMedia || lowerBody.length > 5) {
+                    console.log(`[ErrorDiagnostic fromMe] 🚨 Detectado reporte de error propio en ${groupJid}: "${msg.body || '[Media]'}"`);
+                    handleAdvisorErrorReport(msg, client, userStates).catch(err => console.error('[ErrorDiagnostic fromMe] Error:', err.message));
+                    return;
+                }
+            }
         }
     }
 

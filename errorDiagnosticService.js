@@ -174,6 +174,12 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         const senderPhone = sender.replace('@c.us', '').replace(/\D/g, '');
         const textTrimmed = (message.body || '').trim();
 
+        const groupChatId = (message.to && message.to.includes('@g.us')) 
+            ? message.to 
+            : ((message.from && message.from.includes('@g.us')) 
+                ? message.from 
+                : (chat ? chat.id._serialized : message.from));
+
         // 1. FLUJO DE APROBACIÓN CON @aceptar
         const isAcceptance = /^@?acept(ar|o)\b/i.test(textTrimmed) || textTrimmed.toLowerCase().includes('@aceptar');
         if (isAcceptance) {
@@ -204,10 +210,19 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                     `⚠️ *Regla Estricta CLI:*\n` +
                     `El commit ya está guardado en el repositorio de producción. Conforme a la regla establecida, PM2 *NO* se ha reiniciado automáticamente para que tú decidas cuándo hacer el despliegue.`;
 
-                await message.reply(acceptMsg);
+                try {
+                    await message.reply(acceptMsg);
+                } catch (e) {
+                    if (client && client.sendMessage) await client.sendMessage(groupChatId, acceptMsg).catch(() => {});
+                }
                 return;
             } else {
-                await message.reply(`ℹ️ No encontré ninguna propuesta de solución pendiente de aprobación para aceptar.\nSi deseas aprobar una específica, responde directamente citando el mensaje del plan con *@aceptar*.`);
+                const noTicketMsg = `ℹ️ No encontré ninguna propuesta de solución pendiente de aprobación para aceptar.\nSi deseas aprobar una específica, responde directamente citando el mensaje del plan con *@aceptar*.`;
+                try {
+                    await message.reply(noTicketMsg);
+                } catch (e) {
+                    if (client && client.sendMessage) await client.sendMessage(groupChatId, noTicketMsg).catch(() => {});
+                }
                 return;
             }
         }
@@ -370,7 +385,7 @@ Extrae en formato JSON:
         } catch (repErr) {
             console.warn('[ErrorDiagnostic] Fallback enviando con client.sendMessage:', repErr.message);
             if (client && client.sendMessage) {
-                await client.sendMessage(message.from, responseMsg).catch(err => console.error('[ErrorDiagnostic] Error en fallback de envío:', err.message));
+                await client.sendMessage(groupChatId, responseMsg).catch(err => console.error('[ErrorDiagnostic] Error en fallback de envío:', err.message));
             }
         }
 
