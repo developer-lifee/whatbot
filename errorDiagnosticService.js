@@ -31,6 +31,19 @@ function isErrorDiagnosticGroup(chatId, chatName = '') {
 /**
  * Guarda o actualiza una propuesta de solución pendiente de aprobación
  */
+// Control de mensajes de reporte ya procesados o en ejecución concurrente para evitar duplicados
+const processedReportMessageIds = new Set();
+const activeReportMessageIds = new Set();
+
+setInterval(() => {
+    if (processedReportMessageIds.size > 1000) {
+        processedReportMessageIds.clear();
+    }
+}, 10 * 60 * 1000);
+
+/**
+ * Guarda o actualiza una propuesta de solución pendiente de aprobación
+ */
 function savePendingSolution(ticket) {
     try {
         let solutions = [];
@@ -50,7 +63,46 @@ function savePendingSolution(ticket) {
 }
 
 /**
- * Aprueba una solución pendiente cuando un asesor escribe @aceptar
+ * Obtiene la última solución pendiente de aprobación (o la asociada al mensaje citado)
+ */
+function getLatestPendingSolution(quotedText = '') {
+    try {
+        if (!fs.existsSync(PENDING_SOLUTIONS_PATH)) return null;
+        let solutions = JSON.parse(fs.readFileSync(PENDING_SOLUTIONS_PATH, 'utf8'));
+        if (quotedText) {
+            const matchId = quotedText.match(/#?(ERR-[\w-]+)/i);
+            if (matchId) {
+                const found = solutions.find(s => s.id === matchId[1] && s.status === 'PENDIENTE_APROBACION');
+                if (found) return found;
+            }
+        }
+        return solutions.find(s => s.status === 'PENDIENTE_APROBACION') || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Actualiza los campos de un ticket pendiente
+ */
+function updatePendingSolution(ticketId, updatedFields) {
+    try {
+        if (!fs.existsSync(PENDING_SOLUTIONS_PATH)) return null;
+        let solutions = JSON.parse(fs.readFileSync(PENDING_SOLUTIONS_PATH, 'utf8'));
+        const index = solutions.findIndex(s => s.id === ticketId);
+        if (index !== -1) {
+            solutions[index] = { ...solutions[index], ...updatedFields, updatedAt: new Date().toISOString() };
+            fs.writeFileSync(PENDING_SOLUTIONS_PATH, JSON.stringify(solutions, null, 2), 'utf8');
+            return solutions[index];
+        }
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Aprueba una solución pendiente cuando el usuario escribe @commit o @aceptar
  */
 function approvePendingSolution(quotedText = '', approverPhone = '') {
     try {
@@ -113,31 +165,69 @@ function logReportedError(data) {
 /**
  * Genera el plan de resolución y commit detallado con LLM (Gemini / DeepSeek)
  */
-async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = []) {
+async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], userAdjustment = null, previousTicket = null) {
+    let fallbackCausa = extractedInfo.summary || "Incidencia reportada en el grupo de soporte.";
+    let fallbackPlan = diagnosticNotes.length > 0 
+        ? diagnosticNotes.join('\n') 
+        : "Revisar logs del bot y validar el flujo de atención para el caso reportado.";
+    let fallbackCommit = "fix(bot): resolver incidencia técnica reportada\n\n- Prevención de fallos y refuerzo de validaciones.";
+    let fallbackFiles = ["index.js"];
+
+    const rawOcrText = (extractedInfo.rawOcr || '').toLowerCase();
+    const sumLower = (extractedInfo.summary || '').toLowerCase();
+
+    if (rawOcrText.includes('bancolombia') || rawOcrText.includes('transferencia') || sumLower.includes('pago') || sumLower.includes('comprobante')) {
+        fallbackCausa = `Comprobante de transferencia bancaria (${extractedInfo.platform || 'Bancolombia'}${extractedInfo.clientPhone ? `, celular ${extractedInfo.clientPhone}` : ''}) enviado pero el bot no lo validó ni envió respuesta de confirmación/entrega.`;
+        fallbackPlan = `1. En gmailService.js y billingService.js, comprobar la sincronización del buzón de alertas bancarias y ampliar la ventana de tolerancia de minutos para transferencias.\n2. En index.js, asegurar que cuando el cliente envía comprobante con mensaje de cortesía ("Listo gracias"), el bot no se quede en espera humana y proceda con la validación del pago.`;
+        fallbackCommit = `fix(billing): mejorar detección y validación de transferencias Bancolombia\n\n- Sincronización de alertas y mitigación de bloqueo en espera humana ante comprobantes con texto de cortesía.`;
+        fallbackFiles = ["gmailService.js", "billingService.js", "index.js"];
+    }
+
     const fallbackResponse = {
-        causaRaiz: extractedInfo.summary || "Desfase temporal en lectura o sincronización de datos con Excel Online.",
-        planCodigo: diagnosticNotes.length > 0 
-            ? diagnosticNotes.join('\n') 
-            : "Validar estado de la cuenta en Excel Online y forzar sincronización de fecha de corte.",
-        commitDetallado: "",
-        archivosAfectados: []
+        causaRaiz: fallbackCausa,
+        planCodigo: fallbackPlan,
+        commitDetallado: fallbackCommit,
+        archivosAfectados: fallbackFiles
     };
 
     const generatePromise = async () => {
-        const prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit).
+        let prompt = '';
+        if (userAdjustment && previousTicket) {
+            prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit).
+El usuario solicitó un AJUSTE / CAMBIO a una propuesta previa:
+
+PROPUESTA PREVIA:
+- Caso: ${previousTicket.summary || extractedInfo.summary}
+- Diagnóstico previo: ${previousTicket.diagnosis}
+- Plan previo: ${previousTicket.plan}
+- Archivos previos: ${(previousTicket.files || []).join(', ')}
+
+INDICACIÓN / CORRECCIÓN DEL USUARIO:
+"${userAdjustment}"
+
+Notas de diagnóstico del sistema:
+${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
+
+Genera una NUEVA propuesta técnica que incorpore estrictamente la solución que el usuario quiere.
+Devuelve un JSON estrictamente estructurado así:
+{
+  "causaRaiz": "Explicación concisa y técnica de la causa raíz actualizada con la indicación del usuario",
+  "planCodigo": "Pasos detallados de las modificaciones en código ajustadas",
+  "commitDetallado": "Título y cuerpo del commit propuesto explicando los cambios",
+  "archivosAfectados": ["archivo1.js", "archivo2.js"]
+}`;
+        } else {
+            prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit).
 Un asesor reportó la siguiente incidencia en el grupo de WhatsApp "Errors bot":
 - Caso / Resumen: ${extractedInfo.summary || 'Error reportado en chat'}
 - Cliente: ${extractedInfo.clientPhone || 'No especificado'} (${extractedInfo.clientName || 'N/A'})
 - Plataforma: ${extractedInfo.platform || 'General'}
 - Tipo de problema: ${extractedInfo.problemType || 'incidencia'}
+- OCR / Captura: ${extractedInfo.rawOcr || 'Sin OCR'}
 - Estado actual en sistema:
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
-Genera un plan de ingeniería en código para erradicar este problema y que no vuelva a suceder jamás.
-REGLAS IMPORTANTES:
-1. Si se requiere reiniciar el servicio para aplicar los cambios, se indicará el uso de @restart.
-2. Los commits deben ser detallados y explicar claramente el qué y el porqué.
-
+Genera un plan de ingeniería en código para erradicar este problema de raíz.
 Devuelve un JSON estrictamente estructurado así:
 {
   "causaRaiz": "Explicación concisa y técnica de por qué ocurrió el fallo en el código o datos",
@@ -145,6 +235,8 @@ Devuelve un JSON estrictamente estructurado así:
   "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios y la prevención de regresión",
   "archivosAfectados": ["archivo1.js", "archivo2.js"]
 }`;
+        }
+
         let raw = null;
         try {
             raw = await callGemini38Flash(prompt, "Eres Antigravity CLI. Responde exclusivamente con el JSON solicitado sin bloques markdown ni texto extra.");
@@ -153,6 +245,7 @@ Devuelve un JSON estrictamente estructurado así:
         } catch (gErr) {
             console.warn('[ErrorDiagnostic] Fallback a DeepSeek para plan CLI:', gErr.message);
             raw = await callDeepSeek(prompt, "Responde únicamente con el JSON solicitado.", true);
+            raw = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
             return JSON.parse(raw);
         }
     };
@@ -169,8 +262,19 @@ Devuelve un JSON estrictamente estructurado así:
  * Diagnostica un reporte enviado por un asesor en el grupo "errors bot"
  */
 async function handleAdvisorErrorReport(message, client, userStates) {
+    if (!message || (!message.body && !message.hasMedia)) return;
+
+    // Deduplicación estricta por ID del mensaje para evitar doble respuesta (message vs message_create)
+    const msgId = message.id ? (message.id._serialized || message.id.id) : null;
+    if (msgId) {
+        if (processedReportMessageIds.has(msgId) || activeReportMessageIds.has(msgId)) {
+            console.log(`[ErrorDiagnostic] ⚠️ Mensaje ya procesado o en ejecución concurrente ignorado: ${msgId}`);
+            return;
+        }
+        activeReportMessageIds.add(msgId);
+    }
+
     try {
-        if (!message || (!message.body && !message.hasMedia)) return;
         const bodyLower = (message.body || '').toLowerCase().trim();
         // Evitar bucles recursivos ignorando mensajes autogenerados del bot
         if (
@@ -180,6 +284,8 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             bodyLower.includes('[agy / cli]') ||
             bodyLower.includes('propuesta de resolución') ||
             bodyLower.includes('[solución aplicada') ||
+            bodyLower.includes('[solución implementada') ||
+            bodyLower.includes('[propuesta ajustada') ||
             bodyLower.includes('reiniciando servicio') ||
             bodyLower.includes('🤖')
         ) {
@@ -198,9 +304,9 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 ? message.from 
                 : (chat ? chat.id._serialized : message.from));
 
-        // 1. FLUJO DE APROBACIÓN CON @aceptar
-        const isAcceptance = /^@?acept(ar|o)\b/i.test(textTrimmed) || textTrimmed.toLowerCase().includes('@aceptar');
-        if (isAcceptance) {
+        // 1. FLUJO DE APROBACIÓN CON @commit (o @aceptar)
+        const isCommit = /^@?commit\b/i.test(textTrimmed) || /^@?acept(ar|o)\b/i.test(textTrimmed);
+        if (isCommit) {
             let quotedText = '';
             if (message.hasQuotedMsg) {
                 try {
@@ -211,31 +317,57 @@ async function handleAdvisorErrorReport(message, client, userStates) {
 
             const approvedTicket = approvePendingSolution(quotedText, senderPhone);
             if (approvedTicket) {
-                // Ejecutar el commit directamente en el repositorio usando el CLI y Gemini 3.8 Flash
+                const waitNotice = `⚙️ *[APLICANDO CAMBIOS EN CÓDIGO Y SUBIENDO AL REPOSITORIO...]* (Ticket: #${approvedTicket.id})\n` +
+                    `Por favor espera un momento mientras Antigravity CLI aplica las modificaciones, corre validación sintáctica y hace git push...`;
+                try { await message.reply(waitNotice); } catch (e) {
+                    if (client && client.sendMessage) await client.sendMessage(groupChatId, waitNotice).catch(() => {});
+                }
+
+                // Ejecutar el parche en código, commit y push usando Antigravity CLI
                 const commitResult = await executeFixAndCommit(approvedTicket);
 
-                const filesList = (commitResult.changedFiles && commitResult.changedFiles.length > 0)
-                    ? commitResult.changedFiles.map(f => `• ${f}`).join('\n')
-                    : '• Repositorio actualizado y verificado';
+                if (commitResult.success) {
+                    const filesList = (commitResult.changedFiles && commitResult.changedFiles.length > 0)
+                        ? commitResult.changedFiles.map(f => `• ${f}`).join('\n')
+                        : '• Repositorio actualizado y verificado';
 
-                const acceptMsg = `✅ *[SOLUCIÓN APLICADA Y COMMIT GENERADO]* (Ticket: #${approvedTicket.id})\n\n` +
-                    `👤 *Aprobado por:* @${senderPhone}\n` +
-                    `🤖 *Motor:* Antigravity CLI (${commitResult.model || GEMINI_MODEL})\n` +
-                    `📦 *Commit Hash:* \`${commitResult.commitHash || 'OK'}\`\n\n` +
-                    `📋 *Caso Resuelto:* ${approvedTicket.summary}\n\n` +
-                    `📁 *Archivos Involucrados:*\n${filesList}\n\n` +
-                    `📝 *Commit en Repositorio:*\n\`\`\`\n${approvedTicket.commitMessage}\n\`\`\`\n\n` +
-                    `⚠️ *Regla Estricta CLI:*\n` +
-                    `El commit ya está guardado en el repositorio de producción. Conforme a la regla establecida, PM2 *NO* se ha reiniciado automáticamente para que tú decidas cuándo hacer el despliegue.`;
+                    const commitHashDisplay = commitResult.commitHash ? `\`${commitResult.commitHash}\`` : 'OK';
+                    const pushNotice = commitResult.pushed ? '✅ Subido exitosamente a `origin/main`' : '⚠️ Commit local creado';
 
-                try {
-                    await message.reply(acceptMsg);
-                } catch (e) {
-                    if (client && client.sendMessage) await client.sendMessage(groupChatId, acceptMsg).catch(() => {});
+                    const acceptMsg = `✅ *[SOLUCIÓN IMPLEMENTADA, COMMIT Y PUSH COMPLETADOS]* (Ticket: #${approvedTicket.id})\n\n` +
+                        `👤 *Aprobado por:* @${senderPhone}\n` +
+                        `🤖 *Motor:* Antigravity CLI (${commitResult.model || GEMINI_MODEL})\n` +
+                        `📦 *Commit Hash:* ${commitHashDisplay}\n` +
+                        `🚀 *GitHub Remote:* ${pushNotice}\n\n` +
+                        `📋 *Caso Resuelto:* ${approvedTicket.summary}\n\n` +
+                        `📁 *Archivos Modificados:*\n${filesList}\n\n` +
+                        `📝 *Detalle del Commit:*\n\`\`\`\n${approvedTicket.commitMessage}\n\`\`\`\n\n` +
+                        `⚡ *¡CÓDIGO LISTO EN PRODUCCIÓN!*\n` +
+                        `Los cambios ya se encuentran guardados y subidos al repositorio.\n\n` +
+                        `🔄 *Para activar los cambios en caliente ahora:* Escribe *@restart*`;
+
+                    try {
+                        await message.reply(acceptMsg);
+                    } catch (e) {
+                        if (client && client.sendMessage) await client.sendMessage(groupChatId, acceptMsg).catch(() => {});
+                    }
+                    return;
+                } else {
+                    const errorMsg = `❌ *[ERROR AL APLICAR SOLUCIÓN]* (Ticket: #${approvedTicket.id})\n\n` +
+                        `Ocurrió un problema al intentar modificar los archivos o hacer push:\n` +
+                        `\`${commitResult.error || 'Error desconocido'}\`\n\n` +
+                        `Los cambios anteriores fueron revertidos para proteger la estabilidad del bot.\n` +
+                        `Puedes solicitar un enfoque diferente escribiendo *@cambio <nueva indicación>*.`;
+                    try {
+                        await message.reply(errorMsg);
+                    } catch (e) {
+                        if (client && client.sendMessage) await client.sendMessage(groupChatId, errorMsg).catch(() => {});
+                    }
+                    return;
                 }
-                return;
             } else {
-                const noTicketMsg = `ℹ️ No encontré ninguna propuesta de solución pendiente de aprobación para aceptar.\nSi deseas aprobar una específica, responde directamente citando el mensaje del plan con *@aceptar*.`;
+                const noTicketMsg = `ℹ️ No encontré ninguna propuesta de solución pendiente de aprobación.\n` +
+                    `Si deseas aprobar una específica, responde citando el mensaje del diagnóstico con *@commit*.`;
                 try {
                     await message.reply(noTicketMsg);
                 } catch (e) {
@@ -243,6 +375,77 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 }
                 return;
             }
+        }
+
+        // 2. FLUJO DE AJUSTE CON @cambio <solucion>
+        const changeMatch = textTrimmed.match(/^@?cambio[+: ]\s*(.+)/is) || textTrimmed.match(/^@?cambio\b(.*)/is);
+        if (changeMatch) {
+            const userInstruction = changeMatch[1] ? changeMatch[1].trim() : '';
+            if (!userInstruction) {
+                const hintMsg = `⚠️ Por favor especifica qué cambio o solución deseas. Ejemplo:\n` +
+                    `*@cambio validar contra las alertas de Gmail de Bancolombia y no contra Excel*`;
+                try { await message.reply(hintMsg); } catch (e) {
+                    if (client && client.sendMessage) await client.sendMessage(groupChatId, hintMsg).catch(() => {});
+                }
+                return;
+            }
+
+            let quotedText = '';
+            if (message.hasQuotedMsg) {
+                try {
+                    const quoted = await message.getQuotedMessage();
+                    if (quoted && quoted.body) quotedText = quoted.body;
+                } catch (e) {}
+            }
+
+            const pendingTicket = getLatestPendingSolution(quotedText);
+            if (!pendingTicket) {
+                const noTicketMsg = `ℹ️ No encontré ninguna propuesta pendiente para modificar.\n` +
+                    `Por favor responde citando el mensaje del ticket de diagnóstico que deseas cambiar escribiendo *@cambio <tu indicación>*.`;
+                try { await message.reply(noTicketMsg); } catch (e) {
+                    if (client && client.sendMessage) await client.sendMessage(groupChatId, noTicketMsg).catch(() => {});
+                }
+                return;
+            }
+
+            const adjustingNotice = `⏳ *[REAJUSTANDO PROPUESTA SEGÚN TU INDICACIÓN]* (Ticket #${pendingTicket.id})...\n` +
+                `Analizando: "${userInstruction}"`;
+            try { await message.reply(adjustingNotice); } catch (e) {
+                if (client && client.sendMessage) await client.sendMessage(groupChatId, adjustingNotice).catch(() => {});
+            }
+
+            // Generar nueva propuesta incorporando la instrucción del usuario
+            const updatedCliSolution = await generateCliPlanAndCommit(
+                { summary: pendingTicket.summary, clientPhone: pendingTicket.clientPhone, platform: pendingTicket.platform, problemType: 'ajuste_usuario' },
+                [`⚠️ Solicitud de cambio del usuario: "${userInstruction}"`, `Diagnóstico previo: ${pendingTicket.diagnosis}`],
+                userInstruction,
+                pendingTicket
+            );
+
+            updatePendingSolution(pendingTicket.id, {
+                diagnosis: updatedCliSolution.causaRaiz,
+                plan: updatedCliSolution.planCodigo,
+                commitMessage: updatedCliSolution.commitDetallado,
+                files: updatedCliSolution.archivosAfectados
+            });
+
+            let adjustedMsg = `🛠️ *[PROPUESTA AJUSTADA]* (Ticket #${pendingTicket.id})\n\n`;
+            adjustedMsg += `✏️ *Ajuste recibido:* "${userInstruction}"\n\n`;
+            adjustedMsg += `🔍 *Explicación actualizada:* \n${updatedCliSolution.causaRaiz}\n\n`;
+            adjustedMsg += `💡 *Nuevo Plan de Código:* \n${updatedCliSolution.planCodigo}\n\n`;
+            if (updatedCliSolution.commitDetallado) {
+                adjustedMsg += `📝 *Commit Propuesto:* \n\`\`\`\n${updatedCliSolution.commitDetallado}\n\`\`\`\n\n`;
+            }
+            adjustedMsg += `👉 *Para implementar cambios en código y subir a GitHub:* Escribe *@commit*\n`;
+            adjustedMsg += `✏️ *Para seguir ajustando:* Escribe *@cambio <tu ajuste>*\n\n`;
+            adjustedMsg += `⚠️ *Nota:* El comando *@restart* solo estará disponible una vez que apruebes con *@commit*.`;
+
+            try {
+                await message.reply(adjustedMsg);
+            } catch (e) {
+                if (client && client.sendMessage) await client.sendMessage(groupChatId, adjustedMsg).catch(() => {});
+            }
+            return;
         }
 
         console.log(`[ErrorDiagnostic] 🚨 Procesando reporte de asesor en grupo: "${chatName}" (de @${senderPhone})`);
@@ -257,37 +460,48 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             rawOcr: null
         };
 
-        // Buscar contexto previo en el chat (por si enviaron una captura o mensaje anterior con el nombre/cliente)
+        // 3. Buscar si citó un mensaje con imagen
         let targetMediaMsg = message.hasMedia ? message : null;
-        let recentChatContext = '';
-        if (chat && chat.fetchMessages) {
+        if (!targetMediaMsg && message.hasQuotedMsg) {
             try {
-                const recents = await chat.fetchMessages({ limit: 5 });
-                const validRecents = recents.filter(m => m && Math.abs(message.timestamp - m.timestamp) < 600);
-                if (!targetMediaMsg) {
-                    const mediaMsg = validRecents.reverse().find(m => m.hasMedia);
-                    if (mediaMsg) targetMediaMsg = mediaMsg;
+                const quoted = await message.getQuotedMessage();
+                if (quoted && quoted.hasMedia) {
+                    targetMediaMsg = quoted;
                 }
-                recentChatContext = validRecents.map(m => `[${m.author || m.from}]: ${m.body || (m.hasMedia ? '[Captura/Imagen]' : '')}`).join('\n');
             } catch (e) {}
         }
 
-        // 2. Si el reporte contiene o está asociado a una imagen (captura de WhatsApp, comprobante, etc.)
+        // 4. Si no citó imagen, buscar en los mensajes recientes del grupo (hasta 20 mensajes atrás en las últimas 24 horas)
+        let recentChatContext = '';
+        if (chat && chat.fetchMessages) {
+            try {
+                const recents = await chat.fetchMessages({ limit: 20 });
+                const validRecents = recents.filter(m => m && Math.abs(message.timestamp - m.timestamp) < 86400); // 24 horas
+                if (!targetMediaMsg) {
+                    // Buscar la imagen más reciente enviada en el chat
+                    const mediaMsg = [...validRecents].reverse().find(m => m.hasMedia);
+                    if (mediaMsg) targetMediaMsg = mediaMsg;
+                }
+                recentChatContext = validRecents.slice(-8).map(m => `[${m.author || m.from}]: ${m.body || (m.hasMedia ? '[Captura/Imagen]' : '')}`).join('\n');
+            } catch (e) {}
+        }
+
+        // 5. Si el reporte contiene o está asociado a una imagen (captura de WhatsApp, comprobante, etc.)
         if (targetMediaMsg && targetMediaMsg.hasMedia) {
             try {
                 const media = await targetMediaMsg.downloadMedia();
                 if (media && media.data) {
                     const ocrPrompt = `Analiza esta captura de pantalla enviada al grupo de errores de soporte técnico.
-Puede ser una conversación de WhatsApp con un cliente, un comprobante bancario, una pantalla de la web o un error de sistema.
+Puede ser una conversación de WhatsApp con un cliente, un comprobante bancario (Bancolombia, Nequi, Daviplata, etc.), una pantalla de la web o un error de sistema.
 Contexto reciente del chat:
 ${recentChatContext}
 
 Extrae en formato JSON:
 {
-  "clientPhone": string | null, // Teléfono del cliente si se ve en el encabezado, texto o comprobante (ej: "3125297905")
-  "clientName": string | null,  // Nombre del cliente o contacto si aparece (ej: "Jhanca Goez")
-  "platform": string | null,    // Plataforma involucrada (Netflix, Apple One, Prime Video, YouTube, Disney, HBO, Spotify, etc.)
-  "problemType": string,        // "cobro_indebido", "no_renovado", "comprobante_rechazado", "no_entrega_credenciales", "vencimiento_error", "clave_incorrecta", "otro"
+  "clientPhone": string | null, // Teléfono del cliente si se ve en el encabezado, texto o comprobante (ej: "3118587974")
+  "clientName": string | null,  // Nombre del cliente o contacto si aparece (ej: "Esteban David Avila Diagama")
+  "platform": string | null,    // Plataforma o banco involucrado (Bancolombia, Nequi, Netflix, Prime Video, YouTube, etc.)
+  "problemType": string,        // "comprobante_no_validado", "cobro_indebido", "no_renovado", "comprobante_rechazado", "no_entrega_credenciales", "vencimiento_error", "clave_incorrecta", "otro"
   "summary": string             // Resumen conciso y claro de qué ocurrió según la captura y el mensaje
 }`;
                     const mediaObj = { data: media.data, mimeType: media.mimetype || 'image/jpeg' };
@@ -331,13 +545,13 @@ Extrae en formato JSON:
             }
         }
 
-        // 3. Normalizar teléfono si se detectó
+        // 6. Normalizar teléfono si se detectó
         let cleanPhone = extractedInfo.clientPhone ? extractedInfo.clientPhone.replace(/\D/g, '') : null;
         if (cleanPhone && cleanPhone.length > 10 && cleanPhone.startsWith('57')) {
             cleanPhone = cleanPhone.slice(-10);
         }
 
-        // 4. Cruzar datos con el sistema
+        // 7. Cruzar datos con el sistema
         let accountsFound = [];
         let stockAvailable = null;
         let diagnosticNotes = [];
@@ -374,7 +588,7 @@ Extrae en formato JSON:
             }
         }
 
-        // 5. Generar Plan de Solución CLI y Commit Detallado
+        // 8. Generar Plan de Solución CLI y Commit Detallado
         const ticketId = `ERR-${Date.now().toString().slice(-6)}`;
         const cliSolution = await generateCliPlanAndCommit(extractedInfo, diagnosticNotes);
 
@@ -393,7 +607,7 @@ Extrae en formato JSON:
             createdAt: new Date().toISOString()
         });
 
-        // 6. Construir Mensaje de Respuesta
+        // 9. Construir Mensaje de Respuesta
         let responseMsg = `🛠️ *[DIAGNÓSTICO Y RESPUESTA]* (Ticket #${ticketId})\n\n`;
 
         const reportedText = (message.body || '').trim();
@@ -404,20 +618,22 @@ Extrae en formato JSON:
             responseMsg += `👤 *Cliente:* ${extractedInfo.clientName || 'Identificado'} ${cleanPhone ? `(+57 ${cleanPhone})` : ''}\n`;
         }
         if (extractedInfo.platform) {
-            responseMsg += `📺 *Plataforma:* ${platUpper}\n`;
+            responseMsg += `📺 *Plataforma / Medio:* ${platUpper}\n`;
         }
         if (extractedInfo.summary) {
             responseMsg += `📋 *Situación:* ${extractedInfo.summary}\n`;
         }
 
         responseMsg += `\n🔍 *Explicación:* \n${cliSolution.causaRaiz}\n`;
-        responseMsg += `\n💡 *Acción / Solución:* \n${cliSolution.planCodigo}\n`;
+        responseMsg += `\n💡 *Acción / Solución en Código:* \n${cliSolution.planCodigo}\n`;
 
         if (cliSolution.commitDetallado && !cliSolution.commitDetallado.includes('incidencia soporte')) {
             responseMsg += `\n📝 *Commit Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
-            responseMsg += `👉 *Para aplicar cambio en código:* Escribe *@aceptar*\n`;
         }
-        responseMsg += `\n🔄 *Para reiniciar el bot:* Escribe *@restart*`;
+
+        responseMsg += `\n👉 *Para implementar cambio en código y subir a GitHub:* Escribe *@commit*\n`;
+        responseMsg += `✏️ *Para pedir otra solución o ajuste:* Escribe *@cambio <la solución que quieres>*\n`;
+        responseMsg += `\n⚠️ *Nota:* El comando *@restart* solo estará disponible una vez que apruebes con *@commit*.`;
 
         // Responder citando el mensaje del asesor o directamente si falla el quote
         try {
@@ -442,6 +658,11 @@ Extrae en formato JSON:
 
     } catch (err) {
         console.error('[ErrorDiagnostic] Error procesando reporte de asesor:', err.message);
+    } finally {
+        if (msgId) {
+            activeReportMessageIds.delete(msgId);
+            processedReportMessageIds.add(msgId);
+        }
     }
 }
 
@@ -449,5 +670,8 @@ module.exports = {
     isErrorDiagnosticGroup,
     handleAdvisorErrorReport,
     logReportedError,
-    approvePendingSolution
+    approvePendingSolution,
+    getLatestPendingSolution,
+    updatePendingSolution
 };
+

@@ -9269,6 +9269,8 @@ client.on('message_create', async (msg) => {
                     msg.body.includes('[AGY / CLI]') ||
                     msg.body.includes('PROPUESTA DE RESOLUCIÓN') ||
                     msg.body.includes('[SOLUCIÓN APLICADA') ||
+                    msg.body.includes('[SOLUCIÓN IMPLEMENTADA') ||
+                    msg.body.includes('[PROPUESTA AJUSTADA') ||
                     msg.body.includes('[DIAGNÓSTICO') ||
                     msg.body.includes('DIAGNÓSTICO Y RESPUESTA') ||
                     msg.body.includes('Ticket #ERR-') ||
@@ -9277,8 +9279,8 @@ client.on('message_create', async (msg) => {
                     msg.body.includes('REINICIANDO SERVICIO')
                 );
                 if (!isBotSelfMessage) {
-                    if (msg.hasMedia || lowerBody.length > 5) {
-                        console.log(`[ErrorDiagnostic fromMe] 🚨 Detectado reporte de error propio en ${groupJid}: "${msg.body || '[Media]'}"`);
+                    if (msg.hasMedia || lowerBody.length > 5 || lowerBody.startsWith('@commit') || lowerBody.startsWith('@cambio') || lowerBody.startsWith('@aceptar')) {
+                        console.log(`[ErrorDiagnostic fromMe] 🚨 Detectado reporte/comando en ${groupJid}: "${msg.body || '[Media]'}"`);
                         handleAdvisorErrorReport(msg, client, userStates).catch(err => console.error('[ErrorDiagnostic fromMe] Error:', err.message));
                         return;
                     }
@@ -14909,8 +14911,8 @@ client.on('message', async (message) => {
                 return;
             }
 
-            // Diagnosticar reporte con imagen o texto descriptivo
-            if (message.hasMedia || b.length > 5) {
+            // Diagnosticar reporte con imagen, texto descriptivo o comandos de resolución (@commit, @cambio, @aceptar)
+            if (message.hasMedia || b.length > 5 || b.startsWith('@commit') || b.startsWith('@cambio') || b.startsWith('@aceptar')) {
                 await handleAdvisorErrorReport(message, client, userStates);
                 return;
             }
