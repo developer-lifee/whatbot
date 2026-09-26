@@ -173,15 +173,34 @@ async function fetchDirectFromGraph() {
     if (!accessToken) return null;
 
     const graphEndpoint = "https://graph.microsoft.com/v1.0/me/drive/root:/Documentos/neflis_negro.xlsx:/workbook/worksheets('Hoja1')/usedRange";
-    const graphRes = await fetch(graphEndpoint, {
-        headers: { Authorization: `Bearer ${accessToken}` }
-    });
-    const graphJson = await graphRes.json();
-    if (!graphRes.ok || !graphJson.values) {
-        const err = graphJson.error ? graphJson.error.message : 'Error leyendo hoja de Excel en Graph';
-        console.warn('[MS Graph Direct] Error leyendo hoja de Excel en Graph:', err);
-        recordOneDriveHealth('ERROR', err);
-        notifyAdminOfOneDriveIssue(err);
+    let graphRes = null;
+    let graphJson = null;
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+            graphRes = await fetch(graphEndpoint, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                signal: AbortSignal.timeout(15000)
+            });
+            graphJson = await graphRes.json();
+            if (graphRes.ok && graphJson.values) break;
+        } catch (netErr) {
+            console.warn(`[MS Graph Direct] Intento ${attempt} falló con error de red/timeout:`, netErr.message);
+        }
+        if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
+    }
+
+    if (!graphRes || !graphRes.ok || !graphJson || !graphJson.values) {
+        const err = (graphJson && graphJson.error && graphJson.error.message) 
+            ? graphJson.error.message 
+            : `HTTP ${graphRes ? graphRes.status : 'Timeout/Network'}`;
+        console.warn('[MS Graph Direct] Fallo temporal leyendo hoja de Excel en Graph:', err);
+        recordOneDriveHealth('WARNING', err);
+
+        // SOLO notificar alerta crítica si Microsoft explícitamente rechazó el token con 401 Unauthorized
+        if (graphRes && graphRes.status === 401) {
+            notifyAdminOfOneDriveIssue(`Token rechazado por Microsoft Graph (401 Unauthorized): ${err}`);
+        }
         return null;
     }
 
