@@ -487,59 +487,72 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         }
 
         // 5. Si el reporte contiene o está asociado a una imagen (captura de WhatsApp, comprobante, etc.)
+        let ocrSuccess = false;
         if (targetMediaMsg && targetMediaMsg.hasMedia) {
             try {
                 const media = await targetMediaMsg.downloadMedia();
                 if (media && media.data) {
-                    const ocrPrompt = `Analiza esta captura de pantalla enviada al grupo de errores de soporte técnico.
-Puede ser una conversación de WhatsApp con un cliente, un comprobante bancario (Bancolombia, Nequi, Daviplata, etc.), una pantalla de la web o un error de sistema.
+                    const mediaObj = { data: media.data, mimeType: media.mimetype || 'image/jpeg' };
+                    const visionText = await describeImageWithGemini(mediaObj, message.body || '');
+                    if (visionText && visionText.trim().length > 10) {
+                        extractedInfo.rawOcr = visionText;
+                        ocrSuccess = true;
+                        try {
+                            const ocrPrompt = `Analiza esta captura de pantalla enviada al grupo de errores de soporte técnico.
+Puede ser una conversación de WhatsApp con un cliente, un comprobante bancario, pantalla de error o mensajes repetidos del bot.
 Contexto reciente del chat:
 ${recentChatContext}
 
 Extrae en formato JSON:
 {
-  "clientPhone": string | null, // Teléfono del cliente si se ve en el encabezado, texto o comprobante (ej: "3118587974")
-  "clientName": string | null,  // Nombre del cliente o contacto si aparece (ej: "Esteban David Avila Diagama")
-  "platform": string | null,    // Plataforma o banco involucrado (Bancolombia, Nequi, Netflix, Prime Video, YouTube, etc.)
-  "problemType": string,        // "comprobante_no_validado", "cobro_indebido", "no_renovado", "comprobante_rechazado", "no_entrega_credenciales", "vencimiento_error", "clave_incorrecta", "otro"
+  "clientPhone": string | null, // Teléfono del cliente si se ve en el encabezado, texto o comprobante
+  "clientName": string | null,  // Nombre del cliente o contacto si aparece (ej: "Sebastian Mosquera")
+  "platform": string | null,    // Plataforma o banco involucrado (Amazon, Bancolombia, Netflix, Prime Video, etc.)
+  "problemType": string,        // "respuestas_duplicadas", "comprobante_no_validado", "credenciales_repetidas", "clave_incorrecta", "otro"
   "summary": string             // Resumen conciso y claro de qué ocurrió según la captura y el mensaje
 }`;
-                    const mediaObj = { data: media.data, mimeType: media.mimetype || 'image/jpeg' };
-                    const visionText = await describeImageWithGemini(mediaObj, message.body || '');
-                    extractedInfo.rawOcr = visionText;
-
-                    try {
-                        const jsonParsed = await callDeepSeek(
-                            `A partir de la siguiente descripción visual de la captura y los mensajes del chat, extrae los datos solicitados en formato JSON:\n\nMENSAJE ASESOR: "${message.body || ''}"\n\nCONTEXTO RECIENTE:\n${recentChatContext}\n\nDESCRIPCIÓN CAPTURA:\n${visionText}\n\n` + ocrPrompt,
-                            "Responde únicamente con el JSON solicitado.",
-                            true
-                        );
-                        const structured = JSON.parse(jsonParsed);
-                        extractedInfo = { ...extractedInfo, ...structured };
-                    } catch (pErr) {
-                        console.warn('[ErrorDiagnostic] Error parseando JSON de visión:', pErr.message);
+                            const jsonParsed = await callDeepSeek(
+                                `A partir de la siguiente descripción visual de la captura y los mensajes del chat, extrae los datos solicitados en formato JSON:\n\nMENSAJE ASESOR: "${message.body || ''}"\n\nCONTEXTO RECIENTE:\n${recentChatContext}\n\nDESCRIPCIÓN CAPTURA:\n${visionText}\n\n` + ocrPrompt,
+                                "Responde únicamente con el JSON solicitado.",
+                                true
+                            );
+                            const structured = JSON.parse(jsonParsed);
+                            extractedInfo = { ...extractedInfo, ...structured };
+                        } catch (pErr) {
+                            console.warn('[ErrorDiagnostic] Error parseando JSON de visión:', pErr.message);
+                        }
                     }
                 }
             } catch (mediaErr) {
                 console.error('[ErrorDiagnostic] Error descargando imagen de reporte:', mediaErr.message);
             }
-        } else {
-            // Si es solo texto, analizarlo junto con los últimos mensajes del grupo
+        }
+
+        // Si no hubo imagen o si el OCR de la imagen falló o faltan datos, SIEMPRE analizar el texto del asesor
+        if (!ocrSuccess || !extractedInfo.summary || !extractedInfo.problemType) {
             try {
                 const textParsed = await callDeepSeek(
-                    `Analiza este reporte de error enviado por un asesor y el contexto reciente del grupo:\nREPORTE: "${message.body}"\n\nCONTEXTO RECIENTE DEL GRUPO:\n${recentChatContext}\n\nExtrae en JSON:
+                    `Analiza este reporte de incidencia técnica enviado por un asesor en WhatsApp:\n` +
+                    `MENSAJE DEL ASESOR: "${message.body || ''}"\n\n` +
+                    `CONTEXTO RECIENTE DEL GRUPO:\n${recentChatContext}\n\n` +
+                    (extractedInfo.rawOcr ? `DESCRIPCIÓN VISUAL DISPONIBLE:\n${extractedInfo.rawOcr}\n\n` : '') +
+                    `Extrae en JSON:
 {
   "clientPhone": string | null,
   "clientName": string | null,
   "platform": string | null,
-  "problemType": string,
-  "summary": string
+  "problemType": string, // "respuestas_duplicadas", "comprobante_no_validado", "clave_incorrecta", "vencimiento_error", "otro"
+  "summary": string     // Explica concisamente qué reporta el asesor (ej: "El bot envía el mismo mensaje de respuesta 3 veces seguidas con las credenciales de Amazon")
 }`,
                     "Responde únicamente con el JSON solicitado.",
                     true
                 );
                 const structured = JSON.parse(textParsed);
-                extractedInfo = { ...extractedInfo, ...structured };
+                extractedInfo = {
+                    ...extractedInfo,
+                    ...structured,
+                    summary: structured.summary || extractedInfo.summary || message.body
+                };
             } catch (tErr) {
                 console.warn('[ErrorDiagnostic] Error analizando texto del asesor:', tErr.message);
             }

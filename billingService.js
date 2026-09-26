@@ -687,12 +687,24 @@ async function checkPendingWebSaleForPhone(phone, name = '') {
     }
 }
 
+// Cooldown para evitar que el bot envíe las mismas credenciales varias veces seguidas al mismo usuario
+const credentialsCooldown = new Map();
+
 /**
  * Procesa la solicitud de credenciales de un usuario.
  */
 async function processCheckCredentials(userId, client, triggerMessage = "", history = "", userStates = null, preloadedAccounts = null) {
     try {
         if (!userId || userId.endsWith('@newsletter')) return;
+
+        // Evitar que el bot envíe el mensaje de credenciales múltiples veces seguidas (cooldown de 25s)
+        const lastSent = credentialsCooldown.get(userId) || 0;
+        if (Date.now() - lastSent < 25000) {
+            console.log(`[Billing Service] 🔒 Cooldown activo para @${userId}: credenciales enviadas hace ${((Date.now() - lastSent)/1000).toFixed(1)}s. Evitando reenvío duplicado.`);
+            return;
+        }
+        credentialsCooldown.set(userId, Date.now());
+
         let phoneNumber = null;
         let contactName = null;
 
