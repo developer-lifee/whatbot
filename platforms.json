@@ -382,8 +382,6 @@
         "id": 1602,
         "name": "Trimestral Personal",
         "price": 150000,
-        "durationMonths": 3,
-        "subscriptionType": "trimestral",
         "characteristics": [
           "Compra mínima 3 meses",
           "Precio total $150.000",
