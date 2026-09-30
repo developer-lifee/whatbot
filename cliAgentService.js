@@ -244,11 +244,32 @@ REGLAS CRÍTICAS:
 async function executeFixAndCommit(ticket) {
     console.log(`[Antigravity CLI] 🚀 Ejecutando resolución en código para ticket #${ticket.id || 'N/A'}...`);
 
-    const commitMessage = ticket.commitMessage || 
-        `fix(bot): resolver incidencia en ${ticket.platform || 'servicio'}\n\n` +
+    const nowBogota = new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+    const cleanPlat = (ticket.platform || 'servicio').toLowerCase().replace(/\s+/g, '-');
+    const commitTitle = `fix(${cleanPlat}): resolver incidencia de ${ticket.summary ? ticket.summary.slice(0, 50) : 'soporte'}`;
+
+    // Construir mensaje de commit exhaustivo con trazabilidad total del caso
+    const clientStr = `${ticket.clientName ? ticket.clientName + ' ' : ''}${ticket.clientPhone ? '(+57 ' + ticket.clientPhone + ')' : 'No especificado'}`;
+    const rawMsgClean = (ticket.rawMessage || ticket.rawOcr || ticket.summary || '')
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/"/g, "'")
+        .trim();
+    const rawMsgExcerpt = rawMsgClean.length > 150 ? rawMsgClean.slice(0, 150) + '...' : rawMsgClean;
+
+    let commitMessage = `${commitTitle}\n\n` +
+        `- Fecha y Hora: ${nowBogota}\n` +
+        `- Cliente: ${clientStr}\n` +
+        `- Plataforma: ${ticket.platform || 'General'}\n` +
+        `- Caso: ${ticket.summary || 'Incidencia técnica reportada'}\n` +
+        `- Mensaje / Reporte: "${rawMsgExcerpt || 'N/A'}"\n` +
         `- Causa raíz: ${ticket.diagnosis || 'Reportado en soporte'}\n` +
-        `- Solución: ${ticket.plan || 'Actualización de validaciones y credenciales'}\n` +
+        `- Solución en código: ${ticket.plan || 'Actualización de validaciones'}\n` +
+        `- Ticket ID: #${ticket.id || 'N/A'}\n` +
         `- Prevención: Refuerzo de consistencia entre datos y flujos de entrega.`;
+
+    if (ticket.commitMessage && !ticket.commitMessage.includes('- Caso:') && ticket.commitMessage !== ticket.summary) {
+        commitMessage += `\n\nDetalle adicional:\n${ticket.commitMessage}`;
+    }
 
     try {
         // 1. Modificar internamente los archivos de código

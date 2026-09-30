@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 const { getAccountsByPhone, fetchRawData } = require('./apiService');
 const { callDeepSeek, callGemini, describeImageWithGemini } = require('./aiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
@@ -7,6 +8,7 @@ const { callGemini38Flash, executeFixAndCommit, GEMINI_MODEL } = require('./cliA
 
 const ERRORS_LOG_PATH = path.join(__dirname, 'logs', 'reported_errors.json');
 const PENDING_SOLUTIONS_PATH = path.join(__dirname, 'logs', 'pending_error_solutions.json');
+const RESOLVED_CASES_PATH = path.join(__dirname, 'logs', 'resolved_cases_history.json');
 
 // Asegurar que exista la carpeta logs
 try {
@@ -159,6 +161,185 @@ function logReportedError(data) {
         fs.writeFileSync(ERRORS_LOG_PATH, JSON.stringify(history, null, 2), 'utf8');
     } catch (e) {
         console.error('[ErrorDiagnostic] Error guardando historial de error:', e.message);
+    }
+}
+
+/**
+ * Registra un caso resuelto exitosamente con su commit y fecha exacta
+ */
+function saveResolvedCase(ticket, commitResult) {
+    try {
+        let history = [];
+        if (fs.existsSync(RESOLVED_CASES_PATH)) {
+            try {
+                history = JSON.parse(fs.readFileSync(RESOLVED_CASES_PATH, 'utf8'));
+            } catch (e) {
+                history = [];
+            }
+        }
+        const now = new Date();
+        const nowHuman = now.toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+        history.unshift({
+            id: ticket.id,
+            resolvedAt: now.toISOString(),
+            resolvedAtHuman: nowHuman,
+            commitHash: commitResult.commitHash || 'OK',
+            clientPhone: ticket.clientPhone || null,
+            clientName: ticket.clientName || null,
+            platform: ticket.platform || null,
+            summary: ticket.summary || null,
+            rawMessage: ticket.rawMessage || ticket.rawOcr || null,
+            diagnosis: ticket.diagnosis || null,
+            plan: ticket.plan || null,
+            commitMessage: ticket.commitMessage || null,
+            files: commitResult.changedFiles || []
+        });
+        if (history.length > 500) history = history.slice(0, 500);
+        fs.writeFileSync(RESOLVED_CASES_PATH, JSON.stringify(history, null, 2), 'utf8');
+    } catch (e) {
+        console.error('[ErrorDiagnostic] Error guardando caso resuelto:', e.message);
+    }
+}
+
+/**
+ * Busca si un reporte ya fue resuelto previamente en un commit (vía JSON de historial o Git Log)
+ */
+function findExistingResolvedCase(extractedInfo, effectiveText = '') {
+    try {
+        const currentPhone = extractedInfo.clientPhone ? extractedInfo.clientPhone.replace(/\D/g, '') : null;
+        const currentName = (extractedInfo.clientName || '').toLowerCase().trim();
+        const currentPlat = (extractedInfo.platform || '').toLowerCase().trim();
+        const combinedCurrent = `${extractedInfo.summary || ''} ${effectiveText || ''} ${extractedInfo.rawOcr || ''}`.toLowerCase();
+
+        // 1. Primero buscar en el historial JSON
+        if (fs.existsSync(RESOLVED_CASES_PATH)) {
+            let history = [];
+            try {
+                history = JSON.parse(fs.readFileSync(RESOLVED_CASES_PATH, 'utf8'));
+            } catch (e) {
+                history = [];
+            }
+
+            if (Array.isArray(history) && history.length > 0) {
+                // 1.1 Coincidencia por teléfono
+                if (currentPhone) {
+                    const match = history.find(c => {
+                        if (!c.clientPhone) return false;
+                        const cPhone = c.clientPhone.replace(/\D/g, '');
+                        const matchPhone = cPhone.includes(currentPhone) || currentPhone.includes(cPhone);
+                        if (matchPhone) {
+                            if (!currentPlat || !c.platform) return true;
+                            return c.platform.toLowerCase().includes(currentPlat) || currentPlat.includes(c.platform.toLowerCase());
+                        }
+                        return false;
+                    });
+                    if (match) return match;
+                }
+
+                // 1.2 Coincidencia por nombre de cliente y plataforma
+                if (currentName && currentName.length > 3 && currentPlat) {
+                    const match = history.find(c => {
+                        const cName = (c.clientName || '').toLowerCase();
+                        const cPlat = (c.platform || '').toLowerCase();
+                        return (cName.includes(currentName) || currentName.includes(cName)) &&
+                               (cPlat.includes(currentPlat) || currentPlat.includes(cPlat));
+                    });
+                    if (match) return match;
+                }
+
+                // 1.3 Coincidencia por contenido del mensaje / pantallazo / OCR
+                if (combinedCurrent.length > 20) {
+                    const match = history.find(c => {
+                        const cMsg = (c.rawMessage || c.summary || '').toLowerCase();
+                        if (cMsg.length > 15) {
+                            if (combinedCurrent.includes(cMsg) || cMsg.includes(combinedCurrent.slice(0, 40))) {
+                                return true;
+                            }
+                        }
+                        return false;
+                    });
+                    if (match) return match;
+                }
+
+                // 1.4 Coincidencia temática por palabras clave + plataforma
+                if (currentPlat && combinedCurrent.length > 15) {
+                    const isRenewalVsNew = combinedCurrent.includes('renov') && (combinedCurrent.includes('nueva') || combinedCurrent.includes('compra'));
+                    const isStockIssue = (combinedCurrent.includes('cupo') || combinedCurrent.includes('stock') || combinedCurrent.includes('disponib')) && combinedCurrent.includes('excel');
+
+                    if (isRenewalVsNew || isStockIssue) {
+                        const match = history.find(c => {
+                            const cPlat = (c.platform || '').toLowerCase();
+                            const cSum = (c.summary || '').toLowerCase();
+                            const platMatch = cPlat.includes(currentPlat) || currentPlat.includes(cPlat);
+                            if (!platMatch) return false;
+
+                            if (isRenewalVsNew) {
+                                return cSum.includes('renov') && (cSum.includes('nueva') || cSum.includes('compra'));
+                            }
+                            if (isStockIssue) {
+                                return cSum.includes('cupo') || cSum.includes('stock') || cSum.includes('disponib') || cSum.includes('excel');
+                            }
+                            return false;
+                        });
+                        if (match) return match;
+                    }
+                }
+            }
+        }
+
+        // 2. Si no encontró en el JSON, buscar directamente en los commits de Git (Git Log)
+        try {
+            const gitOutput = execSync('git log -n 35 --pretty=format:"COMMIT_SPLIT%h|%ad|%B" --date=iso', {
+                cwd: __dirname,
+                encoding: 'utf8',
+                timeout: 3000
+            });
+            const entries = gitOutput.split('COMMIT_SPLIT').filter(Boolean);
+            for (const entry of entries) {
+                const firstPipe = entry.indexOf('|');
+                const secondPipe = entry.indexOf('|', firstPipe + 1);
+                if (firstPipe === -1 || secondPipe === -1) continue;
+                const hash = entry.substring(0, firstPipe).trim();
+                const dateStr = entry.substring(firstPipe + 1, secondPipe).trim();
+                const body = entry.substring(secondPipe + 1).trim();
+                const bodyLower = body.toLowerCase();
+
+                const phoneMatch = currentPhone && currentPhone.length >= 7 && bodyLower.includes(currentPhone);
+                const nameMatch = currentName && currentName.length > 3 && bodyLower.includes(currentName);
+                const platMatch = currentPlat && currentPlat.length > 3 && bodyLower.includes(currentPlat);
+
+                if (phoneMatch || (nameMatch && platMatch)) {
+                    const casoMatch = body.match(/- Caso:\s*([^\n]+)/i);
+                    const solMatch = body.match(/- Solución en código:\s*([^\n]+)/i);
+                    const msgMatch = body.match(/- Mensaje \/ Reporte:\s*([^\n]+)/i);
+                    const clienteMatch = body.match(/- Cliente:\s*([^\n]+)/i);
+                    const platExtracted = body.match(/- Plataforma:\s*([^\n]+)/i);
+
+                    const commitDate = new Date(dateStr);
+                    return {
+                        id: `GIT-${hash}`,
+                        resolvedAt: commitDate.toISOString(),
+                        resolvedAtHuman: commitDate.toLocaleString('es-CO', { timeZone: 'America/Bogota' }),
+                        commitHash: hash,
+                        clientPhone: currentPhone,
+                        clientName: clienteMatch ? clienteMatch[1].trim() : (currentName || null),
+                        platform: platExtracted ? platExtracted[1].trim() : (currentPlat || null),
+                        summary: casoMatch ? casoMatch[1].trim() : body.split('\n')[0],
+                        rawMessage: msgMatch ? msgMatch[1].trim() : null,
+                        diagnosis: null,
+                        plan: solMatch ? solMatch[1].trim() : null,
+                        commitMessage: body
+                    };
+                }
+            }
+        } catch (gitErr) {
+            // Ignorar errores de git log
+        }
+
+        return null;
+    } catch (e) {
+        console.warn('[ErrorDiagnostic] Error buscando caso resuelto previo:', e.message);
+        return null;
     }
 }
 
@@ -346,6 +527,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 const commitResult = await executeFixAndCommit(approvedTicket);
 
                 if (commitResult.success) {
+                    saveResolvedCase(approvedTicket, commitResult);
                     const filesList = (commitResult.changedFiles && commitResult.changedFiles.length > 0)
                         ? commitResult.changedFiles.map(f => `• ${f}`).join('\n')
                         : '• Repositorio actualizado y verificado';
@@ -613,6 +795,58 @@ Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
             cleanPhone = cleanPhone.slice(-10);
         }
 
+        // =========================================================================
+        // 6.1 Detección de Casos Ya Resueltos en Commits (Evitar Trabajo Duplicado)
+        // =========================================================================
+        const existingResolved = findExistingResolvedCase(extractedInfo, effectiveText);
+        if (existingResolved) {
+            const botStartTime = Date.now() - (process.uptime() * 1000);
+            const resolvedTime = new Date(existingResolved.resolvedAt).getTime();
+            // Si el commit se generó después de que este proceso de Node inició, requiere reinicio
+            const needsRestart = !isNaN(resolvedTime) && (resolvedTime > botStartTime);
+
+            console.log(`[ErrorDiagnostic] ⚡ Caso ya resuelto detectado (#${existingResolved.id}, commit ${existingResolved.commitHash}). Requiere restart: ${needsRestart}`);
+
+            if (needsRestart) {
+                const restartNotice = `ℹ️ *[CASO YA SOLUCIONADO EN REPOSITORIO - PENDIENTE REINICIO]* (Ticket #${existingResolved.id})\n\n` +
+                    `📅 *Fecha de solución:* ${existingResolved.resolvedAtHuman || 'Reciente'}\n` +
+                    `👤 *Cliente:* ${existingResolved.clientName || 'Identificado'} ${existingResolved.clientPhone ? `(+57 ${existingResolved.clientPhone})` : ''}\n` +
+                    `📺 *Plataforma:* ${existingResolved.platform || 'General'}\n` +
+                    `📦 *Commit en GitHub:* \`${existingResolved.commitHash}\`\n\n` +
+                    `📋 *Caso previo solucionado:*\n${existingResolved.summary}\n\n` +
+                    (existingResolved.rawMessage ? `💬 *Mensaje/Reporte registrado:*\n"${existingResolved.rawMessage.length > 120 ? existingResolved.rawMessage.slice(0, 120) + '...' : existingResolved.rawMessage}"\n\n` : '') +
+                    `⚡ *Este caso ya fue corregido en el código.* No es necesario generar otro commit ni crear un nuevo reporte.\n\n` +
+                    `🔄 *Para activar los cambios en el servidor:* Solo escribe *@restart* y el bot se reiniciará con el parche en vivo.`;
+
+                try {
+                    await message.reply(restartNotice);
+                } catch (repErr) {
+                    if (client && client.sendMessage) {
+                        await client.sendMessage(groupChatId, restartNotice).catch(() => {});
+                    }
+                }
+                return;
+            } else {
+                const activeNotice = `✅ *[CASO YA RESUELTO Y ACTIVO EN EL SERVIDOR]* (Ticket #${existingResolved.id})\n\n` +
+                    `📅 *Solucionado el:* ${existingResolved.resolvedAtHuman || 'Reciente'} en el commit \`${existingResolved.commitHash}\`\n` +
+                    `👤 *Cliente:* ${existingResolved.clientName || 'Identificado'} ${existingResolved.clientPhone ? `(+57 ${existingResolved.clientPhone})` : ''}\n` +
+                    `📺 *Plataforma:* ${existingResolved.platform || 'General'}\n\n` +
+                    `📋 *Caso:* ${existingResolved.summary}\n` +
+                    `📝 *Solución aplicada en código:*\n${existingResolved.plan || existingResolved.diagnosis || 'Validaciones y flujos ajustados'}\n\n` +
+                    `ℹ️ Esta corrección ya se encuentra activa en caliente en el servidor.\n` +
+                    `👉 Si consideras que persiste un fallo diferente, escribe: *@cambio <indica el detalle>*`;
+
+                try {
+                    await message.reply(activeNotice);
+                } catch (repErr) {
+                    if (client && client.sendMessage) {
+                        await client.sendMessage(groupChatId, activeNotice).catch(() => {});
+                    }
+                }
+                return;
+            }
+        }
+
         // 7. Cruzar datos con el sistema en tiempo real
         let accountsFound = [];
         let stockAvailable = null;
@@ -696,8 +930,11 @@ Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
             id: ticketId,
             reportedBy: senderPhone,
             summary: extractedInfo.summary || effectiveText,
+            clientName: extractedInfo.clientName || null,
             clientPhone: cleanPhone,
             platform: platUpper,
+            rawMessage: effectiveText || extractedInfo.rawOcr || extractedInfo.summary || '',
+            rawOcr: extractedInfo.rawOcr || '',
             diagnosis: cliSolution.causaRaiz,
             plan: cliSolution.planCodigo,
             commitMessage: cliSolution.commitDetallado,
