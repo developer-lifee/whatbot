@@ -9230,7 +9230,8 @@ client.on('message_create', async (msg) => {
     // Si el mensaje lo envío yo mismo (fromMe) a un grupo con comando @bot, @restart o reporte en grupo de errores
     const groupJid = (msg.to && msg.to.includes('@g.us')) ? msg.to : ((msg.from && msg.from.includes('@g.us')) ? msg.from : null);
     if (msg.fromMe) {
-        const lowerBody = (msg.body || '').toLowerCase().trim();
+        const effectiveMsgText = (msg.caption || (msg._data && msg._data.caption) || msg.body || '').trim();
+        const lowerBody = effectiveMsgText.toLowerCase();
         if (lowerBody === '@restart' || lowerBody === '!restart' || lowerBody === '@reiniciar' || lowerBody === '!reiniciar' || lowerBody.startsWith('@bot restart') || lowerBody.startsWith('@bot reiniciar')) {
             const { exec } = require('child_process');
             console.log('[RESTART fromMe] Reiniciando PM2 por comando propio...');
@@ -9252,7 +9253,7 @@ client.on('message_create', async (msg) => {
         }
 
         if (groupJid) {
-            if (msg.body && (lowerBody.includes('@bot') || lowerBody.startsWith('!bot'))) {
+            if (effectiveMsgText && (lowerBody.includes('@bot') || lowerBody.startsWith('!bot'))) {
                 processIncomingMessage([msg]).catch(err => console.error('Error procesando comando @bot de grupo en message_create:', err));
                 return;
             }
@@ -9264,23 +9265,23 @@ client.on('message_create', async (msg) => {
             const isErrGroup = isErrorDiagnosticGroup(groupJid, chat ? chat.name : '');
             if (isErrGroup) {
                 // Ignorar respuestas generadas por el propio bot para no entrar en bucle
-                const isBotSelfMessage = msg.body && (
-                    msg.body.includes('🤖') ||
-                    msg.body.includes('[AGY / CLI]') ||
-                    msg.body.includes('PROPUESTA DE RESOLUCIÓN') ||
-                    msg.body.includes('[SOLUCIÓN APLICADA') ||
-                    msg.body.includes('[SOLUCIÓN IMPLEMENTADA') ||
-                    msg.body.includes('[PROPUESTA AJUSTADA') ||
-                    msg.body.includes('[DIAGNÓSTICO') ||
-                    msg.body.includes('DIAGNÓSTICO Y RESPUESTA') ||
-                    msg.body.includes('Ticket #ERR-') ||
-                    msg.body.includes('Ticket: #ERR-') ||
-                    msg.body.includes('🛠️') ||
-                    msg.body.includes('REINICIANDO SERVICIO')
+                const isBotSelfMessage = effectiveMsgText && (
+                    effectiveMsgText.includes('🤖') ||
+                    effectiveMsgText.includes('[AGY / CLI]') ||
+                    effectiveMsgText.includes('PROPUESTA DE RESOLUCIÓN') ||
+                    effectiveMsgText.includes('[SOLUCIÓN APLICADA') ||
+                    effectiveMsgText.includes('[SOLUCIÓN IMPLEMENTADA') ||
+                    effectiveMsgText.includes('[PROPUESTA AJUSTADA') ||
+                    effectiveMsgText.includes('[DIAGNÓSTICO') ||
+                    effectiveMsgText.includes('DIAGNÓSTICO Y RESPUESTA') ||
+                    effectiveMsgText.includes('Ticket #ERR-') ||
+                    effectiveMsgText.includes('Ticket: #ERR-') ||
+                    effectiveMsgText.includes('🛠️') ||
+                    effectiveMsgText.includes('REINICIANDO SERVICIO')
                 );
                 if (!isBotSelfMessage) {
                     if (msg.hasMedia || lowerBody.length > 5 || lowerBody.startsWith('@commit') || lowerBody.startsWith('@cambio') || lowerBody.startsWith('@aceptar')) {
-                        console.log(`[ErrorDiagnostic fromMe] 🚨 Detectado reporte/comando en ${groupJid}: "${msg.body || '[Media]'}"`);
+                        console.log(`[ErrorDiagnostic fromMe] 🚨 Detectado reporte/comando en ${groupJid}: "${effectiveMsgText || '[Media]'}"`);
                         handleAdvisorErrorReport(msg, client, userStates).catch(err => console.error('[ErrorDiagnostic fromMe] Error:', err.message));
                         return;
                     }
@@ -14903,7 +14904,7 @@ client.on('message', async (message) => {
                 ADMIN_GROUP_IDS.push(message.from);
             }
 
-            const b = message.body ? message.body.toLowerCase().trim() : '';
+            const b = (message.caption || (message._data && message._data.caption) || message.body || '').toLowerCase().trim();
             const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot') || b === '@restart' || b === '!restart' || b === '@reiniciar' || b.startsWith('@bot restart') || b.startsWith('@bot reiniciar');
 
             if (isBotCommand) {

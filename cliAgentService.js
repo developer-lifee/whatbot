@@ -280,13 +280,14 @@ async function executeFixAndCommit(ticket) {
                 }
             }
         } else {
-            commitHash = execSync('git rev-parse --short HEAD', { cwd: REPO_DIR, encoding: 'utf8' }).trim();
-            console.log(`[Antigravity CLI] ℹ️ Sin cambios de archivo nuevos. HEAD: ${commitHash}`);
-            // Asegurar que el repositorio remoto esté al día
-            try {
-                execSync('git push origin main', { cwd: REPO_DIR, encoding: 'utf8' });
-                pushed = true;
-            } catch (e) {}
+            console.warn('[Antigravity CLI] ⚠️ No se detectó ninguna modificación de código real en los archivos.');
+            return {
+                success: false,
+                error: 'No se identificaron modificaciones de código concretas en los archivos del repositorio. No se generó ningún commit en blanco.',
+                commitHash: null,
+                pushed: false,
+                model: GEMINI_MODEL
+            };
         }
 
         // Obtener lista final de archivos tocados

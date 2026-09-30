@@ -2105,6 +2105,7 @@ module.exports = {
   parseScribePdfToRecipe,
   getMaskedAccessData,
   callGemini,
+  describeImageWithGemini,
   callDeepSeek,
   transcribeAudioWithGemini,
   analyzeRenewalModification,

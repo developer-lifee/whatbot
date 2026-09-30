@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { getAccountsByPhone, fetchRawData } = require('./apiService');
-const { callDeepSeek, describeImageWithGemini } = require('./aiService');
+const { callDeepSeek, callGemini, describeImageWithGemini } = require('./aiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
 const { callGemini38Flash, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
 
@@ -186,8 +186,9 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
     const fallbackResponse = {
         causaRaiz: fallbackCausa,
         planCodigo: fallbackPlan,
-        commitDetallado: fallbackCommit,
-        archivosAfectados: fallbackFiles
+        commitDetallado: null,
+        archivosAfectados: [],
+        isPreliminary: true
     };
 
     const generatePromise = async () => {
@@ -262,7 +263,14 @@ Devuelve un JSON estrictamente estructurado así:
  * Diagnostica un reporte enviado por un asesor en el grupo "errors bot"
  */
 async function handleAdvisorErrorReport(message, client, userStates) {
-    if (!message || (!message.body && !message.hasMedia)) return;
+    const effectiveText = (
+        message.caption ||
+        (message._data && message._data.caption) ||
+        message.body ||
+        ''
+    ).trim();
+
+    if (!message || (!effectiveText && !message.hasMedia)) return;
 
     // Deduplicación estricta por ID del mensaje para evitar doble respuesta (message vs message_create)
     const msgId = message.id ? (message.id._serialized || message.id.id) : null;
@@ -275,7 +283,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
     }
 
     try {
-        const bodyLower = (message.body || '').toLowerCase().trim();
+        const bodyLower = effectiveText.toLowerCase();
         // Evitar bucles recursivos ignorando mensajes autogenerados del bot
         if (
             bodyLower.includes('[diagnóstico') ||
@@ -296,7 +304,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         const chatName = chat ? (chat.name || '') : '';
         const sender = message.author || message.from;
         const senderPhone = sender.replace('@c.us', '').replace(/\D/g, '');
-        const textTrimmed = (message.body || '').trim();
+        const textTrimmed = effectiveText;
 
         const groupChatId = (message.to && message.to.includes('@g.us')) 
             ? message.to 
@@ -311,12 +319,23 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             if (message.hasQuotedMsg) {
                 try {
                     const quoted = await message.getQuotedMessage();
-                    if (quoted && quoted.body) quotedText = quoted.body;
+                    if (quoted && (quoted.body || quoted.caption)) quotedText = quoted.caption || quoted.body;
                 } catch (e) {}
             }
 
             const approvedTicket = approvePendingSolution(quotedText, senderPhone);
             if (approvedTicket) {
+                if (approvedTicket.isPreliminary || !approvedTicket.plan || (approvedTicket.files && approvedTicket.files.length === 0)) {
+                    const notice = `⚠️ *[TICKET EN EVALUACIÓN - SIN PARCHE DE CÓDIGO]* (Ticket #${approvedTicket.id})\n\n` +
+                        `Este ticket corresponde a un diagnóstico preliminar u operativo y aún no cuenta con un parche de código generado.\n\n` +
+                        `👉 Para indicarle a la IA qué código modificar en el repositorio, escribe:\n` +
+                        `*@cambio <indica qué función o archivo modificar>*`;
+                    try { await message.reply(notice); } catch (e) {
+                        if (client && client.sendMessage) await client.sendMessage(groupChatId, notice).catch(() => {});
+                    }
+                    return;
+                }
+
                 const waitNotice = `⚙️ *[APLICANDO CAMBIOS EN CÓDIGO Y SUBIENDO AL REPOSITORIO...]* (Ticket: #${approvedTicket.id})\n` +
                     `Por favor espera un momento mientras Antigravity CLI aplica las modificaciones, corre validación sintáctica y hace git push...`;
                 try { await message.reply(waitNotice); } catch (e) {
@@ -452,7 +471,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
 
         let extractedInfo = {
             hasMedia: message.hasMedia,
-            textBody: message.body || '',
+            textBody: effectiveText,
             clientPhone: null,
             clientName: null,
             platform: null,
@@ -482,58 +501,85 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                     const mediaMsg = [...validRecents].reverse().find(m => m.hasMedia);
                     if (mediaMsg) targetMediaMsg = mediaMsg;
                 }
-                recentChatContext = validRecents.slice(-8).map(m => `[${m.author || m.from}]: ${m.body || (m.hasMedia ? '[Captura/Imagen]' : '')}`).join('\n');
+                recentChatContext = validRecents.slice(-8).map(m => `[${m.author || m.from}]: ${(m.caption || (m._data && m._data.caption) || m.body || (m.hasMedia ? '[Captura/Imagen]' : ''))}`).join('\n');
             } catch (e) {}
         }
 
         // 5. Si el reporte contiene o está asociado a una imagen (captura de WhatsApp, comprobante, etc.)
         let ocrSuccess = false;
         if (targetMediaMsg && targetMediaMsg.hasMedia) {
-            try {
-                const media = await targetMediaMsg.downloadMedia();
-                if (media && media.data) {
-                    const mediaObj = { data: media.data, mimeType: media.mimetype || 'image/jpeg' };
-                    const visionText = await describeImageWithGemini(mediaObj, message.body || '');
-                    if (visionText && visionText.trim().length > 10) {
-                        extractedInfo.rawOcr = visionText;
-                        ocrSuccess = true;
-                        try {
-                            const ocrPrompt = `Analiza esta captura de pantalla enviada al grupo de errores de soporte técnico.
-Puede ser una conversación de WhatsApp con un cliente, un comprobante bancario, pantalla de error o mensajes repetidos del bot.
-Contexto reciente del chat:
-${recentChatContext}
+            let media = null;
+            if (targetMediaMsg.fromMe) {
+                await new Promise(r => setTimeout(r, 1200));
+            }
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try {
+                    media = await targetMediaMsg.downloadMedia();
+                    if (media && media.data) break;
+                } catch (dErr) {
+                    console.warn(`[ErrorDiagnostic] Intento ${attempt} descargando imagen falló:`, dErr.message);
+                }
+                await new Promise(r => setTimeout(r, 1000));
+            }
 
-Extrae en formato JSON:
+            if (media && media.data) {
+                try {
+                    const mediaObj = { data: media.data, mimeType: media.mimetype || 'image/jpeg' };
+                    const visionPrompt = `Eres el asistente de ingeniería y soporte de Sheerit.
+Analiza exhaustivamente esta captura de pantalla enviada al grupo de errores de soporte técnico.
+
+INSTRUCCIONES CLAVE DE EXTRACCIÓN (OCR COMPLETO):
+1. Realiza una lectura OCR profunda de TODO el texto visible, especialmente:
+   - Textos de mensajes de chat o barras de diálogo (ej: "En la pagina aparece crunchy como disponibles, pero no tenemos cupos disponibles en el excel").
+   - Encabezados, nombres de plataformas (Crunchyroll, Netflix, Disney+, Apple, etc.), precios (ej: $ 7.000/mes) y detalles de planes.
+   - Textos de conversaciones de WhatsApp con clientes o comprobantes bancarios.
+2. Identifica con precisión:
+   - ¿Qué plataforma o servicio está involucrado?
+   - ¿Cuál es la incidencia o discrepancia reportada? (ej: catálogo muestra disponible pero no hay cupos en Excel, o cliente pagó y se tomó como compra nueva en vez de renovación, o turno equivocado).
+   - Teléfono o nombre del cliente si es visible.
+
+Contexto adicional reciente del chat:
+${recentChatContext || 'Sin contexto previo'}
+
+Mensaje textual del asesor: "${effectiveText}"
+
+Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
 {
-  "clientPhone": string | null, // Teléfono del cliente si se ve en el encabezado, texto o comprobante
-  "clientName": string | null,  // Nombre del cliente o contacto si aparece (ej: "Sebastian Mosquera")
-  "platform": string | null,    // Plataforma o banco involucrado (Amazon, Bancolombia, Netflix, Prime Video, etc.)
-  "problemType": string,        // "respuestas_duplicadas", "comprobante_no_validado", "credenciales_repetidas", "clave_incorrecta", "otro"
-  "summary": string             // Resumen conciso y claro de qué ocurrió según la captura y el mensaje
+  "clientPhone": string | null,
+  "clientName": string | null,
+  "platform": string | null,
+  "problemType": string, // "discrepancia_catalogo_stock", "renovacion_vs_compra", "desfase_turno_cola", "no_entrega_credenciales", "vencimiento_error", "otro"
+  "rawOcr": string, // Transcripción de los textos más importantes leídos en la imagen
+  "summary": string // Resumen técnico claro de la incidencia reportada
 }`;
-                            const jsonParsed = await callDeepSeek(
-                                `A partir de la siguiente descripción visual de la captura y los mensajes del chat, extrae los datos solicitados en formato JSON:\n\nMENSAJE ASESOR: "${message.body || ''}"\n\nCONTEXTO RECIENTE:\n${recentChatContext}\n\nDESCRIPCIÓN CAPTURA:\n${visionText}\n\n` + ocrPrompt,
-                                "Responde únicamente con el JSON solicitado.",
-                                true
-                            );
-                            const structured = JSON.parse(jsonParsed);
-                            extractedInfo = { ...extractedInfo, ...structured };
-                        } catch (pErr) {
-                            console.warn('[ErrorDiagnostic] Error parseando JSON de visión:', pErr.message);
+
+                    const rawResult = await callGemini(visionPrompt, "Eres un analista OCR técnico de alta precisión. Responde únicamente con JSON.", true, mediaObj);
+                    let structured = null;
+                    try {
+                        const cleanJson = (rawResult || '').replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+                        structured = JSON.parse(cleanJson);
+                    } catch (parseErr) {
+                        console.warn('[ErrorDiagnostic] Fallback parseando JSON de Gemini multimodal:', parseErr.message);
+                    }
+
+                    if (structured && (structured.summary || structured.rawOcr || structured.platform)) {
+                        extractedInfo = { ...extractedInfo, ...structured };
+                        if (structured.summary && !structured.summary.toLowerCase().includes('vacío')) {
+                            ocrSuccess = true;
                         }
                     }
+                } catch (mediaVisionErr) {
+                    console.error('[ErrorDiagnostic] Error en análisis multimodal con Gemini:', mediaVisionErr.message);
                 }
-            } catch (mediaErr) {
-                console.error('[ErrorDiagnostic] Error descargando imagen de reporte:', mediaErr.message);
             }
         }
 
-        // Si no hubo imagen o si el OCR de la imagen falló o faltan datos, SIEMPRE analizar el texto del asesor
+        // Si no hubo imagen o si el OCR de la imagen falló o faltan datos, analizar el texto del asesor
         if (!ocrSuccess || !extractedInfo.summary || !extractedInfo.problemType) {
             try {
                 const textParsed = await callDeepSeek(
                     `Analiza este reporte de incidencia técnica enviado por un asesor en WhatsApp:\n` +
-                    `MENSAJE DEL ASESOR: "${message.body || ''}"\n\n` +
+                    `MENSAJE DEL ASESOR: "${effectiveText}"\n\n` +
                     `CONTEXTO RECIENTE DEL GRUPO:\n${recentChatContext}\n\n` +
                     (extractedInfo.rawOcr ? `DESCRIPCIÓN VISUAL DISPONIBLE:\n${extractedInfo.rawOcr}\n\n` : '') +
                     `Extrae en JSON:
@@ -541,8 +587,8 @@ Extrae en formato JSON:
   "clientPhone": string | null,
   "clientName": string | null,
   "platform": string | null,
-  "problemType": string, // "respuestas_duplicadas", "comprobante_no_validado", "clave_incorrecta", "vencimiento_error", "otro"
-  "summary": string     // Explica concisamente qué reporta el asesor (ej: "El bot envía el mismo mensaje de respuesta 3 veces seguidas con las credenciales de Amazon")
+  "problemType": string, // "discrepancia_catalogo_stock", "renovacion_vs_compra", "desfase_turno_cola", "clave_incorrecta", "vencimiento_error", "otro"
+  "summary": string     // Explica concisamente qué reporta el asesor
 }`,
                     "Responde únicamente con el JSON solicitado.",
                     true
@@ -551,10 +597,13 @@ Extrae en formato JSON:
                 extractedInfo = {
                     ...extractedInfo,
                     ...structured,
-                    summary: structured.summary || extractedInfo.summary || message.body
+                    summary: structured.summary || extractedInfo.summary || effectiveText
                 };
             } catch (tErr) {
                 console.warn('[ErrorDiagnostic] Error analizando texto del asesor:', tErr.message);
+                if (!extractedInfo.summary && effectiveText) {
+                    extractedInfo.summary = effectiveText;
+                }
             }
         }
 
@@ -564,38 +613,75 @@ Extrae en formato JSON:
             cleanPhone = cleanPhone.slice(-10);
         }
 
-        // 7. Cruzar datos con el sistema
+        // 7. Cruzar datos con el sistema en tiempo real
         let accountsFound = [];
         let stockAvailable = null;
         let diagnosticNotes = [];
-
-        if (cleanPhone) {
-            try {
-                accountsFound = await getAccountsByPhone(cleanPhone, extractedInfo.clientName, true);
-            } catch (e) {}
-        }
-
-        if (extractedInfo.platform) {
-            try {
-                stockAvailable = await checkSpreadsheetStock(extractedInfo.platform);
-            } catch (e) {}
-        }
+        let catalogPlatform = null;
 
         const platUpper = (extractedInfo.platform || 'servicio').toUpperCase();
 
+        // 7.1 Auditoría de Catálogo Web vs Excel Online
+        if (extractedInfo.platform) {
+            const { getPlatformsFromDb } = require('./platformsDbService');
+            try {
+                stockAvailable = await checkSpreadsheetStock(extractedInfo.platform);
+            } catch (e) {}
+
+            try {
+                const platforms = await getPlatformsFromDb();
+                const cleanTarget = extractedInfo.platform.toLowerCase().replace(/[^a-z0-9]/g, '');
+                catalogPlatform = platforms.find(p => {
+                    const cleanP = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                    return cleanP.includes(cleanTarget) || cleanTarget.includes(cleanP);
+                });
+            } catch (e) {}
+
+            if (catalogPlatform) {
+                diagnosticNotes.push(`🌐 *Página Web (sheerit.co):* *${catalogPlatform.name}* está publicado y activo para venta ($${Number(catalogPlatform.price || 0).toLocaleString('es-CO')}/mes).`);
+            }
+            if (stockAvailable !== null) {
+                if (stockAvailable) {
+                    diagnosticNotes.push(`📄 *Excel Online:* Hay cupos libres registrados en el inventario.`);
+                } else {
+                    diagnosticNotes.push(`📄 *Excel Online:* ⚠️ 0 cupos libres encontrados en la hoja para *${platUpper}*.`);
+                }
+            }
+            if (catalogPlatform && stockAvailable === false) {
+                diagnosticNotes.push(`🚨 *Discrepancia detectada:* El catálogo web permite comprar *${platUpper}* aunque el inventario de Excel no tiene cupos.`);
+                diagnosticNotes.push(`⚡ *Acción operativa recomendada:* Puedes pausar temporalmente este servicio en la web escribiendo: *@bot pausar ${extractedInfo.platform.toLowerCase()}*`);
+            }
+        }
+
+        // 7.2 Auditoría de Cliente y Cola de Turnos
+        if (cleanPhone) {
+            try {
+                accountsFound = await getAccountsByPhone(cleanPhone, extractedInfo.clientName, true);
+                if (accountsFound.length > 0) {
+                    const acc = accountsFound[0];
+                    diagnosticNotes.push(`👤 *Cuentas registradas para +57 ${cleanPhone}:* ${acc.Streaming} (${acc.correo || 'sin correo'})\n• Fecha cliente (deben): *${acc.deben || 'N/A'}*\n• Vencimiento proveedor: *${acc.vencimiento || 'N/A'}*`);
+                }
+            } catch (e) {}
+
+            if (global.supportQueue && Array.isArray(global.supportQueue)) {
+                const queueIdx = global.supportQueue.findIndex(id => id.includes(cleanPhone));
+                if (queueIdx !== -1) {
+                    diagnosticNotes.push(`📌 *Turno en cola en memoria:* #${queueIdx + 1} de ${global.supportQueue.length} turnos registrados en caché.`);
+                }
+            }
+        }
+
         if (extractedInfo.problemType === 'no_entrega_credenciales' || /no entrega|cupos|asignación manual/i.test(extractedInfo.summary || '')) {
-            if (stockAvailable) {
-                diagnosticNotes.push(`✅ Hay cupos libres disponibles para *${platUpper}* en el inventario.`);
-            } else {
+            if (stockAvailable === false && !diagnosticNotes.some(n => n.includes('0 cupos libres'))) {
                 diagnosticNotes.push(`⚠️ No se encontraron cupos libres en Excel para *${platUpper}*. Requiere que un administrador cree o agregue una cuenta en la hoja.`);
             }
         } else if (extractedInfo.problemType === 'vencimiento_error' || /vencimiento|deben|renov/i.test(extractedInfo.summary || '')) {
-            if (accountsFound.length > 0) {
+            if (accountsFound.length > 0 && !diagnosticNotes.some(n => n.includes('Cuentas registradas'))) {
                 const acc = accountsFound[0];
                 diagnosticNotes.push(`📅 Cuenta registrada: ${acc.Streaming} (${acc.correo || 'sin correo'})\n• Fecha cliente (deben): *${acc.deben || 'N/A'}*\n• Fecha proveedor (vencimiento interno): *${acc.vencimiento || 'N/A'}*`);
             }
-        } else if (extractedInfo.problemType === 'clave_incorrecta' || /contraseña|clave|incorrecta|anterior/i.test(extractedInfo.summary || '') || /contraseña|clave|anterior/i.test(message.body || '')) {
-            if (accountsFound.length > 0) {
+        } else if (extractedInfo.problemType === 'clave_incorrecta' || /contraseña|clave|incorrecta|anterior/i.test(extractedInfo.summary || '') || /contraseña|clave|anterior/i.test(effectiveText)) {
+            if (accountsFound.length > 0 && !diagnosticNotes.some(n => n.includes('Cuenta en caché'))) {
                 const acc = accountsFound[0];
                 diagnosticNotes.push(`🔑 Cuenta en caché: ${acc.Streaming} (${acc.correo || 'N/A'})\n• Clave registrada: *${acc.contraseña || acc.clave || 'N/A'}*\n• Vencimiento: *${acc.vencimiento || 'N/A'}*`);
             }
@@ -609,44 +695,60 @@ Extrae en formato JSON:
         savePendingSolution({
             id: ticketId,
             reportedBy: senderPhone,
-            summary: extractedInfo.summary || message.body,
+            summary: extractedInfo.summary || effectiveText,
             clientPhone: cleanPhone,
             platform: platUpper,
             diagnosis: cliSolution.causaRaiz,
             plan: cliSolution.planCodigo,
             commitMessage: cliSolution.commitDetallado,
             files: cliSolution.archivosAfectados,
+            isPreliminary: Boolean(cliSolution.isPreliminary),
             status: 'PENDIENTE_APROBACION',
             createdAt: new Date().toISOString()
         });
 
         // 9. Construir Mensaje de Respuesta
-        let responseMsg = `🛠️ *[DIAGNÓSTICO Y RESPUESTA]* (Ticket #${ticketId})\n\n`;
+        let responseMsg = '';
+        if (cliSolution.isPreliminary) {
+            responseMsg += `⚠️ *[AUDITORÍA PRELIMINAR]* (Ticket #${ticketId})\n\n`;
+        } else {
+            responseMsg += `🛠️ *[AUDITORÍA Y PROPUESTA TÉCNICA]* (Ticket #${ticketId})\n\n`;
+        }
 
-        const reportedText = (message.body || '').trim();
+        const reportedText = effectiveText || (extractedInfo.summary || '');
         if (reportedText) {
-            responseMsg += `💬 *En respuesta a:* "${reportedText.length > 80 ? reportedText.slice(0, 80) + '...' : reportedText}"\n`;
+            responseMsg += `💬 *En respuesta a:* "${reportedText.length > 90 ? reportedText.slice(0, 90) + '...' : reportedText}"\n`;
         }
         if (extractedInfo.clientName || cleanPhone) {
             responseMsg += `👤 *Cliente:* ${extractedInfo.clientName || 'Identificado'} ${cleanPhone ? `(+57 ${cleanPhone})` : ''}\n`;
         }
         if (extractedInfo.platform) {
-            responseMsg += `📺 *Plataforma / Medio:* ${platUpper}\n`;
+            responseMsg += `📺 *Plataforma:* ${platUpper}\n`;
         }
         if (extractedInfo.summary) {
             responseMsg += `📋 *Situación:* ${extractedInfo.summary}\n`;
         }
 
-        responseMsg += `\n🔍 *Explicación:* \n${cliSolution.causaRaiz}\n`;
-        responseMsg += `\n💡 *Acción / Solución en Código:* \n${cliSolution.planCodigo}\n`;
-
-        if (cliSolution.commitDetallado && !cliSolution.commitDetallado.includes('incidencia soporte')) {
-            responseMsg += `\n📝 *Commit Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
+        if (diagnosticNotes.length > 0) {
+            responseMsg += `\n🔍 *REVISIÓN REALIZADA EN EL SISTEMA:*\n` + diagnosticNotes.map(n => `• ${n}`).join('\n') + `\n`;
         }
 
-        responseMsg += `\n👉 *Para implementar cambio en código y subir a GitHub:* Escribe *@commit*\n`;
-        responseMsg += `✏️ *Para pedir otra solución o ajuste:* Escribe *@cambio <la solución que quieres>*\n`;
-        responseMsg += `\n⚠️ *Nota:* El comando *@restart* solo estará disponible una vez que apruebes con *@commit*.`;
+        if (cliSolution.causaRaiz && cliSolution.causaRaiz !== extractedInfo.summary) {
+            responseMsg += `\n🔬 *Diagnóstico Técnico:* \n${cliSolution.causaRaiz}\n`;
+        }
+
+        if (cliSolution.isPreliminary) {
+            responseMsg += `\n💡 *Acción / Solución:* \n${cliSolution.planCodigo}\n`;
+            responseMsg += `\n👉 *Para implementar un parche en código:* Escribe *@cambio <indica qué función o archivo cambiar>*\n`;
+        } else {
+            responseMsg += `\n💡 *Plan de Modificaciones en Código:* \n${cliSolution.planCodigo}\n`;
+            if (cliSolution.commitDetallado) {
+                responseMsg += `\n📝 *Commit Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
+            }
+            responseMsg += `\n👉 *Para implementar cambio en código y subir a GitHub:* Escribe *@commit*\n`;
+            responseMsg += `✏️ *Para pedir otra solución o ajuste:* Escribe *@cambio <la solución que quieres>*\n`;
+            responseMsg += `\n⚠️ *Nota:* El comando *@restart* solo estará disponible una vez que apruebes con *@commit*.`;
+        }
 
         // Responder citando el mensaje del asesor o directamente si falla el quote
         try {

@@ -275,12 +275,35 @@ async function forceSyncJsonToDb() {
   return { success: false, message: 'JSON not found' };
 }
 
+// Activar o desactivar visibilidad pública de una plataforma en la web
+async function togglePlatformActiveInDb(platformNameOrId, isActive) {
+  await initPlatformsTables();
+  if (typeof platformNameOrId === 'number' || /^\d+$/.test(platformNameOrId)) {
+    await pool.query('UPDATE platforms SET is_active = ? WHERE id = ?', [isActive ? 1 : 0, platformNameOrId]);
+    await pool.query('UPDATE platform_plans SET is_active = ? WHERE platform_id = ?', [isActive ? 1 : 0, platformNameOrId]);
+    return { success: true };
+  } else {
+    const clean = String(platformNameOrId || '').toLowerCase().trim();
+    const [platforms] = await pool.query('SELECT id, name FROM platforms WHERE LOWER(name) LIKE ?', [`%${clean}%`]);
+    if (platforms.length > 0) {
+      for (const p of platforms) {
+        await pool.query('UPDATE platforms SET is_active = ? WHERE id = ?', [isActive ? 1 : 0, p.id]);
+        await pool.query('UPDATE platform_plans SET is_active = ? WHERE platform_id = ?', [isActive ? 1 : 0, p.id]);
+      }
+      return { success: true, count: platforms.length };
+    }
+  }
+  return { success: false, message: 'Platform not found' };
+}
+
 module.exports = {
   initPlatformsTables,
   seedPlatformsToDb,
   getPlatformsFromDb,
   updatePlanPriceInDb,
   updatePlatformPriceInDb,
+  togglePlatformActiveInDb,
   forceSyncJsonToDb,
   syncPriceToPublicCatalog
 };
+
