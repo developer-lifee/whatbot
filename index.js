@@ -5777,6 +5777,90 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
     }
 });
 
+app.get('/api/whatsapp/test-media', async (req, res) => {
+    try {
+        if (!client || !client.pupPage) return res.json({ error: 'No pupPage' });
+        const result = await client.pupPage.evaluate(async () => {
+            const groupJid = '120363427163636523@g.us';
+            const chat = window.Store.Chat.get(groupJid);
+            if (!chat) return { error: 'Chat no encontrado en Store' };
+            
+            // Buscar mensajes con media en los mensajes del chat
+            const msgs = chat.msgs.getModelsArray();
+            const mediaMsgs = msgs.filter(m => m.type === 'image' || m.isMedia || (m.mediaData && m.mediaData.type === 'image'));
+            const lastMediaMsg = mediaMsgs[mediaMsgs.length - 1];
+            if (!lastMediaMsg) return { error: 'No hay mensajes de imagen en el chat', totalMsgs: msgs.length };
+
+            const info = {
+                id: lastMediaMsg.id._serialized,
+                type: lastMediaMsg.type,
+                hasMediaData: !!lastMediaMsg.mediaData,
+                mediaStage: lastMediaMsg.mediaData ? lastMediaMsg.mediaData.mediaStage : null,
+                directPath: lastMediaMsg.directPath,
+                encFilehash: lastMediaMsg.encFilehash,
+                filehash: lastMediaMsg.filehash,
+                mimetype: lastMediaMsg.mimetype,
+                size: lastMediaMsg.size,
+                hasDownloadManager: !!(window.Store && window.Store.DownloadManager),
+                hasDownloadAndMaybeDecrypt: !!(window.Store && window.Store.DownloadManager && window.Store.DownloadManager.downloadAndMaybeDecrypt),
+                hasWWebJS: typeof window.WWebJS !== 'undefined',
+                hasBase64Async: typeof window.WWebJS !== 'undefined' && typeof window.WWebJS.arrayBufferToBase64Async === 'function'
+            };
+
+            // Intentar descargar
+            let downloadResult = null;
+            let downloadError = null;
+            try {
+                if (lastMediaMsg.mediaData && lastMediaMsg.mediaData.mediaStage !== 'RESOLVED') {
+                    if (typeof lastMediaMsg.downloadMedia === 'function') {
+                        await lastMediaMsg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+                    }
+                }
+
+                const mockQpl = {
+                    addAnnotations: function() { return this; },
+                    addPoint: function() { return this; }
+                };
+
+                const decryptedMedia = await window.Store.DownloadManager.downloadAndMaybeDecrypt({
+                    directPath: lastMediaMsg.directPath,
+                    encFilehash: lastMediaMsg.encFilehash,
+                    filehash: lastMediaMsg.filehash,
+                    mediaKey: lastMediaMsg.mediaKey,
+                    mediaKeyTimestamp: lastMediaMsg.mediaKeyTimestamp,
+                    type: lastMediaMsg.type,
+                    signal: (new AbortController()).signal,
+                    downloadQpl: mockQpl
+                });
+
+                if (decryptedMedia) {
+                    downloadResult = {
+                        byteLength: decryptedMedia.byteLength,
+                        success: true
+                    };
+                }
+            } catch (err) {
+                downloadError = {
+                    message: err.message,
+                    name: err.name,
+                    stack: err.stack,
+                    str: String(err)
+                };
+            }
+
+            return {
+                info,
+                downloadResult,
+                downloadError
+            };
+        });
+
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ error: e.message, stack: e.stack });
+    }
+});
+
 app.post('/api/whatsapp/sync', async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.status(503).json({ success: false, error: 'No pupPage' });
