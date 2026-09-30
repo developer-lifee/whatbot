@@ -5780,41 +5780,57 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
 app.get('/api/whatsapp/test-media', async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.json({ error: 'No pupPage' });
-        const result = await client.pupPage.evaluate(async () => {
+        const targetMsgId = req.query.id || null;
+        const result = await client.pupPage.evaluate(async (targetId) => {
             const groupJid = '120363427163636523@g.us';
             const chat = window.Store.Chat.get(groupJid);
             if (!chat) return { error: 'Chat no encontrado en Store' };
-            
-            // Buscar mensajes con media en los mensajes del chat
-            const msgs = chat.msgs.getModelsArray();
-            const mediaMsgs = msgs.filter(m => m.type === 'image' || m.isMedia || (m.mediaData && m.mediaData.type === 'image'));
-            const lastMediaMsg = mediaMsgs[mediaMsgs.length - 1];
-            if (!lastMediaMsg) return { error: 'No hay mensajes de imagen en el chat', totalMsgs: msgs.length };
 
-            const info = {
-                id: lastMediaMsg.id._serialized,
-                type: lastMediaMsg.type,
-                hasMediaData: !!lastMediaMsg.mediaData,
-                mediaStage: lastMediaMsg.mediaData ? lastMediaMsg.mediaData.mediaStage : null,
-                directPath: lastMediaMsg.directPath,
-                encFilehash: lastMediaMsg.encFilehash,
-                filehash: lastMediaMsg.filehash,
-                mimetype: lastMediaMsg.mimetype,
-                size: lastMediaMsg.size,
-                hasDownloadManager: !!(window.Store && window.Store.DownloadManager),
-                hasDownloadAndMaybeDecrypt: !!(window.Store && window.Store.DownloadManager && window.Store.DownloadManager.downloadAndMaybeDecrypt),
-                hasWWebJS: typeof window.WWebJS !== 'undefined',
-                hasBase64Async: typeof window.WWebJS !== 'undefined' && typeof window.WWebJS.arrayBufferToBase64Async === 'function'
-            };
+            let msg = null;
+            if (targetId) {
+                msg = window.Store.Msg.get(targetId) || (await window.Store.Msg.getMessagesById([targetId]))?.messages?.[0];
+            }
 
-            // Intentar descargar
+            if (!msg) {
+                // Forzar carga de mensajes recientes del chat
+                try {
+                    if (chat.loadEarlierMsgs) await chat.loadEarlierMsgs();
+                } catch (e) {}
+
+                const msgs = chat.msgs ? chat.msgs.getModelsArray() : [];
+                const mediaMsgs = msgs.filter(m => m.type === 'image' || m.isMedia || (m.mediaData && m.mediaData.type === 'image'));
+                msg = mediaMsgs[mediaMsgs.length - 1];
+                if (!msg && msgs.length > 0) {
+                    msg = msgs[msgs.length - 1];
+                }
+            }
+
+            if (!msg) return { error: 'Mensaje no encontrado' };
+
+            const mediaDataObj = msg.mediaData ? {
+                mediaStage: msg.mediaData.mediaStage,
+                type: msg.mediaData.type,
+                filehash: msg.mediaData.filehash,
+                fullHeight: msg.mediaData.fullHeight,
+                fullWidth: msg.mediaData.fullWidth,
+                aspectRatio: msg.mediaData.aspectRatio,
+                hasDownloadMediaFn: typeof msg.downloadMedia === 'function'
+            } : null;
+
             let downloadResult = null;
             let downloadError = null;
+
             try {
-                if (lastMediaMsg.mediaData && lastMediaMsg.mediaData.mediaStage !== 'RESOLVED') {
-                    if (typeof lastMediaMsg.downloadMedia === 'function') {
-                        await lastMediaMsg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
-                    }
+                if (typeof msg.downloadMedia === 'function') {
+                    await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+                }
+
+                // Esperar a ver si mediaStage cambia
+                const stages = [];
+                for (let i = 0; i < 10; i++) {
+                    stages.push(msg.mediaData ? msg.mediaData.mediaStage : 'no_mediaData');
+                    if (msg.mediaData && msg.mediaData.mediaStage === 'RESOLVED') break;
+                    await new Promise(r => setTimeout(r, 400));
                 }
 
                 const mockQpl = {
@@ -5823,12 +5839,12 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
                 };
 
                 const decryptedMedia = await window.Store.DownloadManager.downloadAndMaybeDecrypt({
-                    directPath: lastMediaMsg.directPath,
-                    encFilehash: lastMediaMsg.encFilehash,
-                    filehash: lastMediaMsg.filehash,
-                    mediaKey: lastMediaMsg.mediaKey,
-                    mediaKeyTimestamp: lastMediaMsg.mediaKeyTimestamp,
-                    type: lastMediaMsg.type,
+                    directPath: msg.directPath,
+                    encFilehash: msg.encFilehash,
+                    filehash: msg.filehash,
+                    mediaKey: msg.mediaKey,
+                    mediaKeyTimestamp: msg.mediaKeyTimestamp,
+                    type: msg.type,
                     signal: (new AbortController()).signal,
                     downloadQpl: mockQpl
                 });
@@ -5836,6 +5852,7 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
                 if (decryptedMedia) {
                     downloadResult = {
                         byteLength: decryptedMedia.byteLength,
+                        stages,
                         success: true
                     };
                 }
@@ -5849,11 +5866,16 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
             }
 
             return {
-                info,
+                msgId: msg.id ? msg.id._serialized : null,
+                type: msg.type,
+                hasMedia: !!msg.hasMedia,
+                mimetype: msg.mimetype,
+                directPath: msg.directPath,
+                mediaData: mediaDataObj,
                 downloadResult,
                 downloadError
             };
-        });
+        }, targetMsgId);
 
         res.json(result);
     } catch (e) {
