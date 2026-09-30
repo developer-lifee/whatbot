@@ -761,17 +761,27 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         extractedInfo.textBody = effectiveText;
 
         // 4. Si no citó imagen, buscar en los mensajes recientes del grupo (hasta 20 mensajes atrás en las últimas 24 horas)
+        // REGLA CRÍTICA: Filtrar y excluir TODOS los mensajes generados por el bot para romper cualquier bucle de retroalimentación
         let recentChatContext = '';
         if (chat && chat.fetchMessages) {
             try {
                 const recents = await chat.fetchMessages({ limit: 20 });
-                const validRecents = recents.filter(m => m && Math.abs(message.timestamp - m.timestamp) < 86400); // 24 horas
+                const validRecents = recents.filter(m => {
+                    if (!m) return false;
+                    if (Math.abs(message.timestamp - m.timestamp) > 86400) return false;
+                    if (m.fromMe) return false;
+                    const b = ((m.body || '') + ' ' + (m.caption || '')).toLowerCase();
+                    if (b.includes('ticket #err') || b.includes('ticket: #err') || b.includes('[auditoría') || b.includes('diagnóstico técnico:') || b.includes('la auditoría preliminar') || b.includes('🤖')) {
+                        return false;
+                    }
+                    return true;
+                });
                 if (!targetMediaMsg) {
-                    // Buscar la imagen más reciente enviada en el chat
+                    // Buscar la imagen más reciente enviada por un asesor humano en el chat
                     const mediaMsg = [...validRecents].reverse().find(m => m.hasMedia);
                     if (mediaMsg) targetMediaMsg = mediaMsg;
                 }
-                recentChatContext = validRecents.slice(-8).map(m => `[${m.author || m.from}]: ${(m.caption || (m._data && m._data.caption) || m.body || (m.hasMedia ? '[Captura/Imagen]' : ''))}`).join('\n');
+                recentChatContext = validRecents.slice(-6).map(m => `[${m.author || m.from}]: ${(m.caption || (m._data && m._data.caption) || m.body || (m.hasMedia ? '[Captura/Imagen adjunta]' : ''))}`).join('\n');
             } catch (e) {}
         }
 
@@ -786,14 +796,62 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             // Espera preventiva de 2 segundos para dar tiempo a WhatsApp Web a sincronizar el blob multimedia
             await new Promise(r => setTimeout(r, 2000));
 
-            for (let attempt = 1; attempt <= 4; attempt++) {
+            for (let attempt = 1; attempt <= 3; attempt++) {
                 try {
+                    // 1. Intento estándar de whatsapp-web.js
                     let media = await Promise.race([
                         targetMediaMsg.downloadMedia(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout descarga media 15s')), 15000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout descarga media 12s')), 12000))
                     ]);
 
-                    // Si media vino vacío o nulo, re-sincronizar el mensaje consultándolo fresco desde el chat
+                    // 2. Si vino vacío, intentar con Puppeteer forzando la descarga y esperando RESOLVED
+                    if ((!media || !media.data) && client && client.pupPage) {
+                        try {
+                            const targetId = targetMediaMsg.id ? (targetMediaMsg.id._serialized || targetMediaMsg.id.id) : null;
+                            if (targetId) {
+                                media = await client.pupPage.evaluate(async (id) => {
+                                    const m = window.Store.Msg.get(id) || (await window.Store.Msg.getMessagesById([id]))?.messages?.[0];
+                                    if (!m) return null;
+                                    if (m.mediaData && m.mediaData.mediaStage !== 'RESOLVED') {
+                                        try {
+                                            if (typeof m.downloadMedia === 'function') {
+                                                m.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+                                            }
+                                        } catch (err) {}
+                                    }
+                                    for (let i = 0; i < 16; i++) {
+                                        if (m.mediaData && m.mediaData.mediaStage === 'RESOLVED') break;
+                                        await new Promise(r => setTimeout(r, 500));
+                                    }
+                                    try {
+                                        const decrypted = await window.Store.DownloadManager.downloadAndMaybeDecrypt({
+                                            directPath: m.directPath,
+                                            encFilehash: m.encFilehash,
+                                            filehash: m.filehash,
+                                            mediaKey: m.mediaKey,
+                                            mediaKeyTimestamp: m.mediaKeyTimestamp,
+                                            type: m.type,
+                                            signal: (new AbortController()).signal
+                                        });
+                                        if (decrypted) {
+                                            return {
+                                                data: window.WWebJS.arrayBufferToBase64(decrypted),
+                                                mimetype: m.mimetype,
+                                                filename: m.filename
+                                            };
+                                        }
+                                    } catch (e) {
+                                        return null;
+                                    }
+                                    return null;
+                                }, targetId);
+                            }
+                        } catch (pupErr) {
+                            console.warn('[ErrorDiagnostic] Error en Puppeteer download:', pupErr.message);
+                        }
+                    }
+
+                    // 3. Si sigue vacío, re-sincronizar el mensaje consultándolo fresco desde el chat
                     if ((!media || !media.data) && chat && chat.fetchMessages) {
                         try {
                             const recents = await chat.fetchMessages({ limit: 6 });
@@ -801,7 +859,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                                 m.id._serialized === targetMediaMsg.id._serialized ||
                                 m.id.id === targetMediaMsg.id.id
                             )) || recents.slice().reverse().find(m => m.hasMedia);
-                            if (fresh && fresh.hasMedia) {
+                            if (fresh && fresh.hasMedia && fresh !== targetMediaMsg) {
                                 targetMediaMsg = fresh;
                                 media = await targetMediaMsg.downloadMedia();
                             }
@@ -817,7 +875,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                         fs.writeFileSync(fullPath, Buffer.from(media.data, 'base64'));
                         imageDiskPath = path.relative(__dirname, fullPath);
                         fullImageDiskPath = fullPath;
-                        console.log(`[ErrorDiagnostic] 📸 Captura de pantalla guardada para Antigravity CLI en: ${fullPath} (${Math.round(media.data.length / 1024)} KB)`);
+                        console.log(`[ErrorDiagnostic] 📸 Captura de pantalla guardada exitosamente en: ${fullPath} (${Math.round(media.data.length / 1024)} KB)`);
                         break;
                     } else {
                         console.warn(`[ErrorDiagnostic] Intento ${attempt}: downloadMedia devolvió vacío.`);
@@ -829,20 +887,34 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             }
         }
 
-        // Si no hay imagen en disco y tampoco tenemos texto, intentar interpretar el texto disponible
-        if (!imageDiskPath && (!extractedInfo.summary || !extractedInfo.problemType || (extractedInfo.summary && extractedInfo.summary.toLowerCase().includes('no envió texto')))) {
+        // Si el asesor envió solo una imagen y NO se pudo descargar en disco, AVISAR de forma honesta en vez de inventar
+        if (!imageDiskPath && !effectiveText) {
+            console.warn('[ErrorDiagnostic] ⚠️ No se pudo descargar la captura de pantalla y no hay texto explicativo. Abortando para evitar alucinación.');
+            const retryNotice = `⚠️ *[NO SE PUDO LEER LA CAPTURA EN ESTE INTENTO]*\n\n` +
+                `WhatsApp Web no completó la descarga del archivo multimedia en el servidor.\n\n` +
+                `👉 Por favor reenvía el pantallazo o escribe una breve descripción del error (ej: _"El bot no entrega el código 2FA de GPT"_).`;
+            try {
+                await message.reply(retryNotice);
+            } catch (err) {
+                if (client && client.sendMessage) await client.sendMessage(groupChatId, retryNotice).catch(() => {});
+            }
+            return;
+        }
+
+        // Si no hay imagen en disco pero SÍ tenemos texto del asesor, interpretar el texto real del asesor
+        if (!imageDiskPath && (!extractedInfo.summary || !extractedInfo.problemType)) {
             try {
                 const textParsed = await callDeepSeek(
                     `Analiza este reporte de incidencia técnica enviado por un asesor en WhatsApp:\n` +
-                    `MENSAJE DEL ASESOR: "${effectiveText || 'El asesor envió un reporte en el chat de errores'}"\n\n` +
-                    `CONTEXTO RECIENTE DEL GRUPO:\n${recentChatContext}\n\n` +
+                    `MENSAJE DEL ASESOR: "${effectiveText}"\n\n` +
+                    `CONTEXTO RECIENTE DE ASESORES EN EL GRUPO:\n${recentChatContext || 'Sin contexto adicional'}\n\n` +
                     `Extrae en JSON:
 {
   "clientPhone": string | null,
   "clientName": string | null,
   "platform": string | null,
   "problemType": string, // "solicitud_codigo_2fa", "renovacion_vs_compra", "discrepancia_catalogo_stock", "clave_incorrecta", "vencimiento_error", "otro"
-  "summary": string     // Explica concisamente qué reporta el asesor (NUNCA digas que no envió texto)
+  "summary": string     // Explica concisamente qué reporta el asesor (NUNCA menciones WhatsApp como plataforma ni inventes cupos)
 }`,
                     "Responde únicamente con el JSON solicitado.",
                     true
