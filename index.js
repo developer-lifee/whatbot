@@ -5780,19 +5780,20 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
 app.get('/api/whatsapp/test-media', async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.json({ error: 'No pupPage' });
-        const result = await client.pupPage.evaluate(async () => {
-            // 1. Buscar y hacer clic en el chat "Errors bot" en la lista lateral
-            const spans = Array.from(document.querySelectorAll('span[title]'));
-            const chatSpan = spans.find(s => s.title && s.title.toLowerCase().includes('errors bot'));
-            let clicked = false;
-            if (chatSpan) {
-                const clickable = chatSpan.closest('div[role="listitem"]') || chatSpan.closest('div[tabindex]') || chatSpan;
-                clickable.click();
-                clicked = true;
-                await new Promise(r => setTimeout(r, 2500));
-            }
+        const groupJid = '120363427163636523@g.us';
 
-            // 2. Buscar elementos <img> en la vista del chat abierta
+        let opened = false;
+        try {
+            if (client.interface && client.interface.openChatWindow) {
+                await client.interface.openChatWindow(groupJid);
+                opened = true;
+                await new Promise(r => setTimeout(r, 2000));
+            }
+        } catch (e) {
+            console.warn('[test-media] Error opening chat window:', e.message);
+        }
+
+        const result = await client.pupPage.evaluate(async () => {
             const imgElements = Array.from(document.querySelectorAll('img[src^="blob:"]'));
             const blobImages = imgElements.map(img => ({
                 src: img.src,
@@ -5821,8 +5822,6 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
             }
 
             return {
-                clicked,
-                chatFound: !!chatSpan,
                 blobCount: imgElements.length,
                 blobImages,
                 hasBase64: !!lastBlobBase64,
@@ -5831,7 +5830,7 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
             };
         });
 
-        res.json(result);
+        res.json({ opened, ...result });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
