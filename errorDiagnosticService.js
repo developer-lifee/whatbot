@@ -4,7 +4,7 @@ const { execSync } = require('child_process');
 const { getAccountsByPhone, fetchRawData } = require('./apiService');
 const { callDeepSeek, callGemini, describeImageWithGemini } = require('./aiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
-const { callGemini38Flash, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
+const { callGemini38Flash, callAgyCli, extractJsonFromAgyOutput, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
 
 const ERRORS_LOG_PATH = path.join(__dirname, 'logs', 'reported_errors.json');
 const PENDING_SOLUTIONS_PATH = path.join(__dirname, 'logs', 'pending_error_solutions.json');
@@ -344,10 +344,10 @@ function findExistingResolvedCase(extractedInfo, effectiveText = '') {
 }
 
 /**
- * Genera el plan de resolución y commit detallado con LLM (Gemini / DeepSeek)
+ * Genera el plan de resolución y commit detallado directamente con Antigravity CLI (agy)
  */
-async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], userAdjustment = null, previousTicket = null) {
-    let fallbackCausa = extractedInfo.summary || "Incidencia reportada en el grupo de soporte.";
+async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], userAdjustment = null, previousTicket = null, imagePath = null, effectiveText = '', recentChatContext = '') {
+    let fallbackCausa = extractedInfo.summary || effectiveText || "Incidencia reportada en el grupo de soporte.";
     let fallbackPlan = diagnosticNotes.length > 0 
         ? diagnosticNotes.join('\n') 
         : "Revisar logs del bot y validar el flujo de atención para el caso reportado.";
@@ -355,7 +355,7 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
     let fallbackFiles = ["index.js"];
 
     const rawOcrText = (extractedInfo.rawOcr || '').toLowerCase();
-    const sumLower = (extractedInfo.summary || '').toLowerCase();
+    const sumLower = (extractedInfo.summary || effectiveText || '').toLowerCase();
 
     if (rawOcrText.includes('bancolombia') || rawOcrText.includes('transferencia') || sumLower.includes('pago') || sumLower.includes('comprobante')) {
         fallbackCausa = `Comprobante de transferencia bancaria (${extractedInfo.platform || 'Bancolombia'}${extractedInfo.clientPhone ? `, celular ${extractedInfo.clientPhone}` : ''}) enviado pero el bot no lo validó ni envió respuesta de confirmación/entrega.`;
@@ -375,8 +375,8 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
     const generatePromise = async () => {
         let prompt = '';
         if (userAdjustment && previousTicket) {
-            prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit).
-El usuario solicitó un AJUSTE / CAMBIO a una propuesta previa:
+            prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería para el bot de WhatsApp y backend Sheerit).
+El usuario solicitó un AJUSTE / CAMBIO a una propuesta técnica previa:
 
 PROPUESTA PREVIA:
 - Caso: ${previousTicket.summary || extractedInfo.summary}
@@ -398,10 +398,39 @@ Devuelve un JSON estrictamente estructurado así:
   "commitDetallado": "Título y cuerpo del commit propuesto explicando los cambios",
   "archivosAfectados": ["archivo1.js", "archivo2.js"]
 }`;
+        } else if (imagePath) {
+            prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit en este servidor).
+Un asesor reportó una incidencia técnica enviando una captura de pantalla al grupo de WhatsApp "Errors bot".
+
+DATOS DISPONIBLES:
+- ARCHIVO DE IMAGEN / PANTALLAZO GUARDADO EN: "${imagePath}"
+- PIE DE FOTO / MENSAJE DEL ASESOR: "${effectiveText || extractedInfo.summary || 'Captura de pantalla de soporte enviada'}"
+- CONTEXTO RECIENTE DEL GRUPO:
+${recentChatContext || 'Sin contexto previo'}
+
+NOTAS DE AUDITORÍA DEL SISTEMA:
+${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
+
+INSTRUCCIONES CLAVE DE INGENIERÍA:
+1. Inspecciona y examina directamente el archivo de imagen en "${imagePath}".
+   Lee todo el contenido del pantallazo: los mensajes del chat, los nombres de personas (ej: Jhonnatan), teléfonos si los hay, la plataforma involucrada (ej: Amazon, Crunchyroll, Netflix, Disney) y la discrepancia (ej: el cliente pagó por renovación y el bot lo procesó como compra nueva para activar y darle credenciales, o discrepancia de stock en catálogo).
+2. Inspecciona el código fuente del proyecto en este repositorio para identificar en qué archivo y función se origina el problema (ej: billingService.js, index.js, availabilityService.js, etc.).
+3. Devuelve tu respuesta técnica exclusivamente en un JSON estructurado así (sin texto adicional fuera del JSON):
+{
+  "clientName": string | null,
+  "clientPhone": string | null,
+  "platform": string,
+  "problemType": string, // "renovacion_vs_compra", "discrepancia_catalogo_stock", "no_entrega_credenciales", etc.
+  "summary": "Resumen claro y conciso del caso (ej: Cliente paga renovación de Amazon pero el bot lo procesa como compra nueva)",
+  "causaRaiz": "Explicación técnica detallada de por qué ocurrió el fallo en el código",
+  "planCodigo": "Pasos detallados de las modificaciones en código requeridas para solucionar la falla de raíz",
+  "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios",
+  "archivosAfectados": ["billingService.js"]
+}`;
         } else {
             prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit).
 Un asesor reportó la siguiente incidencia en el grupo de WhatsApp "Errors bot":
-- Caso / Resumen: ${extractedInfo.summary || 'Error reportado en chat'}
+- Caso / Resumen: ${extractedInfo.summary || effectiveText || 'Error reportado en chat'}
 - Cliente: ${extractedInfo.clientPhone || 'No especificado'} (${extractedInfo.clientName || 'N/A'})
 - Plataforma: ${extractedInfo.platform || 'General'}
 - Tipo de problema: ${extractedInfo.problemType || 'incidencia'}
@@ -419,20 +448,22 @@ Devuelve un JSON estrictamente estructurado así:
 }`;
         }
 
-        let raw = null;
         try {
-            raw = await callGemini38Flash(prompt, "Eres Antigravity CLI. Responde exclusivamente con el JSON solicitado sin bloques markdown ni texto extra.");
-            raw = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-            return JSON.parse(raw);
-        } catch (gErr) {
-            console.warn('[ErrorDiagnostic] Fallback a DeepSeek para plan CLI:', gErr.message);
-            raw = await callDeepSeek(prompt, "Responde únicamente con el JSON solicitado.", true);
-            raw = raw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-            return JSON.parse(raw);
+            console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
+            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Inspecciona los archivos y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
+            const parsed = extractJsonFromAgyOutput(rawOutput);
+            if (parsed) {
+                console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de Antigravity CLI:', JSON.stringify({ platform: parsed.platform, clientName: parsed.clientName, summary: parsed.summary }));
+                return parsed;
+            }
+        } catch (agyErr) {
+            console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI:', agyErr.message);
         }
+
+        return fallbackResponse;
     };
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 85000));
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 95000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {
@@ -735,6 +766,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
 
         // 5. Si el reporte contiene o está asociado a una imagen (captura de WhatsApp, comprobante, etc.)
         let ocrSuccess = false;
+        let imageDiskPath = null;
         if (targetMediaMsg && targetMediaMsg.hasMedia) {
             let media = null;
             if (targetMediaMsg.fromMe) {
@@ -747,7 +779,14 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout descarga media 15s')), 15000))
                     ]);
                     if (media && media.data) {
-                        console.log(`[ErrorDiagnostic] ✅ Imagen descargada con éxito en intento ${attempt} (${media.mimetype}, ${Math.round(media.data.length / 1024)} KB base64)`);
+                        const errorsDir = path.join(__dirname, 'uploads', 'errors');
+                        if (!fs.existsSync(errorsDir)) fs.mkdirSync(errorsDir, { recursive: true });
+                        const ext = (media.mimetype && media.mimetype.includes('png')) ? 'png' : 'jpg';
+                        const filename = `error_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+                        const fullPath = path.join(errorsDir, filename);
+                        fs.writeFileSync(fullPath, Buffer.from(media.data, 'base64'));
+                        imageDiskPath = path.relative(__dirname, fullPath);
+                        console.log(`[ErrorDiagnostic] 📸 Captura de pantalla guardada para Antigravity CLI en: ${imageDiskPath} (${Math.round(media.data.length / 1024)} KB)`);
                         break;
                     }
                 } catch (dErr) {
@@ -755,69 +794,15 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 }
                 await new Promise(r => setTimeout(r, 1200));
             }
-
-            if (media && media.data) {
-                try {
-                    const mediaObj = { data: media.data, mimeType: media.mimetype || 'image/jpeg' };
-                    const visionPrompt = `Eres el asistente de ingeniería y soporte de Sheerit.
-Analiza exhaustivamente esta captura de pantalla enviada al grupo de errores de soporte técnico.
-
-INSTRUCCIONES CLAVE DE EXTRACCIÓN (OCR COMPLETO):
-1. Realiza una lectura OCR profunda de TODO el texto visible, especialmente:
-   - Textos de mensajes de chat o barras de diálogo (ej: "En la pagina aparece crunchy como disponibles, pero no tenemos cupos disponibles en el excel", "El cliente paga por renovacion y el Bot lo procesa como una compra nueva").
-   - Encabezados, nombres de plataformas (Crunchyroll, Netflix, Amazon, Disney+, Apple, etc.), precios y detalles de planes.
-   - Nombres de clientes (ej: "Jhonnatan"), teléfonos si se visualizan, y textos de conversaciones de WhatsApp con el bot o con asesores.
-2. Identifica con precisión:
-   - ¿Qué plataforma o servicio está involucrado? (ej: AMAZON, CRUNCHYROLL, NETFLIX, APPLE).
-   - ¿Cuál es la incidencia reportada? (ej: cliente pagó renovación y el bot lo procesó como compra nueva/activación de credenciales, o discrepancia catálogo vs stock).
-   - Teléfono o nombre del cliente si es visible.
-
-Contexto adicional reciente del chat:
-${recentChatContext || 'Sin contexto previo'}
-
-Mensaje textual o pie de foto del asesor: "${effectiveText}"
-
-Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
-{
-  "clientPhone": string | null,
-  "clientName": string | null,
-  "platform": string | null,
-  "problemType": string, // "renovacion_vs_compra", "discrepancia_catalogo_stock", "desfase_turno_cola", "no_entrega_credenciales", "vencimiento_error", "otro"
-  "rawOcr": string, // Transcripción de los textos más importantes leídos en la imagen
-  "summary": string // Resumen técnico claro de la incidencia reportada
-}`;
-
-                    console.log(`[ErrorDiagnostic] 🔍 Enviando imagen a Gemini para análisis OCR multimodal...`);
-                    const rawResult = await callGemini(visionPrompt, "Eres un analista OCR técnico de alta precisión. Responde únicamente con JSON.", true, mediaObj);
-                    let structured = null;
-                    try {
-                        const cleanJson = (rawResult || '').replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-                        structured = JSON.parse(cleanJson);
-                    } catch (parseErr) {
-                        console.warn('[ErrorDiagnostic] Fallback parseando JSON de Gemini multimodal:', parseErr.message);
-                    }
-
-                    if (structured && (structured.summary || structured.rawOcr || structured.platform)) {
-                        console.log(`[ErrorDiagnostic] ✅ OCR exitoso: Plat=${structured.platform}, Cliente=${structured.clientName}, Resumen=${structured.summary}`);
-                        extractedInfo = { ...extractedInfo, ...structured };
-                        if (structured.summary && !structured.summary.toLowerCase().includes('vacío') && !structured.summary.toLowerCase().includes('no envió texto')) {
-                            ocrSuccess = true;
-                        }
-                    }
-                } catch (mediaVisionErr) {
-                    console.error('[ErrorDiagnostic] Error en análisis multimodal con Gemini:', mediaVisionErr.message);
-                }
-            }
         }
 
-        // Si no hubo imagen o si el OCR de la imagen falló o faltan datos, analizar el texto del asesor
-        if (!ocrSuccess || !extractedInfo.summary || !extractedInfo.problemType || (extractedInfo.summary && extractedInfo.summary.toLowerCase().includes('no envió texto'))) {
+        // Si no hay imagen en disco y tampoco tenemos texto, intentar interpretar el texto disponible
+        if (!imageDiskPath && (!extractedInfo.summary || !extractedInfo.problemType || (extractedInfo.summary && extractedInfo.summary.toLowerCase().includes('no envió texto')))) {
             try {
                 const textParsed = await callDeepSeek(
                     `Analiza este reporte de incidencia técnica enviado por un asesor en WhatsApp:\n` +
-                    `MENSAJE DEL ASESOR: "${effectiveText || 'El asesor envió una captura de pantalla de un caso de soporte'}"\n\n` +
+                    `MENSAJE DEL ASESOR: "${effectiveText || 'El asesor envió un reporte en el chat de errores'}"\n\n` +
                     `CONTEXTO RECIENTE DEL GRUPO:\n${recentChatContext}\n\n` +
-                    (extractedInfo.rawOcr ? `DESCRIPCIÓN VISUAL DISPONIBLE:\n${extractedInfo.rawOcr}\n\n` : '') +
                     `Extrae en JSON:
 {
   "clientPhone": string | null,
@@ -975,9 +960,28 @@ Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
             }
         }
 
-        // 8. Generar Plan de Solución CLI y Commit Detallado
+        // 8. Generar Plan de Solución CLI y Commit Detallado con Antigravity CLI (agy)
         const ticketId = `ERR-${Date.now().toString().slice(-6)}`;
-        const cliSolution = await generateCliPlanAndCommit(extractedInfo, diagnosticNotes);
+        const cliSolution = await generateCliPlanAndCommit(extractedInfo, diagnosticNotes, null, null, imageDiskPath, effectiveText, recentChatContext);
+
+        if (cliSolution.platform && (!extractedInfo.platform || extractedInfo.platform === 'WHATSAPP')) {
+            extractedInfo.platform = cliSolution.platform;
+        }
+        if (cliSolution.clientName && !extractedInfo.clientName) {
+            extractedInfo.clientName = cliSolution.clientName;
+        }
+        if (cliSolution.clientPhone && !extractedInfo.clientPhone) {
+            extractedInfo.clientPhone = cliSolution.clientPhone;
+            cleanPhone = cliSolution.clientPhone.replace(/\D/g, '').slice(-10);
+        }
+        if (cliSolution.summary && (!extractedInfo.summary || extractedInfo.summary.toLowerCase().includes('no envió texto'))) {
+            extractedInfo.summary = cliSolution.summary;
+        }
+        if (cliSolution.problemType) {
+            extractedInfo.problemType = cliSolution.problemType;
+        }
+
+        const platDisplay = (extractedInfo.platform || platUpper || 'GENERAL').toUpperCase();
 
         // Guardar ticket como pendiente de aprobación
         savePendingSolution({
@@ -986,7 +990,7 @@ Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
             summary: extractedInfo.summary || effectiveText,
             clientName: extractedInfo.clientName || null,
             clientPhone: cleanPhone,
-            platform: platUpper,
+            platform: platDisplay,
             rawMessage: effectiveText || extractedInfo.rawOcr || extractedInfo.summary || '',
             rawOcr: extractedInfo.rawOcr || '',
             diagnosis: cliSolution.causaRaiz,

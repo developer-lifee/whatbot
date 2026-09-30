@@ -43,6 +43,24 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
     return await callGemini38FlashHttp(prompt, systemInstruction);
 }
 
+/**
+ * Extrae de forma robusta un objeto JSON de la salida de Antigravity CLI (agy)
+ */
+function extractJsonFromAgyOutput(text) {
+    if (!text) return null;
+    const matchJsonBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
+    if (matchJsonBlock) {
+        try { return JSON.parse(matchJsonBlock[1]); } catch (e) {}
+    }
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+        const potentialJson = text.slice(firstBrace, lastBrace + 1);
+        try { return JSON.parse(potentialJson); } catch (e) {}
+    }
+    return null;
+}
+
 function getGeminiApiKeys() {
     return [
         process.env.GEMINI_API_KEY_6324,
@@ -363,6 +381,7 @@ if (require.main === module) {
 module.exports = {
     callGemini38Flash: callAgyCli,
     callAgyCli,
+    extractJsonFromAgyOutput,
     executeFixAndCommit,
     applyCodeModifications,
     GEMINI_MODEL: AGY_MODEL
