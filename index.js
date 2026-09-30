@@ -5781,18 +5781,18 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.json({ error: 'No pupPage' });
         const result = await client.pupPage.evaluate(async () => {
-            const groupJid = '120363427163636523@g.us';
-            
-            // 1. Abrir el chat en la interfaz si no está activo
-            try {
-                const chat = window.Store.Chat.get(groupJid);
-                if (chat && window.Store.Cmd && window.Store.Cmd.openChatAt) {
-                    await window.Store.Cmd.openChatAt(chat);
-                    await new Promise(r => setTimeout(r, 1000));
-                }
-            } catch (e) {}
+            // 1. Buscar y hacer clic en el chat "Errors bot" en la lista lateral
+            const spans = Array.from(document.querySelectorAll('span[title]'));
+            const chatSpan = spans.find(s => s.title && s.title.toLowerCase().includes('errors bot'));
+            let clicked = false;
+            if (chatSpan) {
+                const clickable = chatSpan.closest('div[role="listitem"]') || chatSpan.closest('div[tabindex]') || chatSpan;
+                clickable.click();
+                clicked = true;
+                await new Promise(r => setTimeout(r, 2500));
+            }
 
-            // 2. Buscar elementos <img> en la vista de mensajes
+            // 2. Buscar elementos <img> en la vista del chat abierta
             const imgElements = Array.from(document.querySelectorAll('img[src^="blob:"]'));
             const blobImages = imgElements.map(img => ({
                 src: img.src,
@@ -5802,7 +5802,6 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
                 parentText: (img.closest('div[role="row"]') ? img.closest('div[role="row"]').innerText : '').slice(0, 100)
             }));
 
-            // Intentar extraer el base64 de la última imagen del DOM
             let lastBlobBase64 = null;
             let blobError = null;
             if (imgElements.length > 0) {
@@ -5822,6 +5821,8 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
             }
 
             return {
+                clicked,
+                chatFound: !!chatSpan,
                 blobCount: imgElements.length,
                 blobImages,
                 hasBase64: !!lastBlobBase64,
