@@ -27,11 +27,11 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
     const fullPrompt = `${systemInstruction}\n\n${prompt}`;
     try {
         const agyBin = fs.existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : (fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy');
-        const { stdout } = await execFileAsync(agyBin, ['-p', fullPrompt, '--model', AGY_MODEL, '--dangerously-skip-permissions'], {
+        const { stdout } = await execFileAsync(agyBin, ['-p', fullPrompt, '--effort', 'low', '--output-format', 'json', '--dangerously-skip-permissions'], {
             cwd: REPO_DIR,
             encoding: 'utf8',
-            timeout: 80000,
-            maxBuffer: 10 * 1024 * 1024,
+            timeout: 95000,
+            maxBuffer: 15 * 1024 * 1024,
             env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
         });
         const trimmed = (stdout || '').trim();
@@ -48,16 +48,54 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
  */
 function extractJsonFromAgyOutput(text) {
     if (!text) return null;
-    const matchJsonBlock = text.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
-    if (matchJsonBlock) {
-        try { return JSON.parse(matchJsonBlock[1]); } catch (e) {}
+
+    function tryParseCandidate(str) {
+        if (!str || typeof str !== 'string') return null;
+        const matchBlock = str.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/i);
+        if (matchBlock) {
+            try { return JSON.parse(matchBlock[1]); } catch (e) {}
+        }
+        const firstBrace = str.indexOf('{');
+        const lastBrace = str.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace > firstBrace) {
+            try { return JSON.parse(str.slice(firstBrace, lastBrace + 1)); } catch (e) {}
+        }
+        return null;
     }
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace > firstBrace) {
-        const potentialJson = text.slice(firstBrace, lastBrace + 1);
-        try { return JSON.parse(potentialJson); } catch (e) {}
+
+    // 1. Intentar parsear si text es el wrapper de agy en formato JSON
+    let parsedOuter = null;
+    try {
+        parsedOuter = JSON.parse(text);
+    } catch (e) {
+        parsedOuter = tryParseCandidate(text);
     }
+
+    if (parsedOuter && typeof parsedOuter === 'object') {
+        // Si es el wrapper de agy ({ conversation_id, status, response, ... })
+        if (parsedOuter.response && typeof parsedOuter.response === 'string') {
+            const inner = tryParseCandidate(parsedOuter.response);
+            if (inner && typeof inner === 'object') return inner;
+        }
+        if (parsedOuter.response && typeof parsedOuter.response === 'object') {
+            return parsedOuter.response;
+        }
+        // Si parsedOuter ya contiene los campos del ticket directamente
+        if (parsedOuter.causaRaiz || parsedOuter.planCodigo || parsedOuter.platform || parsedOuter.summary) {
+            return parsedOuter;
+        }
+    }
+
+    // 2. Si no fue wrapper, buscar bloque ```json dentro del texto
+    const candidate = tryParseCandidate(text);
+    if (candidate && typeof candidate === 'object') {
+        if (candidate.response && typeof candidate.response === 'string') {
+            const inner = tryParseCandidate(candidate.response);
+            if (inner) return inner;
+        }
+        return candidate;
+    }
+
     return null;
 }
 

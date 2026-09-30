@@ -347,17 +347,22 @@ function findExistingResolvedCase(extractedInfo, effectiveText = '') {
  * Genera el plan de resolución y commit detallado directamente con Antigravity CLI (agy)
  */
 async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], userAdjustment = null, previousTicket = null, imagePath = null, effectiveText = '', recentChatContext = '') {
-    let fallbackCausa = extractedInfo.summary || effectiveText || "Incidencia reportada en el grupo de soporte.";
+    let fallbackCausa = extractedInfo.summary || effectiveText || "Incidencia técnica reportada en el grupo de soporte.";
     let fallbackPlan = diagnosticNotes.length > 0 
         ? diagnosticNotes.join('\n') 
-        : "Revisar logs del bot y validar el flujo de atención para el caso reportado.";
-    let fallbackCommit = "fix(bot): resolver incidencia técnica reportada\n\n- Prevención de fallos y refuerzo de validaciones.";
+        : "Revisar logs del bot y validar el flujo en index.js o totpService.js para la incidencia reportada.";
+    let fallbackCommit = "fix(bot): atender incidencia técnica reportada\n\n- Validaciones en flujos de atención y prevención de regresión.";
     let fallbackFiles = ["index.js"];
 
     const rawOcrText = (extractedInfo.rawOcr || '').toLowerCase();
     const sumLower = (extractedInfo.summary || effectiveText || '').toLowerCase();
 
-    if (rawOcrText.includes('bancolombia') || rawOcrText.includes('transferencia') || sumLower.includes('pago') || sumLower.includes('comprobante')) {
+    if (sumLower.includes('codigo') || sumLower.includes('código') || sumLower.includes('2fa') || sumLower.includes('gpt')) {
+        fallbackCausa = "El cliente solicitó código de acceso (2FA) para GPT u otra plataforma, pero el bot no detectó la intención o no despachó el código TOTP.";
+        fallbackPlan = "1. En aiService.js, reforzar la detección de intenciones de solicitud de código 2FA/TOTP ante variaciones y errores tipográficos (ej: 'godigo', 'código', 'hola me regalas el codigo').\n2. En index.js y totpService.js, asegurar el despacho inmediato del código generado.";
+        fallbackCommit = "fix(totp): mejorar detección y respuesta ante solicitudes de código 2FA\n\n- Ampliar expresiones de intención en aiService.js y despacho en totpService.js.";
+        fallbackFiles = ["aiService.js", "totpService.js", "index.js"];
+    } else if (rawOcrText.includes('bancolombia') || rawOcrText.includes('transferencia') || sumLower.includes('pago') || sumLower.includes('comprobante')) {
         fallbackCausa = `Comprobante de transferencia bancaria (${extractedInfo.platform || 'Bancolombia'}${extractedInfo.clientPhone ? `, celular ${extractedInfo.clientPhone}` : ''}) enviado pero el bot no lo validó ni envió respuesta de confirmación/entrega.`;
         fallbackPlan = `1. En gmailService.js y billingService.js, comprobar la sincronización del buzón de alertas bancarias y ampliar la ventana de tolerancia de minutos para transferencias.\n2. En index.js, asegurar que cuando el cliente envía comprobante con mensaje de cortesía ("Listo gracias"), el bot no se quede en espera humana y proceda con la validación del pago.`;
         fallbackCommit = `fix(billing): mejorar detección y validación de transferencias Bancolombia\n\n- Sincronización de alertas y mitigación de bloqueo en espera humana ante comprobantes con texto de cortesía.`;
@@ -367,15 +372,15 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
     const fallbackResponse = {
         causaRaiz: fallbackCausa,
         planCodigo: fallbackPlan,
-        commitDetallado: null,
-        archivosAfectados: [],
-        isPreliminary: true
+        commitDetallado: fallbackCommit,
+        archivosAfectados: fallbackFiles,
+        isPreliminary: false
     };
 
     const generatePromise = async () => {
         let prompt = '';
         if (userAdjustment && previousTicket) {
-            prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería para el bot de WhatsApp y backend Sheerit).
+            prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería de software para el repositorio whatbot).
 El usuario solicitó un AJUSTE / CAMBIO a una propuesta técnica previa:
 
 PROPUESTA PREVIA:
@@ -399,11 +404,12 @@ Devuelve un JSON estrictamente estructurado así:
   "archivosAfectados": ["archivo1.js", "archivo2.js"]
 }`;
         } else if (imagePath) {
-            prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit en este servidor).
+            const absoluteImgPath = path.resolve(__dirname, imagePath);
+            prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería de software para el repositorio whatbot en este servidor).
 Un asesor reportó una incidencia técnica enviando una captura de pantalla al grupo de WhatsApp "Errors bot".
 
-DATOS DISPONIBLES:
-- ARCHIVO DE IMAGEN / PANTALLAZO GUARDADO EN: "${imagePath}"
+EVIDENCIA PRINCIPAL (PANTALLAZO GUARDADO EN DISCO):
+- RUTA ABSOLUTA DEL ARCHIVO DE IMAGEN: "${absoluteImgPath}"
 - PIE DE FOTO / MENSAJE DEL ASESOR: "${effectiveText || extractedInfo.summary || 'Captura de pantalla de soporte enviada'}"
 - CONTEXTO RECIENTE DEL GRUPO:
 ${recentChatContext || 'Sin contexto previo'}
@@ -412,39 +418,44 @@ NOTAS DE AUDITORÍA DEL SISTEMA:
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES CLAVE DE INGENIERÍA:
-1. Inspecciona y examina directamente el archivo de imagen en "${imagePath}".
-   Lee todo el contenido del pantallazo: los mensajes del chat, los nombres de personas (ej: Jhonnatan), teléfonos si los hay, la plataforma involucrada (ej: Amazon, Crunchyroll, Netflix, Disney) y la discrepancia (ej: el cliente pagó por renovación y el bot lo procesó como compra nueva para activar y darle credenciales, o discrepancia de stock en catálogo).
-2. Inspecciona el código fuente del proyecto en este repositorio para identificar en qué archivo y función se origina el problema (ej: billingService.js, index.js, availabilityService.js, etc.).
+1. Inspecciona y examina directamente el archivo de imagen en "${absoluteImgPath}" usando tus herramientas de visión / lectura de archivos.
+   - Lee con absoluto detalle todo el texto del pantallazo: los mensajes del cliente, lo que pide (ej: código 2FA para GPT / ChatGPT, renovación, soporte, etc.), las respuestas del bot, números de teléfono o nombres.
+   - Identifica la plataforma REAL del servicio (ej: "ChatGPT / GPT", "Netflix", "Amazon", "Disney", "Crunchyroll", etc.).
+   ⚠️ NOTA CRÍTICA: "WHATSAPP" NO ES LA PLATAFORMA DEL PROBLEMA. WhatsApp es la aplicación de chat donde el cliente escribe. NUNCA respondas que la plataforma es WHATSAPP.
+2. Inspecciona el código fuente REAL de este repositorio (/root/whatbot):
+   - Archivos existentes relevantes: totpService.js (manejo de códigos 2FA de GPT y límites de dispositivos), index.js (enrutamiento de mensajes y estados), billingService.js, aiService.js, availabilityService.js, etc.
+   ⚠️ REGLA DE ORO: NUNCA inventes carpetas ni nombres de archivo inexistentes como "services/excelService.js" o "controllers/whatsappController.js". Todo el código del bot está en archivos JavaScript en la raíz de /root/whatbot.
 3. Devuelve tu respuesta técnica exclusivamente en un JSON estructurado así (sin texto adicional fuera del JSON):
 {
   "clientName": string | null,
   "clientPhone": string | null,
-  "platform": string,
-  "problemType": string, // "renovacion_vs_compra", "discrepancia_catalogo_stock", "no_entrega_credenciales", etc.
-  "summary": "Resumen claro y conciso del caso (ej: Cliente paga renovación de Amazon pero el bot lo procesa como compra nueva)",
-  "causaRaiz": "Explicación técnica detallada de por qué ocurrió el fallo en el código",
-  "planCodigo": "Pasos detallados de las modificaciones en código requeridas para solucionar la falla de raíz",
+  "platform": string, // ej: "ChatGPT / GPT", "Netflix", "Amazon", etc. NUNCA "WHATSAPP".
+  "problemType": string, // ej: "solicitud_codigo_2fa", "renovacion_vs_compra", "no_entrega_credenciales", etc.
+  "summary": "Resumen fiel y exacto del caso según la captura (ej: Cliente solicita código 2FA para GPT y el bot no responde)",
+  "causaRaiz": "Explicación técnica detallada de por qué ocurrió el fallo en el código del bot",
+  "planCodigo": "Pasos detallados de las modificaciones en código requeridas en los archivos reales del repositorio",
   "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios",
-  "archivosAfectados": ["billingService.js"]
+  "archivosAfectados": ["totpService.js", "index.js"]
 }`;
         } else {
-            prompt = `Actúas como Antigravity CLI (asistente de ingeniería para el bot de WhatsApp y backend Sheerit).
+            prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería para el repositorio whatbot).
 Un asesor reportó la siguiente incidencia en el grupo de WhatsApp "Errors bot":
 - Caso / Resumen: ${extractedInfo.summary || effectiveText || 'Error reportado en chat'}
 - Cliente: ${extractedInfo.clientPhone || 'No especificado'} (${extractedInfo.clientName || 'N/A'})
 - Plataforma: ${extractedInfo.platform || 'General'}
 - Tipo de problema: ${extractedInfo.problemType || 'incidencia'}
-- OCR / Captura: ${extractedInfo.rawOcr || 'Sin OCR'}
 - Estado actual en sistema:
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
-Genera un plan de ingeniería en código para erradicar este problema de raíz.
+INSTRUCCIÓN:
+Analiza los archivos reales de este repositorio (/root/whatbot: index.js, aiService.js, totpService.js, billingService.js, etc.) y genera un plan de solución en código.
+⚠️ NUNCA inventes archivos inexistentes como "services/excelService.js" o carpetas ficticias.
 Devuelve un JSON estrictamente estructurado así:
 {
   "causaRaiz": "Explicación concisa y técnica de por qué ocurrió el fallo en el código o datos",
-  "planCodigo": "Pasos detallados de las modificaciones en código realizadas/propuestas para resolverlo de raíz",
+  "planCodigo": "Pasos detallados de las modificaciones en código en los archivos reales para resolverlo de raíz",
   "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios y la prevención de regresión",
-  "archivosAfectados": ["archivo1.js", "archivo2.js"]
+  "archivosAfectados": ["archivo_real1.js", "archivo_real2.js"]
 }`;
         }
 
@@ -452,7 +463,7 @@ Devuelve un JSON estrictamente estructurado así:
             console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
             const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Inspecciona los archivos y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
             const parsed = extractJsonFromAgyOutput(rawOutput);
-            if (parsed) {
+            if (parsed && (parsed.causaRaiz || parsed.planCodigo || parsed.summary || parsed.platform)) {
                 console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de Antigravity CLI:', JSON.stringify({ platform: parsed.platform, clientName: parsed.clientName, summary: parsed.summary }));
                 return parsed;
             }
@@ -767,17 +778,36 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         // 5. Si el reporte contiene o está asociado a una imagen (captura de WhatsApp, comprobante, etc.)
         let ocrSuccess = false;
         let imageDiskPath = null;
+        let fullImageDiskPath = null;
+
         if (targetMediaMsg && targetMediaMsg.hasMedia) {
-            let media = null;
-            if (targetMediaMsg.fromMe) {
-                await new Promise(r => setTimeout(r, 1500));
-            }
+            console.log(`[ErrorDiagnostic] 📥 Intentando descargar imagen del reporte (${targetMediaMsg.id ? targetMediaMsg.id._serialized : 'media'})...`);
+            
+            // Espera preventiva de 2 segundos para dar tiempo a WhatsApp Web a sincronizar el blob multimedia
+            await new Promise(r => setTimeout(r, 2000));
+
             for (let attempt = 1; attempt <= 4; attempt++) {
                 try {
-                    media = await Promise.race([
+                    let media = await Promise.race([
                         targetMediaMsg.downloadMedia(),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout descarga media 15s')), 15000))
                     ]);
+
+                    // Si media vino vacío o nulo, re-sincronizar el mensaje consultándolo fresco desde el chat
+                    if ((!media || !media.data) && chat && chat.fetchMessages) {
+                        try {
+                            const recents = await chat.fetchMessages({ limit: 6 });
+                            const fresh = recents.find(m => m.id && targetMediaMsg.id && (
+                                m.id._serialized === targetMediaMsg.id._serialized ||
+                                m.id.id === targetMediaMsg.id.id
+                            )) || recents.slice().reverse().find(m => m.hasMedia);
+                            if (fresh && fresh.hasMedia) {
+                                targetMediaMsg = fresh;
+                                media = await targetMediaMsg.downloadMedia();
+                            }
+                        } catch (refErr) {}
+                    }
+
                     if (media && media.data) {
                         const errorsDir = path.join(__dirname, 'uploads', 'errors');
                         if (!fs.existsSync(errorsDir)) fs.mkdirSync(errorsDir, { recursive: true });
@@ -786,13 +816,16 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                         const fullPath = path.join(errorsDir, filename);
                         fs.writeFileSync(fullPath, Buffer.from(media.data, 'base64'));
                         imageDiskPath = path.relative(__dirname, fullPath);
-                        console.log(`[ErrorDiagnostic] 📸 Captura de pantalla guardada para Antigravity CLI en: ${imageDiskPath} (${Math.round(media.data.length / 1024)} KB)`);
+                        fullImageDiskPath = fullPath;
+                        console.log(`[ErrorDiagnostic] 📸 Captura de pantalla guardada para Antigravity CLI en: ${fullPath} (${Math.round(media.data.length / 1024)} KB)`);
                         break;
+                    } else {
+                        console.warn(`[ErrorDiagnostic] Intento ${attempt}: downloadMedia devolvió vacío.`);
                     }
                 } catch (dErr) {
                     console.warn(`[ErrorDiagnostic] Intento ${attempt} descargando imagen falló:`, dErr.message);
                 }
-                await new Promise(r => setTimeout(r, 1200));
+                await new Promise(r => setTimeout(r, 1500));
             }
         }
 
@@ -808,7 +841,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
   "clientPhone": string | null,
   "clientName": string | null,
   "platform": string | null,
-  "problemType": string, // "renovacion_vs_compra", "discrepancia_catalogo_stock", "desfase_turno_cola", "clave_incorrecta", "vencimiento_error", "otro"
+  "problemType": string, // "solicitud_codigo_2fa", "renovacion_vs_compra", "discrepancia_catalogo_stock", "clave_incorrecta", "vencimiento_error", "otro"
   "summary": string     // Explica concisamente qué reporta el asesor (NUNCA digas que no envió texto)
 }`,
                     "Responde únicamente con el JSON solicitado.",
@@ -892,10 +925,12 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         let diagnosticNotes = [];
         let catalogPlatform = null;
 
+        const INVALID_PLATFORMS = ['WHATSAPP', 'GENERAL', 'BOT', 'SOPORTE', 'CHAT', 'DESCONOCIDO', 'N/A'];
+        const isPlatValid = extractedInfo.platform && !INVALID_PLATFORMS.includes(extractedInfo.platform.toUpperCase().trim());
         const platUpper = (extractedInfo.platform || 'servicio').toUpperCase();
 
-        // 7.1 Auditoría de Catálogo Web vs Excel Online
-        if (extractedInfo.platform) {
+        // 7.1 Auditoría de Catálogo Web vs Excel Online SOLO para plataformas comerciales de venta reales
+        if (isPlatValid) {
             const { getPlatformsFromDb } = require('./platformsDbService');
             try {
                 stockAvailable = await checkSpreadsheetStock(extractedInfo.platform);
@@ -962,9 +997,9 @@ async function handleAdvisorErrorReport(message, client, userStates) {
 
         // 8. Generar Plan de Solución CLI y Commit Detallado con Antigravity CLI (agy)
         const ticketId = `ERR-${Date.now().toString().slice(-6)}`;
-        const cliSolution = await generateCliPlanAndCommit(extractedInfo, diagnosticNotes, null, null, imageDiskPath, effectiveText, recentChatContext);
+        const cliSolution = await generateCliPlanAndCommit(extractedInfo, diagnosticNotes, null, null, fullImageDiskPath || imageDiskPath, effectiveText, recentChatContext);
 
-        if (cliSolution.platform && (!extractedInfo.platform || extractedInfo.platform === 'WHATSAPP')) {
+        if (cliSolution.platform && cliSolution.platform.toUpperCase() !== 'WHATSAPP') {
             extractedInfo.platform = cliSolution.platform;
         }
         if (cliSolution.clientName && !extractedInfo.clientName) {
@@ -981,7 +1016,9 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             extractedInfo.problemType = cliSolution.problemType;
         }
 
-        const platDisplay = (extractedInfo.platform || platUpper || 'GENERAL').toUpperCase();
+        const platDisplay = (extractedInfo.platform && extractedInfo.platform.toUpperCase() !== 'WHATSAPP') 
+            ? extractedInfo.platform.toUpperCase() 
+            : (cliSolution.platform && cliSolution.platform.toUpperCase() !== 'WHATSAPP' ? cliSolution.platform.toUpperCase() : 'GENERAL');
 
         // Guardar ticket como pendiente de aprobación
         savePendingSolution({
