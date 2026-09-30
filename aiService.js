@@ -470,15 +470,15 @@ async function executeDirectDeepSeek(prompt, systemInstruction, isJson) {
       'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
     },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(8000)
+    signal: AbortSignal.timeout(25000)
   });
 
   if (!response.ok) {
     const errText = await response.text();
-    if (response.status === 402 || errText.includes("Insufficient Balance") || response.status === 429) {
+    if (response.status === 402 || errText.includes("Insufficient Balance")) {
       isDeepSeekDisabled = true;
       deepSeekDisableUntil = Date.now() + 10 * 60 * 1000;
-      console.warn("🚫 [DeepSeek Circuit] Saldo insuficiente (402) o cuota. Activando failover a Gemini por 10 mins.");
+      console.warn("🚫 [DeepSeek Circuit] Saldo insuficiente (402). Activando failover a Gemini por 10 mins.");
     }
     throw new Error(`DeepSeek API Error: ${response.status} ${response.statusText} - ${errText}`);
   }

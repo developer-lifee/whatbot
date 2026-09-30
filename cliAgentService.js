@@ -12,7 +12,9 @@
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
-const { execSync, execFileSync } = require('child_process');
+const { execSync, execFile } = require('child_process');
+const util = require('util');
+const execFileAsync = util.promisify(execFile);
 
 const REPO_DIR = path.resolve(__dirname);
 const AGY_MODEL = 'Gemini 3.8 Flash (High)';
@@ -25,13 +27,15 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
     const fullPrompt = `${systemInstruction}\n\n${prompt}`;
     try {
         const agyBin = fs.existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : (fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy');
-        const output = execFileSync(agyBin, ['-p', fullPrompt, '--model', AGY_MODEL, '--dangerously-skip-permissions'], {
+        const { stdout } = await execFileAsync(agyBin, ['-p', fullPrompt, '--model', AGY_MODEL, '--dangerously-skip-permissions'], {
             cwd: REPO_DIR,
             encoding: 'utf8',
-            timeout: 60000,
+            timeout: 80000,
+            maxBuffer: 10 * 1024 * 1024,
             env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
-        }).trim();
-        if (output) return output;
+        });
+        const trimmed = (stdout || '').trim();
+        if (trimmed) return trimmed;
     } catch (e) {
         console.warn('[Antigravity CLI] Advertencia ejecutando binario agy:', e.message);
     }

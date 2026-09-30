@@ -251,7 +251,7 @@ Devuelve un JSON estrictamente estructurado así:
         }
     };
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 45000));
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 85000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {

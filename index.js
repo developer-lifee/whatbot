@@ -2141,7 +2141,7 @@ let probablyFinishedTickets = new Set();
 let aiTicketsSummaries = new Map();
 let classifiedTicketsCache = new Map(); // phone -> { lastMessage, state, summary }
 let lastAiClassificationTime = 0;
-const AI_CLASSIFICATION_INTERVAL = 45 * 1000; // run classification every 45 seconds
+const AI_CLASSIFICATION_INTERVAL = 10 * 60 * 1000; // run classification every 10 minutes to protect LLM quotas
 
 const AI_CACHE_FILE = path.join(__dirname, 'ticket_ai_cache.json');
 
@@ -2257,11 +2257,12 @@ async function updateAiTicketsClassification() {
             return;
         }
 
-        console.log(`[AI Classification Cache] Classifying ${ticketsToClassify.length} new/changed tickets out of ${activeTickets.length} total active.`);
+        const batchToClassify = ticketsToClassify.slice(0, 20);
+        console.log(`[AI Classification Cache] Classifying ${batchToClassify.length} of ${ticketsToClassify.length} pending tickets (${activeTickets.length} total active).`);
 
         const { callGemini } = require('./aiService');
         const prompt = `Analiza la siguiente lista de tickets de soporte técnico y ventas en formato JSON:
-${JSON.stringify(ticketsToClassify, null, 2)}
+${JSON.stringify(batchToClassify, null, 2)}
 
 Realiza dos tareas:
 1. Determina cuáles de ellos están **probablemente terminados o solucionados** y ya no requieren atención inmediata de un asesor (ej. agradecimientos rápidos, respuestas afirmativas simples o inactividad tras resolver).
