@@ -5780,106 +5780,59 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
 app.get('/api/whatsapp/test-media', async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.json({ error: 'No pupPage' });
-        const targetMsgId = req.query.id || null;
-        const result = await client.pupPage.evaluate(async (targetId) => {
+        const result = await client.pupPage.evaluate(async () => {
             const groupJid = '120363427163636523@g.us';
-            const chat = window.Store.Chat.get(groupJid);
-            if (!chat) return { error: 'Chat no encontrado en Store' };
-
-            let msg = null;
-            if (targetId) {
-                msg = window.Store.Msg.get(targetId) || (await window.Store.Msg.getMessagesById([targetId]))?.messages?.[0];
-            }
-
-            if (!msg) {
-                // Forzar carga de mensajes recientes del chat
-                try {
-                    if (chat.loadEarlierMsgs) await chat.loadEarlierMsgs();
-                } catch (e) {}
-
-                const msgs = chat.msgs ? chat.msgs.getModelsArray() : [];
-                const mediaMsgs = msgs.filter(m => m.type === 'image' || m.isMedia || (m.mediaData && m.mediaData.type === 'image'));
-                msg = mediaMsgs[mediaMsgs.length - 1];
-                if (!msg && msgs.length > 0) {
-                    msg = msgs[msgs.length - 1];
-                }
-            }
-
-            if (!msg) return { error: 'Mensaje no encontrado' };
-
-            const mediaDataObj = msg.mediaData ? {
-                mediaStage: msg.mediaData.mediaStage,
-                type: msg.mediaData.type,
-                filehash: msg.mediaData.filehash,
-                fullHeight: msg.mediaData.fullHeight,
-                fullWidth: msg.mediaData.fullWidth,
-                aspectRatio: msg.mediaData.aspectRatio,
-                hasDownloadMediaFn: typeof msg.downloadMedia === 'function'
-            } : null;
-
-            let downloadResult = null;
-            let downloadError = null;
-
+            
+            // 1. Abrir el chat en la interfaz si no está activo
             try {
-                if (typeof msg.downloadMedia === 'function') {
-                    await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+                const chat = window.Store.Chat.get(groupJid);
+                if (chat && window.Store.Cmd && window.Store.Cmd.openChatAt) {
+                    await window.Store.Cmd.openChatAt(chat);
+                    await new Promise(r => setTimeout(r, 1000));
                 }
+            } catch (e) {}
 
-                // Esperar a ver si mediaStage cambia
-                const stages = [];
-                for (let i = 0; i < 10; i++) {
-                    stages.push(msg.mediaData ? msg.mediaData.mediaStage : 'no_mediaData');
-                    if (msg.mediaData && msg.mediaData.mediaStage === 'RESOLVED') break;
-                    await new Promise(r => setTimeout(r, 400));
+            // 2. Buscar elementos <img> en la vista de mensajes
+            const imgElements = Array.from(document.querySelectorAll('img[src^="blob:"]'));
+            const blobImages = imgElements.map(img => ({
+                src: img.src,
+                alt: img.alt || '',
+                width: img.naturalWidth || img.width,
+                height: img.naturalHeight || img.height,
+                parentText: (img.closest('div[role="row"]') ? img.closest('div[role="row"]').innerText : '').slice(0, 100)
+            }));
+
+            // Intentar extraer el base64 de la última imagen del DOM
+            let lastBlobBase64 = null;
+            let blobError = null;
+            if (imgElements.length > 0) {
+                try {
+                    const lastImg = imgElements[imgElements.length - 1];
+                    const blobRes = await fetch(lastImg.src);
+                    const blob = await blobRes.blob();
+                    const reader = new FileReader();
+                    lastBlobBase64 = await new Promise((resolve, reject) => {
+                        reader.onload = () => resolve(reader.result.split(',')[1]);
+                        reader.onerror = reject;
+                        reader.readAsDataURL(blob);
+                    });
+                } catch (bErr) {
+                    blobError = bErr.message;
                 }
-
-                const mockQpl = {
-                    addAnnotations: function() { return this; },
-                    addPoint: function() { return this; }
-                };
-
-                const decryptedMedia = await window.Store.DownloadManager.downloadAndMaybeDecrypt({
-                    directPath: msg.directPath,
-                    encFilehash: msg.encFilehash,
-                    filehash: msg.filehash,
-                    mediaKey: msg.mediaKey,
-                    mediaKeyTimestamp: msg.mediaKeyTimestamp,
-                    type: msg.type,
-                    signal: (new AbortController()).signal,
-                    downloadQpl: mockQpl
-                });
-
-                if (decryptedMedia) {
-                    downloadResult = {
-                        byteLength: decryptedMedia.byteLength,
-                        stages,
-                        success: true
-                    };
-                }
-            } catch (err) {
-                downloadError = {
-                    message: err.message,
-                    name: err.name,
-                    stack: err.stack,
-                    str: String(err)
-                };
             }
 
             return {
-                msgId: msg.id ? msg.id._serialized : null,
-                type: msg.type,
-                hasMedia: !!msg.hasMedia,
-                mimetype: msg.mimetype,
-                directPath: msg.directPath,
-                mediaData: mediaDataObj,
-                downloadResult,
-                downloadError
+                blobCount: imgElements.length,
+                blobImages,
+                hasBase64: !!lastBlobBase64,
+                base64Length: lastBlobBase64 ? lastBlobBase64.length : 0,
+                blobError
             };
-        }, targetMsgId);
+        });
 
         res.json(result);
     } catch (e) {
-        res.status(500).json({ error: e.message, stack: e.stack });
+        res.status(500).json({ error: e.message });
     }
 });
 
