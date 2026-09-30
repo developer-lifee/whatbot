@@ -444,12 +444,38 @@ Devuelve un JSON estrictamente estructurado así:
  * Diagnostica un reporte enviado por un asesor en el grupo "errors bot"
  */
 async function handleAdvisorErrorReport(message, client, userStates) {
-    const effectiveText = (
+    let effectiveText = (
         message.caption ||
         (message._data && message._data.caption) ||
+        (message._data && message._data.comment) ||
         message.body ||
         ''
     ).trim();
+
+    // Si el texto vino vacío en el evento inmediato y el mensaje tiene media o es fromMe,
+    // esperar un instante para sincronizar con el chat ya que WhatsApp Web actualiza el caption asíncronamente
+    let chat = null;
+    try { chat = await message.getChat(); } catch (e) {}
+
+    if (!effectiveText && chat && chat.fetchMessages) {
+        try {
+            await new Promise(r => setTimeout(r, 1200));
+            const recentMsgs = await chat.fetchMessages({ limit: 6 });
+            const matchingMsg = recentMsgs.find(m => m.id && (
+                m.id._serialized === (message.id && message.id._serialized) || 
+                m.id.id === (message.id && message.id.id)
+            ));
+            if (matchingMsg) {
+                effectiveText = (
+                    matchingMsg.caption ||
+                    (matchingMsg._data && matchingMsg._data.caption) ||
+                    (matchingMsg._data && matchingMsg._data.comment) ||
+                    matchingMsg.body ||
+                    ''
+                ).trim();
+            }
+        } catch (e) {}
+    }
 
     if (!message || (!effectiveText && !message.hasMedia)) return;
 
@@ -481,7 +507,9 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             return;
         }
 
-        const chat = await message.getChat();
+        if (!chat) {
+            try { chat = await message.getChat(); } catch (e) {}
+        }
         const chatName = chat ? (chat.name || '') : '';
         const sender = message.author || message.from;
         const senderPhone = sender.replace('@c.us', '').replace(/\D/g, '');
@@ -663,14 +691,32 @@ async function handleAdvisorErrorReport(message, client, userStates) {
 
         // 3. Buscar si citó un mensaje con imagen
         let targetMediaMsg = message.hasMedia ? message : null;
-        if (!targetMediaMsg && message.hasQuotedMsg) {
+        let quotedContextText = '';
+        if (message.hasQuotedMsg) {
             try {
                 const quoted = await message.getQuotedMessage();
-                if (quoted && quoted.hasMedia) {
-                    targetMediaMsg = quoted;
+                if (quoted) {
+                    quotedContextText = (quoted.caption || (quoted._data && quoted._data.caption) || quoted.body || '').trim();
+                    if (!targetMediaMsg && quoted.hasMedia) {
+                        targetMediaMsg = quoted;
+                    }
                 }
             } catch (e) {}
         }
+
+        // Si effectiveText estaba vacío pero targetMediaMsg o quoted tienen texto, incorporarlo
+        if (!effectiveText) {
+            if (targetMediaMsg) {
+                effectiveText = (targetMediaMsg.caption || (targetMediaMsg._data && targetMediaMsg._data.caption) || (targetMediaMsg._data && targetMediaMsg._data.comment) || targetMediaMsg.body || '').trim();
+            }
+            if (!effectiveText && quotedContextText) {
+                effectiveText = quotedContextText;
+            }
+        } else if (quotedContextText && !effectiveText.includes(quotedContextText)) {
+            effectiveText = `${effectiveText} (citando: "${quotedContextText.slice(0, 90)}")`;
+        }
+
+        extractedInfo.textBody = effectiveText;
 
         // 4. Si no citó imagen, buscar en los mensajes recientes del grupo (hasta 20 mensajes atrás en las últimas 24 horas)
         let recentChatContext = '';
@@ -692,16 +738,22 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         if (targetMediaMsg && targetMediaMsg.hasMedia) {
             let media = null;
             if (targetMediaMsg.fromMe) {
-                await new Promise(r => setTimeout(r, 1200));
+                await new Promise(r => setTimeout(r, 1500));
             }
-            for (let attempt = 1; attempt <= 3; attempt++) {
+            for (let attempt = 1; attempt <= 4; attempt++) {
                 try {
-                    media = await targetMediaMsg.downloadMedia();
-                    if (media && media.data) break;
+                    media = await Promise.race([
+                        targetMediaMsg.downloadMedia(),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout descarga media 15s')), 15000))
+                    ]);
+                    if (media && media.data) {
+                        console.log(`[ErrorDiagnostic] ✅ Imagen descargada con éxito en intento ${attempt} (${media.mimetype}, ${Math.round(media.data.length / 1024)} KB base64)`);
+                        break;
+                    }
                 } catch (dErr) {
                     console.warn(`[ErrorDiagnostic] Intento ${attempt} descargando imagen falló:`, dErr.message);
                 }
-                await new Promise(r => setTimeout(r, 1000));
+                await new Promise(r => setTimeout(r, 1200));
             }
 
             if (media && media.data) {
@@ -712,29 +764,30 @@ Analiza exhaustivamente esta captura de pantalla enviada al grupo de errores de 
 
 INSTRUCCIONES CLAVE DE EXTRACCIÓN (OCR COMPLETO):
 1. Realiza una lectura OCR profunda de TODO el texto visible, especialmente:
-   - Textos de mensajes de chat o barras de diálogo (ej: "En la pagina aparece crunchy como disponibles, pero no tenemos cupos disponibles en el excel").
-   - Encabezados, nombres de plataformas (Crunchyroll, Netflix, Disney+, Apple, etc.), precios (ej: $ 7.000/mes) y detalles de planes.
-   - Textos de conversaciones de WhatsApp con clientes o comprobantes bancarios.
+   - Textos de mensajes de chat o barras de diálogo (ej: "En la pagina aparece crunchy como disponibles, pero no tenemos cupos disponibles en el excel", "El cliente paga por renovacion y el Bot lo procesa como una compra nueva").
+   - Encabezados, nombres de plataformas (Crunchyroll, Netflix, Amazon, Disney+, Apple, etc.), precios y detalles de planes.
+   - Nombres de clientes (ej: "Jhonnatan"), teléfonos si se visualizan, y textos de conversaciones de WhatsApp con el bot o con asesores.
 2. Identifica con precisión:
-   - ¿Qué plataforma o servicio está involucrado?
-   - ¿Cuál es la incidencia o discrepancia reportada? (ej: catálogo muestra disponible pero no hay cupos en Excel, o cliente pagó y se tomó como compra nueva en vez de renovación, o turno equivocado).
+   - ¿Qué plataforma o servicio está involucrado? (ej: AMAZON, CRUNCHYROLL, NETFLIX, APPLE).
+   - ¿Cuál es la incidencia reportada? (ej: cliente pagó renovación y el bot lo procesó como compra nueva/activación de credenciales, o discrepancia catálogo vs stock).
    - Teléfono o nombre del cliente si es visible.
 
 Contexto adicional reciente del chat:
 ${recentChatContext || 'Sin contexto previo'}
 
-Mensaje textual del asesor: "${effectiveText}"
+Mensaje textual o pie de foto del asesor: "${effectiveText}"
 
 Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
 {
   "clientPhone": string | null,
   "clientName": string | null,
   "platform": string | null,
-  "problemType": string, // "discrepancia_catalogo_stock", "renovacion_vs_compra", "desfase_turno_cola", "no_entrega_credenciales", "vencimiento_error", "otro"
+  "problemType": string, // "renovacion_vs_compra", "discrepancia_catalogo_stock", "desfase_turno_cola", "no_entrega_credenciales", "vencimiento_error", "otro"
   "rawOcr": string, // Transcripción de los textos más importantes leídos en la imagen
   "summary": string // Resumen técnico claro de la incidencia reportada
 }`;
 
+                    console.log(`[ErrorDiagnostic] 🔍 Enviando imagen a Gemini para análisis OCR multimodal...`);
                     const rawResult = await callGemini(visionPrompt, "Eres un analista OCR técnico de alta precisión. Responde únicamente con JSON.", true, mediaObj);
                     let structured = null;
                     try {
@@ -745,8 +798,9 @@ Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
                     }
 
                     if (structured && (structured.summary || structured.rawOcr || structured.platform)) {
+                        console.log(`[ErrorDiagnostic] ✅ OCR exitoso: Plat=${structured.platform}, Cliente=${structured.clientName}, Resumen=${structured.summary}`);
                         extractedInfo = { ...extractedInfo, ...structured };
-                        if (structured.summary && !structured.summary.toLowerCase().includes('vacío')) {
+                        if (structured.summary && !structured.summary.toLowerCase().includes('vacío') && !structured.summary.toLowerCase().includes('no envió texto')) {
                             ocrSuccess = true;
                         }
                     }
@@ -757,11 +811,11 @@ Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
         }
 
         // Si no hubo imagen o si el OCR de la imagen falló o faltan datos, analizar el texto del asesor
-        if (!ocrSuccess || !extractedInfo.summary || !extractedInfo.problemType) {
+        if (!ocrSuccess || !extractedInfo.summary || !extractedInfo.problemType || (extractedInfo.summary && extractedInfo.summary.toLowerCase().includes('no envió texto'))) {
             try {
                 const textParsed = await callDeepSeek(
                     `Analiza este reporte de incidencia técnica enviado por un asesor en WhatsApp:\n` +
-                    `MENSAJE DEL ASESOR: "${effectiveText}"\n\n` +
+                    `MENSAJE DEL ASESOR: "${effectiveText || 'El asesor envió una captura de pantalla de un caso de soporte'}"\n\n` +
                     `CONTEXTO RECIENTE DEL GRUPO:\n${recentChatContext}\n\n` +
                     (extractedInfo.rawOcr ? `DESCRIPCIÓN VISUAL DISPONIBLE:\n${extractedInfo.rawOcr}\n\n` : '') +
                     `Extrae en JSON:
@@ -769,8 +823,8 @@ Responde ÚNICAMENTE con un JSON estrictamente estructurado así:
   "clientPhone": string | null,
   "clientName": string | null,
   "platform": string | null,
-  "problemType": string, // "discrepancia_catalogo_stock", "renovacion_vs_compra", "desfase_turno_cola", "clave_incorrecta", "vencimiento_error", "otro"
-  "summary": string     // Explica concisamente qué reporta el asesor
+  "problemType": string, // "renovacion_vs_compra", "discrepancia_catalogo_stock", "desfase_turno_cola", "clave_incorrecta", "vencimiento_error", "otro"
+  "summary": string     // Explica concisamente qué reporta el asesor (NUNCA digas que no envió texto)
 }`,
                     "Responde únicamente con el JSON solicitado.",
                     true

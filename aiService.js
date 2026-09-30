@@ -184,9 +184,10 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-3.7-flash",          // Prioridad 1: Alta cuota y soporte multimodal activo comprobado
-  "gemini-3.5-flash",          // Respaldo de alta capacidad
-  "gemini-3.8-flash"           // Modelo más reciente
+  "gemini-flash-latest",       // Modelo oficial Flash con soporte multimodal y OCR activo
+  "gemini-2.5-flash-lite",     // Respaldo liviano con cuota independiente
+  "gemini-2.5-flash",          // Respaldo Flash 2.5
+  "gemini-3-flash-preview"     // Preview de próxima generación
 ];
 
 /**

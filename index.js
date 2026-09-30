@@ -2260,7 +2260,7 @@ async function updateAiTicketsClassification() {
         const batchToClassify = ticketsToClassify.slice(0, 20);
         console.log(`[AI Classification Cache] Classifying ${batchToClassify.length} of ${ticketsToClassify.length} pending tickets (${activeTickets.length} total active).`);
 
-        const { callGemini } = require('./aiService');
+        const { callDeepSeek, callGemini } = require('./aiService');
         const prompt = `Analiza la siguiente lista de tickets de soporte técnico y ventas en formato JSON:
 ${JSON.stringify(batchToClassify, null, 2)}
 
@@ -2280,7 +2280,13 @@ Devuelve **únicamente** un objeto JSON estructurado así (sin marcas markdown d
   }
 }`;
 
-        const responseJson = await callGemini(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras.", true);
+        let responseJson = null;
+        try {
+            responseJson = await callDeepSeek(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras. Responde exclusivamente con el JSON solicitado.", true);
+        } catch (dsErr) {
+            console.warn('[AI Classification] DeepSeek no disponible, intentando Gemini como fallback:', dsErr.message);
+            responseJson = await callGemini(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras.", true);
+        }
         const parsed = typeof responseJson === 'object' ? responseJson : JSON.parse(responseJson.replace(/```json/g, '').replace(/```/g, '').trim());
 
         if (parsed) {
