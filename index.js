@@ -5776,6 +5776,35 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
         res.status(500).send(err.message);
     }
 });
+
+app.get('/api/whatsapp/inspect-msg-data', async (req, res) => {
+    try {
+        if (!client) return res.status(503).json({ error: 'No client' });
+        const chatId = req.query.chatId || '120363427163636523@g.us';
+        const chat = await client.getChatById(chatId);
+        const msgs = await chat.fetchMessages({ limit: 40 });
+        const mediaMsgs = msgs.filter(m => m.hasMedia);
+        
+        const summary = mediaMsgs.map(m => ({
+            id: m.id,
+            fromMe: m.fromMe,
+            type: m.type,
+            caption: m.body,
+            dataKeys: m._data ? Object.keys(m._data) : [],
+            mimetype: m._data?.mimetype,
+            directPath: !!m._data?.directPath,
+            mediaKey: !!m._data?.mediaKey,
+            hasBody: !!m._data?.body,
+            bodySample: m._data?.body ? String(m._data.body).slice(0, 50) : null,
+            bodyLength: m._data?.body ? String(m._data.body).length : 0
+        }));
+
+        res.json({ count: mediaMsgs.length, messages: summary });
+    } catch (e) {
+        res.status(500).json({ error: e.message, stack: e.stack });
+    }
+});
+
 app.get('/api/whatsapp/extract-latest-chat-media', async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.status(503).json({ error: 'No pupPage' });
