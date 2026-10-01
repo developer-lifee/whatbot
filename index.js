@@ -5219,6 +5219,19 @@ app.post('/api/admin/policies/save', (req, res) => {
 
 async function downloadMediaWithRetry(msg, retries = 3, delay = 1500) {
     if (!msg || !msg.hasMedia) return null;
+
+    // 1. Intento prioritario: descifrado nativo directo desde CDN de WhatsApp (inmune a fallos de navegador)
+    try {
+        const { downloadMediaDirect } = require('./mediaDecryptService');
+        const directMedia = await downloadMediaDirect(msg);
+        if (directMedia && directMedia.data) {
+            return directMedia;
+        }
+    } catch (directErr) {
+        console.warn('[Media Download] Descifrado directo omitido/falló:', directErr.message);
+    }
+
+    // 2. Fallback estándar a través de whatsapp-web.js
     for (let i = 0; i < retries; i++) {
         try {
             const media = await Promise.race([

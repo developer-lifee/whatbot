@@ -792,17 +792,34 @@ async function handleAdvisorErrorReport(message, client, userStates) {
 
         if (targetMediaMsg && targetMediaMsg.hasMedia) {
             console.log(`[ErrorDiagnostic] 📥 Intentando descargar imagen del reporte (${targetMediaMsg.id ? targetMediaMsg.id._serialized : 'media'})...`);
-            
-            // Espera preventiva de 2 segundos para dar tiempo a WhatsApp Web a sincronizar el blob multimedia
-            await new Promise(r => setTimeout(r, 2000));
 
-            for (let attempt = 1; attempt <= 3; attempt++) {
-                try {
-                    // 1. Intento estándar de whatsapp-web.js
-                    let media = await Promise.race([
-                        targetMediaMsg.downloadMedia(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout descarga media 25s')), 25000))
-                    ]);
+            // 0. Intento instantáneo: Descifrado criptográfico nativo de WhatsApp (inmune a errores de navegador)
+            try {
+                const { downloadMediaDirect } = require('./mediaDecryptService');
+                const directMedia = await downloadMediaDirect(targetMediaMsg);
+                if (directMedia && directMedia.data) {
+                    const errorsDir = path.join(__dirname, 'uploads', 'errors');
+                    if (!fs.existsSync(errorsDir)) fs.mkdirSync(errorsDir, { recursive: true });
+                    const ext = (directMedia.mimetype && directMedia.mimetype.includes('png')) ? 'png' : 'jpg';
+                    const filename = `error_${Date.now()}_${Math.random().toString(36).substring(7)}.${ext}`;
+                    const fullPath = path.join(errorsDir, filename);
+                    fs.writeFileSync(fullPath, Buffer.from(directMedia.data, 'base64'));
+                    imageDiskPath = path.relative(__dirname, fullPath);
+                    fullImageDiskPath = fullPath;
+                    console.log(`[ErrorDiagnostic] 📸 Captura descargada y descifrada con éxito vía nativo en: ${fullPath} (${Math.round(directMedia.data.length / 1024)} KB)`);
+                }
+            } catch (dirErr) {
+                console.warn('[ErrorDiagnostic] Falló intento directo nativo:', dirErr.message);
+            }
+
+            if (!imageDiskPath) {
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        // 1. Intento estándar de whatsapp-web.js
+                        let media = await Promise.race([
+                            targetMediaMsg.downloadMedia(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout descarga media 25s')), 25000))
+                        ]);
 
                     // 2. Si vino vacío, intentar con Puppeteer forzando la descarga y esperando RESOLVED
                     if ((!media || !media.data) && client && client.pupPage) {
@@ -886,6 +903,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 await new Promise(r => setTimeout(r, 1500));
             }
         }
+    }
 
         // Si el asesor envió solo una imagen y NO se pudo descargar en disco, AVISAR de forma honesta en vez de inventar
         if (!imageDiskPath && !effectiveText) {
