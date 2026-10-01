@@ -5793,7 +5793,25 @@ app.get('/api/whatsapp/extract-latest-chat-media', async (req, res) => {
 
         await new Promise(r => setTimeout(r, 2500));
 
-        // Tomar screenshot de control para verificar visualmente qué ve Puppeteer
+        // 1. Cerrar banners/popups que tapan la pantalla
+        await client.pupPage.evaluate(() => {
+            const closeBtns = Array.from(document.querySelectorAll('button[aria-label="Cerrar"], span[data-icon="x"], span[data-icon="x-alt"], [data-testid="btn-close"]'));
+            closeBtns.forEach(b => { try { (b.closest('button') || b).click(); } catch(e) {} });
+        });
+
+        // 2. Hacer scroll hacia arriba en el panel de conversación para revelar la imagen
+        await client.pupPage.evaluate(() => {
+            const scrollContainers = Array.from(document.querySelectorAll('#main div[tabindex="-1"], div[data-testid="conversation-panel-messages"], #main div'));
+            for (const el of scrollContainers) {
+                if (el.scrollHeight > el.clientHeight && el.clientHeight > 200) {
+                    el.scrollTop = Math.max(0, el.scrollHeight - 1800);
+                }
+            }
+        });
+
+        await new Promise(r => setTimeout(r, 1500));
+
+        // Tomar screenshot de control para verificar visualmente qué ve Puppeteer tras el scroll
         const debugScreenshotPath = path.join(__dirname, 'scratch', 'pup_chat_view.png');
         try {
             const buf = await client.pupPage.screenshot();
@@ -5801,24 +5819,27 @@ app.get('/api/whatsapp/extract-latest-chat-media', async (req, res) => {
         } catch (sErr) {}
 
         const extraction = await client.pupPage.evaluate(async () => {
-            // 1. Si hay botones de descarga pendientes en los mensajes, darles click
+            // Dar click a cualquier botón de descarga pendiente
             const downloadBtns = Array.from(document.querySelectorAll('span[data-icon="download"], [data-testid*="download"], [aria-label*="descarg" i]'));
             for (const btn of downloadBtns) {
                 try { (btn.closest('button') || btn).click(); } catch(e) {}
             }
             if (downloadBtns.length > 0) {
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise(r => setTimeout(r, 1500));
             }
 
-            // 2. Buscar todas las imágenes en el contenedor del chat
-            const imgs = Array.from(document.querySelectorAll('div[role="region"] img, main img, div[data-testid="conversation-panel-messages"] img, img[src^="blob:"]'));
+            // Buscar todas las imágenes de contenido dentro de #main
+            const allImgs = Array.from(document.querySelectorAll('#main img, div[role="row"] img, img[src^="blob:"]'));
             
-            const imgDataList = [];
-            for (const img of imgs) {
-                if (img.width < 50 && img.height < 50) continue; // ignorar avatares pequeños
-                
+            const results = [];
+            for (let idx = 0; idx < allImgs.length; idx++) {
+                const img = allImgs[idx];
+                const w = img.naturalWidth || img.width;
+                const h = img.naturalHeight || img.height;
+                if (w < 80 || h < 80) continue; // descartar iconos y avatares pequeños
+
                 let b64 = null;
-                // Intento A: Fetch del blob
+                // Estrategia 1: Fetch directo de Blob URL
                 if (img.src && img.src.startsWith('blob:')) {
                     try {
                         const blobRes = await fetch(img.src);
@@ -5832,42 +5853,47 @@ app.get('/api/whatsapp/extract-latest-chat-media', async (req, res) => {
                     } catch(e) {}
                 }
 
-                // Intento B: Canvas drawImage
-                if (!b64 && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                // Estrategia 2: Canvas HTML5
+                if (!b64 && w > 0 && h > 0) {
                     try {
                         const cvs = document.createElement('canvas');
-                        cvs.width = img.naturalWidth;
-                        cvs.height = img.naturalHeight;
+                        cvs.width = w;
+                        cvs.height = h;
                         const ctx = cvs.getContext('2d');
                         ctx.drawImage(img, 0, 0);
                         b64 = cvs.toDataURL('image/png').split(',')[1];
                     } catch(e) {}
                 }
 
-                imgDataList.push({
-                    src: img.src ? img.src.slice(0, 50) : '',
+                results.push({
+                    idx,
+                    src: img.src ? img.src.slice(0, 60) : '',
                     isBlob: img.src ? img.src.startsWith('blob:') : false,
-                    width: img.naturalWidth || img.width,
-                    height: img.naturalHeight || img.height,
+                    w,
+                    h,
                     hasB64: !!b64,
                     b64Length: b64 ? b64.length : 0,
                     b64
                 });
             }
 
+            // Ordenar por tamaño/resolución para obtener la captura de pantalla real
+            const valid = results.filter(r => r.hasB64 && r.w >= 200 && r.h >= 200);
+            const bestImage = valid.pop() || results.filter(r => r.hasB64).pop() || null;
+
             return {
                 downloadBtnsFound: downloadBtns.length,
-                totalImgsFound: imgs.length,
-                validImgs: imgDataList.map(({ b64, ...rest }) => rest),
-                lastImageB64: imgDataList.filter(i => i.hasB64).pop()?.b64 || null
+                totalImgsFound: allImgs.length,
+                validImgs: results.map(({ b64, ...rest }) => rest),
+                bestImageB64: bestImage ? bestImage.b64 : null
             };
         });
 
         let savedPath = null;
-        if (extraction.lastImageB64) {
+        if (extraction.bestImageB64) {
             const outPath = path.join(__dirname, 'uploads', 'errors', 'latest_extracted.png');
             fs.mkdirSync(path.dirname(outPath), { recursive: true });
-            fs.writeFileSync(outPath, Buffer.from(extraction.lastImageB64, 'base64'));
+            fs.writeFileSync(outPath, Buffer.from(extraction.bestImageB64, 'base64'));
             savedPath = outPath;
         }
 
