@@ -174,7 +174,7 @@ async function getPlatformAvailability(platformName) {
         });
     }
     
-    // Si está deshabilitado manualmente
+    // Si está deshabilitado manualmente en la configuración
     if (configKey && config[configKey].immediate === false) {
         return {
             immediate: false,
@@ -182,22 +182,22 @@ async function getPlatformAvailability(platformName) {
         };
     }
     
-    // Si no está deshabilitado manualmente, verificar si es un plan familiar/invitación
+    // Verificar el stock en el Excel primero (incluso para familiares/invitaciones como Apple One)
+    const hasStock = await checkSpreadsheetStock(platformName);
+    if (!hasStock) {
+        return {
+            immediate: false,
+            reason: "No hay cupos libres disponibles en este momento en el sistema para entrega automática."
+        };
+    }
+    
+    // Si hay stock, pero es un plan familiar/invitación, requiere activación manual
     const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify individual', 'spotify personal', 'spotify familiar', 'familiar', 'family', 'xbox', 'netflix extra', 'extra', 'individual', 'personal', 'correo propio', 'tu correo'];
     const isFamily = FAMILY_KEYWORDS.some(key => normalizedQuery.includes(key));
     if (isFamily) {
         return {
             immediate: false,
             reason: "Este tipo de plan requiere de una invitación o activación personalizada por un asesor."
-        };
-    }
-    
-    // Si no es familiar, verificar el stock en el Excel
-    const hasStock = await checkSpreadsheetStock(platformName);
-    if (!hasStock) {
-        return {
-            immediate: false,
-            reason: "No hay cupos libres disponibles en este momento en el sistema para entrega automática."
         };
     }
     
@@ -259,5 +259,3 @@ module.exports = {
     getSpecificAccountsIncidentsText,
     normalizeStreamingName
 };
-
-
