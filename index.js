@@ -5834,16 +5834,77 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
-});app.get('/api/whatsapp/test-download-media', async (req, res) => {
+});app.get('/api/whatsapp/inspect-media-raw', async (req, res) => {
     try {
         if (!client) return res.json({ error: 'No client' });
         const groupJid = '120363427163636523@g.us';
         const chat = await client.getChatById(groupJid);
         const msgs = await chat.fetchMessages({ limit: 50 });
         const mediaMsg = msgs.slice().reverse().find(m => m.hasMedia && !m.fromMe) || msgs.slice().reverse().find(m => m.hasMedia);
-        if (!mediaMsg) return res.json({ message: 'No media message found in last 50 messages' });
+        if (!mediaMsg) return res.json({ message: 'No media message found' });
 
-        console.log('[test-download-media] Probando downloadMedia con:', mediaMsg.id, 'fromMe:', mediaMsg.fromMe);
+        const inspect = await client.pupPage.evaluate(async (idInfo) => {
+            const rawMsgId = (typeof idInfo === 'string') ? idInfo : (idInfo?.dollar1 || idInfo?.serialized || idInfo?.id);
+            let msg = window.Store.Msg.get(rawMsgId);
+            if (!msg && idInfo?.dollar1) msg = window.Store.Msg.get(idInfo.dollar1);
+            if (!msg && idInfo?.id) {
+                const models = window.Store.Msg.getModelsArray ? window.Store.Msg.getModelsArray() : (window.Store.Msg.models || []);
+                msg = models.find(m => m && m.id && (m.id.id === idInfo.id || m.id.$1 === idInfo.dollar1));
+            }
+            if (!msg) return { error: 'msg not found in store' };
+
+            let dmError = null;
+            let dmResult = null;
+            try {
+                const mockQpl = { addAnnotations: () => mockQpl, addPoint: () => mockQpl };
+                const dec = await window.Store.DownloadManager.downloadAndMaybeDecrypt({
+                    directPath: msg.directPath,
+                    encFilehash: msg.encFilehash,
+                    filehash: msg.filehash,
+                    mediaKey: msg.mediaKey,
+                    mediaKeyTimestamp: msg.mediaKeyTimestamp,
+                    type: msg.type,
+                    signal: (new AbortController).signal,
+                    downloadQpl: mockQpl
+                });
+                dmResult = dec ? 'success_bytes_' + dec.byteLength : 'null';
+            } catch(e) {
+                dmError = {
+                    name: e.name,
+                    message: e.message,
+                    status: e.status,
+                    code: e.code,
+                    stack: e.stack,
+                    full: String(e),
+                    keys: Object.keys(e)
+                };
+            }
+
+            return {
+                id: msg.id,
+                type: msg.type,
+                directPath: !!msg.directPath,
+                filehash: !!msg.filehash,
+                mediaKey: !!msg.mediaKey,
+                mediaDataKeys: msg.mediaData ? Object.keys(msg.mediaData) : null,
+                mediaStage: msg.mediaData?.mediaStage,
+                renderableUrl: !!msg.mediaData?.renderableUrl,
+                preview: !!msg.mediaData?.preview,
+                fullMsgKeys: Object.keys(msg),
+                dmResult,
+                dmError
+            };
+        }, {
+            serialized: mediaMsg.id._serialized,
+            dollar1: mediaMsg.id.$1,
+            id: mediaMsg.id.id
+        });
+
+        res.json({ inspect });
+    } catch(e) {
+        res.status(500).json({ error: e.message, stack: e.stack });
+    }
+});
         
         const debugInfo = await client.pupPage.evaluate(async (rawId, dollar1, shortId) => {
             const m1 = window.Store.Msg.get(rawId);
