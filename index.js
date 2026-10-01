@@ -5775,6 +5775,7 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
     } catch (err) {
         res.status(500).send(err.message);
     }
+});
 app.get('/api/whatsapp/inspect-dm', async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.json({ error: 'No pupPage' });
