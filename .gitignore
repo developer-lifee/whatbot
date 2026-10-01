@@ -26,10 +26,7 @@ excel_cache.json
 historico_cache.json
 user_states.json
 *.exp
-scratch/*.exp
-*.sh
-scratch/*.sh
-scratch/*.js
+scratch/
 
 # Logs and registration files
 logs/

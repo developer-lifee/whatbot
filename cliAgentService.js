@@ -12,7 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
-const { execSync, execFile } = require('child_process');
+const { execSync, execFile, execFileSync } = require('child_process');
 const util = require('util');
 const execFileAsync = util.promisify(execFile);
 
@@ -339,8 +339,15 @@ async function executeFixAndCommit(ticket) {
         let pushed = false;
 
         if (statusAfter) {
-            const sanitizedMsg = commitMessage.replace(/"/g, '\\"');
-            execSync(`git commit -m "${sanitizedMsg}"`, { cwd: REPO_DIR });
+            const tempCommitMsgPath = path.join(REPO_DIR, '.git', 'COMMIT_EDITMSG_AGENT');
+            fs.writeFileSync(tempCommitMsgPath, commitMessage, 'utf8');
+            try {
+                execFileSync('git', ['commit', '-F', tempCommitMsgPath], { cwd: REPO_DIR, encoding: 'utf8' });
+            } finally {
+                if (fs.existsSync(tempCommitMsgPath)) {
+                    try { fs.unlinkSync(tempCommitMsgPath); } catch (_) {}
+                }
+            }
             commitHash = execSync('git rev-parse --short HEAD', { cwd: REPO_DIR, encoding: 'utf8' }).trim();
             console.log(`[Antigravity CLI] ✅ Commit creado: ${commitHash}`);
 
@@ -390,6 +397,10 @@ async function executeFixAndCommit(ticket) {
         };
     } catch (err) {
         console.error('[Antigravity CLI] ❌ Error ejecutando commit/push:', err.message);
+        try {
+            // Revertir cambios en Git si falló el commit o push para no dejar el working tree sucio
+            execSync('git reset --hard HEAD && git clean -fd', { cwd: REPO_DIR });
+        } catch (_) {}
         return {
             success: false,
             error: err.message,

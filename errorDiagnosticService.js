@@ -116,7 +116,7 @@ function approvePendingSolution(quotedText = '', approverPhone = '') {
         if (quotedText) {
             const matchId = quotedText.match(/#?(ERR-[\w-]+)/i);
             if (matchId) {
-                targetIndex = solutions.findIndex(s => s.id === matchId[1] && s.status === 'PENDIENTE_APROBACION');
+                targetIndex = solutions.findIndex(s => s.id === matchId[1]);
             }
         }
 
@@ -624,6 +624,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                     }
                     return;
                 } else {
+                    updatePendingSolution(approvedTicket.id, { status: 'PENDIENTE_APROBACION' });
                     const errorMsg = `❌ *[ERROR AL APLICAR SOLUCIÓN]* (Ticket: #${approvedTicket.id})\n\n` +
                         `Ocurrió un problema al intentar modificar los archivos o hacer push:\n` +
                         `\`${commitResult.error || 'Error desconocido'}\`\n\n` +
