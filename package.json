@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package && node patch_wwebjs.js"
   },
   "author": "sheerit devs",
   "license": "ISC",

@@ -801,7 +801,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                     // 1. Intento estándar de whatsapp-web.js
                     let media = await Promise.race([
                         targetMediaMsg.downloadMedia(),
-                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout descarga media 12s')), 12000))
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout descarga media 25s')), 25000))
                     ]);
 
                     // 2. Si vino vacío, intentar con Puppeteer forzando la descarga y esperando RESOLVED
