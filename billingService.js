@@ -56,6 +56,20 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
         }
     }
 
+    // Buscar en base de datos si solo tenemos lidJid
+    if (!realPhoneJid && lidJid) {
+        try {
+            const { pool } = require('./database');
+            const [chatRows] = await pool.query('SELECT customer_phone FROM chats WHERE chat_id = ? AND customer_phone IS NOT NULL LIMIT 1', [lidJid]);
+            if (chatRows.length > 0 && chatRows[0].customer_phone) {
+                const dbPhone = chatRows[0].customer_phone.replace(/\D/g, '');
+                if (dbPhone.length >= 7 && dbPhone.length <= 13 && !dbPhone.includes('3118587974')) {
+                    realPhoneJid = dbPhone + '@c.us';
+                }
+            }
+        } catch (e) {}
+    }
+
     // Buscar en Puppeteer window.Store si aún no tenemos realPhoneJid
     if (!realPhoneJid && lidJid && activeClient && activeClient.pupPage) {
         try {
@@ -1395,18 +1409,29 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             response += churnText;
         }
 
-        await safeSend(message, response, userId);
+        const targetDestination = (phoneNumber && phoneNumber.length >= 7 && phoneNumber.length <= 13) 
+            ? `${phoneNumber}@c.us` 
+            : userId;
+
+        await safeSend(message, response, targetDestination);
         
         // Actualizar estado para esperar comprobante y registrar ticket de trabajo humano
-        userStates.set(userId, { 
+        const stateObj = { 
             state: 'awaiting_payment_method', 
             total: total, 
             items: itemsForRenewal, 
             isRenewal: true,
             category: churnPlatforms.length > 0 ? 'Corte / Churn' : 'Aviso de Cobro / Renovación',
             durationMonths: durationMonths,
-            churnPlatforms: churnPlatforms.length > 0 ? churnPlatforms : null
-        });
+            churnPlatforms: churnPlatforms.length > 0 ? churnPlatforms : null,
+            realPhone: phoneNumber
+        };
+        if (userStates) {
+            userStates.set(userId, stateObj);
+            if (targetDestination !== userId) {
+                userStates.set(targetDestination, stateObj);
+            }
+        }
 
     } catch (error) {
         console.error('[Billing Service] Error en processCheckPrices:', error);

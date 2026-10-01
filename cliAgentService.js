@@ -330,6 +330,13 @@ async function executeFixAndCommit(ticket) {
     try {
         // 1. Modificar internamente los archivos de código
         const codeFilesModified = await applyCodeModifications(ticket);
+        if (!codeFilesModified || codeFilesModified.length === 0) {
+            console.warn('[Antigravity CLI] ⚠️ applyCodeModifications no pudo aplicar cambios en ningún archivo.');
+            return {
+                success: false,
+                error: 'No se identificaron modificaciones de código concretas para este ticket o el plan era operativo/preliminar.'
+            };
+        }
 
         // 2. Preparar stage de Git
         execSync('git add -A', { cwd: REPO_DIR });

@@ -374,7 +374,7 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
         planCodigo: fallbackPlan,
         commitDetallado: fallbackCommit,
         archivosAfectados: fallbackFiles,
-        isPreliminary: false
+        isPreliminary: true
     };
 
     const generatePromise = async () => {

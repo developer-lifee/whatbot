@@ -13573,7 +13573,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     }
 
     const isSingleDigit = /^\d+$/.test(inputToUse.trim());
-    const statesExpectingNumbers = ['selecting_plans', 'adding_platform', 'awaiting_code_account_selection', 'awaiting_payment_renewal_confirmation', 'awaiting_payment_multi_renewal_confirmation', 'awaiting_payment_autofill_confirmation'];
+    const statesExpectingNumbers = ['selecting_plans', 'adding_platform', 'awaiting_code_account_selection', 'awaiting_payment_renewal_confirmation', 'awaiting_payment_multi_renewal_confirmation', 'awaiting_payment_autofill_confirmation', 'awaiting_payment_confirmation', 'awaiting_payment_method'];
     const isMenuDigit = ['1', '2', '3', '4', '5'].includes(inputToUse.trim());
     let isForcedMenuBreakout = false;
     if (isMenuDigit && currentState && !statesExpectingNumbers.includes(currentState)) {
@@ -15010,21 +15010,20 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
             } else {
                 await startPurchaseProcess(message, userId, userStates);
             }
-            break;
+            return;
         case '2':
             await processCheckCredentials(userId, client, message.body, "", userStates);
-            break;
+            return;
         case '3':
-            await processCheckPrices(message, userId, userStates);
-            break;
+            await processCheckPrices(message, userId, userStates, inputToUse, detection ? detection.detectedPlatform : null, 1);
+            return;
         case '4':
             await message.reply("🤖 *Soporte Técnico Sheerit*\n\nPor favor describe tu problema detalladamente o envíame una captura de pantalla del error que estás experimentando. Te guiaré paso a paso para solucionarlo.\n\n⚠️ *Nota:* Nuestra atención es **exclusivamente por chat**, no atendemos llamadas.\n\nSi el problema es complejo, escribe *5* en cualquier momento para hablar con un asesor humano.");
-
-            break;
+            return;
         case '5':
             await message.reply("🤖 Para poder ayudarte mejor y resolver tu solicitud lo antes posible, por favor escribe detalladamente qué necesitas consultar con el asesor (ej. dudas sobre un pago, cambio de plan, soporte técnico, etc.).\n\nEl bot analizará tu respuesta y, si es necesario, te comunicará con un asesor de inmediato.");
             userStates.set(userId, { state: 'awaiting_advisor_reason', nombre: foundName });
-            break;
+            return;
         default:
             if (detection) {
                 if (detection.intent === 'comprar') {
@@ -15279,6 +15278,16 @@ async function handleAwaitingPaymentMethod(message, userId, isMedia = false, sin
     const stateData = userStates.get(userId) || {};
 
     const hasMediaFlag = Boolean(isMedia || message.hasMedia || singleMediaData);
+
+    // 0. Breakout inmediato si el usuario presiona una opción del menú numérico (1, 2, 3, 4, 5)
+    const trimmedInput = (textToUse || '').trim();
+    if (['1', '2', '3', '4', '5'].includes(trimmedInput)) {
+        console.log(`[Awaiting Payment Method] Breakout por opción numérica de menú: ${trimmedInput} para @${userId}`);
+        userStates.delete(userId);
+        userStates.set(userId, { state: 'main_menu', nombre: stateData.nombre });
+        await handleMainMenuSelection(message, userId, null, hasMediaFlag, singleMediaData);
+        return;
+    }
 
     // 1. Si el usuario envió comprobante o afirma explícitamente que ya pagó/transfirió
     const isPaymentAffirmation = /aqu[ií]\s*pagu[eé]|ya\s*pagu[eé]|ya\s*pague|\bpagu[eé]\b|ya\s*transfer[ií]|ya\s*hice\s*el\s*pago|te\s*pagu[eé]|te\s*transfer[ií]|adjunto\s*comprobante|ah[ií]\s*est[aá]\s*el\s*pago|\bcomprobante\b|\brecibo\b/i.test(textToUse);
