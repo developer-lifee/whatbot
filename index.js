@@ -5776,21 +5776,116 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
         res.status(500).send(err.message);
     }
 });
-app.get('/api/whatsapp/inspect-dm', async (req, res) => {
+app.get('/api/whatsapp/extract-latest-chat-media', async (req, res) => {
     try {
-        if (!client || !client.pupPage) return res.json({ error: 'No pupPage' });
-        const info = await client.pupPage.evaluate(() => {
-            const dm = window.Store?.DownloadManager;
-            if (!dm) return { error: 'No DownloadManager' };
-            const methods = Object.keys(dm);
-            const fnStr = dm.downloadAndMaybeDecrypt ? dm.downloadAndMaybeDecrypt.toString().slice(0, 1000) : null;
-            return { methods, fnStr };
+        if (!client || !client.pupPage) return res.status(503).json({ error: 'No pupPage' });
+        const chatId = req.query.chatId || '120363427163636523@g.us';
+
+        let opened = false;
+        try {
+            if (client.interface && client.interface.openChatWindow) {
+                await client.interface.openChatWindow(chatId);
+                opened = true;
+            }
+        } catch (e) {
+            console.warn('[extract-media] Error opening chat window:', e.message);
+        }
+
+        await new Promise(r => setTimeout(r, 2500));
+
+        // Tomar screenshot de control para verificar visualmente qué ve Puppeteer
+        const debugScreenshotPath = path.join(__dirname, 'scratch', 'pup_chat_view.png');
+        try {
+            const buf = await client.pupPage.screenshot();
+            fs.writeFileSync(debugScreenshotPath, buf);
+        } catch (sErr) {}
+
+        const extraction = await client.pupPage.evaluate(async () => {
+            // 1. Si hay botones de descarga pendientes en los mensajes, darles click
+            const downloadBtns = Array.from(document.querySelectorAll('span[data-icon="download"], [data-testid*="download"], [aria-label*="descarg" i]'));
+            for (const btn of downloadBtns) {
+                try { (btn.closest('button') || btn).click(); } catch(e) {}
+            }
+            if (downloadBtns.length > 0) {
+                await new Promise(r => setTimeout(r, 2000));
+            }
+
+            // 2. Buscar todas las imágenes en el contenedor del chat
+            const imgs = Array.from(document.querySelectorAll('div[role="region"] img, main img, div[data-testid="conversation-panel-messages"] img, img[src^="blob:"]'));
+            
+            const imgDataList = [];
+            for (const img of imgs) {
+                if (img.width < 50 && img.height < 50) continue; // ignorar avatares pequeños
+                
+                let b64 = null;
+                // Intento A: Fetch del blob
+                if (img.src && img.src.startsWith('blob:')) {
+                    try {
+                        const blobRes = await fetch(img.src);
+                        const blob = await blobRes.blob();
+                        const reader = new FileReader();
+                        b64 = await new Promise((resolve) => {
+                            reader.onload = () => resolve(reader.result.split(',')[1]);
+                            reader.onerror = () => resolve(null);
+                            reader.readAsDataURL(blob);
+                        });
+                    } catch(e) {}
+                }
+
+                // Intento B: Canvas drawImage
+                if (!b64 && img.naturalWidth > 0 && img.naturalHeight > 0) {
+                    try {
+                        const cvs = document.createElement('canvas');
+                        cvs.width = img.naturalWidth;
+                        cvs.height = img.naturalHeight;
+                        const ctx = cvs.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        b64 = cvs.toDataURL('image/png').split(',')[1];
+                    } catch(e) {}
+                }
+
+                imgDataList.push({
+                    src: img.src ? img.src.slice(0, 50) : '',
+                    isBlob: img.src ? img.src.startsWith('blob:') : false,
+                    width: img.naturalWidth || img.width,
+                    height: img.naturalHeight || img.height,
+                    hasB64: !!b64,
+                    b64Length: b64 ? b64.length : 0,
+                    b64
+                });
+            }
+
+            return {
+                downloadBtnsFound: downloadBtns.length,
+                totalImgsFound: imgs.length,
+                validImgs: imgDataList.map(({ b64, ...rest }) => rest),
+                lastImageB64: imgDataList.filter(i => i.hasB64).pop()?.b64 || null
+            };
         });
-        res.json(info);
+
+        let savedPath = null;
+        if (extraction.lastImageB64) {
+            const outPath = path.join(__dirname, 'uploads', 'errors', 'latest_extracted.png');
+            fs.mkdirSync(path.dirname(outPath), { recursive: true });
+            fs.writeFileSync(outPath, Buffer.from(extraction.lastImageB64, 'base64'));
+            savedPath = outPath;
+        }
+
+        res.json({
+            opened,
+            savedPath,
+            fileSizeKB: savedPath ? Math.round(fs.statSync(savedPath).size / 1024) : 0,
+            extraction: {
+                downloadBtnsFound: extraction.downloadBtnsFound,
+                totalImgsFound: extraction.totalImgsFound,
+                validImgs: extraction.validImgs
+            }
+        });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: e.message, stack: e.stack });
     }
 });
+
 
 
 
