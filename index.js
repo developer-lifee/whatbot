@@ -5839,11 +5839,11 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
         if (!client) return res.json({ error: 'No client' });
         const groupJid = '120363427163636523@g.us';
         const chat = await client.getChatById(groupJid);
-        const msgs = await chat.fetchMessages({ limit: 20 });
-        const mediaMsg = msgs.slice().reverse().find(m => m.hasMedia);
-        if (!mediaMsg) return res.json({ message: 'No media message found in last 20 messages' });
+        const msgs = await chat.fetchMessages({ limit: 50 });
+        const mediaMsg = msgs.slice().reverse().find(m => m.hasMedia && !m.fromMe) || msgs.slice().reverse().find(m => m.hasMedia);
+        if (!mediaMsg) return res.json({ message: 'No media message found in last 50 messages' });
 
-        console.log('[test-download-media] Probando downloadMedia con:', mediaMsg.id);
+        console.log('[test-download-media] Probando downloadMedia con:', mediaMsg.id, 'fromMe:', mediaMsg.fromMe);
         const startTime = Date.now();
         const media = await mediaMsg.downloadMedia();
         const elapsedMs = Date.now() - startTime;
