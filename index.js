@@ -5805,81 +5805,89 @@ app.get('/api/whatsapp/inspect-msg-data', async (req, res) => {
     }
 });
 
-app.get('/api/whatsapp/test-model-dl', async (req, res) => {
+app.get('/api/whatsapp/test-native-decrypt', async (req, res) => {
     try {
-        if (!client || !client.pupPage) return res.status(503).json({ error: 'No pupPage' });
-        const shortId = req.query.id || '3BC6C29A61243503926F';
+        if (!client) return res.status(503).json({ error: 'No client' });
+        const chatId = req.query.chatId || '120363427163636523@g.us';
+        const chat = await client.getChatById(chatId);
+        const msgs = await chat.fetchMessages({ limit: 40 });
+        const mediaMsg = msgs.slice().reverse().find(m => m.hasMedia && m._data && m._data.directPath && m._data.mediaKey);
+        if (!mediaMsg) return res.json({ error: 'No media message with directPath found' });
 
-        const result = await client.pupPage.evaluate(async (shortId) => {
-            const models = window.Store.Msg.getModelsArray ? window.Store.Msg.getModelsArray() : (window.Store.Msg.models || []);
-            const msg = models.find(m => m && m.id && m.id.id === shortId);
-            if (!msg) return { error: 'msg not found in Store.Msg' };
+        const raw = mediaMsg._data;
+        const type = raw.type || mediaMsg.type || 'image';
+        let infoStr = 'WhatsApp Image Keys';
+        if (type === 'video') infoStr = 'WhatsApp Video Keys';
+        else if (type === 'audio' || type === 'ptt') infoStr = 'WhatsApp Audio Keys';
+        else if (type === 'document') infoStr = 'WhatsApp Document Keys';
 
-            let beforeDlStage = msg.mediaData ? msg.mediaData.mediaStage : null;
-            let dlError = null;
+        const downloadUrl = `https://mmg.whatsapp.net${raw.directPath}`;
+        console.log('[Native Decrypt] Descargando desde CDN:', downloadUrl);
+        
+        const cdnRes = await fetch(downloadUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Origin': 'https://web.whatsapp.com',
+                'Referer': 'https://web.whatsapp.com/'
+            }
+        });
 
+        if (!cdnRes.ok) {
+            return res.json({ error: `CDN HTTP error ${cdnRes.status}` });
+        }
+
+        const encBuffer = Buffer.from(await cdnRes.arrayBuffer());
+        const mediaKeyBuf = Buffer.isBuffer(raw.mediaKey) ? raw.mediaKey : Buffer.from(raw.mediaKey, 'base64');
+        const expanded = crypto.hkdfSync('sha256', mediaKeyBuf, Buffer.alloc(0), Buffer.from(infoStr), 112);
+
+        let decrypted = null;
+        let usedVariant = null;
+
+        // Variante A: cipherKey = bytes 0-32, iv = bytes 32-48
+        try {
+            const cipherKeyA = expanded.slice(0, 32);
+            const ivA = expanded.slice(32, 48);
+            const decipherA = crypto.createDecipheriv('aes-256-cbc', cipherKeyA, ivA);
+            decrypted = Buffer.concat([decipherA.update(encBuffer.slice(0, -10)), decipherA.final()]);
+            usedVariant = 'A (cipherKey 0-32, iv 32-48)';
+        } catch(eA) {
+            // Variante B: iv = bytes 0-16, cipherKey = bytes 16-48
             try {
-                if (typeof msg.downloadMedia === 'function') {
-                    await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
-                }
-            } catch(e) {
-                dlError = e.message || String(e);
+                const ivB = expanded.slice(0, 16);
+                const cipherKeyB = expanded.slice(16, 48);
+                const decipherB = crypto.createDecipheriv('aes-256-cbc', cipherKeyB, ivB);
+                decrypted = Buffer.concat([decipherB.update(encBuffer.slice(0, -10)), decipherB.final()]);
+                usedVariant = 'B (iv 0-16, cipherKey 16-48)';
+            } catch(eB) {
+                return res.json({ error: 'Both variants failed', errA: eA.message, errB: eB.message });
             }
+        }
 
-            // Esperar hasta 5 segundos a que mediaStage cambie
-            for (let i = 0; i < 10; i++) {
-                if (msg.mediaData && msg.mediaData.mediaStage === 'RESOLVED') break;
-                await new Promise(r => setTimeout(r, 500));
-            }
+        // Guardar archivo descifrado
+        const outPath = path.join(__dirname, 'uploads', 'errors', 'decrypted_test.jpg');
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        fs.writeFileSync(outPath, decrypted);
 
-            const mediaDataKeys = msg.mediaData ? Object.keys(msg.mediaData) : [];
-            const mediaDataDump = {};
-            if (msg.mediaData) {
-                for (const k of mediaDataKeys) {
-                    const val = msg.mediaData[k];
-                    if (typeof val === 'string' && val.length > 200) {
-                        mediaDataDump[k] = val.slice(0, 100) + '... (len ' + val.length + ')';
-                    } else if (typeof val !== 'function') {
-                        mediaDataDump[k] = val;
-                    }
-                }
-            }
+        const headerHex = decrypted.slice(0, 8).toString('hex');
+        const isJpeg = headerHex.startsWith('ffd8ff');
+        const isPng = headerHex.startsWith('89504e47');
 
-            // Intentar extraer blob de renderableUrl si existe
-            let blobBase64 = null;
-            let blobLength = 0;
-            const possibleBlobUrl = msg.mediaData?.renderableUrl || msg.mediaData?.staticUrl;
-            if (possibleBlobUrl && possibleBlobUrl.startsWith('blob:')) {
-                try {
-                    const bRes = await fetch(possibleBlobUrl);
-                    const bBlob = await bRes.blob();
-                    const reader = new FileReader();
-                    blobBase64 = await new Promise(resolve => {
-                        reader.onload = () => resolve(reader.result.split(',')[1]);
-                        reader.onerror = () => resolve(null);
-                        reader.readAsDataURL(bBlob);
-                    });
-                    if (blobBase64) blobLength = blobBase64.length;
-                } catch(bErr) {}
-            }
-
-            return {
-                id: msg.id,
-                type: msg.type,
-                beforeDlStage,
-                dlError,
-                afterDlStage: msg.mediaData?.mediaStage,
-                mediaDataDump,
-                hasBlobBase64: !!blobBase64,
-                blobLength
-            };
-        }, shortId);
-
-        res.json(result);
+        res.json({
+            success: true,
+            msgId: mediaMsg.id,
+            encBytes: encBuffer.length,
+            decryptedBytes: decrypted.length,
+            usedVariant,
+            headerHex,
+            isJpeg,
+            isPng,
+            savedPath: outPath
+        });
     } catch(e) {
         res.status(500).json({ error: e.message, stack: e.stack });
     }
 });
+
 
 app.get('/api/whatsapp/extract-latest-chat-media', async (req, res) => {
     try {
