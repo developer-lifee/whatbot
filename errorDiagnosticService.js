@@ -67,14 +67,14 @@ function savePendingSolution(ticket) {
 /**
  * Obtiene la última solución pendiente de aprobación (o la asociada al mensaje citado)
  */
-function getLatestPendingSolution(quotedText = '') {
+function getLatestPendingSolution(targetText = '') {
     try {
         if (!fs.existsSync(PENDING_SOLUTIONS_PATH)) return null;
         let solutions = JSON.parse(fs.readFileSync(PENDING_SOLUTIONS_PATH, 'utf8'));
-        if (quotedText) {
-            const matchId = quotedText.match(/#?(ERR-[\w-]+)/i);
+        if (targetText) {
+            const matchId = targetText.match(/#?(ERR-[\w-]+)/i);
             if (matchId) {
-                const found = solutions.find(s => s.id === matchId[1] && s.status === 'PENDIENTE_APROBACION');
+                const found = solutions.find(s => s.id === matchId[1]);
                 if (found) return found;
             }
         }
@@ -574,7 +574,8 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 } catch (e) {}
             }
 
-            const approvedTicket = approvePendingSolution(quotedText, senderPhone);
+            const contextText = `${textTrimmed} ${quotedText}`.trim();
+            const approvedTicket = approvePendingSolution(contextText, senderPhone);
             if (approvedTicket) {
                 if (approvedTicket.isPreliminary || !approvedTicket.plan || (approvedTicket.files && approvedTicket.files.length === 0)) {
                     const notice = `⚠️ *[TICKET EN EVALUACIÓN - SIN PARCHE DE CÓDIGO]* (Ticket #${approvedTicket.id})\n\n` +
@@ -670,7 +671,8 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 } catch (e) {}
             }
 
-            const pendingTicket = getLatestPendingSolution(quotedText);
+            const contextText = `${textTrimmed} ${quotedText}`.trim();
+            const pendingTicket = getLatestPendingSolution(contextText);
             if (!pendingTicket) {
                 const noTicketMsg = `ℹ️ No encontré ninguna propuesta pendiente para modificar.\n` +
                     `Por favor responde citando el mensaje del ticket de diagnóstico que deseas cambiar escribiendo *@cambio <tu indicación>*.`;
