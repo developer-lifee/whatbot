@@ -10,6 +10,25 @@ if (!fs.existsSync(path.join(__dirname, 'tokens'))) {
     fs.mkdirSync(path.join(__dirname, 'tokens'));
 }
 
+// Expanded patterns and keywords for 2FA/TOTP code requests, including common typos
+const wantsCodeKeywords = [
+    'codigo', 'código', 'codig', 'godigo', 'gódigo', 'token', '2fa', 'otp', 'totp',
+    'c0digo', 'c0dig0', 'codig0', 'godig0', 'g0dig0', 'cogigo', 'cogig0'
+];
+
+const CODE_REQUEST_REGEX = /(?:c[oó0g]dig[oó0]|g[oó0]dig[oó0]|token|2fa|otp|totp)/i;
+
+/**
+ * Checks if a message text is requesting a 2FA/TOTP code.
+ * @param {string} text 
+ * @returns {boolean}
+ */
+function isCodeRequest(text) {
+    if (!text) return false;
+    const cleanText = text.toLowerCase().trim();
+    return CODE_REQUEST_REGEX.test(cleanText) || wantsCodeKeywords.some(keyword => cleanText.includes(keyword));
+}
+
 /**
  * Generates a TOTP code for a given email.
  * @param {string} email 
@@ -142,5 +161,8 @@ module.exports = {
     resetAllUsage,
     saveSecret,
     deleteSecret,
-    loadSecrets
+    loadSecrets,
+    isCodeRequest,
+    wantsCodeKeywords,
+    CODE_REQUEST_REGEX
 };
