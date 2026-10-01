@@ -5805,6 +5805,82 @@ app.get('/api/whatsapp/inspect-msg-data', async (req, res) => {
     }
 });
 
+app.get('/api/whatsapp/test-model-dl', async (req, res) => {
+    try {
+        if (!client || !client.pupPage) return res.status(503).json({ error: 'No pupPage' });
+        const shortId = req.query.id || '3BC6C29A61243503926F';
+
+        const result = await client.pupPage.evaluate(async (shortId) => {
+            const models = window.Store.Msg.getModelsArray ? window.Store.Msg.getModelsArray() : (window.Store.Msg.models || []);
+            const msg = models.find(m => m && m.id && m.id.id === shortId);
+            if (!msg) return { error: 'msg not found in Store.Msg' };
+
+            let beforeDlStage = msg.mediaData ? msg.mediaData.mediaStage : null;
+            let dlError = null;
+
+            try {
+                if (typeof msg.downloadMedia === 'function') {
+                    await msg.downloadMedia({ downloadEvenIfExpensive: true, rmrReason: 1 });
+                }
+            } catch(e) {
+                dlError = e.message || String(e);
+            }
+
+            // Esperar hasta 5 segundos a que mediaStage cambie
+            for (let i = 0; i < 10; i++) {
+                if (msg.mediaData && msg.mediaData.mediaStage === 'RESOLVED') break;
+                await new Promise(r => setTimeout(r, 500));
+            }
+
+            const mediaDataKeys = msg.mediaData ? Object.keys(msg.mediaData) : [];
+            const mediaDataDump = {};
+            if (msg.mediaData) {
+                for (const k of mediaDataKeys) {
+                    const val = msg.mediaData[k];
+                    if (typeof val === 'string' && val.length > 200) {
+                        mediaDataDump[k] = val.slice(0, 100) + '... (len ' + val.length + ')';
+                    } else if (typeof val !== 'function') {
+                        mediaDataDump[k] = val;
+                    }
+                }
+            }
+
+            // Intentar extraer blob de renderableUrl si existe
+            let blobBase64 = null;
+            let blobLength = 0;
+            const possibleBlobUrl = msg.mediaData?.renderableUrl || msg.mediaData?.staticUrl;
+            if (possibleBlobUrl && possibleBlobUrl.startsWith('blob:')) {
+                try {
+                    const bRes = await fetch(possibleBlobUrl);
+                    const bBlob = await bRes.blob();
+                    const reader = new FileReader();
+                    blobBase64 = await new Promise(resolve => {
+                        reader.onload = () => resolve(reader.result.split(',')[1]);
+                        reader.onerror = () => resolve(null);
+                        reader.readAsDataURL(bBlob);
+                    });
+                    if (blobBase64) blobLength = blobBase64.length;
+                } catch(bErr) {}
+            }
+
+            return {
+                id: msg.id,
+                type: msg.type,
+                beforeDlStage,
+                dlError,
+                afterDlStage: msg.mediaData?.mediaStage,
+                mediaDataDump,
+                hasBlobBase64: !!blobBase64,
+                blobLength
+            };
+        }, shortId);
+
+        res.json(result);
+    } catch(e) {
+        res.status(500).json({ error: e.message, stack: e.stack });
+    }
+});
+
 app.get('/api/whatsapp/extract-latest-chat-media', async (req, res) => {
     try {
         if (!client || !client.pupPage) return res.status(503).json({ error: 'No pupPage' });
