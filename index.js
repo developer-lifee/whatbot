@@ -5834,6 +5834,31 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
+});app.get('/api/whatsapp/test-download-media', async (req, res) => {
+    try {
+        if (!client) return res.json({ error: 'No client' });
+        const groupJid = '120363427163636523@g.us';
+        const chat = await client.getChatById(groupJid);
+        const msgs = await chat.fetchMessages({ limit: 20 });
+        const mediaMsg = msgs.slice().reverse().find(m => m.hasMedia);
+        if (!mediaMsg) return res.json({ message: 'No media message found in last 20 messages' });
+
+        console.log('[test-download-media] Probando downloadMedia con:', mediaMsg.id);
+        const startTime = Date.now();
+        const media = await mediaMsg.downloadMedia();
+        const elapsedMs = Date.now() - startTime;
+
+        return res.json({
+            found: true,
+            msgId: mediaMsg.id,
+            elapsedMs,
+            success: !!(media && media.data),
+            mimetype: media ? media.mimetype : null,
+            size: media && media.data ? media.data.length : 0
+        });
+    } catch (e) {
+        return res.status(500).json({ error: e.message, stack: e.stack });
+    }
 });
 
 app.post('/api/whatsapp/sync', async (req, res) => {
