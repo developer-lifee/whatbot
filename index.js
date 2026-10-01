@@ -5775,6 +5775,20 @@ app.get('/api/whatsapp/screenshot', async (req, res) => {
     } catch (err) {
         res.status(500).send(err.message);
     }
+app.get('/api/whatsapp/inspect-dm', async (req, res) => {
+    try {
+        if (!client || !client.pupPage) return res.json({ error: 'No pupPage' });
+        const info = await client.pupPage.evaluate(() => {
+            const dm = window.Store?.DownloadManager;
+            if (!dm) return { error: 'No DownloadManager' };
+            const methods = Object.keys(dm);
+            const fnStr = dm.downloadAndMaybeDecrypt ? dm.downloadAndMaybeDecrypt.toString().slice(0, 1000) : null;
+            return { methods, fnStr };
+        });
+        res.json(info);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 
