@@ -5844,6 +5844,35 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
         if (!mediaMsg) return res.json({ message: 'No media message found in last 50 messages' });
 
         console.log('[test-download-media] Probando downloadMedia con:', mediaMsg.id, 'fromMe:', mediaMsg.fromMe);
+        
+        const debugInfo = await client.pupPage.evaluate(async (rawId, dollar1, shortId) => {
+            const m1 = window.Store.Msg.get(rawId);
+            const m2 = window.Store.Msg.get(dollar1);
+            let m3 = null;
+            if (window.Store.Msg.getMessagesById) {
+                try {
+                    const r = await window.Store.Msg.getMessagesById([dollar1 || rawId]);
+                    m3 = r?.messages?.[0];
+                } catch(e) {}
+            }
+            const models = window.Store.Msg.getModelsArray ? window.Store.Msg.getModelsArray() : (window.Store.Msg.models || []);
+            const m4 = models.find(m => m && m.id && (m.id.id === shortId || m.id.$1 === dollar1 || m.id._serialized === rawId));
+            
+            const target = m1 || m2 || m3 || m4;
+            return {
+                hasM1: !!m1,
+                hasM2: !!m2,
+                hasM3: !!m3,
+                hasM4: !!m4,
+                targetFound: !!target,
+                targetType: target?.type,
+                targetHasMediaData: !!target?.mediaData,
+                mediaStage: target?.mediaData?.mediaStage,
+                hasDirectPath: !!target?.directPath,
+                hasMediaKey: !!target?.mediaKey
+            };
+        }, mediaMsg.id._serialized, mediaMsg.id.$1, mediaMsg.id.id);
+
         const startTime = Date.now();
         const media = await mediaMsg.downloadMedia();
         const elapsedMs = Date.now() - startTime;
@@ -5851,6 +5880,7 @@ app.get('/api/whatsapp/test-media', async (req, res) => {
         return res.json({
             found: true,
             msgId: mediaMsg.id,
+            debugInfo,
             elapsedMs,
             success: !!(media && media.data),
             mimetype: media ? media.mimetype : null,
