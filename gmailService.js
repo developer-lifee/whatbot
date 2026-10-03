@@ -8,6 +8,29 @@ const PROCESSED_EMAILS_PATH = path.join(__dirname, 'processed_emails.json');
 const PAYMENT_EMAIL = 'jordimemesmomazosdick@gmail.com';
 
 /**
+ * Obtiene el cliente OAuth2 y refresca preventivamente si es necesario para evitar fallos silenciosos.
+ */
+async function getAuthorizedGmailClient(email) {
+    const auth = await getOAuth2Client('gmail', null, email);
+    if (!auth) return null;
+
+    try {
+        if (email === 'estebanavila6324@gmail.com') {
+            if (typeof auth.refreshAccessToken === 'function') {
+                console.log(`[GMAIL AUTH] Refrescando preventivamente token para ${email}...`);
+                const tokens = await auth.refreshAccessToken();
+                if (tokens && tokens.credentials) {
+                    auth.setCredentials(tokens.credentials);
+                }
+            }
+        }
+    } catch (err) {
+        console.warn(`[GMAIL AUTH] Advertencia al refrescar preventivamente para ${email}:`, err.message);
+    }
+    return auth;
+}
+
+/**
  * Carga la lista de IDs de correos ya procesados para evitar duplicados.
  */
 function loadProcessedEmails() {
@@ -34,7 +57,7 @@ function saveProcessedEmail(id) {
  * Escanea Gmail en busca de correos de Bre-B y extrae los pagos.
  */
 async function checkNewPayments() {
-    const auth = await getOAuth2Client('gmail', null, PAYMENT_EMAIL);
+    const auth = await getAuthorizedGmailClient(PAYMENT_EMAIL);
     if (!auth) return [];
 
     const gmail = google.gmail({ version: 'v1', auth });
@@ -111,7 +134,7 @@ function parseAmount(rawValue) {
 }
 
 async function findMatchingPaymentInAccount(email, query, targetAmount, toleranceMinutes, isBancolombia = false) {
-    const auth = await getOAuth2Client('gmail', null, email);
+    const auth = await getAuthorizedGmailClient(email);
     if (!auth) return null;
 
     const gmail = google.gmail({ version: 'v1', auth });
@@ -153,11 +176,14 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
             const subject = subjectHeader ? subjectHeader.value : 'Sin asunto';
 
             if (isBancolombia) {
-                const isTransfer = /transferencia/i.test(body) || /recibida/i.test(body) || /abono/i.test(body) || /transferencia/i.test(subject) || /movimientos/i.test(body);
+                const isTransfer = /transferencia|recibida|abono|movimiento|alerta|notificaci|pago|ingreso|dep[oó]sito|recepci|transacci/i.test(body) ||
+                                   /transferencia|recibida|abono|movimiento|alerta|notificaci|pago|ingreso|dep[oó]sito|recepci|transacci/i.test(subject);
                 if (!isTransfer) continue;
 
-                const amountRegex = /(?:por\s+valor\s+de|por|monto|valor)(?:\s+de)?\s*\$?([0-9]+(?:[\.,][0-9]+)*)/i;
-                const amountMatches = body.match(amountRegex);
+                // Expresión regular ampliada para capturar montos en múltiples formatos de Bancolombia
+                const amountRegex = /(?:por\s+valor\s+de|por|monto|valor|de|por\s+\$|valor\s+de\s+\$|transacción\s+por|transaccion\s+por|abono\s+de)(?:\s+de)?\s*\$?\s*([0-9]{1,3}(?:[\.,][0-9]{3})*(?:[\.,][0-9]{2})?)\b/i;
+                const textToSearch = subject + ' ' + body;
+                const amountMatches = textToSearch.match(amountRegex);
 
                 if (amountMatches) {
                     const rawValue = amountMatches[1];
@@ -227,7 +253,7 @@ function matchMaskedPhone(fullText, phone) {
 }
 
 async function findMatchingBoldPayment(email, targetAmount, toleranceMinutes, phone = null) {
-    const auth = await getOAuth2Client('gmail', null, email);
+    const auth = await getAuthorizedGmailClient(email);
     if (!auth) return null;
 
     const gmail = google.gmail({ version: 'v1', auth });
@@ -315,10 +341,10 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = 
     );
     if (matchJordi) return matchJordi;
 
-    // 2. Buscar en Esteban (Bancolombia)
+    // 2. Buscar en Esteban (Bancolombia) con query de búsqueda ampliada
     const matchEsteban = await findMatchingPaymentInAccount(
         'estebanavila6324@gmail.com',
-        'subject:("Alertas y Notificaciones" OR "Transferencia recibida" OR "Le informamos" OR "Bancolombia te informa" OR "Bancolombia" OR "Lulo Bank te informa") newer_than:1d',
+        'subject:("Alertas y Notificaciones" OR "Transferencia recibida" OR "Le informamos" OR "Bancolombia te informa" OR "Bancolombia" OR "Lulo Bank te informa" OR "Abono" OR "Movimiento" OR "Notificación") newer_than:1d',
         targetAmount,
         toleranceMinutes,
         true
@@ -404,7 +430,7 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
         return [];
     }
     console.log(`[GMAIL CODES] Buscando códigos en ${email} (últimos ${toleranceMinutes} min)...`);
-    const auth = await getOAuth2Client('gmail', null, email);
+    const auth = await getAuthorizedGmailClient(email);
     if (!auth) return [];
 
     const gmail = google.gmail({ version: 'v1', auth });
@@ -663,7 +689,7 @@ function cleanHtml(html) {
 }
 
 async function getEmailsFromInbox(email, maxResults = 15) {
-    const auth = await getOAuth2Client('gmail', null, email);
+    const auth = await getAuthorizedGmailClient(email);
     if (!auth) throw new Error(`No se pudo obtener la autorización OAuth para ${email}`);
 
     const gmail = google.gmail({ version: 'v1', auth });
@@ -754,4 +780,3 @@ module.exports = {
     extractBestLink,
     getMessageParts
 };
-
