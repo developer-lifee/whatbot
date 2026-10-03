@@ -2,7 +2,6 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { getAccountsByPhone, fetchRawData } = require('./apiService');
-const { callDeepSeek, callGemini, describeImageWithGemini } = require('./aiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
 const { callGemini38Flash, callAgyCli, extractJsonFromAgyOutput, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
 
@@ -927,35 +926,12 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             return;
         }
 
-        // Si no hay imagen en disco pero SÍ tenemos texto del asesor, interpretar el texto real del asesor
+        // Si no hay imagen en disco pero SÍ tenemos texto del asesor, asignar el texto directamente para que Antigravity CLI lo analice
         if (!imageDiskPath && (!extractedInfo.summary || !extractedInfo.problemType)) {
-            try {
-                const textParsed = await callDeepSeek(
-                    `Analiza este reporte de incidencia técnica enviado por un asesor en WhatsApp:\n` +
-                    `MENSAJE DEL ASESOR: "${effectiveText}"\n\n` +
-                    `CONTEXTO RECIENTE DE ASESORES EN EL GRUPO:\n${recentChatContext || 'Sin contexto adicional'}\n\n` +
-                    `Extrae en JSON:
-{
-  "clientPhone": string | null,
-  "clientName": string | null,
-  "platform": string | null,
-  "problemType": string, // "solicitud_codigo_2fa", "renovacion_vs_compra", "discrepancia_catalogo_stock", "clave_incorrecta", "vencimiento_error", "otro"
-  "summary": string     // Explica concisamente qué reporta el asesor (NUNCA menciones WhatsApp como plataforma ni inventes cupos)
-}`,
-                    "Responde únicamente con el JSON solicitado.",
-                    true
-                );
-                const structured = JSON.parse(textParsed);
-                extractedInfo = {
-                    ...extractedInfo,
-                    ...structured,
-                    summary: structured.summary || extractedInfo.summary || effectiveText
-                };
-            } catch (tErr) {
-                console.warn('[ErrorDiagnostic] Error analizando texto del asesor:', tErr.message);
-                if (!extractedInfo.summary && effectiveText) {
-                    extractedInfo.summary = effectiveText;
-                }
+            extractedInfo.summary = effectiveText;
+            const phoneMatch = effectiveText.match(/(\b57\d{10}\b|\b3\d{9}\b)/);
+            if (phoneMatch) {
+                extractedInfo.clientPhone = phoneMatch[1];
             }
         }
 
