@@ -27,11 +27,18 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
     const fullPrompt = `${systemInstruction}\n\n${prompt}`;
     try {
         const agyBin = fs.existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : (fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy');
-        const { stdout } = await execFileAsync(agyBin, ['-p', fullPrompt, '--effort', 'low', '--output-format', 'json', '--dangerously-skip-permissions'], {
+        const agyArgs = [
+            '-p', fullPrompt,
+            '--effort', 'low',
+            '--output-format', 'json',
+            '--disable-slash-commands',
+            '--dangerously-skip-permissions'
+        ];
+        const { stdout } = await execFileAsync(agyBin, agyArgs, {
             cwd: REPO_DIR,
             encoding: 'utf8',
-            timeout: 95000,
-            maxBuffer: 15 * 1024 * 1024,
+            timeout: 140000,
+            maxBuffer: 20 * 1024 * 1024,
             env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
         });
         const trimmed = (stdout || '').trim();

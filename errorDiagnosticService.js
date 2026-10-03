@@ -347,10 +347,10 @@ function findExistingResolvedCase(extractedInfo, effectiveText = '') {
  * Genera el plan de resolución y commit detallado directamente con Antigravity CLI (agy)
  */
 async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], userAdjustment = null, previousTicket = null, imagePath = null, effectiveText = '', recentChatContext = '') {
-    let fallbackCausa = extractedInfo.summary || effectiveText || "Incidencia técnica reportada en el grupo de soporte.";
+    let fallbackCausa = extractedInfo.summary || effectiveText || "Incidencia técnica reportada en el flujo de atención del bot.";
     let fallbackPlan = diagnosticNotes.length > 0 
         ? diagnosticNotes.join('\n') 
-        : "Revisar logs del bot y validar el flujo en index.js o totpService.js para la incidencia reportada.";
+        : "1. En index.js, validar el enrutamiento de estados para la condición reportada.\n2. Ajustar la respuesta automática para sincronizar el estado del cliente y prevenir inconsistencias.";
     let fallbackCommit = "fix(bot): atender incidencia técnica reportada\n\n- Validaciones en flujos de atención y prevención de regresión.";
     let fallbackFiles = ["index.js"];
 
@@ -362,6 +362,11 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
         fallbackPlan = "1. En aiService.js, reforzar la detección de intenciones de solicitud de código 2FA/TOTP ante variaciones y errores tipográficos (ej: 'godigo', 'código', 'hola me regalas el codigo').\n2. En index.js y totpService.js, asegurar el despacho inmediato del código generado.";
         fallbackCommit = "fix(totp): mejorar detección y respuesta ante solicitudes de código 2FA\n\n- Ampliar expresiones de intención en aiService.js y despacho en totpService.js.";
         fallbackFiles = ["aiService.js", "totpService.js", "index.js"];
+    } else if (sumLower.includes('cuenta nueva') || sumLower.includes('renovaci') || sumLower.includes('cobro') || sumLower.includes('cobró') || sumLower.includes('nuevas')) {
+        fallbackCausa = "El bot cobró o recibió comprobante de renovación pero respondió prometiendo entrega de accesos o cuentas nuevas en lugar de confirmar la renovación y vigencia del servicio actual.";
+        fallbackPlan = "1. En index.js (bloques de respuesta de comprobante líneas ~15620 y ~15778-15792), comprobar el flag `stateData.isRenewal`.\n2. Si `isRenewal` es true, enviar mensaje de renovación ('Un asesor validará tu pago y renovará tu suscripción/servicio') en vez de hablar de 'entregar accesos' o 'pedido nuevo'.";
+        fallbackCommit = "fix(billing): diferenciar mensaje de renovación vs cuenta nueva al recibir comprobante\n\n- Evaluar stateData.isRenewal para confirmar renovación de cuentas activas en vez de prometer credenciales nuevas.";
+        fallbackFiles = ["index.js"];
     } else if (rawOcrText.includes('bancolombia') || rawOcrText.includes('transferencia') || sumLower.includes('pago') || sumLower.includes('comprobante')) {
         fallbackCausa = `Comprobante de transferencia bancaria (${extractedInfo.platform || 'Bancolombia'}${extractedInfo.clientPhone ? `, celular ${extractedInfo.clientPhone}` : ''}) enviado pero el bot no lo validó ni envió respuesta de confirmación/entrega.`;
         fallbackPlan = `1. En gmailService.js y billingService.js, comprobar la sincronización del buzón de alertas bancarias y ampliar la ventana de tolerancia de minutos para transferencias.\n2. En index.js, asegurar que cuando el cliente envía comprobante con mensaje de cortesía ("Listo gracias"), el bot no se quede en espera humana y proceda con la validación del pago.`;
@@ -474,7 +479,7 @@ Devuelve un JSON estrictamente estructurado así:
         return fallbackResponse;
     };
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 95000));
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 145000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {

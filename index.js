@@ -15617,7 +15617,11 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                                 );
                             }
                         } catch (e) { }
-                        await message.reply("🤖 ¡Gracias! He recibido tu comprobante y lo he enviado a nuestro equipo para validación. En breve un asesor confirmará tu pago y te entregará tus accesos. 😊");
+                        if (stateData.isRenewal) {
+                            await message.reply("🤖 ¡Gracias! He recibido tu comprobante y lo he enviado a nuestro equipo para validación. En breve un asesor confirmará tu pago y renovará tu suscripción. 😊");
+                        } else {
+                            await message.reply("🤖 ¡Gracias! He recibido tu comprobante y lo he enviado a nuestro equipo para validación. En breve un asesor confirmará tu pago y te entregará tus accesos. 😊");
+                        }
                         userStates.set(userId, { ...stateData, state: 'waiting_admin_confirmation' });
                         await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                         return;
@@ -15777,16 +15781,32 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
 
         if (nonImmediatePlats.length > 0) {
             const uniquePlats = [...new Set(nonImmediatePlats)];
-            if (message.hasMedia) {
-                await message.reply(`🤖 Hemos recibido tu comprobante. Ten en cuenta que para *${uniquePlats.join(', ')}* la entrega/activación tomará un poco más de lo habitual y no será de inmediato. Un asesor validará tu pago y te entregará tus accesos lo antes posible. ¡Gracias por tu paciencia! 😊`);
+            if (stateData.isRenewal) {
+                if (message.hasMedia) {
+                    await message.reply(`🤖 Hemos recibido tu comprobante para la renovación de *${uniquePlats.join(', ')}*. Un asesor validará tu pago y renovará tu suscripción lo antes posible. ¡Gracias por tu preferencia! 😊`);
+                } else {
+                    await message.reply(`🤖 Hemos recibido tu confirmación para la renovación de *${uniquePlats.join(', ')}*. Un asesor validará que el dinero esté en la cuenta para renovar tu suscripción. ¡Gracias por tu preferencia! 😊`);
+                }
             } else {
-                await message.reply(`🤖 Hemos recibido tu confirmación. Ten en cuenta que para *${uniquePlats.join(', ')}* la entrega/activación tomará un poco más de lo habitual y no será de inmediato. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido. ¡Gracias por tu paciencia! 😊`);
+                if (message.hasMedia) {
+                    await message.reply(`🤖 Hemos recibido tu comprobante. Ten en cuenta que para *${uniquePlats.join(', ')}* la entrega/activación tomará un poco más de lo habitual y no será de inmediato. Un asesor validará tu pago y te entregará tus accesos lo antes posible. ¡Gracias por tu paciencia! 😊`);
+                } else {
+                    await message.reply(`🤖 Hemos recibido tu confirmación. Ten en cuenta que para *${uniquePlats.join(', ')}* la entrega/activación tomará un poco más de lo habitual y no será de inmediato. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido. ¡Gracias por tu paciencia! 😊`);
+                }
             }
         } else {
-            if (message.hasMedia) {
-                await message.reply("🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para entregarte tus accesos.");
+            if (stateData.isRenewal) {
+                if (message.hasMedia) {
+                    await message.reply("🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para renovar tu suscripción.");
+                } else {
+                    await message.reply("🤖 Hemos recibido tu confirmación. Un asesor validará el pago para renovar tu suscripción.");
+                }
             } else {
-                await message.reply("🤖 Hemos recibido tu confirmación. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido.");
+                if (message.hasMedia) {
+                    await message.reply("🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para entregarte tus accesos.");
+                } else {
+                    await message.reply("🤖 Hemos recibido tu confirmación. Un asesor validará que el dinero esté en la cuenta para procesar tu pedido.");
+                }
             }
         }
 
