@@ -1157,6 +1157,7 @@ function cleanWhatsAppFormatting(text) {
 
 async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = [], userId = null, userStates = null) {
   const trimmedMsg = (messageContent || "").trim();
+  const lowerMsg = (messageContent || "").toLowerCase();
   const isOnlySymbols = trimmedMsg.length > 0 && /^[?¿!¡\s\-_.,*#@]+$/.test(trimmedMsg);
   
   if (isOnlySymbols) {
@@ -1180,7 +1181,9 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
     (userStates.get(userId)?.realPhone && userStates.get(userStates.get(userId).realPhone + '@c.us')?.isForceBot)
   );
 
-  if (!isForced && chatHistory && chatHistory.includes('Asesor Humano (Atención Manual)')) {
+  const isCommercialReactivation = ['tienen', 'disponible', 'precios', 'precio', 'catalogo', 'catálogo', 'comprar', 'netflix', 'disney', 'cuanto vale', 'cuánto vale'].some(kw => lowerMsg.includes(kw));
+
+  if (!isForced && !isCommercialReactivation && chatHistory && chatHistory.includes('Asesor Humano (Atención Manual)')) {
     const lines = chatHistory.split('\n').filter(l => l.trim().length > 0);
     const lastLines = lines.slice(-5).join(' ');
     if (lastLines.includes('Asesor Humano (Atención Manual)') && !messageContent?.toLowerCase()?.includes('@bot') && messageContent?.trim()?.toLowerCase() !== 'menu') {
@@ -1410,7 +1413,6 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
   }
 
   // Detección de reclamo sobre cuenta aún en garantía (vigente)
-  const lowerMsg = (messageContent || "").toLowerCase();
   const isDropReport = ['publicidad', 'anuncio', 'anuncios', 'se cayo', 'se cayó', 'cancelada', 'cancelaron', 'me saco', 'me sacó'].some(k => lowerMsg.includes(k));
   
   let warrantyNotice = "";
@@ -1513,8 +1515,6 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
       }
     }
 
-
-
     return {
       replyMessage: replyText,
       needsEscalation: needsEscalation
@@ -1556,9 +1556,9 @@ Contexto previo: {{CHAT_HISTORY}}
 Mensaje actual: "{{MESSAGE_CONTENT}}"
 
 Categorías para "intent":
-- "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene.
+- "comprar": El usuario quiere adquirir un servicio nuevo o pregunta por disponibilidad/precios de algo que NO tiene (ej: "tienen netflix", "disponible netflix", "hay netflix", "precios", "quiero comprar").
   *IMPORTANTE*: Si el usuario solicita, pide o pregunta por una plataforma que YA TIENE contratada (según la INFORMACIÓN DEL CLIENTE), clasifícalo como "renovar", incluso si usa palabras como "adquirir", "comprar", "quiero", "necesito", etc. **EXCEPCIÓN**: Si el usuario pide de forma explícita una cuenta adicional, otra cuenta o una cuenta nueva (ej: "quiero otra cuenta", "adquirir otra", "necesito una cuenta nueva de X"), clasifícalo como "comprar" ya que desea un servicio nuevo adicional.
-  *IMPORTANTE*: Si el usuario pregunta "¿tienes disponible?", "¿entregas ya?", "¿qué tienes para entrega inmediata?", clasifícalo como "comprar" con frustración 0 y genera un mensaje que invite a la venta con total confianza.
+  *IMPORTANTE*: Si el usuario pregunta "¿tienes disponible?", "¿tienen netflix?", "¿entregas ya?", "¿qué tienes para entrega inmediata?", clasifícalo como "comprar" con frustración 0 y genera un mensaje que invite a la venta con total confianza.
 - "credenciales": El usuario solicita las credenciales (correo/contraseña) de su cuenta actual, reporta explícitamente "la contraseña no corresponde", "clave incorrecta", pide recordar su pin de acceso, o pregunta cuándo se vence / fecha de vencimiento / fecha de pago de su cuenta actual. (*IMPORTANTE*: Si el usuario pregunta si se puede colocar o cambiar clave/PIN a su perfil, ej: "puedes poner clave", "puedo poner pin", "cómo le pongo pin al perfil", clasifícalo como "soporte" o "duda_contexto", NUNCA como "credenciales").
 - "renovar": El usuario quiere pagar, renovar o pregunta el costo de un servicio que YA TIENE contratado.
 - "pagar": El usuario pregunta cómo pagar o envía un comprobante.
@@ -1571,7 +1571,7 @@ Categorías para "intent":
 Regla de Intents (MÁXIMA PRIORIDAD):
 1. **MENÚ NUMÉRICO:** Si el mensaje es exactamente "1", "2", "3", "4" o "5", clasifícalo según el menú: "1"->comprar, "2"->credenciales, "3"->renovar, "4"->soporte, "5"->soporte.
 2. **CONTINUIDAD:** Si es una respuesta corta ("sí", "nequi") a una pregunta previa, usa el intent de esa charla.
-3. **STOCK:** Si pregunta por "disponibilidad", "stock", "entrega ya", el intent es "comprar".
+3. **STOCK:** Si pregunta por "disponibilidad", "stock", "tienen", "hay", "entrega ya", el intent es "comprar".
 4. **SOPORTE:** PRIORIDAD si hay errores o fallas.
 5. **PAGAR:** Si pregunta cómo pagar o envía comprobante.
 
@@ -1580,7 +1580,7 @@ Lógica de recuperación ("recoveredState"):
     * Caso A: Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
     * Caso B (COLABORATIVO): Si el "Asistente" (humano, sin 🤖) negoció un precio (ej: "te queda en 21") y el usuario actual acepta (ej: "Listo", "Dale", "Vale"). EN ESTE CASO, el bot debe saltar aquí para dar los medios de pago. Si detectas el monto negociado, ponlo en metadata.total.
 - "waiting_human": 
-    * Caso A (CONVERSACIÓN ACTIVA): Si en el historial reciente aparece un mensaje del "Asistente" (humano, sin el emoji 🤖) hablando con el usuario, pidiendo datos o dando soporte. ES VITAL que si ves al Asistente humano hablando, devuelvas "waiting_human" para no interrumpirlo.
+    * Caso A (CONVERSACIÓN ACTIVA RECIENTE): Si en el historial reciente (hace menos de 30 minutos en la misma conversación) aparece un mensaje del "Asistente" (humano, sin el emoji 🤖) hablando con el usuario. ES VITAL no interrumpir una conversación activa. SIN EMBARGO, si han pasado más de 30 minutos o es un nuevo día / nueva consulta de compra ("tienen netflix", "disponible", "precios"), NUNCA devuelvas "waiting_human".
     * Caso B (SILENCIO FORZADO): Si el usuario ha enviado múltiples mensajes de queja, insultos o insistencia extrema (ej: "hola???", "alguien??", "que pasa?") sin respuesta, y el bot no tiene una solución técnica inmediata. 
 - "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
 - "awaiting_payment_confirmation": Si el mensaje es una imagen o texto indicando "ya pagué", "aquí el recibo", etc.
@@ -1598,8 +1598,8 @@ Nunca analices el "Mensaje actual" de forma aislada. Debes deducir estrictamente
 4. Si el bot 🤖 estaba a la mitad de un flujo (ej: esperando método de pago) y el cliente responde a eso, recupera el estado correspondiente. ¡El contexto manda!
 5. **RELEVANCIA TEMPORAL Y REANUDACIÓN (MÁXIMA STRICTNESS):** 
    - Compara las fechas y horas (timestamps) de cada mensaje en el historial vs la hora actual del sistema.
-   - Si la última intervención del "Asistente Humano" ocurrió HACE MÁS DE 2 HORAS o fue en una FECHA ANTERIOR (por ejemplo, el día de ayer), esa conversación humana YA FINALIZÓ. Queda ESTRICTAMENTE PROHIBIDO devolver "waiting_human" o "recoveredState: waiting_human". El bot debe tomar el control y atender al cliente inmediatamente.
-   - Si el "Mensaje actual" es una solicitud de "credenciales" o reporte de clave/contraseña, NUNCA devuelvas "waiting_human".
+   - Si la última intervención del "Asistente Humano" ocurrió HACE MÁS DE 30 MINUTOS o fue en una FECHA ANTERIOR (por ejemplo, el día de ayer) o si el cliente hace una nueva consulta comercial / catálogo ('tienen netflix', 'disponible', 'precios', 'comprar'), esa conversación humana anterior YA FINALIZÓ. Queda ESTRICTAMENTE PROHIBIDO devolver "waiting_human" o "recoveredState: waiting_human". El bot debe tomar el control y clasificar la intención comercial ('comprar' o 'catalogo') para atender al cliente inmediatamente.
+   - Si el "Mensaje actual" es una solicitud de "credenciales", reporte de clave/contraseña, o una consulta de compra/disponibilidad ('tienen [plataforma]', 'precios', etc.), NUNCA devuelvas "waiting_human".
 
 Salida esperada JSON:
 {
@@ -1641,17 +1641,54 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
   // --- FALLBACK BASADO EN PALABRAS CLAVE (Ante fallos de IA) ---
   const txt = (messageContent || "").toLowerCase();
   let keywordIntent = null;
+  let detectedKeywordPlatform = null;
+
+  const platformsMap = {
+    'netflix': 'Netflix',
+    'disney': 'Disney+',
+    'max': 'Max',
+    'hbo': 'Max',
+    'prime': 'Prime Video',
+    'amazon': 'Prime Video',
+    'spotify': 'Spotify',
+    'youtube': 'YouTube Premium',
+    'crunchyroll': 'Crunchyroll',
+    'paramount': 'Paramount+',
+    'apple': 'Apple TV+',
+    'chatgpt': 'ChatGPT',
+    'deezer': 'Deezer',
+    'vix': 'ViX Premium',
+    'plex': 'Plex',
+    'iptv': 'IPTV',
+    'canva': 'Canva Pro',
+    'office': 'Microsoft 365',
+    'microsoft': 'Microsoft 365',
+    'magis': 'Magis TV'
+  };
+
+  for (const [key, platName] of Object.entries(platformsMap)) {
+    if (txt.includes(key)) {
+      detectedKeywordPlatform = platName;
+      break;
+    }
+  }
+
+  const isSalesOrAvailability = txt.includes("tienen") || txt.includes("disponible") || txt.includes("hay disponible") ||
+    txt.includes("venden") || txt.includes("comprar") || txt.includes("adquirir") ||
+    txt.includes("catalogo") || txt.includes("catálogo") || txt.includes("precios") || txt.includes("precio") ||
+    txt.includes("planes") || txt.includes("cuanto cuesta") || txt.includes("cuánto cuesta") || txt.includes("cuanto vale") || txt.includes("cuánto vale") ||
+    (detectedKeywordPlatform && (txt.includes("tienen") || txt.includes("hay") || txt.includes("cuenta") || txt.includes("pantalla") || txt.includes("perfil") || txt.includes("mes") || txt.includes("?")));
 
   if (txt.includes("comprobante") || txt.includes("pagué") || txt.includes("pagado") || txt.includes("captura") || txt.includes("transferencia")) {
     keywordIntent = "pagar";
   } else if (txt.includes("cuando se vence") || txt.includes("cuándo se vence") || txt.includes("cuando vence") || txt.includes("cuándo vence") || txt.includes("fecha de vencimiento") || txt.includes("fecha de pago")) {
     keywordIntent = "credenciales";
-  } else if (txt.includes("vence") || txt.includes("cuanto") || txt.includes("cuánto") || txt.includes("debo") || txt.includes("valor")) {
+  } else if (isSalesOrAvailability) {
+    keywordIntent = (txt.includes("catalogo") || txt.includes("catálogo") || txt.includes("precios") || txt.includes("planes")) && !detectedKeywordPlatform ? "catalogo" : "comprar";
+  } else if (txt.includes("vence") || txt.includes("debo") || (txt.includes("cuanto") && !isSalesOrAvailability) || (txt.includes("cuánto") && !isSalesOrAvailability) || (txt.includes("valor") && !isSalesOrAvailability)) {
     keywordIntent = "pagar"; // En este bot pagar/cobros es la opción 3
   } else if (txt.includes("clave") || txt.includes("correo") || txt.includes("entrar") || txt.includes("funciona") || txt.includes("fallando") || txt.includes("codigo") || txt.includes("código") || txt.includes("verificacion") || txt.includes("verificación") || txt.includes("digitos") || txt.includes("dígitos")) {
     keywordIntent = "credenciales";
-  } else if (txt.includes("precio") || txt.includes("catalogo") || txt.includes("catálogo") || txt.includes("planes")) {
-    keywordIntent = "catalogo";
   } else if (txt === "1") keywordIntent = "comprar";
   else if (txt === "2") keywordIntent = "credenciales";
   else if (txt === "3") keywordIntent = "pagar";
@@ -1661,7 +1698,8 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
   const salesInquiryKeywords = [
     'interesa', 'precio', 'cuanto', 'cuánto', 'vale', 'cuesta',
     'como funciona', 'cómo funciona', 'se cae', 'tengo que estar',
-    'comprar', 'dudas', 'informacion', 'información', 'pregunta', 'consulta'
+    'comprar', 'dudas', 'informacion', 'información', 'pregunta', 'consulta',
+    'tienen', 'disponible', 'hay'
   ];
   const isSalesQuestion = salesInquiryKeywords.some(kw => txt.includes(kw));
 
@@ -1700,6 +1738,19 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
       parsed.intent = keywordIntent;
     }
 
+    // Inyectar plataforma detectada por palabras clave si la IA no la extrajo
+    if (parsed && !parsed.detectedPlatform && detectedKeywordPlatform) {
+      parsed.detectedPlatform = detectedKeywordPlatform;
+    }
+
+    // Si la IA devolvió recoveredState = waiting_human pero es una consulta comercial o de disponibilidad explícita, limpiamos recoveredState
+    if (parsed && parsed.recoveredState === "waiting_human" && (isSalesOrAvailability || keywordIntent === "comprar" || keywordIntent === "catalogo")) {
+      parsed.recoveredState = null;
+      if (parsed.intent === "desconocido" || parsed.intent === "soporte") {
+        parsed.intent = keywordIntent || "comprar";
+      }
+    }
+
     // Prioridad para solicitudes directas de credenciales o códigos de verificación
     if (isCredentialRequest || isCodeRequest) {
       parsed.intent = "credenciales";
@@ -1722,7 +1773,7 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
       frustrationLevel: 0,
       userName: null,
       isNameComplete: false,
-      detectedPlatform: null,
+      detectedPlatform: detectedKeywordPlatform || null,
       metadata: null,
       mediaDescription: mediaDescription || null
     };
