@@ -161,16 +161,7 @@ async function callGemini38FlashHttp(prompt, systemInstruction = "Eres Antigravi
         }
     }
 
-    // Fallback robusto a DeepSeek si Gemini tiene alta demanda o falla
-    try {
-        console.warn('[Antigravity CLI] Recurriendo a DeepSeek como fallback de ingeniería...');
-        const { callDeepSeek } = require('./aiService');
-        return await callDeepSeek(prompt, systemInstruction, false);
-    } catch (dsErr) {
-        console.error('[Antigravity CLI] Falló también fallback a DeepSeek:', dsErr.message);
-    }
-
-    throw lastError || new Error("Error inesperado en llamada a Gemini / DeepSeek");
+    throw lastError || new Error("Error inesperado en llamada a Gemini / Antigravity CLI");
 }
 
 /**
@@ -192,7 +183,6 @@ async function applyCodeModifications(ticket) {
     }
 
     const modifiedFiles = [];
-    const { callDeepSeek } = require('./aiService');
 
     for (const relFile of targetFiles) {
         const fullPath = path.resolve(REPO_DIR, relFile);
@@ -236,14 +226,6 @@ Indica en formato JSON un bloque de búsqueda y reemplazo EXACTO dentro del arch
                     } catch (gemErr) {
                         console.warn('[Antigravity CLI] Falló Gemini HTTP para snippet:', gemErr.message);
                     }
-                }
-
-                // 3. Fallback a DeepSeek si aún estuviera disponible
-                if (!parsedSnippet || !parsedSnippet.buscar || !parsedSnippet.reemplazarPor) {
-                    try {
-                        const snippetRaw = await callDeepSeek(snippetPrompt, "Responde únicamente con JSON válido.", true);
-                        parsedSnippet = extractJsonFromAgyOutput(snippetRaw);
-                    } catch (dsErr) {}
                 }
 
                 if (parsedSnippet && parsedSnippet.buscar && parsedSnippet.reemplazarPor && originalCode.includes(parsedSnippet.buscar)) {
@@ -300,12 +282,7 @@ REGLAS CRÍTICAS:
                 const match = resp.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
                 updatedCode = match ? match[1].trim() : resp.trim();
             } catch (gErr) {
-                console.error('[Antigravity CLI] Falló Gemini, intentando DeepSeek:', gErr.message);
-                try {
-                    const resp = await callDeepSeek(editPrompt, "Eres un asistente de programación experto en Node.js.", false);
-                    const match = resp.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
-                    updatedCode = match ? match[1].trim() : resp.trim();
-                } catch (dsErr) {}
+                console.error('[Antigravity CLI] Fallaron agy y Gemini para generar código:', gErr.message);
             }
         }
 

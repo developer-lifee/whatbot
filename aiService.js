@@ -184,10 +184,8 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-flash-latest",       // Modelo oficial Flash con soporte multimodal y OCR activo
-  "gemini-2.5-flash-lite",     // Respaldo liviano con cuota independiente
-  "gemini-2.5-flash",          // Respaldo Flash 2.5
-  "gemini-3-flash-preview"     // Preview de próxima generación
+  "gemini-3.8-flash",          // Modelo activo y soportado actualmente (Google Gemini API)
+  "gemini-flash-latest"        // Respaldo
 ];
 
 /**
@@ -367,7 +365,7 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   for (const modelName of MODELS) {
     let attempts = 2; // Rápida rotación de clave antes de pasar al siguiente modelo
     let delay = 200;
-    
+
     for (let attempt = 1; attempt <= attempts; attempt++) {
       const activeKey = getActiveGeminiKey();
       if (!activeKey) {
@@ -439,85 +437,14 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   throw new Error("No se pudo obtener respuesta de Gemini tras intentar con todos los modelos y claves disponibles.");
 }
 
-// Estados de Circuit Breaker y Auto-Recovery
-let isDeepSeekDisabled = false;
-let deepSeekDisableUntil = 0;
-
-async function executeDirectDeepSeek(prompt, systemInstruction, isJson) {
-  if (!DEEPSEEK_API_KEY) {
-    throw new Error("DEEPSEEK_API_KEY no está configurada en .env");
-  }
-
-  const messages = [
-    { role: 'system', content: systemInstruction },
-    { role: 'user', content: prompt }
-  ];
-
-  const payload = {
-    model: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
-    messages: messages,
-    temperature: 0.1
-  };
-
-  if (isJson) {
-    payload.response_format = { type: "json_object" };
-  }
-
-  const API_URL = `${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`;
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(25000)
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    if (response.status === 402 || errText.includes("Insufficient Balance")) {
-      isDeepSeekDisabled = true;
-      deepSeekDisableUntil = Date.now() + 10 * 60 * 1000;
-      console.warn("🚫 [DeepSeek Circuit] Saldo insuficiente (402). Activando failover a Gemini por 10 mins.");
-    }
-    throw new Error(`DeepSeek API Error: ${response.status} ${response.statusText} - ${errText}`);
-  }
-
-  const data = await response.json();
-  const text = data.choices?.[0]?.message?.content;
-  return text || (isJson ? "{}" : "");
-}
-
+/**
+ * Motor de IA para tareas del bot.
+ * DeepSeek fue dado de baja definitivamente; todas las invocaciones
+ * se ejecutan directamente con Google Gemini (gemini-3.8-flash) para máxima velocidad
+ * y cero llamadas a APIs sin saldo.
+ */
 async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true) {
-  const now = Date.now();
-
-  // 1. Motor Principal: DeepSeek (rápido, empático y con saldo activo)
-  const canUseDeepSeek = !isDeepSeekDisabled || (now >= deepSeekDisableUntil);
-
-  if (canUseDeepSeek) {
-    if (isDeepSeekDisabled) {
-      console.log("🔄 [Auto-Recovery] Periodo de failover cumplido. Retomando DeepSeek como motor principal.");
-      isDeepSeekDisabled = false;
-    }
-
-    try {
-      return await executeDirectDeepSeek(prompt, systemInstruction, isJson);
-    } catch (deepSeekError) {
-      console.warn(`⚠️ [AI Failover] DeepSeek no disponible (${deepSeekError.message}). Transfiriendo a Gemini 3.7 Flash...`);
-    }
-  } else {
-    const remainingSec = Math.round((deepSeekDisableUntil - now) / 1000);
-    console.log(`⚡ [AI Failover Activo] DeepSeek en pausa temporal (${remainingSec}s restantes). Atendiendo con Gemini 3.7 Flash.`);
-  }
-
-  // 2. Respaldo de Alta Disponibilidad: Google Gemini 3.7 Flash
-  try {
-    return await callGemini(prompt, systemInstruction, isJson);
-  } catch (geminiError) {
-    console.error("❌ Ambos motores fallaron:", geminiError.message);
-    throw geminiError;
-  }
+  return await callGemini(prompt, systemInstruction, isJson);
 }
 
 /**
@@ -557,7 +484,7 @@ async function transcribeAudioWithGemini(mediaData) {
 async function describeImageWithGemini(mediaData, chatHistory = "", accountSummary = "") {
   if (!mediaData) return "";
   const mime = (mediaData.mimeType || "").toLowerCase();
-  
+
   // Si es un audio/nota de voz, redirigir a transcripción de audio
   if (mime.startsWith('audio/')) {
     return await transcribeAudioWithGemini(mediaData);
@@ -703,14 +630,14 @@ function formatVencimientoDate(venceVal) {
       return jsDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
     }
   }
-  
+
   if (typeof venceVal === 'string') {
-      // Intentar limpiar espacios residuales
-      const cleanVal = venceVal.trim();
-      const parsed = new Date(cleanVal.includes('T') ? cleanVal : cleanVal + 'T12:00:00');
-      if (!isNaN(parsed.getTime())) {
-          return parsed.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
-      }
+    // Intentar limpiar espacios residuales
+    const cleanVal = venceVal.trim();
+    const parsed = new Date(cleanVal.includes('T') ? cleanVal : cleanVal + 'T12:00:00');
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
   }
   return venceVal;
 }
@@ -902,8 +829,8 @@ function formatDirectCredentials(userAccounts, requestedPlatform = null, options
     }
 
     const customPrice = acc['Ingreso Mensual2'] || acc['ingreso mensual'] || acc.precio || acc.Precio || '';
-    const priceStr = (customPrice && !isNaN(Number(customPrice)) && Number(customPrice) > 0) 
-      ? `\nPRECIO MENSUAL / RENOVACIÓN REGISTRADO: $${Number(customPrice).toLocaleString('es-CO')} COP` 
+    const priceStr = (customPrice && !isNaN(Number(customPrice)) && Number(customPrice) > 0)
+      ? `\nPRECIO MENSUAL / RENOVACIÓN REGISTRADO: $${Number(customPrice).toLocaleString('es-CO')} COP`
       : '';
 
     if (isFamily) {
@@ -945,10 +872,10 @@ async function parsePlanSelection(messageContent, availablePlans, currentPlatfor
     const details = p.characteristics ? p.characteristics.join(', ') : '';
     return `${i + 1}. ${p.name} ($${p.price}): ${details}`;
   }).join('\n');
-  
+
   let cartText = "";
   if (selectedItems && selectedItems.length > 0) {
-    cartText = "El usuario tiene en su combo/interés actual las siguientes plataformas:\n" + 
+    cartText = "El usuario tiene en su combo/interés actual las siguientes plataformas:\n" +
       selectedItems.map(item => {
         const planName = item.chosenPlan ? item.chosenPlan.name : "Plan por definir";
         const priceText = item.chosenPlan ? `($${item.chosenPlan.price})` : "";
@@ -1159,7 +1086,7 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
   const trimmedMsg = (messageContent || "").trim();
   const lowerMsg = (messageContent || "").toLowerCase();
   const isOnlySymbols = trimmedMsg.length > 0 && /^[?¿!¡\s\-_.,*#@]+$/.test(trimmedMsg);
-  
+
   if (isOnlySymbols) {
     let namePrompt = "";
     if (userStates && userId) {
@@ -1340,7 +1267,7 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
       } else {
         mediaDescription = await describeImageWithGemini(mediaData, chatHistory, accountSummary);
       }
-      
+
       if (mediaDescription && !isAudioMedia) {
         const descLower = mediaDescription.toLowerCase();
 
@@ -1414,11 +1341,11 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
 
   // Detección de reclamo sobre cuenta aún en garantía (vigente)
   const isDropReport = ['publicidad', 'anuncio', 'anuncios', 'se cayo', 'se cayó', 'cancelada', 'cancelaron', 'me saco', 'me sacó'].some(k => lowerMsg.includes(k));
-  
+
   let warrantyNotice = "";
   if (isDropReport && userAccounts && userAccounts.length > 0) {
     const today = new Date();
-    today.setHours(0,0,0,0);
+    today.setHours(0, 0, 0, 0);
     const validAccounts = userAccounts.filter(acc => {
       const vencStr = acc.Vencimiento || acc.vencimiento || acc.deben || acc.Deben || "";
       if (!vencStr) return false;
@@ -1451,8 +1378,8 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
   }
 
   const isValidPhone = customerPhone && customerPhone.length >= 10 && customerPhone.length <= 13;
-  const verificationLink = isValidPhone 
-    ? `https://sheerit.co/verificar?tel=${customerPhone}` 
+  const verificationLink = isValidPhone
+    ? `https://sheerit.co/verificar?tel=${customerPhone}`
     : `https://sheerit.co/verificar`;
 
   let ragContext = "";
@@ -1523,7 +1450,7 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     console.error("Error in generateEmpatheticFallback:", error.message);
     const low = (messageContent || "").toLowerCase();
     const isCommercial = ['precio', 'precios', 'cuanto', 'cuánto', 'vale', 'cuesta', 'catalogo', 'catálogo', 'planes', 'comprar', 'netflix', 'disney', 'max', 'hbo', 'spotify', 'youtube', 'amazon', 'pantalla', 'pantallas', 'cuenta', 'cuentas'].some(k => low.includes(k));
-    
+
     if (isCommercial) {
       return {
         replyMessage: "🤖 ¡Hola! Puedes consultar todos nuestros precios actualizados, disponibilidad de pantallas y realizar tu compra directamente en nuestra página web: https://sheerit.co/ 🌐\n\nSi deseas adquirir un servicio específico, por favor indícame cuál te interesa o escribe *1* para iniciar tu compra.",
@@ -1722,7 +1649,7 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
     'solicito codigo', 'solicito código', 'pedir codigo', 'pedir código'
   ];
   const isExplicitCodeAction = codeActionKeywords.some(kw => txt.includes(kw));
-  const isCredentialRequest = txt.includes('credenciales') || 
+  const isCredentialRequest = txt.includes('credenciales') ||
     ((txt.includes('correo') || txt.includes('usuario') || txt.includes('email')) && (txt.includes('contraseña') || txt.includes('contrasena') || txt.includes('clave') || txt.includes('password'))) ||
     txt.includes('como es el correo') || txt.includes('cuál es el correo') || txt.includes('cual es el correo') ||
     txt.includes('como es la clave') || txt.includes('como es la contraseña') || txt.includes('pasa la clave') || txt.includes('pasa el correo');
@@ -2058,7 +1985,7 @@ async function analyzeAdvisorReason(reason, chatHistory = "") {
 
 async function parseScribePdfToRecipe(pdfBuffer) {
   const prompt = "Analiza detalladamente este PDF de Scribe y genera la receta JSON estructurada de pasos de Puppeteer para automatizar la acción descrita.";
-  
+
   const systemInstruction = `Eres un experto en automatización web, RPA y scripting con Puppeteer.
 Tu tarea es analizar un documento PDF de Scribe que contiene una guía paso a paso con capturas de pantalla y descripciones de cada paso para realizar una tarea en un sitio web externo (como iniciar sesión, solicitar códigos, etc.).
 Debes interpretar cada paso e identificar las acciones correspondientes para automatizar ese flujo con Puppeteer.
