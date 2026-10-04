@@ -475,34 +475,11 @@ app.get('/', (req, res) => {
 async function resolveMusicLink(query) {
     let aiResult = null;
     try {
-        const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-        const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
-
-        if (DEEPSEEK_API_KEY) {
-            const response = await fetch(`${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
-                },
-                body: JSON.stringify({
-                    model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-                    messages: [
-                        {
-                            role: 'system',
-                            content: 'Eres un asistente musical para iOS Shortcuts y Siri. El usuario te dará un comando de voz como "oye siri reproduce X" o "pon la canción Y". Extrae el título exacto de la canción, el artista y genera el término ideal de búsqueda para encontrar el video o audio oficial. Responde ÚNICAMENTE un objeto JSON válido con los campos: "song" (título de la canción), "artist" (nombre del artista), "searchTerm" (término de búsqueda limpio).'
-                        },
-                        { role: 'user', content: query }
-                    ],
-                    response_format: { type: 'json_object' }
-                })
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                const rawContent = data.choices?.[0]?.message?.content || "";
-                aiResult = JSON.parse(rawContent);
-            }
+        const { callGemini } = require('./aiService');
+        const systemPrompt = 'Eres un asistente musical para iOS Shortcuts y Siri. El usuario te dará un comando de voz como "oye siri reproduce X" o "pon la canción Y". Extrae el título exacto de la canción, el artista y genera el término ideal de búsqueda para encontrar el video o audio oficial. Responde ÚNICAMENTE un objeto JSON válido con los campos: "song" (título de la canción), "artist" (nombre del artista), "searchTerm" (término de búsqueda limpio).';
+        const rawContent = await callGemini(query, systemPrompt, true);
+        if (rawContent) {
+            aiResult = typeof rawContent === 'object' ? rawContent : JSON.parse(rawContent.replace(/```json/g, '').replace(/```/g, '').trim());
         }
     } catch (aiErr) {
         console.warn("[Music API] ⚠️ Error en consulta de IA, continuando con búsqueda limpia:", aiErr.message);

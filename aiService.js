@@ -74,9 +74,6 @@ function disableGeminiKey(keyToDisable) {
   }
 }
 
-const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
-
 /**
  * Convierte el JSON de sabiduría en un texto legible para el prompt de la IA.
  */
