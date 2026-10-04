@@ -1520,7 +1520,17 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
       needsEscalation: needsEscalation
     };
   } catch (error) {
-    console.error("Error in generateEmpatheticFallback:", error);
+    console.error("Error in generateEmpatheticFallback:", error.message);
+    const low = (messageContent || "").toLowerCase();
+    const isCommercial = ['precio', 'precios', 'cuanto', 'cuánto', 'vale', 'cuesta', 'catalogo', 'catálogo', 'planes', 'comprar', 'netflix', 'disney', 'max', 'hbo', 'spotify', 'youtube', 'amazon', 'pantalla', 'pantallas', 'cuenta', 'cuentas'].some(k => low.includes(k));
+    
+    if (isCommercial) {
+      return {
+        replyMessage: "🤖 ¡Hola! Puedes consultar todos nuestros precios actualizados, disponibilidad de pantallas y realizar tu compra directamente en nuestra página web: https://sheerit.co/ 🌐\n\nSi deseas adquirir un servicio específico, por favor indícame cuál te interesa o escribe *1* para iniciar tu compra.",
+        needsEscalation: false
+      };
+    }
+
     return {
       replyMessage: "¡Hola! He notificado a tu asesor para que te ayude con este caso específico. Dame unos minutos. 🤖",
       needsEscalation: true
