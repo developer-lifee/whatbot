@@ -10526,7 +10526,43 @@ async function baseProcessIncomingMessage(messages) {
         const mode = (currentStateData && typeof currentStateData === 'object') ? (currentStateData.waiting_human_mode || 'bot') : 'bot';
         const cleanInput = (message.body || '').trim().toLowerCase();
 
-        // 0. FORCED SILENCE RULE: Si el asesor interactuó en las últimas 2 horas, mantener el bot estrictamente silenciado
+        // 0. BYPASS DE COMPROBANTE DE PAGO EN WAITING_HUMAN:
+        // Si el cliente envía una imagen o comprobante bancario, permitir que el validador automático de pagos
+        // procese la transacción inmediatamente en vez de silenciar el chat por intervención de asesor.
+        if (message.hasMedia) {
+            try {
+                const media = await downloadMediaWithRetry(message);
+                if (media && media.data && media.mimetype) {
+                    const cleanMime = media.mimetype.split(';')[0].trim();
+                    const isAudio = message.type === 'ptt' || message.type === 'audio' || cleanMime.startsWith('audio/');
+                    if (!isAudio) {
+                        const { isPaymentReceipt } = require('./aiService');
+                        const hist = await getChatHistoryText(message, 10);
+                        const singleMedia = { data: media.data, mimeType: cleanMime };
+                        const check = await isPaymentReceipt(singleMedia, hist);
+                        if (check && check.isReceipt) {
+                            console.log(`[Waiting Human Bypass] 💳 Comprobante de pago detectado en chat silenciado de @${userId} ($${check.amount || 'N/A'}). Transicionando a awaiting_payment_confirmation.`);
+                            const curState = (typeof currentStateData === 'object') ? currentStateData : {};
+                            userStates.set(userId, { ...curState, state: 'awaiting_payment_confirmation' });
+                            if (cleanPhoneJid) userStates.set(cleanPhoneJid, { ...curState, state: 'awaiting_payment_confirmation' });
+                            await handleAwaitingPaymentConfirmation(message, userId, true, singleMedia);
+                            return;
+                        }
+                    }
+                }
+            } catch (mediaErr) {
+                console.warn('[Waiting Human Bypass] Error comprobando media de pago:', mediaErr.message);
+            }
+        }
+
+        const isExplicitPayment = /aqu[ií]\s*pagu[eé]|ya\s*pagu[eé]|ya\s*pague|\bpagu[eé]\b|ya\s*transfer[ií]|ya\s*hice\s*el\s*pago|te\s*pagu[eé]|te\s*transfer[ií]|adjunto\s*comprobante|ah[ií]\s*est[aá]\s*el\s*pago|\bcomprobante\b|\brecibo\b/i.test(cleanInput);
+        if (isExplicitPayment && !message.hasMedia) {
+            console.log(`[Waiting Human Bypass] @${userId} afirma haber pagado sin comprobante en waiting_human. Solicitando comprobante.`);
+            await message.reply("🤖 ¡Hola! Para poder verificar tu pago y proceder con la renovación o entrega de inmediato, por favor envíanos la *captura de pantalla o foto del comprobante de transferencia* 📸. ¡Quedo muy atento! 😊");
+            return;
+        }
+
+        // 1. FORCED SILENCE RULE: Si el asesor interactuó en las últimas 2 horas, mantener el bot estrictamente silenciado
         const lastInteraction = Math.max(
             (currentStateData && currentStateData.lastHumanInteraction) || 0,
             (userStates.get(userId) && userStates.get(userId).lastHumanInteraction) || 0,

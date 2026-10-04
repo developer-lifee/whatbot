@@ -219,10 +219,34 @@ Indica en formato JSON un bloque de búsqueda y reemplazo EXACTO dentro del arch
   "reemplazarPor": "nuevo código de reemplazo con la solución implementada"
 }`;
             try {
-                let snippetRaw = await callDeepSeek(snippetPrompt, "Responde únicamente con JSON válido.", true);
-                snippetRaw = snippetRaw.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
-                const parsedSnippet = JSON.parse(snippetRaw);
-                if (parsedSnippet.buscar && parsedSnippet.reemplazarPor && originalCode.includes(parsedSnippet.buscar)) {
+                let parsedSnippet = null;
+                // 1. Intentar con Antigravity CLI (agy)
+                try {
+                    const snippetRaw = await callAgyCli(snippetPrompt, "Eres Antigravity CLI. Devuelve ÚNICAMENTE el JSON con 'buscar' y 'reemplazarPor' sin explicaciones ni texto adicional.");
+                    parsedSnippet = extractJsonFromAgyOutput(snippetRaw);
+                } catch (agyErr) {
+                    console.warn('[Antigravity CLI] Falló agy para snippet:', agyErr.message);
+                }
+
+                // 2. Si no hubo parsedSnippet, intentar con Gemini HTTP
+                if (!parsedSnippet || !parsedSnippet.buscar || !parsedSnippet.reemplazarPor) {
+                    try {
+                        const snippetRaw = await callGemini38FlashHttp(snippetPrompt, "Responde únicamente con JSON con 'buscar' y 'reemplazarPor'.");
+                        parsedSnippet = extractJsonFromAgyOutput(snippetRaw);
+                    } catch (gemErr) {
+                        console.warn('[Antigravity CLI] Falló Gemini HTTP para snippet:', gemErr.message);
+                    }
+                }
+
+                // 3. Fallback a DeepSeek si aún estuviera disponible
+                if (!parsedSnippet || !parsedSnippet.buscar || !parsedSnippet.reemplazarPor) {
+                    try {
+                        const snippetRaw = await callDeepSeek(snippetPrompt, "Responde únicamente con JSON válido.", true);
+                        parsedSnippet = extractJsonFromAgyOutput(snippetRaw);
+                    } catch (dsErr) {}
+                }
+
+                if (parsedSnippet && parsedSnippet.buscar && parsedSnippet.reemplazarPor && originalCode.includes(parsedSnippet.buscar)) {
                     const backupPath = `${fullPath}.bak`;
                     fs.writeFileSync(backupPath, originalCode, 'utf8');
                     const newContent = originalCode.replace(parsedSnippet.buscar, parsedSnippet.reemplazarPor);
@@ -266,17 +290,22 @@ REGLAS CRÍTICAS:
 
         let updatedCode = null;
         try {
-            const resp = await callDeepSeek(editPrompt, "Eres un asistente de programación experto en Node.js. Responde únicamente con el bloque de código javascript.", false);
+            const resp = await callAgyCli(editPrompt, "Eres Antigravity CLI. Devuelve únicamente el bloque de código javascript.");
             const match = resp.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
             updatedCode = match ? match[1].trim() : resp.trim();
         } catch (e) {
-            console.warn('[Antigravity CLI] Falló generación con DeepSeek, intentando Gemini:', e.message);
+            console.warn('[Antigravity CLI] Falló generación con agy, intentando Gemini:', e.message);
             try {
                 const resp = await callGemini38FlashHttp(editPrompt);
                 const match = resp.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
                 updatedCode = match ? match[1].trim() : resp.trim();
             } catch (gErr) {
-                console.error('[Antigravity CLI] Error en ambos LLMs para editar archivo:', gErr.message);
+                console.error('[Antigravity CLI] Falló Gemini, intentando DeepSeek:', gErr.message);
+                try {
+                    const resp = await callDeepSeek(editPrompt, "Eres un asistente de programación experto en Node.js.", false);
+                    const match = resp.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
+                    updatedCode = match ? match[1].trim() : resp.trim();
+                } catch (dsErr) {}
             }
         }
 
