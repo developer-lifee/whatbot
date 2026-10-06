@@ -181,9 +181,128 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-3.8-flash",          // Modelo activo y soportado actualmente (Google Gemini API)
-  "gemini-flash-latest"        // Respaldo
+  "gemini-3.8-flash",
+  "gemini-2.5-flash",
+  "gemini-2.5-pro",
+  "gemini-1.5-flash",
+  "gemini-flash-latest"
 ];
+
+/**
+ * Fallback a OpenAI si Gemini falla por completo.
+ */
+async function callOpenAIFallback(prompt, systemInstruction, isJson, mediaData) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("No OpenAI API Key available for fallback");
+
+  const messages = [
+    { role: "system", content: systemInstruction }
+  ];
+
+  const userContent = [{ type: "text", text: prompt }];
+  if (mediaData) {
+    const mediaArray = Array.isArray(mediaData) ? mediaData : [mediaData];
+    mediaArray.forEach(m => {
+      if (m.data && m.mimeType) {
+        userContent.push({
+          type: "image_url",
+          image_url: {
+            url: `data:${m.mimeType};base64,${m.data}`
+          }
+        });
+      }
+    });
+  }
+  messages.push({ role: "user", content: userContent });
+
+  const payload = {
+    model: "gpt-4o-mini",
+    messages: messages
+  };
+  if (isJson) {
+    payload.response_format = { type: "json_object" };
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI Fallback Error: ${response.status} - ${errText}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+/**
+ * Fallback a DeepSeek si Gemini falla por completo.
+ */
+async function callDeepSeekFallback(prompt, systemInstruction, isJson, mediaData) {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) throw new Error("No DeepSeek API Key available for fallback");
+
+  const messages = [
+    { role: "system", content: systemInstruction },
+    { role: "user", content: prompt + (mediaData ? "\n[Nota: Había una imagen adjunta pero se procesa solo texto en este fallback]" : "") }
+  ];
+
+  const payload = {
+    model: "deepseek-chat",
+    messages: messages
+  };
+  if (isJson) {
+    payload.response_format = { type: "json_object" };
+  }
+
+  const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(15000)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`DeepSeek Fallback Error: ${response.status} - ${errText}`);
+  }
+
+  const data = await response.json();
+  return data.choices?.[0]?.message?.content || "";
+}
+
+/**
+ * Orquestador de fallbacks de visión y texto.
+ */
+async function callFallbackVisionOrText(prompt, systemInstruction, isJson, mediaData) {
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      console.log("[Fallback] Intentando con OpenAI (gpt-4o-mini)...");
+      return await callOpenAIFallback(prompt, systemInstruction, isJson, mediaData);
+    } catch (err) {
+      console.error("[Fallback] Error en OpenAI Fallback:", err.message);
+    }
+  }
+  if (process.env.DEEPSEEK_API_KEY) {
+    try {
+      console.log("[Fallback] Intentando con DeepSeek...");
+      return await callDeepSeekFallback(prompt, systemInstruction, isJson, mediaData);
+    } catch (err) {
+      console.error("[Fallback] Error en DeepSeek Fallback:", err.message);
+    }
+  }
+  throw new Error("Todos los proveedores de IA de respaldo (OpenAI, DeepSeek) fallaron o no están configurados.");
+}
 
 /**
  * Detecta la intención de un administrador basándose en sus facultades.
@@ -359,20 +478,23 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
     };
   }
 
+  let lastError = null;
+
   for (const modelName of MODELS) {
-    let attempts = 2; // Rápida rotación de clave antes de pasar al siguiente modelo
-    let delay = 200;
+    let attempts = 3; // 3 intentos por modelo con backoff exponencial
+    let delay = 1000;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
       const activeKey = getActiveGeminiKey();
       if (!activeKey) {
-        throw new Error("No hay claves de Gemini configuradas en el archivo .env");
+        lastError = new Error("No hay claves de Gemini configuradas en el archivo .env");
+        break;
       }
 
       try {
         const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
-        // Timeout adaptativo: 15s para imágenes/OCR multimodal, 6s para texto
-        const geminiTimeoutMs = mediaData ? 15000 : 6000;
+        // Timeout adaptativo: 20s para imágenes/OCR multimodal, 10s para texto
+        const geminiTimeoutMs = mediaData ? 20000 : 10000;
         const response = await fetch(`${API_URL}?key=${activeKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -382,9 +504,12 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
         // 429 Quota or 5xx temporary errors
         if (response.status === 429 || response.status === 503 || response.status === 502 || response.status === 504) {
-          console.warn(`⚠️ [Gemini API] Error ${response.status} en intento ${attempt}/${attempts} (${modelName}). Rotando clave...`);
+          console.warn(`⚠️ [Gemini API] Error ${response.status} en intento ${attempt}/${attempts} (${modelName}). Aplicando backoff y rotando clave...`);
           rotateGeminiKey();
-          await new Promise(r => setTimeout(r, delay));
+          if (attempt < attempts) {
+            const backoffTime = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+            await new Promise(r => setTimeout(r, backoffTime));
+          }
           continue;
         }
 
@@ -397,7 +522,10 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
           } else {
             rotateGeminiKey();
           }
-          await new Promise(r => setTimeout(r, delay));
+          if (attempt < attempts) {
+            const backoffTime = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+            await new Promise(r => setTimeout(r, backoffTime));
+          }
           continue;
         }
 
@@ -422,16 +550,24 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
       } catch (err) {
         console.warn(`⚠️ [Gemini API] Error/Timeout (${modelName} intento ${attempt}/${attempts}): ${err.message}.`);
+        lastError = err;
         rotateGeminiKey();
-        if (attempt === attempts && modelName === MODELS[MODELS.length - 1]) {
-          throw err;
+        if (attempt < attempts) {
+          const backoffTime = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+          await new Promise(r => setTimeout(r, backoffTime));
         }
-        await new Promise(r => setTimeout(r, delay));
       }
     }
   }
 
-  throw new Error("No se pudo obtener respuesta de Gemini tras intentar con todos los modelos y claves disponibles.");
+  // Si todos los modelos de Gemini fallaron, intentamos el fallback a OpenAI/DeepSeek
+  console.warn("🚨 Todos los modelos y claves de Gemini fallaron. Intentando fallback a OpenAI/DeepSeek...");
+  try {
+    return await callFallbackVisionOrText(prompt, systemInstruction, isJson, mediaData);
+  } catch (fallbackErr) {
+    console.error("🚨 Fallback también falló:", fallbackErr.message);
+    throw lastError || fallbackErr;
+  }
 }
 
 /**
@@ -452,7 +588,7 @@ async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de so
 async function transcribeAudioWithGemini(mediaData) {
   if (!mediaData || !mediaData.data) return "";
   const cleanMime = (mediaData.mimeType || "audio/ogg").split(';')[0].trim();
-  const prompt = "Escucha atentamente este audio / nota de voz de WhatsApp en español y transcribe con total exactitud cada palabra dicha por el cliente. Devuelve ÚNICAMENTE la transcripción literal de lo que dijo, sin comentarios, sin comillas y sin introducciones como 'El usuario dice:'. Si no hay voz o solo hay silencio/ruido ininteligible, responde: [inaudible].";
+  const prompt = "Escucha atentamente este audio / nota de voz de WhatsApp en español y transcribe con total exactitud cada palabra dicha por el cliente. Devuelve ÚNICAMENTE la transcripción literal de lo que dijo, sin comentarios, sin comillas and sin introducciones como 'El usuario dice:'. Si no hay voz o solo hay silencio/ruido ininteligible, responde: [inaudible].";
 
   try {
     const text = await callGemini(
@@ -570,7 +706,7 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
     - **REGLA CRÍTICA PARA SPOTIFY:** 
         * Si el usuario dice "Spotify" a secas o "cuenta de spotify", el plan es "Cuenta Nueva o Renovación".
     - **REGLA CRÍTICA PARA PLATZI:** 
-        * Platzi tiene 2 planes: "Compartida" ($20.000 COP/mes) y "Trimestral Personal" ($150.000 COP/3 meses).
+        * Platzi tiene 2 planes: "Compartida" ($20.000 COP/mes) and "Trimestral Personal" ($150.000 COP/3 meses).
         * Si el usuario pide "Platzi" a secas, "Platzi personal", "en mi correo", o menciona $150.000, el plan es "Trimestral Personal" y "subscriptionType" DEBE ser "trimestral".
         * Si el usuario pide "Platzi compartida" o menciona $20.000, el plan es "Compartida" y "subscriptionType" es "mensual".
     - Si no se especifica plan para otras plataformas, pon null en "plan".
@@ -1154,7 +1290,7 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
   let accountSummary = summarizeAccounts(userAccounts);
 
   if (userAccounts && userAccounts.length > 0) {
-    const platNames = userAccounts.map(a => a.Streaming || a.streaming || a.platform || '').filter(Boolean);
+    const platNames = userAccounts.map(a => a.Streaming || a.streaming_platform || a.platform || '').filter(Boolean);
     if (platNames.length > 0) {
       const activeListStr = platNames.join(', ');
       accountSummary = `🎯 PLATAFORMAS CONTRATADAS PREVIAMENTE POR ESTE CLIENTE: [ ${activeListStr.toUpperCase()} ]\n` +

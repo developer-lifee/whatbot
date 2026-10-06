@@ -14154,14 +14154,28 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     const { isPaymentReceipt } = require('./aiService');
                     const check = await isPaymentReceipt(mediaData[0], historyForFallback);
                     if (check && check.isReceipt) {
-                        console.log(`[Auto-Intercept Receipt] Imagen identificada como comprobante de pago ($${check.amount}). Redirigiendo a handleAwaitingPaymentConfirmation para @${userId}`);
+                        console.log(`[Auto-Intercept Receipt] Imagen identificada como comprobante de pago (${check.amount}). Redirigiendo a handleAwaitingPaymentConfirmation para @${userId}`);
                         const currentStateData = userStates.get(userId) || {};
                         userStates.set(userId, { ...currentStateData, state: 'awaiting_payment_confirmation' });
                         await handleAwaitingPaymentConfirmation(message, userId, true, mediaData[0]);
                         return;
+                    } else if (check && check.ocrError) {
+                        const currentStateData = userStates.get(userId) || {};
+                        if (currentStateData.state === 'awaiting_payment_confirmation' || currentStateData.isRenewal || (userAccounts && userAccounts.length > 0)) {
+                            console.warn(`[Auto-Intercept Receipt] OCR falló temporalmente (${check.errorDetails || '429/503'}). Derivando a confirmación manual.`);
+                            userStates.set(userId, { ...currentStateData, state: 'awaiting_payment_confirmation' });
+                            await handleAwaitingPaymentConfirmation(message, userId, true, mediaData[0]);
+                            return;
+                        }
                     }
                 } catch (receiptErr) {
                     console.error("[Auto-Intercept Receipt Error]:", receiptErr.message);
+                    const currentStateData = userStates.get(userId) || {};
+                    if (currentStateData.state === 'awaiting_payment_confirmation' || currentStateData.isRenewal || (userAccounts && userAccounts.length > 0)) {
+                        userStates.set(userId, { ...currentStateData, state: 'awaiting_payment_confirmation' });
+                        await handleAwaitingPaymentConfirmation(message, userId, true, mediaData[0]);
+                        return;
+                    }
                 }
             }
 
