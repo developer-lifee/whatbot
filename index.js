@@ -9620,9 +9620,9 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 }
             }
 
-            const matchesService = streamingName.includes(secretService) || secretService.includes(streamingName);
+            const matchesService = streamingName.includes(secretService) || secretService.includes(streamingName) || streamingName.includes('GPT') || streamingName.includes('CHATGPT');
 
-            if (matchesService) {
+            if (matchesService || hasTotpSecret) {
                 const { generateGPTCode, checkAndIncrementUsage } = require('./totpService');
                 const { isAiLimitedPlatform } = require('./deviceLimitService');
                 const isAi = isAiLimitedPlatform(streamingName);

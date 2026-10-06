@@ -687,7 +687,7 @@ async function parsePurchaseIntent(messageContent, chatHistory = "") {
     
     Reglas:
     - **REGLA DE ORO:** NO inventes productos. Si el usuario solo dice "Hola", "Buenas", o mensajes de saludo, "items" debe ser [].
-    - **RELEVANCIA TEMPORAL:** Analiza las fechas y horas en el [Historial reciente]. Si hubo un pedido hace mucho tiempo (ej: más de 24 horas) y el usuario hoy solo envía un saludo inicial, usa el sentido común: lo más probable es que ese pedido ya no sea relevante. No lo incluyas en "items" a menos que el usuario lo mencione o confirme hoy.
+    - **RELEVANCIA TEMPORAL:** Analiza las fechas y horas en el [Historial reciente]. Si hubo un pedido hace mucho tiempo (ej: más de 24 horas) y el usuario hoy solo envía un saludo inicial, usa el sentido común: lo más probable es que ese pedido ya no sea relevante. No lo incluyas in "items" a menos que el usuario lo mencione o confirme hoy.
     - **Hogar Netflix**: Si el problema es de "Hogar", indica que el bot puede intentar obtener el **enlace de actualización** o código de viaje directamente si el usuario lo solicita. No lo inventes. 🔗
     - **Precios**: Consulta siempre platforms.json. 🏷️
     - **Protocolo**: Si no hay datos claros, solicita la foto del error. 📸
@@ -1207,7 +1207,7 @@ function cleanWhatsAppFormatting(text) {
   formatted = formatted.replace(/\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/gi, '$1: $2');
 
   // 3. Convertir negrita estándar de Markdown (**texto**) a negrita de WhatsApp (*texto*)
-  formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '*$1*');
+  formatted = formatted.replace(/\**([^*]+)\*\*/g, '*$1*');
 
   // 4. Limpiar cualquier asterisco residual antes o después de emojis con links
   formatted = formatted.replace(/(👉\s*)\*+(https?:\/\/[^\s*]+)\*+/gi, '$1$2');
@@ -1773,21 +1773,51 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
   ];
   const isSalesQuestion = salesInquiryKeywords.some(kw => txt.includes(kw));
 
+  // Normalizar texto para eliminar acentos y facilitar la detección de errores tipográficos comunes
+  const normalizedTxt = txt.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
   const codeActionKeywords = [
-    'dame el codigo', 'dame codigo', 'dame el código', 'dame código',
-    'envia el codigo', 'envia el código', 'necesito el codigo', 'necesito el código',
-    'mande el codigo', 'mande el código', 'mandame el codigo', 'mandame el código',
-    'mi codigo', 'mi código', 'codigo porfa', 'código porfa', 'codigo por favor',
-    'código por favor', 'el codigo', 'el código', 'sacar codigo', 'sacar código',
-    'solicito codigo', 'solicito código', 'pedir codigo', 'pedir código'
+    'dame el codigo', 'dame codigo', 'envia el codigo', 'necesito el codigo',
+    'mande el codigo', 'mandame el codigo', 'mi codigo', 'codigo porfa', 'codigo por favor',
+    'el codigo', 'sacar codigo', 'solicito codigo', 'pedir codigo', 'regalame el codigo',
+    'regalame codigo', 'me regalas el codigo', 'me das el codigo', 'pasa el codigo',
+    'pasa codigo', 'pasame el codigo', 'pasa el godigo', 'pasame el godigo', 'dame el godigo',
+    'mandame el godigo', 'necesito el godigo', 'godigo porfa', 'godigo por favor',
+    'el godigo', 'regalame el godigo', 'me regalas el godigo', 'me das el godigo',
+    'codigo de acceso', 'codigo de verificacion', 'codigo de inicio', 'codigo de gpt',
+    'codigo de chatgpt', 'codigo de netflix', 'codigo de disney', 'codigo de max',
+    'codigo de hbo', 'codigo de spotify', 'codigo de youtube', 'codigo de amazon',
+    'godigo de acceso', 'godigo de verificacion', 'godigo de inicio', 'godigo de gpt',
+    'godigo de chatgpt', 'godigo de netflix', 'godigo de disney', 'godigo de max',
+    'godigo de hbo', 'godigo de spotify', 'godigo de youtube', 'godigo de amazon',
+    'codigo totp', 'codigo 2fa', 'codigo de seguridad', 'godigo totp', 'godigo 2fa',
+    'godigo de seguridad', 'pasa el gódigo', 'pasa el gódigo', 'pasa gódigo', 'pasa godigo',
+    'pasa el codigo', 'pasa el código', 'pasa codigo', 'pasa código', 'pasa el gódigo',
+    'hola me regalas el codigo', 'hola me regalas el gódigo', 'hola me regalas el godigo',
+    'me regalas el codigo', 'me regalas el gódigo', 'me regalas el godigo',
+    'regalame el codigo', 'regalame el gódigo', 'regalame el godigo',
+    'pásame el código', 'pasame el codigo', 'pásame el gódigo', 'pasame el godigo'
   ];
-  const isExplicitCodeAction = codeActionKeywords.some(kw => txt.includes(kw));
+
+  const isExplicitCodeAction = codeActionKeywords.some(kw => normalizedTxt.includes(kw.normalize("NFD").replace(/[\u0300-\u036f]/g, ""))) ||
+                               (normalizedTxt.includes('codigo') && (normalizedTxt.includes('porfa') || normalizedTxt.includes('por favor') || normalizedTxt.includes('regala') || normalizedTxt.includes('pasa') || normalizedTxt.includes('manda') || normalizedTxt.includes('envia') || normalizedTxt.includes('necesito') || normalizedTxt.includes('quiero') || normalizedTxt.includes('dame'))) ||
+                               (normalizedTxt.includes('godigo') && (normalizedTxt.includes('porfa') || normalizedTxt.includes('por favor') || normalizedTxt.includes('regala') || normalizedTxt.includes('pasa') || normalizedTxt.includes('manda') || normalizedTxt.includes('envia') || normalizedTxt.includes('necesito') || normalizedTxt.includes('quiero') || normalizedTxt.includes('dame')));
+
   const isCredentialRequest = txt.includes('credenciales') ||
     ((txt.includes('correo') || txt.includes('usuario') || txt.includes('email')) && (txt.includes('contraseña') || txt.includes('contrasena') || txt.includes('clave') || txt.includes('password'))) ||
     txt.includes('como es el correo') || txt.includes('cuál es el correo') || txt.includes('cual es el correo') ||
     txt.includes('como es la clave') || txt.includes('como es la contraseña') || txt.includes('pasa la clave') || txt.includes('pasa el correo');
 
-  const isShortCodeMsg = txt.split(/\s+/).length <= 4 && (txt.includes('codigo') || txt.includes('código') || txt.includes('2fa') || txt.includes('verificacion') || txt.includes('verificación'));
+  const hasCodeWord = normalizedTxt.includes('codigo') || 
+                      normalizedTxt.includes('godigo') || 
+                      normalizedTxt.includes('2fa') || 
+                      normalizedTxt.includes('totp') || 
+                      normalizedTxt.includes('verificacion') || 
+                      normalizedTxt.includes('verificasion') ||
+                      normalizedTxt.includes('autenticador') ||
+                      normalizedTxt.includes('token');
+
+  const isShortCodeMsg = normalizedTxt.split(/\s+/).length <= 5 && hasCodeWord;
 
   const isCodeRequest = !isSalesQuestion && (isExplicitCodeAction || isShortCodeMsg);
 
