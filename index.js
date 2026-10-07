@@ -13311,6 +13311,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'enviamos a tu email', 'ingresa el código', 'ingresa el codigo', 'código vence en 15', 'codigo vence en 15',
             'solicita el reenvio', 'solicita el reenvío', 'ver temporalmente', 'si estás de viaje', 'si estas de viaje',
             'fuera de casa', 'entendimos mal', 'obtener un código para ver netflix temporalmente',
+            'obtén un código para ver contenido', 'de manera temporal', 'en este dispositivo de manera temporal',
+            'enviar email', 'red wifi de tu hogar',
             'crea tu propia cuenta para disfrutar de netflix'
         ].some(kw => fullOcrContext.includes(kw)));
 
@@ -13335,6 +13337,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'estoy de viaje',
                 'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte', 'ver temporalmente',
                 'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'código para ver netflix temporalmente',
+                'obtén un código para ver contenido', 'de manera temporal', 'en este dispositivo de manera temporal',
+                'enviar email', 'red wifi de tu hogar',
                 'crea tu propia cuenta para disfrutar de netflix'
             ].some(kw => fullOcrContext.includes(kw));
 
