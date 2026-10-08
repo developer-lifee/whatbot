@@ -664,18 +664,7 @@ app.post('/api/netflix/verify', async (req, res) => {
                 // Tolerancia de 45 minutos para enlaces de Hogar / códigos
                 const recentCodes = await findRecentCodes(netflixAcct.correo, 45, 'netflix');
                 
-                // 1. Buscar si ya se confirmó el hogar recientemente
-                const confirmedMail = recentCodes.find(item =>
-                    (item.subject || "").toLowerCase().includes('se ha confirmado tu hogar') ||
-                    (item.snippet || "").toLowerCase().includes('se ha confirmado tu hogar')
-                );
-                if (confirmedMail) {
-                    isConfirmed = true;
-                    console.log(`[NETFLIX API] Netflix household already confirmed for ${netflixAcct.correo}`);
-                    break;
-                }
-
-                // 2. Buscar enlace prioritario de actualización de hogar
+                // 1. Buscar enlace prioritario de actualización de hogar
                 const updateMail = recentCodes.find(item => item.link && (
                     item.link.includes('update-primary-location') ||
                     item.link.includes('update_household') ||
@@ -683,10 +672,34 @@ app.post('/api/netflix/verify', async (req, res) => {
                     item.link.includes('travel/verify')
                 ));
 
-                if (updateMail) {
+                // 2. Buscar si ya se confirmó el hogar recientemente
+                const confirmedMail = recentCodes.find(item =>
+                    (item.subject || "").toLowerCase().includes('se ha confirmado tu hogar') ||
+                    (item.snippet || "").toLowerCase().includes('se ha confirmado tu hogar')
+                );
+
+                // Priorizar enlace de actualización si es más reciente o si no hay confirmación posterior
+                if (updateMail && confirmedMail) {
+                    const updateTime = new Date(updateMail.time || updateMail.date || 0).getTime();
+                    const confirmedTime = new Date(confirmedMail.time || confirmedMail.date || 0).getTime();
+                    if (updateTime >= confirmedTime) {
+                        link = updateMail.link;
+                        code = updateMail.code;
+                        console.log(`[NETFLIX API] Found newer Netflix Hogar link for ${netflixAcct.correo}: Link=${link}`);
+                        break;
+                    } else {
+                        isConfirmed = true;
+                        console.log(`[NETFLIX API] Netflix household already confirmed after last request for ${netflixAcct.correo}`);
+                        break;
+                    }
+                } else if (updateMail) {
                     link = updateMail.link;
                     code = updateMail.code;
                     console.log(`[NETFLIX API] Found Netflix Hogar link for ${netflixAcct.correo}: Link=${link}`);
+                    break;
+                } else if (confirmedMail) {
+                    isConfirmed = true;
+                    console.log(`[NETFLIX API] Netflix household already confirmed for ${netflixAcct.correo}`);
                     break;
                 }
 
