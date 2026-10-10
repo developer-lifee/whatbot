@@ -475,9 +475,9 @@ app.get('/', (req, res) => {
 async function resolveMusicLink(query) {
     let aiResult = null;
     try {
-        const { callGemini } = require('./aiService');
+        const { callDeepSeek } = require('./aiService');
         const systemPrompt = 'Eres un asistente musical para iOS Shortcuts y Siri. El usuario te dará un comando de voz como "oye siri reproduce X" o "pon la canción Y". Extrae el título exacto de la canción, el artista y genera el término ideal de búsqueda para encontrar el video o audio oficial. Responde ÚNICAMENTE un objeto JSON válido con los campos: "song" (título de la canción), "artist" (nombre del artista), "searchTerm" (término de búsqueda limpio).';
-        const rawContent = await callGemini(query, systemPrompt, true);
+        const rawContent = await callDeepSeek(query, systemPrompt, true);
         if (rawContent) {
             aiResult = typeof rawContent === 'object' ? rawContent : JSON.parse(rawContent.replace(/```json/g, '').replace(/```/g, '').trim());
         }
@@ -2250,7 +2250,7 @@ async function updateAiTicketsClassification() {
         const batchToClassify = ticketsToClassify.slice(0, 20);
         console.log(`[AI Classification Cache] Classifying ${batchToClassify.length} of ${ticketsToClassify.length} pending tickets (${activeTickets.length} total active).`);
 
-        const { callGemini } = require('./aiService');
+        const { callDeepSeek } = require('./aiService');
         const prompt = `Analiza la siguiente lista de tickets de soporte técnico y ventas en formato JSON:
 ${JSON.stringify(batchToClassify, null, 2)}
 
@@ -2272,9 +2272,9 @@ Devuelve **únicamente** un objeto JSON estructurado así (sin marcas markdown d
 
         let responseJson = null;
         try {
-            responseJson = await callGemini(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras. Responde exclusivamente con el JSON solicitado.", true);
-        } catch (gErr) {
-            console.warn('[AI Classification] Error invocando Gemini:', gErr.message);
+            responseJson = await callDeepSeek(prompt, "Eres un analista experto de soporte técnico que resume problemas en 3 a 5 palabras. Responde exclusivamente con el JSON solicitado.", true);
+        } catch (dsErr) {
+            console.warn('[AI Classification] Error invocando DeepSeek:', dsErr.message);
         }
         const parsed = typeof responseJson === 'object' ? responseJson : JSON.parse(responseJson.replace(/```json/g, '').replace(/```/g, '').trim());
 

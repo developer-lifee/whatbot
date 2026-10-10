@@ -74,6 +74,9 @@ function disableGeminiKey(keyToDisable) {
   }
 }
 
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
+const DEEPSEEK_API_BASE = process.env.DEEPSEEK_API_BASE || "https://api.deepseek.com";
+
 /**
  * Convierte el JSON de sabiduría en un texto legible para el prompt de la IA.
  */
@@ -181,11 +184,10 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-3.8-flash",
-  "gemini-2.5-flash",
-  "gemini-2.5-pro",
-  "gemini-1.5-flash",
-  "gemini-flash-latest"
+  "gemini-flash-latest",       // Modelo oficial Flash con soporte multimodal y OCR activo
+  "gemini-flash-lite-latest",  // Respaldo liviano
+  "gemini-2.5-flash",          // Respaldo Flash 2.5
+  "gemini-3.5-flash"           // Flash 3.5
 ];
 
 /**
@@ -570,14 +572,87 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   }
 }
 
+// Estados de Circuit Breaker y Auto-Recovery para DeepSeek
+let isDeepSeekDisabled = false;
+let deepSeekDisableUntil = 0;
+
+async function executeDirectDeepSeek(prompt, systemInstruction, isJson) {
+  if (!DEEPSEEK_API_KEY) {
+    throw new Error("DEEPSEEK_API_KEY no está configurada en .env");
+  }
+
+  const messages = [
+    { role: 'system', content: systemInstruction },
+    { role: 'user', content: prompt }
+  ];
+
+  const payload = {
+    model: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+    messages: messages,
+    temperature: 0.1
+  };
+
+  if (isJson) {
+    payload.response_format = { type: "json_object" };
+  }
+
+  const API_URL = `${DEEPSEEK_API_BASE.replace(/\/$/, '')}/chat/completions`;
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${DEEPSEEK_API_KEY}`
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(25000)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    if (response.status === 402 || errText.includes("Insufficient Balance")) {
+      isDeepSeekDisabled = true;
+      deepSeekDisableUntil = Date.now() + 10 * 60 * 1000;
+      console.warn("🚫 [DeepSeek Circuit] Saldo insuficiente (402). Activando failover temporal.");
+    }
+    throw new Error(`DeepSeek API Error: ${response.status} ${response.statusText} - ${errText}`);
+  }
+
+  const data = await response.json();
+  const text = data.choices?.[0]?.message?.content;
+  return text || (isJson ? "{}" : "");
+}
+
 /**
- * Motor de IA para tareas del bot.
- * DeepSeek fue dado de baja definitivamente; todas las invocaciones
- * se ejecutan directamente con Google Gemini (gemini-3.8-flash) para máxima velocidad
- * y cero llamadas a APIs sin saldo.
+ * Motor de IA para tareas del bot: intenciones de compra, respuestas y atención al cliente.
+ * Utiliza DeepSeek como motor principal de alta velocidad y saldo activo.
  */
 async function callDeepSeek(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true) {
-  return await callGemini(prompt, systemInstruction, isJson);
+  const now = Date.now();
+
+  const canUseDeepSeek = !isDeepSeekDisabled || (now >= deepSeekDisableUntil);
+  if (canUseDeepSeek) {
+    if (isDeepSeekDisabled) {
+      console.log("🔄 [Auto-Recovery] Retomando DeepSeek como motor principal.");
+      isDeepSeekDisabled = false;
+    }
+
+    try {
+      return await executeDirectDeepSeek(prompt, systemInstruction, isJson);
+    } catch (deepSeekError) {
+      console.warn(`⚠️ [AI Failover] DeepSeek no disponible (${deepSeekError.message}).`);
+    }
+  } else {
+    const remainingSec = Math.round((deepSeekDisableUntil - now) / 1000);
+    console.log(`⚡ [AI Failover Activo] DeepSeek en pausa temporal (${remainingSec}s restantes).`);
+  }
+
+  // Fallback si DeepSeek fallara momentáneamente
+  try {
+    return await callGemini(prompt, systemInstruction, isJson);
+  } catch (geminiError) {
+    console.error("❌ Ambos motores fallaron:", geminiError.message);
+    throw geminiError;
+  }
 }
 
 /**
