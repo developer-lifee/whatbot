@@ -673,23 +673,25 @@ app.post('/api/netflix/verify', async (req, res) => {
                 ));
 
                 // 2. Buscar si ya se confirmó el hogar recientemente
-                const confirmedMail = recentCodes.find(item =>
+                const forceRefresh = Boolean(req.body?.forceRefresh || req.query?.forceRefresh);
+                const confirmedMail = !forceRefresh ? recentCodes.find(item =>
                     (item.subject || "").toLowerCase().includes('se ha confirmado tu hogar') ||
                     (item.snippet || "").toLowerCase().includes('se ha confirmado tu hogar')
-                );
+                ) : null;
 
-                // Priorizar enlace de actualización si es más reciente o si no hay confirmación posterior
+                // Priorizar enlace de actualización si existe o si no hay confirmación posterior
                 if (updateMail && confirmedMail) {
                     const updateTime = new Date(updateMail.time || updateMail.date || 0).getTime();
                     const confirmedTime = new Date(confirmedMail.time || confirmedMail.date || 0).getTime();
-                    if (updateTime >= confirmedTime) {
+                    if (updateTime >= confirmedTime || forceRefresh) {
                         link = updateMail.link;
                         code = updateMail.code;
                         console.log(`[NETFLIX API] Found newer Netflix Hogar link for ${netflixAcct.correo}: Link=${link}`);
                         break;
                     } else {
                         isConfirmed = true;
-                        console.log(`[NETFLIX API] Netflix household already confirmed after last request for ${netflixAcct.correo}`);
+                        link = updateMail.link;
+                        console.log(`[NETFLIX API] Netflix household confirmed, preserving link fallback for ${netflixAcct.correo}`);
                         break;
                     }
                 } else if (updateMail) {
@@ -697,7 +699,7 @@ app.post('/api/netflix/verify', async (req, res) => {
                     code = updateMail.code;
                     console.log(`[NETFLIX API] Found Netflix Hogar link for ${netflixAcct.correo}: Link=${link}`);
                     break;
-                } else if (confirmedMail) {
+                } else if (confirmedMail && !forceRefresh) {
                     isConfirmed = true;
                     console.log(`[NETFLIX API] Netflix household already confirmed for ${netflixAcct.correo}`);
                     break;
@@ -727,10 +729,12 @@ app.post('/api/netflix/verify', async (req, res) => {
         if (isConfirmed) {
             return res.json({
                 success: true,
-                message: "¡Tu hogar de Netflix ya se encuentra confirmado y activo! Abre Netflix en tu televisor para continuar viendo tus series y películas.",
+                message: "¡Tu hogar de Netflix ya se encuentra confirmado y activo! Si tu televisor aún solicita confirmación, genera un nuevo enlace desde la TV y pulsa 'Reintentar'.",
                 account: netflixAcct.correo,
                 accounts: formattedAccountsList,
-                isConfirmed: true
+                link: link || null,
+                isConfirmed: true,
+                canRequestNewLink: true
             });
         }
 
