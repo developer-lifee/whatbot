@@ -3818,6 +3818,59 @@ app.post('/api/public/bot-demo/transcribe-audio', express.json({ limit: '10mb' }
     }
 });
 
+app.post('/api/public/bot-demo/save-lead', express.json(), async (req, res) => {
+    try {
+        const { phone, name, type, instructions, remaining = 20 } = req.body;
+        const cleanPhone = String(phone || '').replace(/\D/g, '');
+        if (!cleanPhone || cleanPhone.length < 7) {
+            return res.json({ success: false, error: 'Número de teléfono inválido' });
+        }
+
+        const normalizedPhone = (cleanPhone.length === 10 && cleanPhone.startsWith('3')) ? `57${cleanPhone}` : cleanPhone;
+        const leadsFile = path.join(__dirname, 'demo_leads.json');
+        let leads = [];
+        if (fs.existsSync(leadsFile)) {
+            try { leads = JSON.parse(fs.readFileSync(leadsFile, 'utf8')); } catch (e) { leads = []; }
+        }
+
+        let existingIndex = leads.findIndex(l => l.phone === normalizedPhone);
+        let lead = existingIndex !== -1 ? leads[existingIndex] : {
+            phone: normalizedPhone,
+            createdAt: new Date().toISOString(),
+            offerSent: false
+        };
+
+        lead.botName = name || 'Mi Bot';
+        lead.botType = type || 'negocio';
+        lead.instructions = instructions || '';
+        lead.remaining = parseInt(remaining, 10) || 20;
+        lead.updatedAt = new Date().toISOString();
+
+        if (existingIndex !== -1) {
+            leads[existingIndex] = lead;
+        } else {
+            leads.push(lead);
+        }
+        fs.writeFileSync(leadsFile, JSON.stringify(leads, null, 2), 'utf8');
+
+        // Enviar mensaje de WhatsApp al número del usuario de inmediato si el cliente de WhatsApp está conectado
+        let whatsappSent = false;
+        if (typeof client !== 'undefined' && client && client.sendMessage) {
+            const targetChatId = `${normalizedPhone}@c.us`;
+            const welcomeMsg = `¡Hola! 👋 Soy tu bot de prueba (*${lead.botName}*).\n\n🎉 Ya tienes tus *20 mensajes de prueba gratuita* activados.\n\nPuedes escribirme por aquí cualquier consulta o probar desde la web para ver cómo atiendo a tus clientes. 🚀`;
+            client.sendMessage(targetChatId, welcomeMsg)
+                .then(() => console.log(`[Bot Demo] Mensaje de bienvenida enviado exitosamente a WhatsApp de ${normalizedPhone}`))
+                .catch(err => console.error(`[Bot Demo] Error enviando WhatsApp al lead ${normalizedPhone}:`, err.message));
+            whatsappSent = true;
+        }
+
+        res.json({ success: true, whatsappSent, normalizedPhone });
+    } catch (e) {
+        console.error('Error en /api/public/bot-demo/save-lead:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/public/bot-demo/chat', express.json(), async (req, res) => {
     try {
         const { message, personaConfig, history = [], remaining = 20 } = req.body;
@@ -3863,7 +3916,22 @@ REGLAS DE RESPUESTA EN WHATSAPP:
         }
         promptWithHistory += `Cliente: ${message}\nBot:`;
 
-        const reply = await callGemini(promptWithHistory, systemInstruction, false);
+        let reply = null;
+        try {
+            reply = await Promise.race([
+                callGemini(promptWithHistory, systemInstruction, false),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Gemini')), 8500))
+            ]);
+        } catch (geminiErr) {
+            console.warn('[Bot Demo Chat] Fallback rápido activado por demora en IA:', geminiErr.message);
+            if (botType === 'negocio') {
+                reply = `¡Hola! Con mucho gusto te atendemos en ${botName}. ¿Deseas consultar precios, catálogo o tiempos de entrega? 🛍️`;
+            } else if (botType === 'pareja') {
+                reply = `¡Hola mi vida! ❤️ Ando pendiente de ti, cuéntame qué necesitas y te respondo con todo el amor.`;
+            } else {
+                reply = `¡Hola! Estoy listo para apoyarte con tus tareas y recordatorios. ¿En qué te colaboro hoy?`;
+            }
+        }
         const nextRemaining = Math.max(0, currentRemaining - 1);
 
         // Guardar prospecto y disparar venta cruzada si hay teléfono
@@ -10646,6 +10714,66 @@ async function baseProcessIncomingMessage(messages) {
             console.error("[Database] Error al guardar cliente en BD:", dbErr.message);
         }
     }
+
+    // --- DEMO LEAD WHATSAPP TRIAL INTERCEPTOR ---
+    try {
+        const cleanSender = (realPhone || userId.replace(/\D/g, '')).trim();
+        if (cleanSender && !userId.includes('@g.us')) {
+            const leadsFile = path.join(__dirname, 'demo_leads.json');
+            if (fs.existsSync(leadsFile)) {
+                let leads = [];
+                try { leads = JSON.parse(fs.readFileSync(leadsFile, 'utf8')); } catch (e) { leads = []; }
+                const leadIndex = leads.findIndex(l => {
+                    const lp = String(l.phone || '').replace(/\D/g, '');
+                    return lp === cleanSender || cleanSender.endsWith(lp) || lp.endsWith(cleanSender);
+                });
+
+                if (leadIndex !== -1 && leads[leadIndex].remaining > 0) {
+                    const lead = leads[leadIndex];
+                    console.log(`[Bot Demo WhatsApp] 🤖 Mensaje de lead ${lead.phone} (${lead.botName}): "${message.body}". Créditos restantes: ${lead.remaining}`);
+
+                    const { callGemini } = require('./aiService');
+                    const systemInstruction = `Eres el bot de WhatsApp configurado para la prueba gratuita de "${lead.botName}".
+Tipo de bot: ${lead.botType}.
+Instrucciones del negocio / usuario:
+"${lead.instructions}"
+REGLAS:
+1. Responde de forma muy natural, corta y directa (máximo 2 a 3 líneas).
+2. Si es negocio, atiende dudas, da precios y sé muy cordial.
+3. No salgas del personaje.`;
+
+                    let reply = null;
+                    try {
+                        reply = await Promise.race([
+                            callGemini(`Cliente: ${message.body}\nBot:`, systemInstruction, false),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Gemini')), 8500))
+                        ]);
+                    } catch (e) {
+                        reply = `¡Hola! Con gusto te colaboro en ${lead.botName}. ¿En qué producto o servicio te gustaría que te asesoremos hoy?`;
+                    }
+
+                    lead.remaining = Math.max(0, lead.remaining - 1);
+                    lead.lastMessage = message.body;
+                    lead.updatedAt = new Date().toISOString();
+                    leads[leadIndex] = lead;
+                    fs.writeFileSync(leadsFile, JSON.stringify(leads, null, 2), 'utf8');
+
+                    let finalReply = reply ? reply.trim() : "¡Hola! Estoy listo para ayudarte.";
+                    if (lead.remaining === 0) {
+                        finalReply += `\n\n🎉 *¡Has completado tus 20 mensajes de prueba gratuita!*\n\nTu bot está listo para trabajar 24/7 en tu propio número oficial por solo *$10.000 COP al mes*.\n\nPuedes activarlo y generar tu código QR aquí: https://sheerit.co/servicios?phone=${lead.phone}&vincular=whatsapp o respondiendo a este chat.`;
+                    } else {
+                        finalReply += `\n\n_(Te quedan ${lead.remaining} msgs de prueba gratis)_`;
+                    }
+
+                    await message.reply(finalReply);
+                    return;
+                }
+            }
+        }
+    } catch (demoErr) {
+        console.error("[Bot Demo WhatsApp] Error en interceptor de lead:", demoErr.message);
+    }
+
 
     // --- IDENTIFICADOR DE ESTADO INICIAL ---
     if (currentStateData && typeof currentStateData === 'object') {
