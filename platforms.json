@@ -100,56 +100,60 @@
     "plans": [
       {
         "id": 601,
-        "name": "ChatGPT Plus (Compartida Estándar - 7 personas)",
+        "name": "ChatGPT Plus (Uso Estándar ~20%)",
         "price": 20000,
-        "isPersonalEmail": false,
         "characteristics": [
-          "Cuenta compartida entre 7 personas",
+          "Capacidad estimada de uso: ~20% por ventana",
           "Acceso a GPT-4o, Canvas y DALL-E 3",
           "Ideal para consultas, tareas y redacción diaria",
           "Entrega en tiempo real"
         ],
-        "detalles": "Cuenta compartida de ChatGPT Plus entre 7 personas. Excelente para estudio y uso diario moderado."
+        "detalles": "Cuenta ChatGPT Plus con uso estándar (~20% de capacidad). Excelente para estudio y uso diario moderado.",
+        "isPersonalEmail": false,
+        "isAvailable": true
       },
       {
         "id": 602,
-        "name": "ChatGPT Plus (Grupo Reducido - Solo 4 personas)",
+        "name": "ChatGPT Plus (Uso Medio ~50%)",
         "price": 35000,
-        "isPersonalEmail": false,
         "characteristics": [
-          "Grupo exclusivo de solo 4 personas por cuenta",
+          "Capacidad extendida de uso: ~40% a 50%",
           "Mucho más margen de mensajes por ventana de 3 horas",
           "Acceso prioritario a GPT-4o y OpenAI o1",
           "Mayor estabilidad para programación y análisis",
           "Menor riesgo de topar límites"
         ],
-        "detalles": "Cuenta ChatGPT Plus compartida solo con 4 personas para trabajar con tranquilidad sin agotar la cuota."
+        "detalles": "Cuenta ChatGPT Plus con asignación extendida (~50% de uso) para trabajar con tranquilidad sin agotar la cuota.",
+        "isPersonalEmail": false,
+        "isAvailable": true
       },
       {
         "id": 603,
-        "name": "ChatGPT Team / Pro (Trabajo Pesado - Solo 4 personas)",
+        "name": "ChatGPT Team / Pro (Uso Intensivo ~80%)",
         "price": 150000,
-        "isPersonalEmail": false,
         "characteristics": [
-          "Plan de alta capacidad compartido solo entre 4 personas",
+          "Plan de alto rendimiento con capacidad aprox. ~80%",
           "Límites extendidos de razonamiento avanzado (OpenAI o1)",
           "Análisis masivo de datos y proyectos continuos",
           "Ideal para desarrolladores y profesionales"
         ],
-        "detalles": "Plan de alto rendimiento compartido entre un grupo muy selecto de 4 personas para uso intensivo."
+        "detalles": "Plan de alto rendimiento con alta disponibilidad (~80% de capacidad) para trabajo intensivo.",
+        "isPersonalEmail": false,
+        "isAvailable": true
       },
       {
         "id": 604,
-        "name": "ChatGPT Pro Scale x20 (Capacidad  USD)",
+        "name": "ChatGPT Pro Scale x20 (Capacidad Máxima $200 USD)",
         "price": 250000,
-        "isPersonalEmail": false,
         "characteristics": [
-          "Basado en la suscripción de  USD de OpenAI",
+          "Basado en la suscripción de máxima capacidad de OpenAI ($200 USD)",
           "Acceso ilimitado a GPT-4o y OpenAI o1 Pro Mode",
           "Máxima capacidad de cómputo para razonamiento complejo",
           "Diseñado para empresas y desarrolladores sin límites"
         ],
-        "detalles": "El plan de máxima potencia de OpenAI ( USD). Cómputo ilimitado y prioridad absoluta."
+        "detalles": "El plan de máxima potencia de OpenAI ($200 USD). Cómputo ilimitado y prioridad absoluta.",
+        "isPersonalEmail": false,
+        "isAvailable": true
       }
     ]
   },
@@ -600,59 +604,63 @@
     "plans": [
       {
         "id": 2301,
-        "name": "Claude Pro (Compartida Estándar - 7 personas)",
+        "name": "Claude Pro (Uso Estándar ~20%)",
         "price": 20000,
         "characteristics": [
-          "Cuenta compartida entre 7 personas",
+          "Capacidad estimada de uso: ~15% a 20%",
           "Ideal para uso ligero, tareas y consultas puntuales",
           "Acceso a Claude 3.5 Sonnet / 3.7",
           "Creación de Proyectos y Artefactos",
           "Entrega en tiempo real"
         ],
-        "detalles": "Plan Claude Pro compartido entre 7 personas. Excelente para uso moderado y consultas sin sobrecargar la cuenta.",
-        "isPersonalEmail": false
+        "detalles": "Plan Claude Pro con uso moderado (~20% de capacidad). Excelente para consultas y tareas puntuales.",
+        "isPersonalEmail": false,
+        "isAvailable": true
       },
       {
         "id": 2302,
-        "name": "Claude Pro (Grupo Reducido - Solo 4 personas)",
+        "name": "Claude Pro (Uso Medio ~50%)",
         "price": 35000,
         "characteristics": [
-          "Grupo exclusivo de solo 4 personas por cuenta",
+          "Capacidad extendida de uso: ~40% a 50%",
           "Mucho más margen de tokens y límites por ventana de 5 horas",
           "Acceso a Claude 3.5 Sonnet / 3.7 y Opus",
           "Mayor estabilidad para redacción y código",
           "Menor riesgo de agotar límites por hora"
         ],
-        "detalles": "Cuenta Claude Pro compartida solo entre 4 personas, garantizando una disponibilidad de mensajes mucho mayor para trabajar con tranquilidad.",
-        "isPersonalEmail": false
+        "detalles": "Cuenta Claude Pro con alta disponibilidad de tokens (~50% de capacidad) para trabajar con tranquilidad.",
+        "isPersonalEmail": false,
+        "isAvailable": true
       },
       {
         "id": 2303,
-        "name": "Claude Pro 5x (Trabajo Pesado - Solo 4 personas)",
+        "name": "Claude Pro 5x (Uso Intensivo ~80%)",
         "price": 150000,
         "characteristics": [
-          "Plan de alta capacidad compartido solo entre 4 personas",
+          "Plan de alta capacidad con uso aprox. ~70% a 80%",
           "Capacidad extendida de mensajes y procesamiento continuo",
           "Acceso prioritario a Claude 3.7 Sonnet y Opus",
-          "Ideal para programadores, analistas y desarrollo diario",
+          "Ideal para programadores y proyectos pesados",
           "Ventana de contexto extendida (200k tokens)"
         ],
-        "detalles": "Plan Claude de alto rendimiento para trabajo intensivo, compartido únicamente con 4 usuarios para máxima disponibilidad.",
-        "isPersonalEmail": false
+        "detalles": "Plan Claude de alto rendimiento para trabajo intensivo (~80% de capacidad) para máxima disponibilidad.",
+        "isPersonalEmail": false,
+        "isAvailable": true
       },
       {
         "id": 2304,
-        "name": "Claude Max Scale x20 (Capacidad $200 USD)",
+        "name": "Claude Max Scale x20 (Capacidad Máxima $200 USD)",
         "price": 250000,
         "characteristics": [
           "Multiplicador x20 de capacidad y volumen de mensajes",
           "Soporte para sesiones ultra pesadas de código y automatización",
           "Máxima prioridad de procesamiento de Anthropic",
-          "Ideal para emprendedores, agencias y negociantes intensivos",
+          "Ideal para emprendedores, agencias y desarrollo intensivo",
           "Soporte preferencial y rendimiento sin interrupciones"
         ],
         "detalles": "Plan Claude de máxima potencia basado en la capacidad extendida de $200 USD. Diseñado para quienes no pueden parar de trabajar.",
-        "isPersonalEmail": false
+        "isPersonalEmail": false,
+        "isAvailable": true
       }
     ]
   }
