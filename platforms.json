@@ -101,63 +101,63 @@
     "plans": [
       {
         "id": 601,
-        "name": "ChatGPT Plus (Uso Estándar ~20%)",
+        "name": "ChatGPT Plus (Rango 150% - 250% vs Gratis)",
         "price": 20000,
         "characteristics": [
+          "Capacidad estimada: 150% a 250% respecto al plan gratuito",
           "Your AI assistant: GPT-4o, Canvas y DALL-E 3",
           "Work agent para actuar en archivos y apps",
           "Codex para automatización y programación",
-          "Memoria expandida y 20 GB de almacenamiento",
-          "Sin anuncios y entrega en tiempo real"
+          "Memoria expandida y 20 GB de almacenamiento"
         ],
-        "detalles": "Plan ChatGPT Plus oficial ($20 USD) con uso estándar (~20% de capacidad). Ideal para tareas, redacción y consultas diarias.",
+        "detalles": "Plan ChatGPT Plus compartido con capacidad estimada de 150% a 250% respecto al plan gratuito. Ideal para tareas, redacción y consultas diarias.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 602,
-        "name": "ChatGPT Plus (Uso Medio ~50%)",
+        "name": "ChatGPT Plus (Rango 400% - 600% vs Gratis)",
         "price": 35000,
         "characteristics": [
-          "Capacidad extendida de uso: ~40% a 50%",
-          "Mucho más margen de mensajes por ventana",
+          "Capacidad estimada: 400% a 600% respecto al plan gratuito (4x a 6x)",
+          "Mucho más margen de mensajes por ventana de tiempo",
           "Prioridad de cómputo en GPT-4o y OpenAI o1",
           "Codex, Canvas y proyectos extendidos",
-          "Mayor tranquilidad para sesiones continuas"
+          "Mayor tranquilidad para sesiones continuas sin agotar cuota"
         ],
-        "detalles": "Plan ChatGPT Plus con alta disponibilidad (~50% de capacidad) para trabajar con tranquilidad sin agotar la cuota.",
+        "detalles": "Plan ChatGPT Plus con alta disponibilidad (400% a 600% respecto al plan gratuito) para trabajar con tranquilidad sin agotar la cuota.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 603,
-        "name": "ChatGPT Pro (Standard Usage - $100 USD)",
+        "name": "ChatGPT Pro (Rango 1.500% - 2.500% vs Gratis - $100 USD)",
         "price": 150000,
         "characteristics": [
-          "Basado en el plan oficial OpenAI Pro de $100 USD/mes",
+          "Capacidad estimada: 15x a 25x (~2.000%) respecto al plan gratuito",
+          "Basado en el nivel Pro Standard Usage ($100 USD/mes)",
           "Acceso a nuestro modelo Frontier Pro más potente (o1 Pro)",
           "Dots: tus agentes inteligentes activos 24/7",
           "Mayor capacidad en Work y Codex",
-          "Memoria máxima y 100 GB de almacenamiento",
-          "Acceso anticipado a nuevas herramientas y modelos"
+          "Memoria máxima y 100 GB de almacenamiento"
         ],
-        "detalles": "Nivel Pro Standard Usage ($100 USD) de OpenAI. Cómputo frontier, Dots y 100 GB de almacenamiento para profesionales.",
+        "detalles": "Nivel Pro Standard Usage ($100 USD) de OpenAI. Rango de 1.500% a 2.500% de capacidad respecto a la cuenta gratuita con cómputo frontier y Dots.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 604,
-        "name": "ChatGPT Pro (More Usage - $200 USD)",
+        "name": "ChatGPT Pro (Rango 5.000% - 10.000% vs Gratis - $200 USD)",
         "price": 250000,
         "characteristics": [
-          "Basado en el plan oficial OpenAI Pro de $200 USD/mes",
-          "Nivel 'More Usage' con máximo volumen de cómputo",
+          "Capacidad estimada: 50x a 100x respecto al plan gratuito",
+          "Basado en el nivel Pro More Usage ($200 USD/mes)",
           "Faster Work y Codex para desarrollo ultra intensivo",
           "Máxima prioridad en modelos Frontier Pro",
           "Memoria máxima y 100 GB de almacenamiento",
           "Sin límites en razonamiento complejo"
         ],
-        "detalles": "Nivel Pro More Usage ($200 USD) de OpenAI. La máxima capacidad disponible para desarrolladores y empresas sin restricciones.",
+        "detalles": "Nivel Pro More Usage ($200 USD) de OpenAI. La máxima capacidad disponible (5.000% a 10.000% vs gratis) para desarrolladores y empresas sin restricciones.",
         "isPersonalEmail": false,
         "isAvailable": true
       }
