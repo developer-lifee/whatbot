@@ -603,68 +603,69 @@
     "image": "/plataform/claude.svg",
     "price": 20000,
     "characteristics": [
-      "Planes Pro y Claude Max para desarrollo e investigación",
-      "Acceso a Claude 3.5 Sonnet, 3.7 y Opus",
-      "Contexto amplio de 200k tokens y Claude CoWork"
+      "Planes Pro y Max con rangos de uso según concurrencia",
+      "Desde 2x hasta 100x respecto a una cuenta gratuita",
+      "Acceso a Claude 3.7 Sonnet, Opus, Artefactos y Proyectos",
+      "Entrega inmediata y soporte continuo"
     ],
     "plans": [
       {
         "id": 2301,
-        "name": "Claude Pro (Uso Estándar ~20%)",
+        "name": "Claude Pro (Rango 150% - 250% vs Gratis)",
         "price": 20000,
         "characteristics": [
-          "Capacidad estimada de uso: ~15% a 20%",
-          "Ideal para uso ligero, tareas y consultas puntuales",
-          "Acceso a Claude 3.5 Sonnet / 3.7",
-          "Creación de Proyectos y Artefactos",
-          "Entrega en tiempo real"
+          "Capacidad estimada: 150% a 250% respecto al plan gratuito",
+          "Margen según uso simultáneo de la cuenta",
+          "Acceso a Claude 3.5 Sonnet / 3.7 y Proyectos",
+          "Ideal para tareas, redacción y consultas diarias",
+          "Entrega en tiempo real con soporte"
         ],
-        "detalles": "Plan Claude Pro con uso moderado (~20% de capacidad). Excelente para consultas y tareas puntuales.",
+        "detalles": "Plan Claude Pro compartido con capacidad estimada de 150% a 250% respecto a la versión gratuita de Claude. Excelente para estudio y trabajo moderado.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 2302,
-        "name": "Claude Pro (Uso Medio ~50%)",
+        "name": "Claude Pro (Rango 400% - 600% vs Gratis)",
         "price": 35000,
         "characteristics": [
-          "Capacidad extendida de uso: ~40% a 50%",
-          "Mucho más margen de tokens y límites por ventana de 5 horas",
-          "Acceso a Claude 3.5 Sonnet / 3.7 y Opus",
-          "Mayor estabilidad para redacción y código",
-          "Menor riesgo de agotar límites por hora"
+          "Capacidad estimada: 400% a 600% respecto al plan gratuito (4x a 6x)",
+          "Mucho más margen de tokens por ventana de 5 horas",
+          "Menor concurrencia para evitar límites simultáneos",
+          "Acceso prioritario a Claude 3.7 Sonnet y Opus",
+          "Mayor estabilidad para programación y análisis"
         ],
-        "detalles": "Cuenta Claude Pro con alta disponibilidad de tokens (~50% de capacidad) para trabajar con tranquilidad.",
+        "detalles": "Cuenta Claude Pro con alta disponibilidad de tokens (400% a 600% respecto a una cuenta gratuita) para trabajar con tranquilidad sin agotar la cuota.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 2303,
-        "name": "Claude Pro 5x (Uso Intensivo ~80%)",
+        "name": "Claude Pro 5x (Rango 1.500% - 2.500% vs Gratis)",
         "price": 150000,
         "characteristics": [
-          "Plan de alta capacidad con uso aprox. ~70% a 80%",
-          "Capacidad extendida de mensajes y procesamiento continuo",
+          "Capacidad estimada: 15x a 25x (~2.000%) respecto al plan gratuito",
+          "Plan de alto rendimiento para trabajo continuo y sesiones pesadas",
+          "Ventana de contexto extendida (200k tokens)",
           "Acceso prioritario a Claude 3.7 Sonnet y Opus",
-          "Ideal para programadores y proyectos pesados",
-          "Ventana de contexto extendida (200k tokens)"
+          "Ideal para programadores y desarrolladores intensivos"
         ],
-        "detalles": "Plan Claude de alto rendimiento para trabajo intensivo (~80% de capacidad) para máxima disponibilidad.",
+        "detalles": "Plan Claude de alto rendimiento para trabajo intensivo con un rango de 15 a 25 veces más capacidad que la versión gratuita.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 2304,
-        "name": "Claude Max Scale x20 (Capacidad Máxima $200 USD)",
+        "name": "Claude Max Scale (Rango 5.000% - 10.000% vs Gratis)",
         "price": 250000,
         "characteristics": [
-          "Multiplicador x20 de capacidad y volumen de mensajes",
+          "Capacidad máxima: 50x a 100x respecto a una cuenta gratuita",
+          "Basado en la suscripción de máxima potencia de $200 USD de Anthropic",
           "Soporte para sesiones ultra pesadas de código y automatización",
-          "Máxima prioridad de procesamiento de Anthropic",
-          "Ideal para emprendedores, agencias y desarrollo intensivo",
-          "Soporte preferencial y rendimiento sin interrupciones"
+          "Máxima prioridad de procesamiento de Anthropic sin límites",
+          "Diseñado para empresas y desarrolladores sin restricciones"
         ],
-        "detalles": "Plan Claude de máxima potencia basado en la capacidad extendida de $200 USD. Diseñado para quienes no pueden parar de trabajar.",
+        "detalles": "Plan Claude de máxima potencia basado en la capacidad extendida de $200 USD. Hasta 100 veces más mensajes que el plan gratuito.",
         "isPersonalEmail": false,
         "isAvailable": true
       }
