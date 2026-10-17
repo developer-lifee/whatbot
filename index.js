@@ -3797,6 +3797,91 @@ app.post('/api/public/track-click', async (req, res) => {
     }
 });
 
+// --- BOT DEMO SIMULATOR ENDPOINTS (PUBLIC) ---
+
+app.post('/api/public/bot-demo/transcribe-audio', express.json({ limit: '10mb' }), async (req, res) => {
+    try {
+        const { audioBase64, mimeType } = req.body;
+        if (!audioBase64) {
+            return res.status(400).json({ success: false, error: 'No se envió audioBase64' });
+        }
+        const { transcribeAudioWithGemini } = require('./aiService');
+        const cleanBase64 = audioBase64.replace(/^data:audio\/\w+;base64,/, '');
+        const text = await transcribeAudioWithGemini({
+            data: cleanBase64,
+            mimeType: mimeType || 'audio/webm'
+        });
+        res.json({ success: true, text: text ? text.trim() : '' });
+    } catch (e) {
+        console.error('Error transcribiendo audio para bot-demo:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/public/bot-demo/chat', express.json(), async (req, res) => {
+    try {
+        const { message, personaConfig, history = [], remaining = 20 } = req.body;
+        const currentRemaining = parseInt(remaining, 10);
+
+        if (isNaN(currentRemaining) || currentRemaining <= 0) {
+            return res.json({
+                success: true,
+                reply: "🎉 ¡Has completado tus 20 mensajes de prueba gratuita!\n\nTu bot ya aprendió las reglas de tu negocio y está listo para atender en tu WhatsApp oficial 24/7 sin dejar a nadie en visto.\n\n👉 Activa tu Plan Starter por solo $10.000 COP/mes (incluye 50 mensajes IA + respuestas automáticas ilimitadas).",
+                remaining: 0,
+                isLimitReached: true
+            });
+        }
+
+        const { callGemini } = require('./aiService');
+        const botName = (personaConfig && personaConfig.name) ? personaConfig.name : 'Asistente Sheerit';
+        const botType = (personaConfig && personaConfig.type) ? personaConfig.type : 'negocio';
+        const userNotes = (personaConfig && personaConfig.instructions) ? personaConfig.instructions : '';
+        const userTone = (personaConfig && personaConfig.tone) ? personaConfig.tone : 'amable y profesional';
+
+        let systemInstruction = `Eres un bot inteligente de WhatsApp configurado para simular una conversación real de WhatsApp.
+Tu nombre o rol es: "${botName}".
+Tipo de configuración: "${botType}".
+Tono: "${userTone}".
+Contexto / Información dada por el usuario en la entrevista inicial:
+"""${userNotes}"""
+
+REGLAS DE RESPUESTA EN WHATSAPP:
+1. Responde de forma muy natural, corta y directa como un chat de WhatsApp auténtico (máximo 2 a 3 líneas o párrafos breves).
+2. Usa emojis naturales moderados (1 a 3 máximo).
+3. Si el tipo es 'pareja': sé dulce, empático(a), explica con cariño si estás ocupado(a) o recuerda planes sin sonar robótico.
+4. Si el tipo es 'recordatorios': confirma tareas, horas o notas de forma ágil y clara ("¡Listo! Te lo recuerdo mañana a las 9:00 AM ⏰").
+5. Si el tipo es 'cine': recomienda películas o series destacadas disponibles en streaming (Netflix, Max, Disney+), dando una razón cautivante de por qué verla.
+6. Si el tipo es 'negocio': atiende las dudas del cliente sobre los productos o servicios indicados en el contexto, da precios y promueve el cierre de compra cordialmente.
+7. Si el cliente pregunta algo que no está en el contexto, responde amablemente y ofrece opciones relacionadas.`;
+
+        // Construir historial breve
+        let promptWithHistory = "HISTORIAL PREVIO DEL CHAT:\n";
+        const recentHistory = Array.isArray(history) ? history.slice(-6) : [];
+        for (const item of recentHistory) {
+            const sender = item.role === 'user' ? 'Cliente' : 'Bot';
+            promptWithHistory += `${sender}: ${item.text}\n`;
+        }
+        promptWithHistory += `Cliente: ${message}\nBot:`;
+
+        const reply = await callGemini(promptWithHistory, systemInstruction, false);
+        const nextRemaining = Math.max(0, currentRemaining - 1);
+
+        res.json({
+            success: true,
+            reply: reply ? reply.trim() : "¡Hola! ¿En qué más puedo colaborarte hoy?",
+            remaining: nextRemaining,
+            isLimitReached: nextRemaining === 0
+        });
+    } catch (e) {
+        console.error('Error en bot-demo chat:', e.message);
+        res.status(500).json({
+            success: false,
+            reply: "Lo siento, tuve un pequeño problema de conexión en la demo. ¿Podrías intentar de nuevo?",
+            error: e.message
+        });
+    }
+});
+
 const getTimeframeFilter = (timeframe, dateCol) => {
     if (timeframe === 'today') {
         return `DATE(${dateCol}) = CURDATE()`;
@@ -5705,6 +5790,8 @@ app.post('/api/admin/chat-messages/edit', express.json(), async (req, res) => {
 
 let currentWhatsappStatus = 'DISCONNECTED'; // DISCONNECTED, CONNECTING, QR_READY, PAIRING_CODE_READY, CONNECTED
 let latestQrCode = null;
+let latestQrTimestamp = 0;
+let qrReadyHeartbeatCount = 0;
 let latestPairingCode = null;
 let activeSseClients = [];
 
@@ -8950,9 +9037,18 @@ server.listen(port, () => {
                 }
 
                 if (currentWhatsappStatus === 'QR_READY' || currentWhatsappStatus === 'PAIRING_CODE_READY') {
-                    console.log('⏳ [ESPERANDO VINCULACIÓN] Cliente esperando escaneo de QR o código en el panel. Manteniendo proceso vivo...');
+                    qrReadyHeartbeatCount++;
+                    console.log(`⏳ [ESPERANDO VINCULACIÓN] Cliente esperando escaneo de QR o código en el panel (${qrReadyHeartbeatCount * 2} min). Manteniendo proceso vivo...`);
                     nonConnectedHeartbeatCount = 0;
+
+                    // Si lleva más de 6 minutos en espera sin vincular, forzar reinicio limpio para regenerar una sesión fresca
+                    if (qrReadyHeartbeatCount >= 3) {
+                        console.warn('⚠️ [ANTI-ZOMBIE] El proceso lleva más de 6 minutos en espera de vinculación. Forzando reinicio limpio para regenerar sesión fresca...');
+                        process.exit(1);
+                    }
                     return;
+                } else {
+                    qrReadyHeartbeatCount = 0;
                 }
 
                 nonConnectedHeartbeatCount++;
@@ -9062,12 +9158,49 @@ process.on('SIGTERM', shutdown);
 // Generar QR para conexión
 client.on('qr', (qr) => {
     if (qr === latestQrCode) return;
+    latestQrTimestamp = Date.now();
     qrcode.generate(qr, { small: true });
     latestQrCode = qr;
     latestPairingCode = null;
     currentWhatsappStatus = 'QR_READY';
     broadcastSseEvent('status', { status: currentWhatsappStatus, qr: qr });
 });
+
+// Auto-recargador de código QR si expira en WhatsApp Web (WhatsApp Web detiene la rotación y muestra botón de recargar tras ~30s)
+setInterval(async () => {
+    try {
+        if (currentWhatsappStatus === 'QR_READY' && client && client.pupPage) {
+            const ageSeconds = Math.floor((Date.now() - latestQrTimestamp) / 1000);
+            if (ageSeconds >= 25) {
+                const refreshed = await client.pupPage.evaluate(() => {
+                    const refreshBtn = document.querySelector('span[data-icon="refresh"]')?.closest('button, [role="button"]') ||
+                                       document.querySelector('button[aria-label*="QR" i], button[aria-label*="qr" i], button[aria-label*="recargar" i]') ||
+                                       Array.from(document.querySelectorAll('button, div[role="button"]')).find(b => {
+                                           const t = (b.innerText || '').toLowerCase();
+                                           return t.includes('recargar') || t.includes('reload') || t.includes('volver a cargar') || t.includes('click to reload');
+                                       }) ||
+                                       document.querySelector('div[data-ref]');
+                    if (refreshBtn) {
+                        refreshBtn.click();
+                        return true;
+                    }
+                    if (window.AuthStore && window.AuthStore.AppState && window.AuthStore.AppState.state === 'UNPAIRED_IDLE') {
+                        if (window.Store && window.Store.Cmd && typeof window.Store.Cmd.refreshQR === 'function') {
+                            window.Store.Cmd.refreshQR();
+                            return true;
+                        }
+                    }
+                    return false;
+                }).catch(() => false);
+
+                if (refreshed) {
+                    console.log('🔄 [QR AUTO-REFRESH] Código QR caducado detectado en WhatsApp Web. Haciendo clic automático para recargar...');
+                    latestQrTimestamp = Date.now();
+                }
+            }
+        }
+    } catch (_) {}
+}, 15000);
 
 // Código de vinculación (Pairing code)
 client.on('code', (code) => {
@@ -9084,6 +9217,8 @@ client.on('ready', () => {
     currentWhatsappStatus = 'CONNECTED';
     latestQrCode = null;
     latestPairingCode = null;
+    latestQrTimestamp = 0;
+    qrReadyHeartbeatCount = 0;
     broadcastSseEvent('status', { status: currentWhatsappStatus });
 
     const { setAlertCallback } = require('./googleAuthService');
@@ -12676,8 +12811,22 @@ async function baseProcessIncomingMessage(messages) {
                                         `Valida el pago y confirma usando:\n*confirmar ${displayTarget}*`;
 
                                     await groupChat.sendMessage(adminMsg);
-                                    const mediaToForward = await message.downloadMedia();
-                                    await groupChat.sendMessage(mediaToForward);
+                                    try {
+                                        let mediaToForward = null;
+                                        const mediaMsg = messages.find(m => m && m.hasMedia);
+                                        if (mediaMsg) {
+                                            mediaToForward = await mediaMsg.downloadMedia().catch(() => null);
+                                        }
+                                        if (!mediaToForward && mediaData.length > 0 && mediaData[0].data && mediaData[0].mimetype) {
+                                            const { MessageMedia } = require('whatsapp-web.js');
+                                            mediaToForward = new MessageMedia(mediaData[0].mimetype, mediaData[0].data);
+                                        }
+                                        if (mediaToForward) {
+                                            await groupChat.sendMessage(mediaToForward);
+                                        }
+                                    } catch (mediaSendErr) {
+                                        console.warn("No se pudo adjuntar imagen del comprobante incompleto al grupo:", mediaSendErr.message);
+                                    }
                                 }
                             } catch (adminErr) {
                                 console.error("Error notificando al grupo sobre pago incompleto:", adminErr.message);
@@ -13021,9 +13170,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                                 const currSt = userStates.get(userId);
                                 if (!currSt || currSt.state !== 'awaiting_payment_confirmation') return;
 
-                                const { findMatchingEmailPayment } = require('./gmailService');
-                                const retryRes = await findMatchingEmailPayment(check.amount, check.bank || 'bancolombia');
-                                if (retryRes && retryRes.success && retryRes.match) {
+                                const { findMatchingPayment } = require('./gmailService');
+                                const match = await findMatchingPayment(check.amount, 60, userId);
+                                if (match && match.id) {
                                     console.log(`[PAYMENT AUTO-RETRY] 🎉 ¡Pago encontrado en Gmail tras ${delayMs/1000}s para ${userId}!`);
                                     const valRes = await executePaymentValidation(
                                         userId,
@@ -13031,7 +13180,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                                         client,
                                         userStates,
                                         null,
-                                        retryRes.match.id
+                                        match.id
                                     );
                                     if (valRes && valRes.success) {
                                         await safeSend(null, `🤖 ¡Excelente noticia! 🎉 Tu pago de *$${check.amount.toLocaleString('es-CO')}* COP acaba de ser verificado con éxito por el banco. Procedo a renovar tu cuenta. ¡Muchas gracias por tu compra! 😊`, originalChatJid || userId, client);
@@ -13039,7 +13188,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                                             const groupChat = await client.getChatById(GROUP_ID);
                                             if (groupChat) {
                                                 const displayTarget = realPhone || userId.replace('@c.us', '').replace('@lid', '');
-                                                await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO TRAS REINTENTO* (@${displayTarget})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Bre-B'}\nGmail ID: ${retryRes.match.id}\nServicio entregado/renovado automáticamente.`);
+                                                await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO TRAS REINTENTO* (@${displayTarget})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Bre-B'}\nGmail ID: ${match.id}\nServicio entregado/renovado automáticamente.`);
                                             }
                                         } catch (e) {}
                                     }
@@ -13073,8 +13222,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         adminMsg += `Valida el pago y confirma usando:\n*confirmar ${displayTarget}*`;
 
                         await groupChat.sendMessage(adminMsg);
-                        const mediaToForward = await message.downloadMedia();
-                        await groupChat.sendMessage(mediaToForward);
+
+                        try {
+                            let mediaToForward = null;
+                            const mediaMsg = messages.find(m => m && m.hasMedia);
+                            if (mediaMsg) {
+                                mediaToForward = await mediaMsg.downloadMedia().catch(() => null);
+                            }
+                            if (!mediaToForward && mediaData.length > 0 && mediaData[0].data && mediaData[0].mimetype) {
+                                const { MessageMedia } = require('whatsapp-web.js');
+                                mediaToForward = new MessageMedia(mediaData[0].mimetype, mediaData[0].data);
+                            }
+                            if (mediaToForward) {
+                                await groupChat.sendMessage(mediaToForward);
+                            }
+                        } catch (mediaSendErr) {
+                            console.warn("No se pudo adjuntar imagen del comprobante al grupo:", mediaSendErr.message);
+                        }
                     }
 
                     if (stateData.isRenewal && stateData.items && stateData.items.length > 0) {

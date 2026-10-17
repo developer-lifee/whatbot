@@ -507,57 +507,58 @@
     "plans": [
       {
         "id": 2301,
-        "name": "Claude Pro (Compartida Estándar 15% - 25% uso)",
+        "name": "Claude Pro (Compartida Estándar - 7 personas)",
         "price": 20000,
         "characteristics": [
-          "Uso estimado del 15% al 25% de tokens por usuario",
-          "Cuenta compartida económica (Claude Pro)",
-          "Acceso a Claude 3.5 Sonnet / Opus",
+          "Cuenta compartida entre 7 personas",
+          "Ideal para uso ligero, tareas y consultas puntuales",
+          "Acceso a Claude 3.5 Sonnet / 3.7",
           "Creación de Proyectos y Artefactos",
           "Entrega en tiempo real"
         ],
-        "detalles": "Plan Claude Pro compartido estándar. Ideal para uso moderado, consultas de estudio y programación ligera.",
+        "detalles": "Plan Claude Pro compartido entre 7 personas. Excelente para uso moderado y consultas sin sobrecargar la cuenta.",
         "isPersonalEmail": false
       },
       {
         "id": 2302,
-        "name": "Claude Pro x2 (Compartida Alto Uso 40% - 60% uso)",
-        "price": 30000,
+        "name": "Claude Pro (Grupo Reducido - Solo 4 personas)",
+        "price": 35000,
         "characteristics": [
-          "Uso amplio del 40% al 60% de tokens por usuario (x2 uso)",
-          "Compartida con menos usuarios (grupo reducido)",
-          "Mayor ventana de contexto (200k tokens para PDFs y código extenso)",
-          "Aprovechamiento de Claude CoWork / Proyectos intensivos",
-          "Mayor estabilidad y menor riesgo de agotar límites por hora"
+          "Grupo exclusivo de solo 4 personas por cuenta",
+          "Mucho más margen de tokens y límites por ventana de 5 horas",
+          "Acceso a Claude 3.5 Sonnet / 3.7 y Opus",
+          "Mayor estabilidad para redacción y código",
+          "Menor riesgo de agotar límites por hora"
         ],
-        "detalles": "Cuenta Claude Pro x2 compartida entre menos personas para garantizar entre 40% y 60% de tokens, ideal para trabajar con documentos largos en contexto extendido.",
+        "detalles": "Cuenta Claude Pro compartida solo entre 4 personas, garantizando una disponibilidad de mensajes mucho mayor para trabajar con tranquilidad.",
         "isPersonalEmail": false
       },
       {
         "id": 2303,
-        "name": "Claude Max",
-        "price": 60000,
+        "name": "Claude Pro 5x (Trabajo Pesado - Solo 4 personas)",
+        "price": 150000,
         "characteristics": [
-          "Plan Claude Max de alto rendimiento",
+          "Plan de alta capacidad compartido solo entre 4 personas",
+          "Capacidad extendida de mensajes y procesamiento continuo",
           "Acceso prioritario a Claude 3.7 Sonnet y Opus",
-          "Mayor capacidad de mensajes y procesamiento por hora",
-          "Ideal para desarrolladores y proyectos continuos",
-          "Soporte para análisis de código complejo y archivos pesados"
+          "Ideal para programadores, analistas y desarrollo diario",
+          "Ventana de contexto extendida (200k tokens)"
         ],
-        "detalles": "Plan Claude Max compartido con grupo reducido. Ofrece alta capacidad de mensajes, menor restricción de límites y prioridad máxima de respuesta para trabajo continuo.",
+        "detalles": "Plan Claude de alto rendimiento para trabajo intensivo, compartido únicamente con 4 usuarios para máxima disponibilidad.",
         "isPersonalEmail": false
       },
       {
         "id": 2304,
-        "name": "Claude Max x5 (Uso Intensivo / Trabajo Pesado)",
-        "price": 130000,
+        "name": "Claude Max Scale x20 (Capacidad $200 USD)",
+        "price": 250000,
         "characteristics": [
-          "Plan Claude Max x5 compartido con grupo muy reducido para trabajo pesado / intensivo (40% a 60% de uso)",
-          "Máxima asignación de tokens y límites extendidos por hora",
-          "Uso prioritario garantizado para largas sesiones de código",
-          "Ideal para empresas, agencias y desarrollo a tiempo completo"
+          "Multiplicador x20 de capacidad y volumen de mensajes",
+          "Soporte para sesiones ultra pesadas de código y automatización",
+          "Máxima prioridad de procesamiento de Anthropic",
+          "Ideal para emprendedores, agencias y negociantes intensivos",
+          "Soporte preferencial y rendimiento sin interrupciones"
         ],
-        "detalles": "Cuenta Claude Max x5 compartida entre un grupo muy reducido de usuarios para garantizar alto volumen de tokens (40% a 60% de uso) ideal para desarrollo continuo y proyectos pesados.",
+        "detalles": "Plan Claude de máxima potencia basado en la capacidad extendida de $200 USD. Diseñado para quienes no pueden parar de trabajar.",
         "isPersonalEmail": false
       }
     ]
