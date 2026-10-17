@@ -1,5 +1,57 @@
 [
   {
+    "id": 24,
+    "name": "Bot de WhatsApp IA (Autogestión)",
+    "image": "/plataform/whatsapp.svg",
+    "price": 10000,
+    "characteristics": [
+      "Prueba gratuita en vivo de 20 mensajes",
+      "Modos: Pareja/Novia, Recordatorios, Negocio y Cine",
+      "Mensajes programables ilimitados + cuota de IA"
+    ],
+    "plans": [
+      {
+        "id": 2401,
+        "name": "Plan Starter WhatsApp (50 Mensajes IA)",
+        "price": 10000,
+        "isPersonalEmail": false,
+        "characteristics": [
+          "50 Mensajes con IA al mes",
+          "Mensajes programables ilimitados (menús y bienvenida)",
+          "1 Número de WhatsApp conectado",
+          "Prueba gratis previa de 20 mensajes incluida"
+        ],
+        "detalles": "Tu bot de WhatsApp listo para responder preguntas, recordar tareas o mensajes a tu pareja."
+      },
+      {
+        "id": 2402,
+        "name": "Plan Pro Asistente IA (500 Mensajes IA)",
+        "price": 30000,
+        "isPersonalEmail": false,
+        "characteristics": [
+          "500 Mensajes con IA al mes",
+          "Catálogo interactivo de productos y fotos",
+          "Transcripción de notas de voz",
+          "Prioridad 24/7 sin caídas"
+        ],
+        "detalles": "Para negocios y personas con flujo constante de mensajes y atención automatizada."
+      },
+      {
+        "id": 2403,
+        "name": "Plan Scale & Alto Volumen (2.000 Mensajes IA)",
+        "price": 60000,
+        "isPersonalEmail": false,
+        "characteristics": [
+          "2.000 Mensajes con IA al mes",
+          "Sincronización con bases de datos Excel / SQL",
+          "Panel multiagente Sheerit colaborativo",
+          "Soporte prioritario directo"
+        ],
+        "detalles": "Para alto volumen y operaciones que requieren atención 24/7 sin límites."
+      }
+    ]
+  },
+  {
     "id": 1,
     "name": "Netflix",
     "image": "/plataform/netflix.webp",
@@ -41,22 +93,63 @@
     "image": "https://th.bing.com/th/id/OIP.PcgoreK_H_utzQX-eTNbrQHaHa?rs=1&pid=ImgDetMain",
     "price": 20000,
     "characteristics": [
-      "Cuenta compartida",
-      "IA actualizada y límites amplios",
-      "Entrega en tiempo real"
+      "Planes Plus, Team y Pro con OpenAI o1 y GPT-4o",
+      "Generación de imágenes con DALL-E y Canvas",
+      "Límites ampliados y entrega inmediata"
     ],
     "plans": [
       {
         "id": 601,
-        "name": "Compartida",
+        "name": "ChatGPT Plus (Compartida Estándar - 7 personas)",
         "price": 20000,
         "isPersonalEmail": false,
         "characteristics": [
-          "Cuenta compartida",
-          "IA actualizada y límites amplios",
+          "Cuenta compartida entre 7 personas",
+          "Acceso a GPT-4o, Canvas y DALL-E 3",
+          "Ideal para consultas, tareas y redacción diaria",
           "Entrega en tiempo real"
         ],
-        "detalles": "Te entregamos correo y clave. Cuenta compartida. Se recomienda desactivar la 'Memoria' en ajustes para privacidad."
+        "detalles": "Cuenta compartida de ChatGPT Plus entre 7 personas. Excelente para estudio y uso diario moderado."
+      },
+      {
+        "id": 602,
+        "name": "ChatGPT Plus (Grupo Reducido - Solo 4 personas)",
+        "price": 35000,
+        "isPersonalEmail": false,
+        "characteristics": [
+          "Grupo exclusivo de solo 4 personas por cuenta",
+          "Mucho más margen de mensajes por ventana de 3 horas",
+          "Acceso prioritario a GPT-4o y OpenAI o1",
+          "Mayor estabilidad para programación y análisis",
+          "Menor riesgo de topar límites"
+        ],
+        "detalles": "Cuenta ChatGPT Plus compartida solo con 4 personas para trabajar con tranquilidad sin agotar la cuota."
+      },
+      {
+        "id": 603,
+        "name": "ChatGPT Team / Pro (Trabajo Pesado - Solo 4 personas)",
+        "price": 150000,
+        "isPersonalEmail": false,
+        "characteristics": [
+          "Plan de alta capacidad compartido solo entre 4 personas",
+          "Límites extendidos de razonamiento avanzado (OpenAI o1)",
+          "Análisis masivo de datos y proyectos continuos",
+          "Ideal para desarrolladores y profesionales"
+        ],
+        "detalles": "Plan de alto rendimiento compartido entre un grupo muy selecto de 4 personas para uso intensivo."
+      },
+      {
+        "id": 604,
+        "name": "ChatGPT Pro Scale x20 (Capacidad  USD)",
+        "price": 250000,
+        "isPersonalEmail": false,
+        "characteristics": [
+          "Basado en la suscripción de  USD de OpenAI",
+          "Acceso ilimitado a GPT-4o y OpenAI o1 Pro Mode",
+          "Máxima capacidad de cómputo para razonamiento complejo",
+          "Diseñado para empresas y desarrolladores sin límites"
+        ],
+        "detalles": "El plan de máxima potencia de OpenAI ( USD). Cómputo ilimitado y prioridad absoluta."
       }
     ]
   },
