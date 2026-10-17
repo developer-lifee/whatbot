@@ -3866,6 +3866,62 @@ REGLAS DE RESPUESTA EN WHATSAPP:
         const reply = await callGemini(promptWithHistory, systemInstruction, false);
         const nextRemaining = Math.max(0, currentRemaining - 1);
 
+        // Guardar prospecto y disparar venta cruzada si hay teléfono
+        const userPhoneRaw = req.body.userPhone || (personaConfig && personaConfig.phone) || '';
+        const cleanPhone = String(userPhoneRaw).replace(/\D/g, '');
+
+        if (cleanPhone && cleanPhone.length >= 7) {
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                const leadsFile = path.join(__dirname, 'demo_leads.json');
+                let leads = [];
+                if (fs.existsSync(leadsFile)) {
+                    try { leads = JSON.parse(fs.readFileSync(leadsFile, 'utf8')); } catch (e) { leads = []; }
+                }
+
+                // Normalizar número colombiano a 57... si tiene 10 dígitos y empieza por 3
+                const normalizedPhone = (cleanPhone.length === 10 && cleanPhone.startsWith('3')) ? `57${cleanPhone}` : cleanPhone;
+                let existingIndex = leads.findIndex(l => l.phone === normalizedPhone);
+                let lead = existingIndex !== -1 ? leads[existingIndex] : {
+                    phone: normalizedPhone,
+                    createdAt: new Date().toISOString(),
+                    offerSent: false
+                };
+
+                lead.botName = botName;
+                lead.botType = botType;
+                lead.instructions = userNotes;
+                lead.lastMessage = message;
+                lead.remaining = nextRemaining;
+                lead.updatedAt = new Date().toISOString();
+
+                // Si se le acabaron los 20 mensajes y no se le ha enviado la oferta
+                if (nextRemaining === 0 && !lead.offerSent) {
+                    lead.offerSent = true;
+                    // Enviar WhatsApp al cliente si client está activo
+                    if (typeof client !== 'undefined' && client && client.sendMessage) {
+                        const targetChatId = `${normalizedPhone}@c.us`;
+                        const autoOfferText = `¡Hola ${botName}! 👋\n\n🎉 Vimos que acabas de configurar y probar tu bot de WhatsApp para *${personaConfig.name || 'tu negocio'}* en Sheerit.\n\nTus 20 mensajes de prueba gratuita terminaron con éxito. 🚀\n\n¿Te gustaría dejarlo conectado 24/7 a tu WhatsApp oficial por solo *$10.000 COP al mes*? Responde a este mensaje y un asesor te lo activará de una vez.`;
+                        client.sendMessage(targetChatId, autoOfferText).catch(err => console.error("Error enviando oferta automática WhatsApp:", err.message));
+
+                        // Notificar a asesores en grupo de ventas / errores
+                        const adminNotice = `🔥 *NUEVO PROSPECTO BOT WHATSAPP*\n- Cliente: +${normalizedPhone}\n- Propósito: ${botType} (${botName})\n- Acaba de agotar sus 20 mensajes de prueba.\n- Oferta de Plan Starter ($10k) enviada automáticamente. ¡Hacer seguimiento y venta cruzada!`;
+                        client.sendMessage('120363427163636523@g.us', adminNotice).catch(() => {});
+                    }
+                }
+
+                if (existingIndex !== -1) {
+                    leads[existingIndex] = lead;
+                } else {
+                    leads.push(lead);
+                }
+                fs.writeFileSync(leadsFile, JSON.stringify(leads, null, 2), 'utf8');
+            } catch (leadErr) {
+                console.error("Error guardando prospecto demo_leads:", leadErr.message);
+            }
+        }
+
         res.json({
             success: true,
             reply: reply ? reply.trim() : "¡Hola! ¿En qué más puedo colaborarte hoy?",
