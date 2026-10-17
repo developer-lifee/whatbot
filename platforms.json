@@ -101,53 +101,53 @@
     "plans": [
       {
         "id": 601,
-        "name": "ChatGPT Plus (Rango 150% - 250% vs Gratis)",
+        "name": "ChatGPT Plus (1.5x a 2.5x vs Gratis)",
         "price": 20000,
         "characteristics": [
-          "Capacidad estimada: 150% a 250% respecto al plan gratuito",
+          "Capacidad estimada: 1.5x a 2.5x más mensajes que el plan gratuito",
           "Your AI assistant: GPT-4o, Canvas y DALL-E 3",
           "Work agent para actuar en archivos y apps",
           "Codex para automatización y programación",
           "Memoria expandida y 20 GB de almacenamiento"
         ],
-        "detalles": "Plan ChatGPT Plus compartido con capacidad estimada de 150% a 250% respecto al plan gratuito. Ideal para tareas, redacción y consultas diarias.",
+        "detalles": "Plan ChatGPT Plus compartido con capacidad estimada de 1.5 a 2.5 veces respecto al plan gratuito. Ideal para tareas, redacción y consultas diarias.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 602,
-        "name": "ChatGPT Plus (Rango 400% - 600% vs Gratis)",
+        "name": "ChatGPT Plus (4x a 6x vs Gratis)",
         "price": 35000,
         "characteristics": [
-          "Capacidad estimada: 400% a 600% respecto al plan gratuito (4x a 6x)",
+          "Capacidad estimada: 4x a 6x más mensajes que el plan gratuito",
           "Mucho más margen de mensajes por ventana de tiempo",
           "Prioridad de cómputo en GPT-4o y OpenAI o1",
           "Codex, Canvas y proyectos extendidos",
           "Mayor tranquilidad para sesiones continuas sin agotar cuota"
         ],
-        "detalles": "Plan ChatGPT Plus con alta disponibilidad (400% a 600% respecto al plan gratuito) para trabajar con tranquilidad sin agotar la cuota.",
+        "detalles": "Plan ChatGPT Plus con alta disponibilidad (4 a 6 veces más capacidad que la cuenta gratuita) para trabajar con tranquilidad sin agotar la cuota.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 603,
-        "name": "ChatGPT Pro (Rango 1.500% - 2.500% vs Gratis - $100 USD)",
+        "name": "ChatGPT Pro (20x a 25x vs Gratis - $100 USD)",
         "price": 150000,
         "characteristics": [
-          "Capacidad estimada: 15x a 25x (~2.000%) respecto al plan gratuito",
+          "Capacidad estimada: 20x a 25x más volumen de cómputo que el plan gratis",
           "Basado en el nivel Pro Standard Usage ($100 USD/mes)",
           "Acceso a nuestro modelo Frontier Pro más potente (o1 Pro)",
           "Dots: tus agentes inteligentes activos 24/7",
           "Mayor capacidad en Work y Codex",
           "Memoria máxima y 100 GB de almacenamiento"
         ],
-        "detalles": "Nivel Pro Standard Usage ($100 USD) de OpenAI. Rango de 1.500% a 2.500% de capacidad respecto a la cuenta gratuita con cómputo frontier y Dots.",
+        "detalles": "Nivel Pro Standard Usage ($100 USD) de OpenAI. De 20 a 25 veces más capacidad que la cuenta gratuita con cómputo frontier y Dots.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 604,
-        "name": "ChatGPT Pro (Rango 5.000% - 10.000% vs Gratis - $200 USD)",
+        "name": "ChatGPT Pro Scale (50x a 100x vs Gratis - $200 USD)",
         "price": 250000,
         "characteristics": [
           "Capacidad estimada: 50x a 100x respecto al plan gratuito",
@@ -157,7 +157,7 @@
           "Memoria máxima y 100 GB de almacenamiento",
           "Sin límites en razonamiento complejo"
         ],
-        "detalles": "Nivel Pro More Usage ($200 USD) de OpenAI. La máxima capacidad disponible (5.000% a 10.000% vs gratis) para desarrolladores y empresas sin restricciones.",
+        "detalles": "Nivel Pro More Usage ($200 USD) de OpenAI. La máxima capacidad disponible (50x a 100x vs gratis) para desarrolladores y empresas sin restricciones.",
         "isPersonalEmail": false,
         "isAvailable": true
       }
@@ -611,52 +611,52 @@
     "plans": [
       {
         "id": 2301,
-        "name": "Claude Pro (Rango 150% - 250% vs Gratis)",
+        "name": "Claude Pro (1.5x a 2.5x vs Gratis)",
         "price": 20000,
         "characteristics": [
-          "Capacidad estimada: 150% a 250% respecto al plan gratuito",
+          "Capacidad estimada: 1.5x a 2.5x más mensajes que el plan gratuito",
           "Margen según uso simultáneo de la cuenta",
           "Acceso a Claude 3.5 Sonnet / 3.7 y Proyectos",
           "Ideal para tareas, redacción y consultas diarias",
           "Entrega en tiempo real con soporte"
         ],
-        "detalles": "Plan Claude Pro compartido con capacidad estimada de 150% a 250% respecto a la versión gratuita de Claude. Excelente para estudio y trabajo moderado.",
+        "detalles": "Plan Claude Pro compartido con capacidad estimada de 1.5 a 2.5 veces respecto a la versión gratuita de Claude. Excelente para estudio y trabajo moderado.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 2302,
-        "name": "Claude Pro (Rango 400% - 600% vs Gratis)",
+        "name": "Claude Pro (4x a 6x vs Gratis)",
         "price": 35000,
         "characteristics": [
-          "Capacidad estimada: 400% a 600% respecto al plan gratuito (4x a 6x)",
+          "Capacidad estimada: 4x a 6x más margen que el plan gratuito",
           "Mucho más margen de tokens por ventana de 5 horas",
           "Menor concurrencia para evitar límites simultáneos",
           "Acceso prioritario a Claude 3.7 Sonnet y Opus",
           "Mayor estabilidad para programación y análisis"
         ],
-        "detalles": "Cuenta Claude Pro con alta disponibilidad de tokens (400% a 600% respecto a una cuenta gratuita) para trabajar con tranquilidad sin agotar la cuota.",
+        "detalles": "Cuenta Claude Pro con alta disponibilidad de tokens (4 a 6 veces más que una cuenta gratuita) para trabajar con tranquilidad sin agotar la cuota.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 2303,
-        "name": "Claude Pro 5x (Rango 1.500% - 2.500% vs Gratis)",
+        "name": "Claude Pro 5x (20x a 25x vs Gratis)",
         "price": 150000,
         "characteristics": [
-          "Capacidad estimada: 15x a 25x (~2.000%) respecto al plan gratuito",
+          "Capacidad estimada: 20x a 25x más volumen de tokens que el plan gratis",
           "Plan de alto rendimiento para trabajo continuo y sesiones pesadas",
           "Ventana de contexto extendida (200k tokens)",
           "Acceso prioritario a Claude 3.7 Sonnet y Opus",
           "Ideal para programadores y desarrolladores intensivos"
         ],
-        "detalles": "Plan Claude de alto rendimiento para trabajo intensivo con un rango de 15 a 25 veces más capacidad que la versión gratuita.",
+        "detalles": "Plan Claude de alto rendimiento para trabajo intensivo con un rango de 20 a 25 veces más capacidad que la versión gratuita.",
         "isPersonalEmail": false,
         "isAvailable": true
       },
       {
         "id": 2304,
-        "name": "Claude Max Scale (Rango 5.000% - 10.000% vs Gratis)",
+        "name": "Claude Max Scale (50x a 100x vs Gratis)",
         "price": 250000,
         "characteristics": [
           "Capacidad máxima: 50x a 100x respecto a una cuenta gratuita",
@@ -665,7 +665,7 @@
           "Máxima prioridad de procesamiento de Anthropic sin límites",
           "Diseñado para empresas y desarrolladores sin restricciones"
         ],
-        "detalles": "Plan Claude de máxima potencia basado en la capacidad extendida de $200 USD. Hasta 100 veces más mensajes que el plan gratuito.",
+        "detalles": "Plan Claude de máxima potencia basado en la capacidad extendida de $200 USD. Hasta 100 veces más mensajes y tokens que el plan gratuito.",
         "isPersonalEmail": false,
         "isAvailable": true
       }
