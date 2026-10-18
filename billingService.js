@@ -1482,6 +1482,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
     let totalText = "";
     let totalSum = 0;
     let targetAccounts = [];
+    let billedServicesList = [];
 
     try {
       const userAccounts = await getAccountsByPhone(r.phone);
