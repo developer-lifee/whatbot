@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const { pool } = require('./database');
+const { downloadMediaDirect } = require('./mediaDecryptService');
 
 async function saveMessage(message, botIntent = null) {
     const messageId = message.id 
@@ -30,10 +31,26 @@ async function saveMessage(message, botIntent = null) {
 
     if (message.hasMedia) {
         try {
-            const media = await Promise.race([
-                message.downloadMedia(),
-                new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de descarga de media (15s)")), 15000))
-            ]);
+            // 1. Intento primario: descifrado nativo directo desde CDN de WhatsApp (inmune a fallos de navegador)
+            let media = null;
+            try {
+                media = await downloadMediaDirect(message);
+            } catch (dirErr) {
+                // Silencioso
+            }
+
+            // 2. Fallback secundario: descarga a través de whatsapp-web.js
+            if (!media || !media.data) {
+                media = await Promise.race([
+                    message.downloadMedia(),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout de descarga de media (15s)")), 15000))
+                ]).catch((err) => {
+                    const errMsg = (err && err.message) ? err.message : String(err);
+                    console.warn(`[Message Logger] Descarga fallback omitida o no disponible: ${errMsg}`);
+                    return null;
+                });
+            }
+
             if (media && media.data && media.mimetype) {
                 mediaMime = media.mimetype.split(';')[0];
                 const buffer = Buffer.from(media.data, 'base64');
@@ -69,7 +86,7 @@ async function saveMessage(message, botIntent = null) {
                 }
             }
         } catch (mediaErr) {
-            console.error("[Message Logger] Error downloading or saving media:", mediaErr.message);
+            console.warn("[Message Logger] Advertencia al procesar media:", mediaErr.message);
         }
     }
 

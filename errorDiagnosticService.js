@@ -581,7 +581,16 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             const contextText = `${textTrimmed} ${quotedText}`.trim();
             const approvedTicket = approvePendingSolution(contextText, senderPhone);
             if (approvedTicket) {
-                if (approvedTicket.isPreliminary || !approvedTicket.plan || (approvedTicket.files && approvedTicket.files.length === 0)) {
+                // Si el ticket no tenía archivos especificados pero sí un plan técnico, inferirlos del plan o commit
+                if (!approvedTicket.files || approvedTicket.files.length === 0) {
+                    const combinedText = `${approvedTicket.plan || ''} ${approvedTicket.commitMessage || ''}`;
+                    const fileMatches = combinedText.match(/\b[\w.-]+\.(?:js|json|html|css|sh)\b/g);
+                    if (fileMatches) {
+                        approvedTicket.files = [...new Set(fileMatches.filter(f => !f.startsWith('.') && fs.existsSync(path.join(__dirname, f))))];
+                    }
+                }
+
+                if ((approvedTicket.isPreliminary && (!approvedTicket.files || approvedTicket.files.length === 0)) || !approvedTicket.plan || (approvedTicket.files && approvedTicket.files.length === 0)) {
                     const notice = `⚠️ *[TICKET EN EVALUACIÓN - SIN PARCHE DE CÓDIGO]* (Ticket #${approvedTicket.id})\n\n` +
                         `Este ticket corresponde a un diagnóstico preliminar u operativo y aún no cuenta con un parche de código generado.\n\n` +
                         `👉 Para indicarle a la IA qué código modificar en el repositorio, escribe:\n` +
@@ -700,11 +709,25 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 pendingTicket
             );
 
+            // Extraer archivos afectados garantizados a partir de la respuesta o del contenido del plan
+            let targetFiles = Array.isArray(updatedCliSolution.archivosAfectados) ? updatedCliSolution.archivosAfectados : [];
+            if (targetFiles.length === 0) {
+                const combinedText = `${updatedCliSolution.planCodigo || ''} ${updatedCliSolution.commitDetallado || ''}`;
+                const fileMatches = combinedText.match(/\b[\w.-]+\.(?:js|json|html|css|sh)\b/g);
+                if (fileMatches) {
+                    targetFiles = [...new Set(fileMatches.filter(f => !f.startsWith('.') && fs.existsSync(path.join(__dirname, f))))];
+                }
+            }
+            if (targetFiles.length === 0 && Array.isArray(pendingTicket.files) && pendingTicket.files.length > 0) {
+                targetFiles = pendingTicket.files;
+            }
+
             updatePendingSolution(pendingTicket.id, {
                 diagnosis: updatedCliSolution.causaRaiz,
                 plan: updatedCliSolution.planCodigo,
                 commitMessage: updatedCliSolution.commitDetallado,
-                files: updatedCliSolution.archivosAfectados
+                files: targetFiles,
+                isPreliminary: false
             });
 
             let adjustedMsg = `🛠️ *[PROPUESTA AJUSTADA]* (Ticket #${pendingTicket.id})\n\n`;

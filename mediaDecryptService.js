@@ -14,18 +14,71 @@ const crypto = require('crypto');
 async function downloadMediaDirect(message) {
     if (!message) return null;
 
-    const raw = message._data;
-    if (!raw || !raw.directPath || !raw.mediaKey) {
+    const raw = message._data || {};
+    const mediaData = raw.mediaData || message.mediaData || {};
+
+    let directPath = raw.directPath || mediaData.directPath || message.directPath;
+    let mediaKey = raw.mediaKey || mediaData.mediaKey || message.mediaKey;
+    let type = raw.type || mediaData.type || message.type || 'image';
+    let mimetype = raw.mimetype || mediaData.mimetype || message.mimetype;
+    let filename = raw.filename || mediaData.filename || message.filename;
+
+    // Si aún no tenemos directPath o mediaKey (común en mensajes salientes o chats @lid),
+    // intentar extraerlos rápidamente desde el modelo en memoria de WhatsApp Web (Store.Msg)
+    if ((!directPath || !mediaKey) && message.client && message.client.pupPage) {
+        try {
+            const rawMsgId = message.id ? (message.id._serialized || message.id.id || message.id) : null;
+            if (rawMsgId) {
+                const storeData = await message.client.pupPage.evaluate((serializedId) => {
+                    try {
+                        const msg = (window.Store && window.Store.Msg && window.Store.Msg.get) 
+                            ? window.Store.Msg.get(serializedId) 
+                            : null;
+                        if (!msg) return null;
+                        const mData = msg.mediaData || {};
+                        let mk = msg.mediaKey || mData.mediaKey;
+                        if (mk && typeof mk !== 'string') {
+                            if (mk instanceof Uint8Array || Array.isArray(mk)) {
+                                mk = Array.from(mk);
+                            }
+                        }
+                        return {
+                            directPath: msg.directPath || mData.directPath,
+                            mediaKey: mk,
+                            type: msg.type || mData.type,
+                            mimetype: msg.mimetype || mData.mimetype,
+                            filename: msg.filename || mData.filename
+                        };
+                    } catch (e) {
+                        return null;
+                    }
+                }, rawMsgId);
+
+                if (storeData) {
+                    directPath = directPath || storeData.directPath;
+                    mediaKey = mediaKey || storeData.mediaKey;
+                    type = type || storeData.type;
+                    mimetype = mimetype || storeData.mimetype;
+                    filename = filename || storeData.filename;
+                }
+            }
+        } catch (evalErr) {
+            // Ignorar fallo de evaluación en Puppeteer
+        }
+    }
+
+    if (!directPath || !mediaKey) {
         return null;
     }
 
-    const type = raw.type || message.type || 'image';
+    const resolvedType = type || 'image';
     let infoStr = 'WhatsApp Image Keys';
-    if (type === 'video') infoStr = 'WhatsApp Video Keys';
-    else if (type === 'audio' || type === 'ptt') infoStr = 'WhatsApp Audio Keys';
-    else if (type === 'document') infoStr = 'WhatsApp Document Keys';
+    if (resolvedType === 'video') infoStr = 'WhatsApp Video Keys';
+    else if (resolvedType === 'audio' || resolvedType === 'ptt') infoStr = 'WhatsApp Audio Keys';
+    else if (resolvedType === 'document') infoStr = 'WhatsApp Document Keys';
 
-    const downloadUrl = `https://mmg.whatsapp.net${raw.directPath}`;
+    const normalizedPath = directPath.startsWith('/') ? directPath : `/${directPath}`;
+    const downloadUrl = `https://mmg.whatsapp.net${normalizedPath}`;
 
     try {
         const cdnRes = await fetch(downloadUrl, {
@@ -47,7 +100,19 @@ async function downloadMediaDirect(message) {
             return null;
         }
 
-        const mediaKeyBuf = Buffer.isBuffer(raw.mediaKey) ? raw.mediaKey : Buffer.from(raw.mediaKey, 'base64');
+        let mediaKeyBuf;
+        if (Buffer.isBuffer(mediaKey)) {
+            mediaKeyBuf = mediaKey;
+        } else if (typeof mediaKey === 'string') {
+            mediaKeyBuf = Buffer.from(mediaKey, 'base64');
+        } else if (Array.isArray(mediaKey) || ArrayBuffer.isView(mediaKey) || mediaKey instanceof Uint8Array) {
+            mediaKeyBuf = Buffer.from(mediaKey);
+        } else if (typeof mediaKey === 'object' && mediaKey !== null) {
+            mediaKeyBuf = Buffer.from(Object.values(mediaKey));
+        } else {
+            return null;
+        }
+
         const expanded = crypto.hkdfSync('sha256', mediaKeyBuf, Buffer.alloc(0), Buffer.from(infoStr), 112);
 
         // Los primeros 16 bytes son el IV, los siguientes 32 bytes son la clave AES-256
@@ -59,11 +124,20 @@ async function downloadMediaDirect(message) {
         const decipher = crypto.createDecipheriv('aes-256-cbc', cipherKey, iv);
         const decrypted = Buffer.concat([decipher.update(dataToDecrypt), decipher.final()]);
 
-        const ext = raw.mimetype?.includes('png') ? 'png' : (raw.mimetype?.includes('pdf') ? 'pdf' : 'jpg');
+        let ext = 'jpg';
+        if (mimetype) {
+            if (mimetype.includes('png')) ext = 'png';
+            else if (mimetype.includes('pdf')) ext = 'pdf';
+            else if (mimetype.includes('webp')) ext = 'webp';
+            else if (mimetype.includes('mp4')) ext = 'mp4';
+            else if (mimetype.includes('ogg')) ext = 'ogg';
+            else if (mimetype.includes('mp3')) ext = 'mp3';
+        }
+
         return {
             data: decrypted.toString('base64'),
-            mimetype: raw.mimetype || 'image/jpeg',
-            filename: raw.filename || `media_${Date.now()}.${ext}`,
+            mimetype: mimetype || 'image/jpeg',
+            filename: filename || `media_${Date.now()}.${ext}`,
             filesize: decrypted.length
         };
     } catch (err) {
