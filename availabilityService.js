@@ -178,6 +178,7 @@ async function getPlatformAvailability(platformName) {
     if (configKey && config[configKey].immediate === false) {
         return {
             immediate: false,
+            available: false,
             reason: config[configKey].reason || "Deshabilitado manualmente por administración."
         };
     }
@@ -187,6 +188,7 @@ async function getPlatformAvailability(platformName) {
     if (!hasStock) {
         return {
             immediate: false,
+            available: false,
             reason: "No hay cupos libres disponibles en este momento en el sistema para entrega automática."
         };
     }
@@ -197,14 +199,21 @@ async function getPlatformAvailability(platformName) {
     if (isFamily) {
         return {
             immediate: false,
+            available: true,
             reason: "Este tipo de plan requiere de una invitación o activación personalizada por un asesor."
         };
     }
     
     return {
         immediate: true,
+        available: true,
         reason: null
     };
+}
+
+async function isPlatformAvailable(platformName) {
+    const res = await getPlatformAvailability(platformName);
+    return res && res.available !== false;
 }
 
 function getActiveIncidentsText() {
@@ -254,6 +263,7 @@ module.exports = {
     getAvailabilityConfig,
     saveAvailabilityConfig,
     getPlatformAvailability,
+    isPlatformAvailable,
     checkSpreadsheetStock,
     getActiveIncidentsText,
     getSpecificAccountsIncidentsText,

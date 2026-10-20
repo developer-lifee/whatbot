@@ -542,11 +542,18 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             bodyLower.includes('[diagnóstico') ||
             bodyLower.includes('ticket #err-') ||
             bodyLower.includes('ticket: #err-') ||
+            bodyLower.includes('#err-') ||
             bodyLower.includes('[agy / cli]') ||
             bodyLower.includes('propuesta de resolución') ||
             bodyLower.includes('[solución aplicada') ||
             bodyLower.includes('[solución implementada') ||
             bodyLower.includes('[propuesta ajustada') ||
+            bodyLower.includes('auditoría preliminar') ||
+            bodyLower.includes('por favor especifica qué cambio') ||
+            bodyLower.includes('reajustando propuesta') ||
+            bodyLower.includes('aplicando cambios en código') ||
+            bodyLower.includes('error al aplicar solución') ||
+            bodyLower.includes('antigravity cli') ||
             bodyLower.includes('reiniciando servicio') ||
             bodyLower.includes('🤖')
         ) {

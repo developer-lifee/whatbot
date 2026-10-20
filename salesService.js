@@ -311,13 +311,61 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
 
   // Verificar disponibilidad general antes de armar la respuesta
   const { getPlatformAvailability } = require('./availabilityService');
+  let availableItems = [];
+  let unavailableItems = [];
   let nonImmediatePlats = [];
+
   for (const s of selectedItems) {
     const planName = s.chosenPlan ? `${s.platform.name} ${s.chosenPlan.name}` : s.platform.name;
     const avail = await getPlatformAvailability(planName);
-    if (!avail.immediate) {
-      nonImmediatePlats.push(s.platform.name);
+    if (avail.available === false) {
+      unavailableItems.push({ item: s, reason: avail.reason || 'Sin disponibilidad en este momento' });
+    } else {
+      availableItems.push(s);
+      if (!avail.immediate) {
+        nonImmediatePlats.push(s.platform.name);
+      }
     }
+  }
+
+  // Si todas las plataformas o planes solicitados no están disponibles
+  if (unavailableItems.length > 0 && availableItems.length === 0) {
+    let unavailMsg = `🤖 Lo sentimos mucho, en este momento no tenemos cupos libres ni disponibilidad para compras nuevas de:\n`;
+    for (const u of unavailableItems) {
+      unavailMsg += `• *${u.item.platform.name}${u.item.chosenPlan ? ' (' + u.item.chosenPlan.name + ')' : ''}* - ${u.reason}\n`;
+    }
+
+    // Buscar si la plataforma tiene planes alternativos con stock disponible
+    const alternatives = [];
+    for (const u of unavailableItems) {
+      if (u.item.platform && Array.isArray(u.item.platform.plans)) {
+        for (const pl of u.item.platform.plans) {
+          if (!u.item.chosenPlan || pl.id !== u.item.chosenPlan.id) {
+            const plAvail = await getPlatformAvailability(`${u.item.platform.name} ${pl.name}`);
+            if (plAvail.available !== false) {
+              const numPrice = parseInt(pl.price) || 0;
+              const formatted = numPrice > 0 ? `$${numPrice.toLocaleString('es-CO')} COP` : `$${pl.price}`;
+              alternatives.push(`*${u.item.platform.name} ${pl.name}* a ${formatted}`);
+            }
+          }
+        }
+      }
+    }
+
+    if (alternatives.length > 0) {
+      unavailMsg += `\n💡 *Opciones alternativas disponibles hoy:* ${alternatives.join(', ')}. ¿Te gustaría activar alguna de estas?`;
+    } else {
+      unavailMsg += `\nTe avisaremos tan pronto tengamos nuevos cupos disponibles. 😊`;
+    }
+    await message.reply(unavailMsg);
+    return;
+  }
+
+  // Si algunas están disponibles y otras no, notificar la exclusión de las no disponibles
+  let availabilityNotice = "";
+  if (unavailableItems.length > 0) {
+    availabilityNotice = `⚠️ *Nota:* En este momento no hay cupos de: ${unavailableItems.map(u => `*${u.item.platform.name}${u.item.chosenPlan ? ' (' + u.item.chosenPlan.name + ')' : ''}*`).join(', ')}. Continuamos con los demás servicios de tu pedido:\n\n`;
+    selectedItems = availableItems;
   }
 
   let consolidatedResponse = "";
@@ -334,8 +382,8 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   } else {
     // Si hay plataformas no inmediatas/sin stock, apagamos el saludo optimista de la IA
     consolidatedResponse = (empathyGreeting && nonImmediatePlats.length === 0) 
-      ? `🤖 ${empathyGreeting}\n\nEntendido, buscas:\n` 
-      : "🤖 Entendido, buscas:\n";
+      ? `🤖 ${empathyGreeting}\n\n${availabilityNotice}Entendido, buscas:\n` 
+      : `🤖 ${availabilityNotice}Entendido, buscas:\n`;
   }
 
   let calculatedTotal = 0;
@@ -558,10 +606,11 @@ async function showPlanSelection(message, userId, userStates) {
   const current = selected[currentIndex];
   const platform = current.platform;
 
-  // Filtrar planes deshabilitados según platform_availability.json
-  const { getAvailabilityConfig } = require('./availabilityService');
+  // Filtrar planes deshabilitados según platform_availability.json y stock
+  const { getAvailabilityConfig, getPlatformAvailability } = require('./availabilityService');
   const config = getAvailabilityConfig();
-  const availablePlans = platform.plans.filter(plan => {
+  const availablePlans = [];
+  for (const plan of platform.plans) {
       const planFullName = `${platform.name} ${plan.name}`;
       const normalizedName = planFullName.toLowerCase().trim();
       let configKey = Object.keys(config).find(key => key.toLowerCase().trim() === normalizedName);
@@ -571,8 +620,21 @@ async function showPlanSelection(message, userId, userStates) {
               return k.includes(normalizedName) || normalizedName.includes(k);
           });
       }
-      return !(configKey && config[configKey].immediate === false);
-  });
+      if (configKey && config[configKey].immediate === false) {
+          continue;
+      }
+      const avail = await getPlatformAvailability(planFullName);
+      if (avail.available !== false) {
+          availablePlans.push(plan);
+      }
+  }
+
+  if (availablePlans.length === 0) {
+    await message.reply(`🤖 Lo sentimos, en este momento no hay planes con cupos libres disponibles para *${platform.name}*. Por favor intenta con otra plataforma o consúltanos más tarde.`);
+    state.currentIndex++;
+    await showPlanSelection(message, userId, userStates);
+    return;
+  }
 
   if (current.chosenPlan) {
     state.currentIndex++;
@@ -589,7 +651,6 @@ async function showPlanSelection(message, userId, userStates) {
 
   let reply = `Selecciona el plan para ${platform.name}:\n`;
   
-  const { getPlatformAvailability } = require('./availabilityService');
   let warnings = [];
   for (const plan of availablePlans) {
       const planFullName = `${platform.name} ${plan.name}`;
@@ -634,10 +695,11 @@ async function handleSelectingPlans(message, userId, userStates) {
   const current = selected[currentIndex];
   const platform = current.platform;
 
-  // Filtrar planes deshabilitados según platform_availability.json
-  const { getAvailabilityConfig } = require('./availabilityService');
+  // Filtrar planes deshabilitados según platform_availability.json y stock
+  const { getAvailabilityConfig, getPlatformAvailability } = require('./availabilityService');
   const config = getAvailabilityConfig();
-  const availablePlans = platform.plans.filter(plan => {
+  const availablePlans = [];
+  for (const plan of platform.plans) {
       const planFullName = `${platform.name} ${plan.name}`;
       const normalizedName = planFullName.toLowerCase().trim();
       let configKey = Object.keys(config).find(key => key.toLowerCase().trim() === normalizedName);
@@ -647,8 +709,14 @@ async function handleSelectingPlans(message, userId, userStates) {
               return k.includes(normalizedName) || normalizedName.includes(k);
           });
       }
-      return !(configKey && config[configKey].immediate === false);
-  });
+      if (configKey && config[configKey].immediate === false) {
+          continue;
+      }
+      const avail = await getPlatformAvailability(planFullName);
+      if (avail.available !== false) {
+          availablePlans.push(plan);
+      }
+  }
 
   // Si el usuario pregunta de forma general por precios, planes o qué ofrecemos
   const wantsPrices = ['planes', 'costo', 'precio', 'catalogo', 'catálogo', 'que ofrecen', 'qué ofrecen', 'servicios', 'cuanto cuesta', 'cuánto cuesta', 'info'].some(k => body.includes(k));

@@ -392,11 +392,30 @@ Responde solo con el texto del mensaje para el cliente.`;
  */
 function summarizePlatformKnowledge(platforms) {
   if (!platforms || platforms.length === 0) return "No hay documentación detallada disponible.";
+  const { getAvailabilityConfig } = require('./availabilityService');
+  const availConfig = getAvailabilityConfig();
+
   let summaryText = platforms.map(p => {
-    let text = `PLATAFORMA: ${p.name}\n`;
+    const pKey = p.name;
+    const pOverride = availConfig[pKey] || {};
+    const isPlatformAvail = pOverride.immediate !== false;
+
+    let text = `PLATAFORMA: ${p.name}`;
+    if (!isPlatformAvail) {
+      text += ` ⚠️ [AGOTADO / NO DISPONIBLE EN ESTE MOMENTO - ${pOverride.reason || 'Sin cupos disponibles'}]`;
+    }
+    text += '\n';
+
     if (p.plans && p.plans.length > 0) {
       p.plans.forEach(plan => {
+        const planKey = `${p.name} ${plan.name}`;
+        const planOverride = availConfig[planKey] || {};
+        const isPlanAvail = isPlatformAvail && (planOverride.immediate !== false);
+
         text += `- Plan ${plan.name}: $${plan.price}. `;
+        if (!isPlanAvail) {
+          text += `⚠️ [AGOTADO / NO DISPONIBLE EN ESTE MOMENTO - NO VENDER NI COTIZAR PARA COMPRAS NUEVAS (${planOverride.reason || pOverride.reason || 'Sin stock'})] `;
+        }
         if (plan.detalles) text += `Info: ${plan.detalles} `;
         if (plan.characteristics && plan.characteristics.length > 0) {
           text += `Características: ${plan.characteristics.join(', ')}`;
@@ -410,11 +429,11 @@ function summarizePlatformKnowledge(platforms) {
   }).join('\n---\n');
 
   summaryText += `\n\n⚠️ REGLAS ESTRICTAS DE STOCK Y DISPONIBILIDAD (OBLIGATORIO):
+- REGLA DE NO VENDER SERVICIOS O PLANES AGOTADOS (CRÍTICO): Si un plan o plataforma figura arriba como [AGOTADO / NO DISPONIBLE EN ESTE MOMENTO] (por ejemplo, Netflix Extra, YouTube Premium o cualquier servicio sin disponibilidad en el catálogo), queda TERMINANTEMENTE PROHIBIDO cotizarlo como disponible, venderlo o enviar medios de pago para compras nuevas. Si un cliente pregunta por un plan agotado, infórmale con total amabilidad y claridad que en este momento no hay disponibilidad / cupos libres para compras nuevas de ese plan, y ofrécele las alternativas que SÍ estén disponibles en el catálogo (por ejemplo: si pide Netflix Extra pero está agotado, ofrécele el perfil compartido de Netflix 4K a $13.000 COP si está disponible). NUNCA confirmes ventas ni cobres por servicios agotados.
 - DISNEY+ PREMIUM: ÚNICAMENTE vendemos el perfil estándar compartido de Disney+ Premium a $14.000 COP al mes. Queda TERMINANTEMENTE PROHIBIDO inventar o cotizar "perfiles privados exclusivos", "cuentas completas privadas" o "planes 4K sin compartir" de Disney a $28.000 COP (ni a ningún otro valor inventado). Si el usuario pide cuenta privada o no compartir perfiles de Disney, infórmale con total transparencia que únicamente manejamos el perfil individual estándar a $14.000 COP, o deriva con [ESCALAR]. NUNCA inventes precios ni cierres ventas de planes inexistentes.
 - PROHIBICIÓN ABSOLUTA DE INVENTAR PLANES O PRECIOS: Promociona y cotiza ÚNICAMENTE los planes y precios exactos que figuran en el catálogo arriba. Si un cliente pide una modalidad que no existe (ej. cuentas privadas completas de servicios por perfil, o planes especiales), aclara cuál es el plan oficial y NUNCA inventes tarifas ni confirmes que "unificaste" un servicio que no existe.
-- NETFLIX: ÚNICAMENTE vendemos el perfil en cuenta compartida (Netflix 4K a $13.000 COP al mes) y el perfil individual propio (Netflix Extra a $17.000 COP al mes). Queda TERMINANTEMENTE PROHIBIDO inventar o cotizar "Pantalla Completa" a $26.000 COP, cuentas completas o planes ficticios que no estén en el catálogo.
-- NETFLIX EXTRA (Miembro Extra / Perfil Propio con tu correo): SÍ TIENE STOCK DISPONIBLE a $17.000 COP al mes. Si un usuario desea comprar o renovar Netflix Extra, cotízalo a $17.000 COP al mes con total normalidad.
-- RENOVACIONES VS COMPRAS NUEVAS (CRÍTICO): Si un usuario ya tiene una plataforma contratada (aparece en sus servicios activos) o envía un comprobante de pago por su mensualidad, SE TRATA DE UNA RENOVACIÓN de su misma cuenta. NUNCA digas que la plataforma está agotada ni le pidas cambiar de plan en una renovación, ya que el cliente conserva su misma cuenta y únicamente se extiende la vigencia.
+- NETFLIX: ÚNICAMENTE vendemos el perfil en cuenta compartida (Netflix 4K a $13.000 COP al mes) y el perfil individual propio (Netflix Extra a $17.000 COP al mes). Queda TERMINANTEMENTE PROHIBIDO inventar o cotizar "Pantalla Completa" a $26.000 COP, cuentas completas o planes ficticios que no estén en el catálogo. Si Netflix Extra figura como [AGOTADO / NO DISPONIBLE EN ESTE MOMENTO], NO lo vendas y ofrece ÚNICAMENTE el perfil de Netflix 4K a $13.000 COP.
+- RENOVACIONES VS COMPRAS NUEVAS (CRÍTICO): Si un usuario ya tiene una plataforma contratada (aparece en sus servicios activos) o envía un comprobante de pago por su mensualidad, SE TRATA DE UNA RENOVACIÓN de su misma cuenta. En renovaciones el cliente conserva su misma cuenta y se extiende la vigencia (no aplica restricción de stock nuevo).
 - DURACIONES Y RENOVACIONES: Todos los precios y renovaciones de todas las plataformas (incluyendo Crunchyroll, Netflix, Disney, Spotify, etc.) son SIEMPRE por una duración de 1 MES (mensual), a menos que el plan diga explícitamente "Anual" en su NOMBRE. Características en la descripción como "Cuenta estable 12 meses" o "Garantía de 12 meses" significan que la cuenta física dura o se garantiza por ese tiempo, pero la facturación y renovación del pago es SIEMPRE mensual (1 mes). NUNCA le digas al cliente que un pago mensual (ej. Crunchyroll a $7.000) le cubre una duración de 12 meses. Siempre es de 1 mes.`;
 
   return summaryText;

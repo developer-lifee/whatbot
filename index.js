@@ -9554,6 +9554,16 @@ client.on('message_create', async (msg) => {
                     effectiveMsgText.includes('DIAGNÓSTICO Y RESPUESTA') ||
                     effectiveMsgText.includes('Ticket #ERR-') ||
                     effectiveMsgText.includes('Ticket: #ERR-') ||
+                    effectiveMsgText.includes('#ERR-') ||
+                    effectiveMsgText.includes('AUDITORÍA PRELIMINAR') ||
+                    effectiveMsgText.includes('Por favor especifica qué cambio') ||
+                    effectiveMsgText.includes('REAJUSTANDO PROPUESTA') ||
+                    effectiveMsgText.includes('APLICANDO CAMBIOS EN CÓDIGO') ||
+                    effectiveMsgText.includes('ERROR AL APLICAR SOLUCIÓN') ||
+                    effectiveMsgText.includes('Antigravity CLI') ||
+                    effectiveMsgText.includes('@cambio <indica') ||
+                    effectiveMsgText.includes('@cambio <nueva') ||
+                    effectiveMsgText.includes('@cambio validar') ||
                     effectiveMsgText.includes('🛠️') ||
                     effectiveMsgText.includes('REINICIANDO SERVICIO')
                 );
