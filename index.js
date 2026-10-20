@@ -10606,12 +10606,26 @@ async function baseProcessIncomingMessage(messages) {
 
     // Priorizar el estado que tenga intervención humana activa si existe
     let currentStateData = stateByUserId || stateByPhone || stateByRawPhone;
-    if (stateByPhone && stateByPhone.state === 'waiting_human' && (!stateByUserId || stateByUserId.state !== 'waiting_human')) {
-        currentStateData = stateByPhone;
-        userStates.set(userId, { ...stateByPhone, chatJid: userId });
-    } else if (stateByUserId && stateByUserId.state === 'waiting_human' && cleanPhoneJid && (!stateByPhone || stateByPhone.state !== 'waiting_human')) {
-        currentStateData = stateByUserId;
-        userStates.set(cleanPhoneJid, { ...stateByUserId, chatJid: userId });
+    if (currentStateData && (currentStateData.state === 'waiting_human' || currentStateData.state === 'awaiting_support_details')) {
+        const lastTime = currentStateData.lastHumanInteraction || currentStateData.timestamp || currentStateData.waitingTimestamp || 0;
+        const ageHours = lastTime ? (Date.now() - lastTime) / (1000 * 3600) : 999;
+        if (ageHours > 1.5) {
+            console.log(`[Auto-Expire Synced] Limpiado estado de espera humano antiguo (${ageHours.toFixed(1)}h) para @${userId} / @${cleanPhoneJid}.`);
+            userStates.delete(userId);
+            if (cleanPhoneJid) userStates.delete(cleanPhoneJid);
+            if (realPhone) userStates.delete(realPhone);
+            currentStateData = null;
+        }
+    }
+
+    if (currentStateData) {
+        if (stateByPhone && stateByPhone.state === 'waiting_human' && (!stateByUserId || stateByUserId.state !== 'waiting_human')) {
+            currentStateData = stateByPhone;
+            userStates.set(userId, { ...stateByPhone, chatJid: userId });
+        } else if (stateByUserId && stateByUserId.state === 'waiting_human' && cleanPhoneJid && (!stateByPhone || stateByPhone.state !== 'waiting_human')) {
+            currentStateData = stateByUserId;
+            userStates.set(cleanPhoneJid, { ...stateByUserId, chatJid: userId });
+        }
     }
 
     let currentState = undefined;
@@ -10884,7 +10898,17 @@ REGLAS:
             return;
         }
 
-        // 1. FORCED SILENCE RULE: Si el asesor interactuó en las últimas 2 horas, mantener el bot estrictamente silenciado
+        // BYPASS DE LLAVE O MEDIOS DE PAGO EN WAITING_HUMAN:
+        // Si el cliente pide la llave o medios de pago (ej. "Puedes enviarme la llave porfa", "cual es la llave", "a que cuenta pago")
+        const isPaymentDetailsRequest = /llave|bre-v|brev|bre v|bre-b|breb|medios?\s*de\s*pago|datos?\s*de\s*pago|donde\s*(te\s*)?(transfiero|pago)|a\s*qu[eé]\s*cuenta|numero\s*de\s*cuenta|n[uú]mero\s*de\s*nequi|\bnequi\b|\bdaviplata\b|\bbancolombia\b/i.test(cleanInput) && !cleanInput.includes('falla') && !cleanInput.includes('caida') && !cleanInput.includes('pantalla');
+        if (isPaymentDetailsRequest && !message.hasMedia) {
+            console.log(`[Waiting Human Bypass] @${userId} solicita llave o datos de pago ("${message.body}"). Entregando medios de pago.`);
+            await sendPaymentMethodDetails(message, userId, null);
+            return;
+        }
+
+        // 1. FORCED SILENCE RULE: Si el asesor interactuó en las últimas 2 horas, mantener el bot estrictamente silenciado.
+        // Pero si ya transcurrieron más de 2 horas (120 min), el silencio caduca y el bot debe volver a atender al cliente.
         const lastInteraction = Math.max(
             (currentStateData && currentStateData.lastHumanInteraction) || 0,
             (userStates.get(userId) && userStates.get(userId).lastHumanInteraction) || 0,
@@ -10893,7 +10917,8 @@ REGLAS:
         const timeSinceLastHumanMs = Date.now() - lastInteraction;
         const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
 
-        if (minutesSinceLastHuman < 120 || (currentStateData && currentStateData.agent) || mode === 'advisor') {
+        const isRecentlyActive = minutesSinceLastHuman < 120;
+        if (isRecentlyActive && ((currentStateData && currentStateData.agent) || mode === 'advisor' || minutesSinceLastHuman < 45)) {
             console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} (Asesor activo hace ${minutesSinceLastHuman.toFixed(1)} mins o asignado a ${currentStateData ? currentStateData.agent : 'humano'}).`);
             // Registrar que el cliente respondió para que aparezca en el panel de tickets
             if (!currentStateData.clientWaitingSince) {
