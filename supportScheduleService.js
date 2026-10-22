@@ -559,6 +559,71 @@ async function getDynamicSupportSchedule() {
   };
 }
 
+/**
+ * Obtiene la hora exacta a la que deben dispararse los cobros hoy:
+ * exactamente 30 minutos después de la hora de entrada del primer turno o apertura de soporte.
+ * Retorna { hour: number, minute: number, timeStr: string, openingTimeStr: string }
+ */
+async function getTodayAutoCobrosTime() {
+  const config = getSupportScheduleConfig();
+  const today = getNowInBogota();
+  const day = today.getDay(); // 0 = Sunday, 6 = Saturday
+  const isWeekend = (day === 0 || day === 6);
+
+  let openingStr = isWeekend ? (config.weekend_start || "10:00") : (config.weekday_start || "10:00");
+
+  // Intentar obtener la hora del primer turno de asesores de hoy si existe
+  try {
+    const { pool } = require('./database');
+    const dayOffset = today.getDay() === 0 ? -6 : 1 - today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + dayOffset);
+    const year = monday.getFullYear();
+    const month = String(monday.getMonth() + 1).padStart(2, '0');
+    const dateVal = String(monday.getDate()).padStart(2, '0');
+    const currentWeekStart = `${year}-${month}-${dateVal}`;
+
+    const [allSchedules] = await pool.query(
+      "SELECT start_time, day_of_week, week_start, agent_id FROM agent_schedules WHERE week_start = ? OR week_start = 'default'",
+      [currentWeekStart]
+    );
+
+    if (allSchedules && allSchedules.length > 0) {
+      const agentsWithCustomWeek = new Set(
+        allSchedules.filter(s => s.week_start === currentWeekStart).map(s => s.agent_id)
+      );
+      const resolved = allSchedules.filter(s => {
+        if (agentsWithCustomWeek.has(s.agent_id)) return s.week_start === currentWeekStart;
+        return s.week_start === 'default';
+      });
+      const todaySlots = resolved.filter(s => s.day_of_week === day);
+      if (todaySlots.length > 0) {
+        const sortedStarts = todaySlots.map(s => s.start_time.substring(0, 5)).sort();
+        if (sortedStarts[0]) {
+          openingStr = sortedStarts[0];
+        }
+      }
+    }
+  } catch (e) {
+    console.error("[getTodayAutoCobrosTime] Error leyendo turnos de base de datos:", e.message);
+  }
+
+  const [h, m] = openingStr.split(':').map(Number);
+  const totalOpeningMinutes = h * 60 + m;
+  const targetCobrosMinutes = totalOpeningMinutes + 30; // Exactamente 30 minutos después
+
+  const cobroH = Math.floor(targetCobrosMinutes / 60) % 24;
+  const cobroM = targetCobrosMinutes % 60;
+  const timeStr = `${String(cobroH).padStart(2, '0')}:${String(cobroM).padStart(2, '0')}`;
+
+  return {
+    hour: cobroH,
+    minute: cobroM,
+    timeStr,
+    openingTimeStr: openingStr
+  };
+}
+
 module.exports = {
   getSupportScheduleConfig,
   saveSupportScheduleConfig,
@@ -568,5 +633,8 @@ module.exports = {
   getTodayScheduledShifts,
   getOfflineReplyMessage,
   getDynamicSupportSchedule,
+  getTodayAutoCobrosTime,
+  getNowInBogota,
   formatTime12h
 };
+

@@ -3,6 +3,59 @@ const { handleAutoCobros } = require('./billingService');
 const { getUpcomingExpirationsReport, notifyProviderExpiringAccounts } = require('./adminService');
 
 let automationInitialized = false;
+let cobrosJob = null;
+let lastCobrosExecutionDate = null;
+
+/**
+ * Programa dinámicamente la tarea de cobros para el día actual:
+ * siempre exactamente 30 minutos después de la hora de entrada del soporte.
+ */
+async function scheduleDailyCobros(client, userStates, pendingConfirmations, groupId) {
+    try {
+        const { getTodayAutoCobrosTime, getNowInBogota } = require('./supportScheduleService');
+        const cobrosInfo = await getTodayAutoCobrosTime();
+        
+        console.log(`⏰ [AUTOMATION] Cobros automáticos para hoy calculados: ${cobrosInfo.timeStr} (Hora de entrada soporte: ${cobrosInfo.openingTimeStr} + 30 min)`);
+
+        if (cobrosJob) {
+            cobrosJob.cancel();
+            cobrosJob = null;
+        }
+
+        // Programar cron para el minuto y hora calculados
+        cobrosJob = schedule.scheduleJob(`${cobrosInfo.minute} ${cobrosInfo.hour} * * *`, async () => {
+            const todayStr = getNowInBogota().toISOString().split('T')[0];
+            if (lastCobrosExecutionDate === todayStr) {
+                console.log(`[AUTOMATION] Los cobros de hoy (${todayStr}) ya fueron ejecutados previamente.`);
+                return;
+            }
+            lastCobrosExecutionDate = todayStr;
+
+            console.log(`🚀 [${cobrosInfo.timeStr}] Iniciando proceso automático de cobros (30 min después de entrada ${cobrosInfo.openingTimeStr})...`);
+            try {
+                const fakeMessage = {
+                    from: groupId,
+                    body: '@bot cobros automáticos',
+                    _client: client,
+                    reply: async (text) => {
+                        try {
+                            const chat = await client.getChatById(groupId);
+                            if (chat) await chat.sendMessage(text);
+                        } catch (e) {
+                            console.error('Error enviando reporte de cobros al grupo:', e.message);
+                        }
+                    }
+                };
+                
+                await handleAutoCobros(fakeMessage, groupId, userStates, pendingConfirmations, client);
+            } catch (err) {
+                console.error(`❌ Error en tarea automática de cobros (${cobrosInfo.timeStr}):`, err);
+            }
+        });
+    } catch (e) {
+        console.error('❌ Error programando cobros dinámicos:', e.message);
+    }
+}
 
 /**
  * Inicializa las tareas automáticas del día.
@@ -18,7 +71,7 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
     }
     automationInitialized = true;
     
-    console.log('⏰ [AUTOMATION] Inicializando tareas diarias (10:30 AM y 12:00 PM)...');
+    console.log('⏰ [AUTOMATION] Inicializando tareas automáticas diarias...');
 
     // Inicializar el gestor de mensajes programados
     try {
@@ -28,32 +81,13 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
         console.error('❌ Error inicializando gestor de mensajes programados:', e.message);
     }
 
-    // 1. COBROS AUTOMÁTICOS (10:30 AM - Media hora después de la entrada de soporte)
-    // Se ejecuta de Lunes a Domingo a las 10:30 AM
-    schedule.scheduleJob('30 10 * * *', async () => {
-        console.log('🚀 [10:30 AM] Iniciando proceso automático de cobros...');
-        try {
-            // Simulamos un mensaje del admin al bot para disparar el flujo de cobros
-            // El bot analizará el Excel y mandará el resumen al grupo
-            const fakeMessage = {
-                from: groupId,
-                body: '@bot cobros automáticos',
-                _client: client,
-                reply: async (text) => {
-                    try {
-                        const chat = await client.getChatById(groupId);
-                        if (chat) await chat.sendMessage(text);
-                    } catch (e) {
-                        console.error('Error enviando reporte de cobros al grupo:', e.message);
-                    }
-                }
-            };
-            
-            await handleAutoCobros(fakeMessage, groupId, userStates, pendingConfirmations, client);
-            
-        } catch (err) {
-            console.error('❌ Error en tarea automática de las 10:30 AM:', err);
-        }
+    // 1. COBROS AUTOMÁTICOS DINÁMICOS (Siempre media hora después de la hora de entrada)
+    scheduleDailyCobros(client, userStates, pendingConfirmations, groupId);
+
+    // Recalcular y reprogramar los cobros cada día a las 00:05 AM (Bogotá) según la entrada de ese día
+    schedule.scheduleJob('5 0 * * *', async () => {
+        console.log('🔄 [AUTOMATION] Recalculando hora dinámica de cobros para el nuevo día...');
+        await scheduleDailyCobros(client, userStates, pendingConfirmations, groupId);
     });
 
     // 2. REPORTE DE VENCIMIENTOS (12:00 PM)
@@ -108,5 +142,6 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
 }
 
 module.exports = {
-    initDailyAutomation
+    initDailyAutomation,
+    scheduleDailyCobros
 };
