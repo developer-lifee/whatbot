@@ -6,17 +6,18 @@ const SCHEDULE_FILE = path.join(__dirname, 'support_schedule.json');
 
 const DEFAULT_CONFIG = {
   manual_status: "auto", // "online", "offline", "auto"
-  weekday_start: "09:00",
+  weekday_start: "10:00",
   weekday_end: "22:00",
-  weekend_start: "09:00",
-  weekend_end: "21:00",
+  weekend_start: "10:00",
+  weekend_end: "22:00",
   offline_message: "Hola, nuestro horario de atención humana ha terminado. En este momento no hay asesores activos. Te responderemos tan pronto regresemos.",
   allow_overtime: true,
   hourly_rate: 8333,
   trial_hourly_rate: 4000,
   trial_hours_target: 80,
   max_hours_limit: 10,
-  shift_start_limit: "08:00",
+  max_group_hours_limit: 10,
+  shift_start_limit: "10:00",
   shift_end_limit: "22:00",
   whatsapp_contact_number: "573118587974"
 };

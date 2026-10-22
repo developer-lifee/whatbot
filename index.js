@@ -6641,8 +6641,8 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             const [shVal, smVal] = startTime.split(':').map(Number);
             const [ehVal, emVal] = endTime.split(':').map(Number);
 
-            // Franja dinámica configurable
-            const configStartLimit = supportConfig.shift_start_limit || "08:00";
+            // Franja dinámica configurable (mínimo 10:00 AM a 22:00)
+            const configStartLimit = supportConfig.shift_start_limit || "10:00";
             const configEndLimit = supportConfig.shift_end_limit || "22:00";
             const [startLimitH, startLimitM] = configStartLimit.split(':').map(Number);
             const [endLimitH, endLimitM] = configEndLimit.split(':').map(Number);
@@ -6819,6 +6819,35 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                     message: isOvertimeAllowed
                         ? `La jornada diaria para ${agentMap[agentId]?.fullname || 'este asesor'} supera el límite absoluto de 12 horas diarias (actual: ${(targetAgentDailyNetMinutes / 60).toFixed(1)} horas).`
                         : `No se permiten horas extras. La jornada diaria para ${agentMap[agentId]?.fullname || 'este asesor'} supera el límite diario configurado de ${currentDailyLimit} horas netas.`
+                });
+            }
+
+            // 3. Validate total daily GROUP hours (bolsa grupal combinada, máx 10 horas diarias entre todos los asesores)
+            const maxGroupDailyHours = parseFloat(supportConfig.max_group_hours_limit || 10);
+            let totalGroupDailyNetMinutes = 0;
+
+            for (const slot of mergedSlots) {
+                // Los asesores en rol 'trial' (acompañamiento/cangureo) no consumen bolsa regular
+                if (slot.role === 'trial') continue;
+
+                const [sh, sm] = slot.start_time.split(':').map(Number);
+                const [eh, em] = slot.end_time.split(':').map(Number);
+                const diff = (eh * 60 + em) - (sh * 60 + sm);
+                if (diff <= 0) continue;
+
+                let breakMin = 0;
+                if (slot.break_type === 'break_30') breakMin = 30;
+                else if (slot.break_type === 'lunch_60') breakMin = 60;
+                else if (slot.break_type === 'lunch_120') breakMin = 120;
+
+                totalGroupDailyNetMinutes += Math.max(0, diff - breakMin);
+            }
+
+            if (totalGroupDailyNetMinutes > maxGroupDailyHours * 60) {
+                const totalHoursCalc = (totalGroupDailyNetMinutes / 60).toFixed(1);
+                return res.status(400).json({
+                    success: false,
+                    message: `Límite grupal excedido: Los turnos de este día suman ${totalHoursCalc} horas netas entre todos los asesores, superando el límite grupal de ${maxGroupDailyHours} horas diarias permitidas.`
                 });
             }
         }
