@@ -4489,6 +4489,27 @@ app.post('/api/admin/database/import-execute', async (req, res) => {
     }
 });
 
+// Endpoint Tutor SQL Educativo
+app.post('/api/admin/database/tutor', async (req, res) => {
+    try {
+        const { action, sql, question } = req.body;
+        if (action === 'explain') {
+            const explanation = await dataStudioService.explainSqlQuery(sql);
+            res.json({ success: true, explanation });
+        } else if (action === 'ask') {
+            const result = await dataStudioService.askTutor(question);
+            res.json({ success: true, result });
+        } else if (action === 'tutorials') {
+            const tutorials = dataStudioService.getSqlTutorials();
+            res.json({ success: true, tutorials });
+        } else {
+            res.status(400).json({ success: false, error: 'Acción inválida. Usa explain, ask o tutorials.' });
+        }
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/admin/gpt-accounts/save', (req, res) => {
     try {
         const { email, secret, service, password, agentEmail, agentName } = req.body;
