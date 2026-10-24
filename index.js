@@ -4510,6 +4510,28 @@ app.post('/api/admin/database/tutor', async (req, res) => {
     }
 });
 
+// Endpoint KNIME: Auditoría de Calidad y Reglas de Datos Históricos
+app.get('/api/admin/database/knime-audit', async (req, res) => {
+    try {
+        const result = await dataStudioService.getKnimeDataQualityAudit();
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Endpoint KNIME: Simulación de Escenarios What-If
+app.post('/api/admin/database/knime-scenario', async (req, res) => {
+    try {
+        const { scenarioId } = req.body;
+        const result = await dataStudioService.getKnimeScenarioSimulation(scenarioId);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+
 app.post('/api/admin/gpt-accounts/save', (req, res) => {
     try {
         const { email, secret, service, password, agentEmail, agentName } = req.body;

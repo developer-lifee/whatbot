@@ -836,6 +836,223 @@ function getSqlTutorials() {
     ];
 }
 
+/**
+ * =========================================================================
+ * 6. MOTOR DE CALIDAD DE DATOS & VALIDACIÓN DE ESCENARIOS TIPO KNIME
+ * =========================================================================
+ */
+
+/**
+ * Realiza un escaneo de calidad y perfilado de datos históricos y tablas maestras
+ */
+async function getKnimeDataQualityAudit() {
+    try {
+        const countQueries = {
+            historical: "SELECT COUNT(*) as cnt FROM excel_historical_records",
+            customers: "SELECT COUNT(*) as cnt FROM customers",
+            subscriptions: "SELECT COUNT(*) as cnt FROM subscriptions",
+            accounts: "SELECT COUNT(*) as cnt FROM stream_accounts"
+        };
+
+        const stats = {
+            historicalTotal: 0,
+            customersTotal: 0,
+            subscriptionsTotal: 0,
+            accountsTotal: 0
+        };
+
+        for (const [key, q] of Object.entries(countQueries)) {
+            try {
+                const [r] = await pool.query(q);
+                if (r && r[0]) {
+                    if (key === 'historical') stats.historicalTotal = Number(r[0].cnt || 0);
+                    if (key === 'customers') stats.customersTotal = Number(r[0].cnt || 0);
+                    if (key === 'subscriptions') stats.subscriptionsTotal = Number(r[0].cnt || 0);
+                    if (key === 'accounts') stats.accountsTotal = Number(r[0].cnt || 0);
+                }
+            } catch (err) {
+                // Si alguna tabla aún no existe o está vacía, no rompe
+            }
+        }
+
+        const rules = [
+            {
+                id: 'rule_phone_format',
+                category: 'Calidad de Identificadores',
+                title: 'Teléfonos no estandarizados (sin prefijo 57 o formato irregular)',
+                description: 'Registros donde el teléfono del cliente tiene longitud distinta a 12 caracteres o no inicia con 57 (Colombia).',
+                severity: 'medium',
+                targetTable: 'excel_historical_records',
+                checkSql: `SELECT id, customer_phone, streaming_platform, account_email, vencimiento, status\nFROM excel_historical_records\nWHERE customer_phone IS NOT NULL AND (LENGTH(REGEXP_REPLACE(customer_phone, '[^0-9]', '')) != 12 OR customer_phone NOT LIKE '57%')\nLIMIT 50;`,
+                cleanupSql: `-- Normalización segura de teléfonos de 10 dígitos anteponiendo el indicativo 57\nUPDATE excel_historical_records\nSET customer_phone = CONCAT('57', REGEXP_REPLACE(customer_phone, '[^0-9]', ''))\nWHERE LENGTH(REGEXP_REPLACE(customer_phone, '[^0-9]', '')) = 10;`,
+                recommendation: 'Estandarizar a formato E.164 (57XXXXXXXXXX) para que el bot de WhatsApp pueda mapear al cliente instantáneamente.'
+            },
+            {
+                id: 'rule_orphan_historical',
+                category: 'Integridad Referencial',
+                title: 'Clientes en Histórico no registrados en la tabla Customers',
+                description: 'Filas históricas con números de cliente válidos que aún no han sido importados o vinculados en la tabla customers.',
+                severity: 'high',
+                targetTable: 'excel_historical_records',
+                checkSql: `SELECT h.id, h.customer_phone, h.streaming_platform, h.account_email, h.vencimiento\nFROM excel_historical_records h\nLEFT JOIN customers c ON h.customer_phone = c.phone\nWHERE c.phone IS NULL AND h.customer_phone IS NOT NULL AND h.customer_phone != ''\nLIMIT 50;`,
+                cleanupSql: `-- Poblar tabla customers a partir de los números únicos descubiertos en el histórico\nINSERT IGNORE INTO customers (phone, fullname, created_at)\nSELECT DISTINCT h.customer_phone, 'Cliente Histórico', NOW()\nFROM excel_historical_records h\nLEFT JOIN customers c ON h.customer_phone = c.phone\nWHERE c.phone IS NULL AND h.customer_phone IS NOT NULL AND LENGTH(h.customer_phone) >= 10;`,
+                recommendation: 'Realizar una sincronización masiva para que estos clientes tengan perfil de CRM y reciban atención omnicanal.'
+            },
+            {
+                id: 'rule_expired_not_cut',
+                category: 'Reglas de Negocio & Facturación',
+                title: 'Suscripciones Vencidas con Estado Activo (Cobro/Corte pendiente)',
+                description: 'Servicios cuya fecha de corte o vencimiento ya expiró pero aún figuran con status = "active".',
+                severity: 'warning',
+                targetTable: 'subscriptions',
+                checkSql: `SELECT id, customer_phone, streaming_platform, account_email, expiration_date, status\nFROM subscriptions\nWHERE status = 'active' AND expiration_date < CURDATE()\nORDER BY expiration_date ASC\nLIMIT 50;`,
+                cleanupSql: `-- Pasar a estado suspendido o generar ticket de corte para cuentas vencidas\nUPDATE subscriptions\nSET status = 'suspended'\nWHERE status = 'active' AND expiration_date < DATE_SUB(CURDATE(), INTERVAL 2 DAY);`,
+                recommendation: 'Verificar si el cliente realizó el pago o programar el corte inmediato en el bot.'
+            },
+            {
+                id: 'rule_overallocated_accounts',
+                category: 'Inventario & Proveedores',
+                title: 'Cuentas Compartidas con Posible Sobre-asignación de Cupos',
+                description: 'Cuentas maestras que tienen más de 5 suscripciones activas simultáneamente (límite estándar de perfiles).',
+                severity: 'high',
+                targetTable: 'stream_accounts',
+                checkSql: `SELECT account_email, streaming_platform, COUNT(*) as perfiles_activos\nFROM subscriptions\nWHERE status = 'active' AND account_email IS NOT NULL AND account_email != ''\nGROUP BY account_email, streaming_platform\nHAVING COUNT(*) > 5\nORDER BY perfiles_activos DESC;`,
+                cleanupSql: `-- Reubicar o auditar clientes en cuentas saturadas\nSELECT s.id, s.customer_phone, s.account_email, s.profile_name\nFROM subscriptions s\nWHERE s.account_email = 'correo_saturado@ejemplo.com' AND s.status = 'active';`,
+                recommendation: 'Reubicar perfiles sobrantes a cuentas con cupos disponibles para evitar caídas de servicio simultáneas.'
+            },
+            {
+                id: 'rule_null_credentials',
+                category: 'Consistencia de Datos',
+                title: 'Cuentas o Suscripciones sin Correo o Plataforma asignada',
+                description: 'Registros donde faltan datos esenciales para que el bot pueda entregar credenciales.',
+                severity: 'medium',
+                targetTable: 'subscriptions',
+                checkSql: `SELECT id, customer_phone, streaming_platform, account_email, status\nFROM subscriptions\nWHERE (account_email IS NULL OR account_email = '') OR (streaming_platform IS NULL OR streaming_platform = '')\nLIMIT 50;`,
+                cleanupSql: `-- Auditar y completar datos huérfanos\nDELETE FROM subscriptions\nWHERE (account_email IS NULL OR account_email = '') AND (customer_phone IS NULL OR customer_phone = '');`,
+                recommendation: 'Completar o depurar filas vacías para evitar errores de entrega en WhatsApp.'
+            },
+            {
+                id: 'rule_claude_naming',
+                category: 'Estandarización de Productos',
+                title: 'Variaciones en Nombres de Plataformas (Claude Normal vs Claude x5)',
+                description: 'Registros donde la plataforma contiene variaciones como "Claude", "Claude Pro", "Claude x5", "Claude 5"',
+                severity: 'info',
+                targetTable: 'excel_historical_records',
+                checkSql: `SELECT id, customer_phone, streaming_platform, account_email, profile_name, status\nFROM excel_historical_records\nWHERE LOWER(streaming_platform) LIKE '%claude%'\nORDER BY id DESC\nLIMIT 50;`,
+                cleanupSql: `-- Estandarizar nombre oficial según tipo de plan\nUPDATE excel_historical_records\nSET streaming_platform = 'Claude Pro'\nWHERE LOWER(streaming_platform) = 'claude' OR LOWER(streaming_platform) = 'claude normal';`,
+                recommendation: 'Asegurar la diferenciación estricta entre Claude Pro (individual) y Claude Max x5 (compartido).'
+            }
+        ];
+
+        return {
+            success: true,
+            stats,
+            rules,
+            generatedAt: new Date().toISOString()
+        };
+    } catch (e) {
+        console.error('Error en getKnimeDataQualityAudit:', e);
+        return { success: false, error: e.message };
+    }
+}
+
+/**
+ * Simula escenarios tipo KNIME ("What-If") sobre los datos
+ */
+async function getKnimeScenarioSimulation(scenarioId) {
+    try {
+        switch (scenarioId) {
+            case 'scenario_phone_standardization': {
+                const [rows] = await pool.query(`
+                    SELECT 
+                        id, 
+                        customer_phone as original_phone,
+                        CASE 
+                            WHEN LENGTH(REGEXP_REPLACE(customer_phone, '[^0-9]', '')) = 10 THEN CONCAT('57', REGEXP_REPLACE(customer_phone, '[^0-9]', ''))
+                            ELSE REGEXP_REPLACE(customer_phone, '[^0-9]', '')
+                        END as normalized_phone,
+                        streaming_platform,
+                        account_email
+                    FROM excel_historical_records
+                    WHERE customer_phone IS NOT NULL AND LENGTH(REGEXP_REPLACE(customer_phone, '[^0-9]', '')) = 10
+                    LIMIT 40;
+                `);
+                const [countRes] = await pool.query(`
+                    SELECT COUNT(*) as total_afectados
+                    FROM excel_historical_records
+                    WHERE customer_phone IS NOT NULL AND LENGTH(REGEXP_REPLACE(customer_phone, '[^0-9]', '')) = 10;
+                `);
+                return {
+                    success: true,
+                    scenarioId,
+                    title: 'Simulación: Estandarización de Teléfonos a Formato 57',
+                    impact: `Se detectaron ${countRes[0]?.total_afectados || 0} registros listos para normalizarse a formato internacional.`,
+                    affectedCount: countRes[0]?.total_afectados || 0,
+                    sampleRows: rows,
+                    columns: ['id', 'original_phone', 'normalized_phone', 'streaming_platform', 'account_email']
+                };
+            }
+            case 'scenario_expired_cuts': {
+                const [rows] = await pool.query(`
+                    SELECT 
+                        id, 
+                        customer_phone, 
+                        streaming_platform, 
+                        account_email, 
+                        expiration_date,
+                        DATEDIFF(CURDATE(), expiration_date) as dias_vencido
+                    FROM subscriptions
+                    WHERE status = 'active' AND expiration_date < CURDATE()
+                    ORDER BY expiration_date ASC
+                    LIMIT 40;
+                `);
+                const [countRes] = await pool.query(`
+                    SELECT COUNT(*) as total_vencidos
+                    FROM subscriptions
+                    WHERE status = 'active' AND expiration_date < CURDATE();
+                `);
+                return {
+                    success: true,
+                    scenarioId,
+                    title: 'Simulación: Cuentas que Pasarían a Corte Inmediato',
+                    impact: `Hay ${countRes[0]?.total_vencidos || 0} suscripciones con fecha vencida que actualmente siguen activas en el sistema.`,
+                    affectedCount: countRes[0]?.total_vencidos || 0,
+                    sampleRows: rows,
+                    columns: ['id', 'customer_phone', 'streaming_platform', 'account_email', 'expiration_date', 'dias_vencido']
+                };
+            }
+            case 'scenario_free_slots_recovery': {
+                const [rows] = await pool.query(`
+                    SELECT 
+                        account_email, 
+                        streaming_platform, 
+                        COUNT(*) as total_perfiles_actuales,
+                        SUM(CASE WHEN expiration_date < CURDATE() THEN 1 ELSE 0 END) as perfiles_recuperables
+                    FROM subscriptions
+                    GROUP BY account_email, streaming_platform
+                    HAVING perfiles_recuperables > 0
+                    ORDER BY perfiles_recuperables DESC
+                    LIMIT 30;
+                `);
+                return {
+                    success: true,
+                    scenarioId,
+                    title: 'Simulación: Recuperación de Cupos para Reventa',
+                    impact: 'Perfiles en cuentas activas que ya vencieron y pueden reasignarse a nuevos clientes de inmediato.',
+                    affectedCount: rows.reduce((acc, r) => acc + Number(r.perfiles_recuperables || 0), 0),
+                    sampleRows: rows,
+                    columns: ['account_email', 'streaming_platform', 'total_perfiles_actuales', 'perfiles_recuperables']
+                };
+            }
+            default:
+                return { success: false, error: 'Escenario no reconocido' };
+        }
+    } catch (e) {
+        console.error('Error en getKnimeScenarioSimulation:', e);
+        return { success: false, error: e.message };
+    }
+}
+
 module.exports = {
     getTablesOverview,
     executeStudioQuery,
@@ -844,6 +1061,9 @@ module.exports = {
     executeDataImport,
     explainSqlQuery,
     askTutor,
-    getSqlTutorials
+    getSqlTutorials,
+    getKnimeDataQualityAudit,
+    getKnimeScenarioSimulation
 };
+
 
