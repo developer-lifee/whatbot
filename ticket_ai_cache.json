@@ -58,7 +58,6 @@
     "573003409388",
     "573102684075",
     "573222380638",
-    "573112204182",
     "573046728609",
     "573208505993",
     "215113571274944",
@@ -86,8 +85,6 @@
     "573214581487",
     "573107294013",
     "573236924786",
-    "573115152659",
-    "205406810963985",
     "573153337380",
     "3224194658",
     "573013996301",
@@ -141,29 +138,18 @@
     "573126614507",
     "573228497486",
     "573103232436",
-    "573016991481",
     "573005556386",
     "573206603144",
     "33672802090",
     "573137031945",
     "584146231127",
-    "85070450810885@lid",
-    "94205863043174@lid",
     "573157303951",
     "573143146553",
-    "187557480558696@lid",
-    "242438102872076@lid",
-    "124446845182128@lid",
-    "236459575504968@lid",
     "573103031127",
     "573118913728",
-    "148537216102470@lid",
-    "68178428354687@lid",
     "573196070269",
     "573213100888",
-    "573242536239",
-    "248279208091898@lid",
-    "60043743514736@lid"
+    "573242536239"
   ],
   "summaries": {
     "3013977306": "Confirma gestión ya completada",
@@ -268,7 +254,6 @@
     "198560700190790@lid": "Cliente solicita tiempo para pensar",
     "198560700190790": "Cliente solicita tiempo para pensar",
     "573013653895": "Cliente escribe su nombre",
-    "573112204182": "Interés en Disney",
     "573209122247": "Cliente esperando atención humana",
     "573185776792": "Consulta equipo adicional",
     "573522005279": "Solicitud de credenciales de acceso",
@@ -375,7 +360,6 @@
     "246539796635701@lid": "Solicitud de asistencia técnica",
     "573222616409": "Registro de datos cliente",
     "246539796635701": "En espera de asesor",
-    "573016991481": "Interés Disney HBO Netflix",
     "573105151802": "Agradecimiento tras atención",
     "573142723007": "Validando pago pendiente",
     "573185283958": "Solicita asistencia técnica",
@@ -392,7 +376,6 @@
     "573016162351": "Solicita corte de servicio",
     "573196933086": "Confirma que está bien",
     "573166568300": "Agradece atención recibida",
-    "573126784846": "Consulta por Spotify",
     "573106143062": "Interesado en Apple One",
     "573134754499": "Reclama pago ya realizado",
     "573104031114": "Pide atención del asesor",
@@ -498,12 +481,10 @@
     "573133053081": "Solicita código de activación",
     "573013675879": "Interés sin especificar",
     "573217018751": "Pago realizado, validar servicio",
-    "573023672925": "Corte de servicio HBO",
     "573196070269": "Interés en compra",
     "573143412200": "Validando pago",
     "573123610432": "Interés Amazon",
     "573165107772": "Interés Netflix Extra",
-    "573023672925@lid": "Validando pago",
     "573187060963@lid": "Validando pago",
     "573143412200@lid": "Validando pago",
     "573234396485": "Interés en producto",
@@ -523,7 +504,6 @@
     "87656490877044": "Sin mensaje reciente",
     "178786637193453": "Agradecimiento cliente",
     "156409958256838": "Confirmación cliente",
-    "16175064953057": "Consulta disponibilidad HBO Colombia",
     "573219310380": "Agradecimiento, caso solucionado",
     "8397147615249": "Cliente envía emoji sin contexto",
     "8397147615249@lid": "Cliente envía emoji sin contexto",
@@ -543,7 +523,6 @@
     "573134700007": "Ofrece cuenta de Crunchyroll",
     "573188394677": "Consulta sin especificar",
     "573137311861": "Interés sin especificar",
-    "573219458871": "Cliente insiste en ayuda",
     "4703022743708": "Agradece atención recibida",
     "573246329951": "Respuesta afirmativa simple",
     "573115361100": "Cliente DaniX sin mensaje",
@@ -597,7 +576,6 @@
     "573236924786": "Cliente agradece gestión",
     "573223646802": "Interés Disney, reintenta luego",
     "573108467083": "Interés compra confirmada",
-    "573115152659": "Ingreso solucionado",
     "573125791191": "Cliente confirma elección",
     "573002498292": "Interés sin especificar",
     "573194860338": "Cliente agradece atención recibida",
@@ -658,7 +636,6 @@
     "573148932069": "Interés sin especificar",
     "573164602833": "Validando pago",
     "573166637734": "Validando pago",
-    "573143672265": "Interés en Amazon, Disney, Netflix",
     "573169829204": "Validando pago",
     "573186079997": "Validando pago",
     "573114789373": "Validando pago",
@@ -689,29 +666,16 @@
     "573118913728": "Problema resuelto, agradece",
     "573247483051": "Interés sin detalle",
     "573183964294": "Interés en compra",
-    "573105132719": "Interés Disney Netflix YouTube",
     "33672802090": "Agradece información recibida",
     "573212104358": "Interés en compra",
     "573112513995": "Interés en producto",
     "573052931247": "Interés en producto",
-    "573012762878": "Consulta sin especificar",
-    "85070450810885@lid": "Agradece atención recibida",
-    "94205863043174@lid": "Agradece ayuda brindada",
-    "187557480558696@lid": "Agradece interés Spotify",
-    "10801876303929@lid": "Interés Disney Netflix YouTube",
     "573103031127": "Agradece y actualizará",
-    "242438102872076@lid": "Agradece servicio Spotify",
-    "148537216102470@lid": "Problema resuelto, agradece",
-    "124446845182128@lid": "Agradece y actualizará",
-    "236459575504968@lid": "Agradece sin interés definido",
     "573236405085": "No puede ingresar",
-    "249723021713571@lid": "Cliente sin mensaje registrado",
-    "248279208091898@lid": "Interés en Netflix",
-    "68178428354687@lid": "Interés en compra",
-    "225443085062396@lid": "No puede ingresar",
-    "60043743514736@lid": "Agradece atención recibida",
+    "249723021713571@lid": "Credenciales Disney entregadas",
     "573122442508": "Cuenta desactivada, ofrece renovación",
-    "94751508443278@lid": "Cuenta desactivada, ofrece renovación"
+    "208868688846907@lid": "Corte de Servicio Spotify",
+    "257096759165076@lid": "Interés sin detalle"
   },
   "cache": {
     "3013977306": {
@@ -1186,11 +1150,6 @@
     },
     "573013653895": {
       "lastMessage": "",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: DISNEY"
-    },
-    "573112204182": {
-      "lastMessage": "Vale vale muchas gracias",
       "state": "waiting_human",
       "summary": "🛒 Interés: DISNEY"
     },
@@ -1699,11 +1658,6 @@
       "state": "waiting_human",
       "summary": ""
     },
-    "573016991481": {
-      "lastMessage": "Ok gracias",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: DISNEY, HBO PLATINO, NETFLIX"
-    },
     "573105151802": {
       "lastMessage": "Muchas gracias",
       "state": "waiting_human",
@@ -1869,11 +1823,6 @@
       "state": "waiting_human",
       "summary": "🛒 Interés: "
     },
-    "573126784846": {
-      "lastMessage": "Spotify",
-      "state": "waiting_human",
-      "summary": ""
-    },
     "573106143062": {
       "lastMessage": "Gracias",
       "state": "waiting_human",
@@ -1923,11 +1872,6 @@
       "lastMessage": "🤖 *Aviso de Cobro*\nHola alejandro , esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que el día 30/9/2026 se venció tu cuenta.\n\nServicio(s): AMAZON, GPT\n\nEscribe *3* en este",
       "state": "waiting_human",
       "summary": "🛒 Interés: "
-    },
-    "573115152659": {
-      "lastMessage": "ahora si ya ingreso",
-      "state": "waiting_human",
-      "summary": ""
     },
     "573151297090": {
       "lastMessage": "Corte gracias",
@@ -2724,11 +2668,6 @@
       "state": "waiting_human",
       "summary": ""
     },
-    "573023672925": {
-      "lastMessage": "",
-      "state": "waiting_human",
-      "summary": "🚨 Motivo: \"Corte de Servicio: HBO (Nota: cortar)\""
-    },
     "573196070269": {
       "lastMessage": "Gracias",
       "state": "waiting_human",
@@ -2748,11 +2687,6 @@
       "lastMessage": "",
       "state": "waiting_human",
       "summary": "🛒 Interés: NETFLIX EXTRA"
-    },
-    "573023672925@lid": {
-      "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
     },
     "573187060963@lid": {
       "lastMessage": "",
@@ -2911,11 +2845,6 @@
     },
     "87656490877044": {
       "lastMessage": "",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "16175064953057": {
-      "lastMessage": "Me confirmas si la pelicula todo lo que nunca fuimos está disponible en HBO colombia",
       "state": "waiting_human",
       "summary": ""
     },
@@ -3088,11 +3017,6 @@
       "lastMessage": "?",
       "state": "waiting_human",
       "summary": "🛒 Interés: "
-    },
-    "573219458871": {
-      "lastMessage": "por eso le escrio",
-      "state": "waiting_human",
-      "summary": ""
     },
     "4703022743708": {
       "lastMessage": "Mil gracias",
@@ -3524,11 +3448,6 @@
       "state": "awaiting_payment_confirmation",
       "summary": "💸 Validando Pago"
     },
-    "573143672265": {
-      "lastMessage": "Para comprar",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: AMAZON, DISNEY, NETFLIX"
-    },
     "573169829204": {
       "lastMessage": "",
       "state": "awaiting_payment_confirmation",
@@ -3659,11 +3578,6 @@
       "state": "waiting_human",
       "summary": "🛒 Interés: "
     },
-    "573105132719": {
-      "lastMessage": "",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: DISNEY, NETFLIX, YOUTUBE"
-    },
     "33672802090": {
       "lastMessage": "Ok muchas gracias",
       "state": "waiting_human",
@@ -3684,55 +3598,10 @@
       "state": "waiting_human",
       "summary": "🛒 Interés: "
     },
-    "573012762878": {
-      "lastMessage": "",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "85070450810885@lid": {
-      "lastMessage": "Muchas gracias",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: "
-    },
-    "94205863043174@lid": {
-      "lastMessage": "Muchísimas gracias disculpa la molestia \nFue de mucha ayuda tu atención 👍🥇",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "187557480558696@lid": {
-      "lastMessage": "No te preocupes, muchas gracias",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: SPOTIFY"
-    },
-    "10801876303929@lid": {
-      "lastMessage": "",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: DISNEY, NETFLIX, YOUTUBE"
-    },
     "573103031127": {
       "lastMessage": "muchas gracias! ya te actualizo",
       "state": "waiting_human",
       "summary": ""
-    },
-    "242438102872076@lid": {
-      "lastMessage": "Gracias por su servicio",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: SPOTIFY"
-    },
-    "148537216102470@lid": {
-      "lastMessage": "Listo si funcionó, muchas gracias",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "124446845182128@lid": {
-      "lastMessage": "muchas gracias! ya te actualizo",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "236459575504968@lid": {
-      "lastMessage": "Gracias",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: "
     },
     "573236405085": {
       "lastMessage": "Por favor porque nunca puedo ingresar",
@@ -3740,37 +3609,22 @@
       "summary": ""
     },
     "249723021713571@lid": {
-      "lastMessage": "",
+      "lastMessage": "\"⚡ *DISNEY PREMIUM 7 ESPN 30 DIAS* ⚡\n\n*CORREO:* \n dator19sXz@datorstify.es\n\n*CONTRASEÑA:* \nDisney7248393\n\n*EL SERVICIO VENCERÁ EL 23 DE NOVIEMBRE DE 2026*\"",
       "state": "waiting_human",
       "summary": ""
-    },
-    "248279208091898@lid": {
-      "lastMessage": "Listo graciasss",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: NETFLIX"
-    },
-    "68178428354687@lid": {
-      "lastMessage": "Gracias",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: "
-    },
-    "225443085062396@lid": {
-      "lastMessage": "Por favor porque nunca puedo ingresar",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "60043743514736@lid": {
-      "lastMessage": "Listo muchas gracias",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: "
     },
     "573122442508": {
       "lastMessage": "Buenos dias sheerit lamenta informarte de la desactivación de tu cuenta, esperamos puedas renovar o adquirir una nueva",
       "state": "waiting_human",
       "summary": "🛒 Interés: "
     },
-    "94751508443278@lid": {
-      "lastMessage": "Buenos dias sheerit lamenta informarte de la desactivación de tu cuenta, esperamos puedas renovar o adquirir una nueva",
+    "208868688846907@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🚨 Motivo: \"Corte de Servicio: SPOTIFY (Nota: cortar)\""
+    },
+    "257096759165076@lid": {
+      "lastMessage": "",
       "state": "waiting_human",
       "summary": "🛒 Interés: "
     }

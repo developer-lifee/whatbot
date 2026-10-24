@@ -10079,7 +10079,27 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
         if (tokenExists) {
             const { findRecentCodes } = require('./gmailService');
             try {
-                const codes = await findRecentCodes(accountEmail, 10, '', streamingName);
+                const nameLower = streamingName.toLowerCase();
+                const isClaude = nameLower.includes('claude');
+                const searchFilter = isClaude ? '(claude OR anthropic)' : '';
+                let codes = await findRecentCodes(accountEmail, 10, searchFilter, streamingName);
+
+                // Filtrar falsos códigos estáticos de dirección postal de Anthropic (90375, 94104, 548) y priorizar enlaces mágicos o códigos OTP reales de 6 dígitos
+                if (codes && codes.length > 0 && isClaude) {
+                    const invalidStaticCodes = new Set(['90375', '94104', '94105', '94107', '94108', '548']);
+                    codes = codes.map(c => {
+                        const cleanCode = c.code ? String(c.code).trim() : null;
+                        const validClaudeCode = cleanCode && !invalidStaticCodes.has(cleanCode) && /^\d{6}$/.test(cleanCode) ? cleanCode : null;
+                        return { ...c, code: validClaudeCode };
+                    }).filter(c => c.link || c.code || /claude|anthropic/i.test(`${c.subject || ''} ${c.snippet || ''}`));
+
+                    codes.sort((a, b) => {
+                        const aScore = (a.link ? 2 : 0) + (a.code ? 1 : 0);
+                        const bScore = (b.link ? 2 : 0) + (b.code ? 1 : 0);
+                        if (bScore !== aScore) return bScore - aScore;
+                        return (a.time || 0) - (b.time || 0);
+                    });
+                }
 
                 if (codes && codes.length > 0) {
                     const { isAiLimitedPlatform, registerDeviceRequest } = require('./deviceLimitService');
@@ -10109,7 +10129,6 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     }
 
                     const latest = codes[0];
-                    const nameLower = streamingName.toLowerCase();
 
                     // Plataformas basadas ÚNICAMENTE en Enlace Mágico / Magic Link (ej: Claude, Canva, ChatGPT)
                     const isLinkOnlyPlatform = nameLower.includes('claude') || nameLower.includes('canva') || nameLower.includes('gpt') || nameLower.includes('notion') || nameLower.includes('medium');
@@ -10124,8 +10143,11 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         response = `🤖 *Enlace de acceso de ${streamingName} Encontrado* 🚀\n\n`;
                         if (latest.link) {
                             response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${latest.link}\n\n`;
+                            if (isClaude) {
+                                response += `💡 _Si tu pantalla te pide un código de 6 dígitos en lugar de iniciar sesión directamente, abre el enlace de arriba en tu navegador para ver el código e ingrésalo en tu pantalla._\n\n`;
+                            }
                         }
-                        if (latest.code && latest.code !== '90375' && latest.code !== '94104') {
+                        if (latest.code) {
                             response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                         }
                         response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
