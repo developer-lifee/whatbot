@@ -14481,8 +14481,26 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 }
 
                 // OPTIMIZACIÓN: Si el usuario ya especificó qué quiere desde el saludo (ej. "Hola, Netflix")
-                // Saltamos el menú de selección de plataformas y vamos directo a la cotización detallada.
+                // Validamos que la plataforma pertenezca estrictamente a nuestro catálogo oficial antes de cotizar.
                 if (detection.detectedPlatform) {
+                    const { getPlatforms } = require('./salesService');
+                    const catalogPlatforms = await getPlatforms();
+                    const reqClean = detection.detectedPlatform.toLowerCase().replace(/[^a-z0-9]/g, '');
+                    const isSupportedPlatform = catalogPlatforms.some(p => {
+                        const pClean = (p.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                        return pClean && (pClean.includes(reqClean) || reqClean.includes(pClean));
+                    }) || ['amazon', 'prime', 'hbo', 'max', 'disney', 'star', 'office', 'm365', 'microsoft', 'apple', 'netflix', 'spotify', 'youtube', 'crunchyroll', 'paramount', 'vix', 'canva', 'chatgpt', 'gpt', 'claude', 'capcut', 'duolingo'].some(alias => reqClean.includes(alias));
+
+                    if (!isSupportedPlatform) {
+                        console.log(`[Catalog Guard] Servicio no comercializado detectado (${detection.detectedPlatform}) para @${userId}. Mostrando catálogo oficial e iniciando proceso de venta.`);
+                        const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName, items: [], total: 0 };
+                        userStates.set(userId, nextState);
+                        if (cleanPhoneJid) userStates.set(cleanPhoneJid, nextState);
+                        await message.reply(`🤖 ¡Hola ${foundName}! Te informamos que actualmente no comercializamos *${detection.detectedPlatform}*. Sin embargo, te comparto nuestro catálogo oficial de servicios disponibles con entrega inmediata para que elijas el que más te guste:`);
+                        await startPurchaseProcess(message, userId, userStates);
+                        return;
+                    }
+
                     console.log(`[Flow Optimization] Saltando menú de plataformas para @${userId}. Plataforma detectada: ${detection.detectedPlatform}`);
 
                     // Limpieza de seguridad: si el usuario cambió de idea respecto a lo que había en el carrito
@@ -14496,13 +14514,17 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         }
                     }
 
-                    userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
+                    const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName };
+                    userStates.set(userId, nextState);
+                    if (cleanPhoneJid) userStates.set(cleanPhoneJid, nextState);
                     await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
                     return;
                 }
 
                 // Flujo estándar con menú
-                userStates.set(userId, { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName });
+                const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName };
+                userStates.set(userId, nextState);
+                if (cleanPhoneJid) userStates.set(cleanPhoneJid, nextState);
                 await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);
                 await startPurchaseProcess(message, userId, userStates);
                 return;
