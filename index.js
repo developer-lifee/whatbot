@@ -9997,7 +9997,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
         if (tokenExists) {
             const { findRecentCodes } = require('./gmailService');
             try {
-                const codes = await findRecentCodes(accountEmail, 10);
+                const codes = await findRecentCodes(accountEmail, 10, '', streamingName);
 
                 if (codes && codes.length > 0) {
                     const { isAiLimitedPlatform, registerDeviceRequest } = require('./deviceLimitService');
@@ -10029,16 +10029,27 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     const latest = codes[0];
                     const nameLower = streamingName.toLowerCase();
 
-                    // Plataformas basadas ÚNICAMENTE en Código OTP (ej: Disney+, Max, Amazon, Paramount, VIX)
-                    const isCodeOnlyPlatform = nameLower.includes('disney') || nameLower.includes('star') || nameLower.includes('max') || nameLower.includes('hbo') || nameLower.includes('prime') || nameLower.includes('amazon') || nameLower.includes('paramount') || nameLower.includes('vix') || nameLower.includes('youtube');
-
                     // Plataformas basadas ÚNICAMENTE en Enlace Mágico / Magic Link (ej: Claude, Canva, ChatGPT)
                     const isLinkOnlyPlatform = nameLower.includes('claude') || nameLower.includes('canva') || nameLower.includes('gpt') || nameLower.includes('notion') || nameLower.includes('medium');
 
+                    // Plataformas basadas ÚNICAMENTE en Código OTP (ej: Disney+, Max, Amazon, Paramount, VIX)
+                    const isCodeOnlyPlatform = !isLinkOnlyPlatform && (nameLower.includes('disney') || nameLower.includes('star') || (nameLower.includes('max') && !nameLower.includes('claude')) || nameLower.includes('hbo') || nameLower.includes('prime') || nameLower.includes('amazon') || nameLower.includes('paramount') || nameLower.includes('vix') || nameLower.includes('youtube'));
+
                     let response = '';
 
-                    if (isCodeOnlyPlatform || (!latest.link && latest.code)) {
-                        // 1. ENTREGA EXCLUSIVA DE CÓDIGO (DISNEY, MAX, PRIME, ETC.)
+                    if (isLinkOnlyPlatform) {
+                        // 1. ENTREGA DE ENLACE MÁGICO (CLAUDE, CANVA, ETC.)
+                        response = `🤖 *Enlace de acceso de ${streamingName} Encontrado* 🚀\n\n`;
+                        if (latest.link) {
+                            response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${latest.link}\n\n`;
+                        }
+                        if (latest.code && latest.code !== '90375' && latest.code !== '94104') {
+                            response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
+                        }
+                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
+
+                    } else if (isCodeOnlyPlatform || (!latest.link && latest.code)) {
+                        // 2. ENTREGA EXCLUSIVA DE CÓDIGO (DISNEY, MAX, PRIME, ETC.)
                         response = `🤖 *Código de ${streamingName} Encontrado* 🚀\n\n`;
                         if (latest.code) {
                             response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
@@ -10046,14 +10057,6 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                             response += `📝 ${latest.snippet}\n\n`;
                         }
                         response += `⏰ Recibido hace ${latest.time} min.\n\n_Úsalo en tu pantalla o aplicación para iniciar sesión._`;
-
-                    } else if (isLinkOnlyPlatform) {
-                        // 2. ENTREGA EXCLUSIVA DE ENLACE MÁGICO (CLAUDE, CANVA, ETC.)
-                        response = `🤖 *Enlace de acceso de ${streamingName} Encontrado* 🚀\n\n`;
-                        if (latest.link) {
-                            response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${latest.link}\n\n`;
-                        }
-                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
 
                     } else if (nameLower.includes('netflix')) {
                         // 3. NETFLIX (CÓDIGO DE 4 DÍGITOS + ENLACE DE HOGAR SHEERIT)
