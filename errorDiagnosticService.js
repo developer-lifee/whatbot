@@ -463,6 +463,20 @@ Devuelve un JSON estrictamente estructurado así:
 }`;
         }
 
+        const plat = extractedInfo.platform || 'General';
+        const problemSummary = extractedInfo.summary || effectiveText || 'Incidencia reportada';
+        const targetFiles = plat.toLowerCase().includes('claude') 
+            ? ['availabilityService.js', 'billingService.js', 'index.js']
+            : (plat.toLowerCase().includes('gpt') || plat.toLowerCase().includes('chatgpt') ? ['totpService.js', 'index.js'] : ['index.js', 'billingService.js']);
+
+        const fallbackSolution = {
+            causaRaiz: `Discrepancia detectada en la lógica de ${plat}: "${problemSummary}". Requiere validación en la asignación o enrutamiento del estado.`,
+            planCodigo: `1. Validar en ${targetFiles.join(' y ')} los filtros y condiciones asociadas a ${plat}.\n2. Ajustar el mapeo de planes o entrega de credenciales para asegurar correspondencia exacta con el servicio reportado.`,
+            commitDetallado: `fix: ajustar lógica de ${plat} para resolver discrepancia reportada\n\n- Causa: ${problemSummary}\n- Módulos afectados: ${targetFiles.join(', ')}\n- Prevención: validar consistencia en la asignación del servicio`,
+            archivosAfectados: targetFiles,
+            isPreliminary: true
+        };
+
         try {
             console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
             const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Inspecciona los archivos y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
@@ -475,14 +489,28 @@ Devuelve un JSON estrictamente estructurado así:
             console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI:', agyErr.message);
         }
 
-        return null;
+        return fallbackSolution;
     };
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 180000));
+    const platEarly = extractedInfo.platform || 'General';
+    const problemEarly = extractedInfo.summary || effectiveText || 'Incidencia reportada';
+    const filesEarly = platEarly.toLowerCase().includes('claude') 
+        ? ['availabilityService.js', 'billingService.js', 'index.js']
+        : (platEarly.toLowerCase().includes('gpt') || platEarly.toLowerCase().includes('chatgpt') ? ['totpService.js', 'index.js'] : ['index.js', 'billingService.js']);
+
+    const earlyFallback = {
+        causaRaiz: `Discrepancia detectada en ${platEarly}: "${problemEarly}".`,
+        planCodigo: `1. Revisar filtros y asignación en ${filesEarly.join(', ')}.\n2. Prevenir asignaciones cruzadas del servicio reportado.`,
+        commitDetallado: `fix: corregir validación para ${platEarly} en base a reporte\n\n- Causa: ${problemEarly}\n- Archivos: ${filesEarly.join(', ')}`,
+        archivosAfectados: filesEarly,
+        isPreliminary: true
+    };
+
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(earlyFallback), 180000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {
-        return null;
+        return earlyFallback;
     }
 }
 
@@ -1117,8 +1145,8 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             extractedInfo.summary = cliSolution.summary;
         }
 
-        // Si AGY no logró formular una propuesta técnica concreta en código
-        if (!cliSolution || (!cliSolution.causaRaiz && !cliSolution.planCodigo) || cliSolution.isPreliminary) {
+        // Si AGY no logró formular ninguna causa ni plan
+        if (!cliSolution || (!cliSolution.causaRaiz && !cliSolution.planCodigo)) {
             let responseMsg = `⚠️ *[DIAGNÓSTICO NO CONCLUYENTE]* (Ticket #${ticketId})\n\n`;
             const reportedText = effectiveText || (extractedInfo.summary || '');
             if (reportedText) {
@@ -1153,7 +1181,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             ? extractedInfo.platform.toUpperCase()
             : (cliSolution.platform && cliSolution.platform.toUpperCase() !== 'WHATSAPP' ? cliSolution.platform.toUpperCase() : 'GENERAL');
 
-        // Guardar ticket como pendiente de aprobación si tenemos una propuesta técnica concreta
+        // Guardar ticket como pendiente de aprobación si tenemos una propuesta técnica concreta o preliminar
         savePendingSolution({
             id: ticketId,
             reportedBy: senderPhone,
@@ -1167,13 +1195,15 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             plan: cliSolution.planCodigo,
             commitMessage: cliSolution.commitDetallado,
             files: cliSolution.archivosAfectados,
-            isPreliminary: false,
+            isPreliminary: Boolean(cliSolution.isPreliminary),
             status: 'PENDIENTE_APROBACION',
             createdAt: new Date().toISOString()
         });
 
-        // 9. Construir Mensaje de Respuesta con la propuesta técnica real de AGY
-        let responseMsg = `🛠️ *[AUDITORÍA Y PROPUESTA TÉCNICA]* (Ticket #${ticketId})\n\n`;
+        // 9. Construir Mensaje de Respuesta
+        let responseMsg = cliSolution.isPreliminary
+            ? `⚠️ *[PROPUESTA PRELIMINAR]* (Ticket #${ticketId})\n\n`
+            : `🛠️ *[AUDITORÍA Y PROPUESTA TÉCNICA]* (Ticket #${ticketId})\n\n`;
 
         const reportedText = effectiveText || (extractedInfo.summary || '');
         if (reportedText) {

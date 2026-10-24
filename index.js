@@ -2424,6 +2424,45 @@ app.get('/api/admin/tickets', async (req, res) => {
         const { fetchRawData } = require('./apiService');
         const excelRows = await fetchRawData().catch(() => []);
 
+        // 2.1 Sincronizar cuentas marcadas para "cortar" en Excel para que aparezcan SIEMPRE como tickets (sin excepción manual)
+        if (!showAllChats && Array.isArray(excelRows) && excelRows.length > 0) {
+            for (const row of excelRows) {
+                const obs = String(row.observaciones || row.Observaciones || '').toLowerCase();
+                if (obs.includes('cortar') || obs.includes('corte')) {
+                    const rawPhone = String(row.numero || row.Numero || row.telefono || row.Telefono || row.celular || '').replace(/\D/g, '');
+                    if (rawPhone.length >= 10) {
+                        const cleanP = rawPhone.length === 10 ? '57' + rawPhone : rawPhone;
+                        const destId = `${cleanP}@c.us`;
+
+                        const curState = userStates.get(destId);
+                        const curStateStr = curState ? (typeof curState === 'object' ? curState.state : curState) : null;
+
+                        // Si ya está resuelto recientemente (últimas 24h), no reabrir en bucle
+                        const resolvedAt = (curState && typeof curState === 'object') ? curState.resolvedAt : null;
+                        const isRecentlyResolved = curStateStr === 'resolved' && resolvedAt && (Date.now() - resolvedAt < 24 * 3600 * 1000);
+
+                        if (!isRecentlyResolved && curStateStr !== 'waiting_human') {
+                            const serviceName = row.Streaming || row.streaming || 'Servicio';
+                            const clientName = row.Nombre || row.nombre || 'Cliente';
+                            const st = (typeof curState === 'object' ? curState : {}) || {};
+                            userStates.set(destId, {
+                                ...st,
+                                state: 'waiting_human',
+                                category: 'Corte / Churn',
+                                nombre: clientName,
+                                advisorReason: `Corte de Servicio: ${serviceName} (Nota: ${row.observaciones || row.Observaciones || 'cortar'})`,
+                                churnPlatforms: [serviceName],
+                                clientWaitingSince: Date.now()
+                            });
+                            if (!targetEntries.some(([id]) => id === destId)) {
+                                targetEntries.push([destId, userStates.get(destId)]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         const isInvalidName = (name) => {
             if (!name) return true;
             const clean = String(name).trim();
@@ -3420,7 +3459,7 @@ app.get('/api/admin/tickets/metrics', async (req, res) => {
         `);
 
         const [recent] = await pool.query(`
-            SELECT phone, customerName, agent, resolvedAt 
+            SELECT id, phone, customerName, agent, COALESCE(category, 'Atención General') as category, durationSeconds, claimedAt, resolvedAt 
             FROM resolved_tickets_log 
             ORDER BY resolvedAt DESC 
             LIMIT 100
