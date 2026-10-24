@@ -14062,7 +14062,22 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     }
 
     // 4.6 BREAKOUT DE FLUJOS (Si el usuario cambia de tema bruscamente o está frustrado)
-    const flowsRequiringBreakout = ['selecting_plans', 'awaiting_purchase_platforms', 'adding_platform', 'awaiting_payment_method', 'awaiting_name_for_contact', 'awaiting_churn_reason', 'awaiting_payment_confirmation', 'waiting_admin_confirmation'];
+    const flowsRequiringBreakout = ['selecting_plans', 'awaiting_purchase_platforms', 'waiting_stock', 'adding_platform', 'awaiting_payment_method', 'awaiting_name_for_contact', 'awaiting_churn_reason', 'awaiting_payment_confirmation', 'waiting_admin_confirmation'];
+
+    if (['awaiting_purchase_platforms', 'waiting_stock'].includes(currentState)) {
+        const cleanClosingText = (inputToUse || '').toLowerCase().trim();
+        const isClosingAck = detection.intent === 'cierre' || /^(ok|okay|listo|vale|gracias|muchas gracias|mil gracias|bueno|esta bien|est[aá] bien|entendido|perfecto|dale)(\s+(muchas gracias|gracias|mil gracias|bueno|listo|vale|ok))*[!.,😊🙏👍]*$/i.test(cleanClosingText);
+        if (isClosingAck && !detection.detectedPlatform) {
+            await message.reply('🤖 ¡Con mucho gusto! Quedamos muy pendientes para avisarte apenas tengamos cupos disponibles. 😊');
+            userStates.delete(userId);
+            return;
+        }
+        if (currentState === 'waiting_stock') {
+            userStates.delete(userId);
+            currentState = undefined;
+            currentStateData = undefined;
+        }
+    }
 
     // Pivotar si detecta una plataforma distinta a la que estamos configurando
     let isPivottingPlatform = false;

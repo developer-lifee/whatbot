@@ -1,0 +1,78 @@
+[
+  {
+    "phone": "573101234567",
+    "createdAt": "2026-10-17T19:15:28.029Z",
+    "offerSent": false,
+    "botName": "pantalones",
+    "botType": "negocio",
+    "instructions": "",
+    "lastMessage": "En un pago",
+    "remaining": 15,
+    "updatedAt": "2026-10-22T14:36:32.841Z"
+  },
+  {
+    "phone": "573107946794",
+    "createdAt": "2026-10-17T19:33:59.614Z",
+    "offerSent": false,
+    "botName": "tienda de jeans",
+    "botType": "negocio",
+    "instructions": "vendemos jeans camisas y no vendemos chaquetas. Tratar de tú y con amabilidad. Precios y entrega inmediata. Responder corto y al grano. Pedir comprobante de pago",
+    "remaining": 0,
+    "updatedAt": "2026-10-24T01:31:49.569Z",
+    "lastMessage": "???"
+  },
+  {
+    "phone": "573123456789",
+    "createdAt": "2026-10-17T20:33:10.089Z",
+    "offerSent": false,
+    "botName": "Zapateria Real",
+    "botType": "negocio",
+    "instructions": "Sin instrucciones adicionales",
+    "remaining": 20,
+    "updatedAt": "2026-10-17T20:33:10.089Z"
+  },
+  {
+    "phone": "573246329951",
+    "createdAt": "2026-10-17T22:36:56.248Z",
+    "offerSent": false,
+    "botName": "Dan",
+    "botType": "recordatorios",
+    "instructions": "De todo. Reglas de estilo: Tratar de tú y con amabilidad",
+    "remaining": 0,
+    "updatedAt": "2026-10-18T19:57:12.599Z",
+    "lastMessage": "Cake"
+  },
+  {
+    "phone": "573124351710",
+    "createdAt": "2026-10-19T13:54:08.326Z",
+    "offerSent": false,
+    "botName": "juan",
+    "botType": "recordatorios",
+    "instructions": "Reglas de estilo: Tratar de tú y con amabilidad",
+    "remaining": 19,
+    "updatedAt": "2026-10-19T13:56:41.605Z",
+    "lastMessage": "hola recuerda hacerme  examenes"
+  },
+  {
+    "phone": "573015023586",
+    "createdAt": "2026-10-19T21:05:31.061Z",
+    "offerSent": false,
+    "botName": "QQTA STORE",
+    "botType": "negocio",
+    "instructions": "Vendemos ropa y accesorios con envio naiconal y pago contra entrega. Reglas de estilo: Tratar de tú y con amabilidad",
+    "remaining": 16,
+    "updatedAt": "2026-10-20T00:38:20.661Z",
+    "lastMessage": "Hola qué vendes ?"
+  },
+  {
+    "phone": "573151423428",
+    "createdAt": "2026-10-23T18:39:42.933Z",
+    "offerSent": false,
+    "botName": "Agorasalom",
+    "botType": "negocio",
+    "instructions": "Todas tus suscripciones al precio justo\nDemocratizamos el acceso a tus plataformas favoritas de entretenimiento y productividad. Paga el precio justo por lo que usas y arma tu combinación ideal.. Reglas de estilo: Tratar de tú y con amabilidad, Precios y entrega inmediata, Pedir comprobante de pago, Responder corto y al grano",
+    "remaining": 18,
+    "updatedAt": "2026-10-23T18:40:27.966Z",
+    "lastMessage": "precios"
+  }
+]
