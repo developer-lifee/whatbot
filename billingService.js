@@ -453,9 +453,11 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
     } else if (cleanName.includes('CRUNCHY')) {
         targetName = 'CRUNCHYROLL';
     } else if (cleanName.includes('CLAUDE')) {
-        if (cleanName.includes('X5') || cleanName.includes('5')) targetName = 'CLAUDE MAX X5';
-        else if (cleanName.includes('MAX')) targetName = 'CLAUDE MAX';
-        else if (cleanName.includes('X2') || cleanName.includes('2')) targetName = 'CLAUDE PRO X2';
+        const { normalizeStreamingName } = require('./availabilityService');
+        const normClaude = normalizeStreamingName(cleanName);
+        if (normClaude === 'claude_max_x5') targetName = 'CLAUDE MAX X5';
+        else if (normClaude === 'claude_max') targetName = 'CLAUDE MAX';
+        else if (normClaude === 'claude_pro_x2') targetName = 'CLAUDE PRO X2';
         else targetName = 'CLAUDE PRO';
     }
 

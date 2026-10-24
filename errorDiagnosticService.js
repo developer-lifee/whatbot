@@ -475,14 +475,14 @@ Devuelve un JSON estrictamente estructurado así:
             console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI:', agyErr.message);
         }
 
-        return fallbackResponse;
+        return null;
     };
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 145000));
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 180000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {
-        return fallbackResponse;
+        return null;
     }
 }
 
@@ -1113,18 +1113,47 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             extractedInfo.clientPhone = cliSolution.clientPhone;
             cleanPhone = cliSolution.clientPhone.replace(/\D/g, '').slice(-10);
         }
-        if (cliSolution.summary && (!extractedInfo.summary || extractedInfo.summary.toLowerCase().includes('no envió texto'))) {
+        if (cliSolution && cliSolution.summary && (!extractedInfo.summary || extractedInfo.summary.toLowerCase().includes('no enviado') || extractedInfo.summary.toLowerCase().includes('no especificado'))) {
             extractedInfo.summary = cliSolution.summary;
         }
-        if (cliSolution.problemType) {
-            extractedInfo.problemType = cliSolution.problemType;
+
+        // Si AGY no logró formular una propuesta técnica concreta en código
+        if (!cliSolution || (!cliSolution.causaRaiz && !cliSolution.planCodigo) || cliSolution.isPreliminary) {
+            let responseMsg = `⚠️ *[DIAGNÓSTICO NO CONCLUYENTE]* (Ticket #${ticketId})\n\n`;
+            const reportedText = effectiveText || (extractedInfo.summary || '');
+            if (reportedText) {
+                responseMsg += `💬 *En respuesta a:* "${reportedText.length > 90 ? reportedText.slice(0, 90) + '...' : reportedText}"\n`;
+            }
+            if (extractedInfo.clientName || cleanPhone) {
+                responseMsg += `👤 *Cliente:* ${extractedInfo.clientName || 'Identificado'} ${cleanPhone ? `(+57 ${cleanPhone})` : ''}\n`;
+            }
+            if (extractedInfo.platform) {
+                responseMsg += `📺 *Plataforma:* ${platUpper}\n`;
+            }
+            if (diagnosticNotes.length > 0) {
+                responseMsg += `\n🔍 *REVISIÓN REALIZADA EN EL SISTEMA:*\n` + diagnosticNotes.map(n => `• ${n}`).join('\n') + `\n`;
+            }
+            responseMsg += `\n❌ *Antigravity CLI no logró determinar una solución técnica precisa con la información provista en este reporte.*\n\n`;
+            responseMsg += `💡 *¿Qué puedes hacer?*\n`;
+            responseMsg += `• Por favor sé más específico con el reporte del error (describe qué pidió el cliente, qué cuenta esperaba recibir o cita el mensaje exacto).\n`;
+            responseMsg += `• O pregúntale a Esteban qué puede haber sido.\n`;
+
+            try {
+                await message.reply(responseMsg);
+            } catch (repErr) {
+                console.warn('[ErrorDiagnostic] Fallback enviando con client.sendMessage:', repErr.message);
+                if (client && client.sendMessage) {
+                    await client.sendMessage(groupChatId, responseMsg).catch(err => console.error('[ErrorDiagnostic] Error en fallback de envío:', err.message));
+                }
+            }
+            return responseMsg;
         }
 
-        const platDisplay = (extractedInfo.platform && extractedInfo.platform.toUpperCase() !== 'WHATSAPP') 
-            ? extractedInfo.platform.toUpperCase() 
+        const platDisplay = (extractedInfo.platform && extractedInfo.platform.toUpperCase() !== 'WHATSAPP')
+            ? extractedInfo.platform.toUpperCase()
             : (cliSolution.platform && cliSolution.platform.toUpperCase() !== 'WHATSAPP' ? cliSolution.platform.toUpperCase() : 'GENERAL');
 
-        // Guardar ticket como pendiente de aprobación
+        // Guardar ticket como pendiente de aprobación si tenemos una propuesta técnica concreta
         savePendingSolution({
             id: ticketId,
             reportedBy: senderPhone,
@@ -1138,18 +1167,13 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             plan: cliSolution.planCodigo,
             commitMessage: cliSolution.commitDetallado,
             files: cliSolution.archivosAfectados,
-            isPreliminary: Boolean(cliSolution.isPreliminary),
+            isPreliminary: false,
             status: 'PENDIENTE_APROBACION',
             createdAt: new Date().toISOString()
         });
 
-        // 9. Construir Mensaje de Respuesta
-        let responseMsg = '';
-        if (cliSolution.isPreliminary) {
-            responseMsg += `⚠️ *[AUDITORÍA PRELIMINAR]* (Ticket #${ticketId})\n\n`;
-        } else {
-            responseMsg += `🛠️ *[AUDITORÍA Y PROPUESTA TÉCNICA]* (Ticket #${ticketId})\n\n`;
-        }
+        // 9. Construir Mensaje de Respuesta con la propuesta técnica real de AGY
+        let responseMsg = `🛠️ *[AUDITORÍA Y PROPUESTA TÉCNICA]* (Ticket #${ticketId})\n\n`;
 
         const reportedText = effectiveText || (extractedInfo.summary || '');
         if (reportedText) {
@@ -1173,18 +1197,12 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             responseMsg += `\n🔬 *Diagnóstico Técnico:* \n${cliSolution.causaRaiz}\n`;
         }
 
-        if (cliSolution.isPreliminary) {
-            responseMsg += `\n💡 *Acción / Solución:* \n${cliSolution.planCodigo}\n`;
-            responseMsg += `\n👉 *Para implementar un parche en código:* Escribe *@cambio <indica qué función o archivo cambiar>*\n`;
-        } else {
-            responseMsg += `\n💡 *Plan de Modificaciones en Código:* \n${cliSolution.planCodigo}\n`;
-            if (cliSolution.commitDetallado) {
-                responseMsg += `\n📝 *Commit Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
-            }
-            responseMsg += `\n👉 *Para implementar cambio en código y subir a GitHub:* Escribe *@commit*\n`;
-            responseMsg += `✏️ *Para pedir otra solución o ajuste:* Escribe *@cambio <la solución que quieres>*\n`;
-            responseMsg += `\n⚠️ *Nota:* El comando *@restart* solo estará disponible una vez que apruebes con *@commit*.`;
+        responseMsg += `\n💡 *Plan de Modificaciones en Código:* \n${cliSolution.planCodigo}\n`;
+        if (cliSolution.commitDetallado) {
+            responseMsg += `\n📝 *Commit Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
         }
+        responseMsg += `\n👉 *Para implementar cambio en código y subir a GitHub:* Escribe *@commit* o *@aceptar*\n`;
+        responseMsg += `✏️ *Para pedir otra solución o ajuste:* Escribe *@cambio <la solución que quieres>*\n`;
 
         // Responder citando el mensaje del asesor o directamente si falla el quote
         try {

@@ -37,7 +37,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
         const { stdout } = await execFileAsync(agyBin, agyArgs, {
             cwd: REPO_DIR,
             encoding: 'utf8',
-            timeout: 140000,
+            timeout: 180000, // 3 minutos máximo para agy
             maxBuffer: 20 * 1024 * 1024,
             env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
         });
@@ -46,8 +46,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
     } catch (e) {
         console.warn('[Antigravity CLI] Advertencia ejecutando binario agy:', e.message);
     }
-    // Fallback a HTTP si fuera necesario
-    return await callGemini38FlashHttp(prompt, systemInstruction);
+    return null;
 }
 
 /**

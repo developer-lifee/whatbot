@@ -610,9 +610,11 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                             if (!rawName) return "tu servicio";
                             let str = rawName.toString().replace(/^COMBO\s*\([^)]*\)\s*:\s*/i, '').trim();
                             if (str.toUpperCase().includes('CLAUDE')) {
-                                if (str.toUpperCase().includes('X5') || str.toUpperCase().includes(' 5')) return 'Claude Max x5';
-                                if (str.toUpperCase().includes('MAX')) return 'Claude Max';
-                                if (str.toUpperCase().includes('X2') || str.toUpperCase().includes(' 2')) return 'Claude Pro x2';
+                                const { normalizeStreamingName } = require('./availabilityService');
+                                const normClaude = normalizeStreamingName(str);
+                                if (normClaude === 'claude_max_x5') return 'Claude Max x5';
+                                if (normClaude === 'claude_max') return 'Claude Max';
+                                if (normClaude === 'claude_pro_x2') return 'Claude Pro x2';
                                 return 'Claude Pro';
                             }
                             if (str.includes(' - ')) {
@@ -641,9 +643,11 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                             if (!rawName) return "tu servicio";
                             let str = rawName.toString().replace(/^COMBO\s*\([^)]*\)\s*:\s*/i, '').trim();
                             if (str.toUpperCase().includes('CLAUDE')) {
-                                if (str.toUpperCase().includes('X5') || str.toUpperCase().includes(' 5')) return 'Claude Max x5';
-                                if (str.toUpperCase().includes('MAX')) return 'Claude Max';
-                                if (str.toUpperCase().includes('X2') || str.toUpperCase().includes(' 2')) return 'Claude Pro x2';
+                                const { normalizeStreamingName } = require('./availabilityService');
+                                const normClaude = normalizeStreamingName(str);
+                                if (normClaude === 'claude_max_x5') return 'Claude Max x5';
+                                if (normClaude === 'claude_max') return 'Claude Max';
+                                if (normClaude === 'claude_pro_x2') return 'Claude Pro x2';
                                 return 'Claude Pro';
                             }
                             if (str.includes(' - ')) {

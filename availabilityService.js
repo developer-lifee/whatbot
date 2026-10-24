@@ -34,10 +34,28 @@ function normalizeStreamingName(name) {
     if (normalized.includes('prime') || normalized.includes('amazon')) {
         return 'amazon';
     }
-    if (normalized.includes('claude')) {
-        if (normalized.includes('x5') || normalized.includes('5x') || normalized.includes('intensivo') || normalized.includes('pesado')) return 'claude_max_x5';
-        if (normalized.includes('x2') || normalized.includes('2x') || normalized.includes('altouso')) return 'claude_pro_x2';
-        if (normalized.includes('max')) return 'claude_max';
+    if (clean.toLowerCase().includes('claude')) {
+        const lower = clean.toLowerCase();
+        // Si viene con formato 'Combo - Plan Específico', tomar la parte después del guión
+        const specificPart = lower.includes('-') ? lower.split('-').slice(1).join('-') : lower;
+        const withoutDecimals = specificPart.replace(/\b[0-9]+\.[0-9]+x\b/gi, '');
+
+        // 1. Claude Max x5 / Pro 5x (20x a 25x / intensivo / pesado)
+        if (/\b(x5|5x)\b/i.test(withoutDecimals) || withoutDecimals.includes('20x') || withoutDecimals.includes('25x') || withoutDecimals.includes('intensivo') || withoutDecimals.includes('pesado')) {
+            return 'claude_max_x5';
+        }
+
+        // 2. Claude Max / Scale (50x a 100x)
+        if (specificPart.includes('scale') || specificPart.includes('50x') || specificPart.includes('100x') || (specificPart.includes('max') && !specificPart.includes('pro'))) {
+            return 'claude_max';
+        }
+
+        // 3. Claude Pro x2 (4x a 6x)
+        if (/\b(x2|2x|4x|6x)\b/i.test(withoutDecimals) || specificPart.includes('altouso')) {
+            return 'claude_pro_x2';
+        }
+
+        // 4. Claude Pro Estándar (1.5x a 2.5x)
         return 'claude_pro';
     }
     if ((normalized.includes('hbo') || normalized.includes('max')) && !normalized.includes('claude')) {
