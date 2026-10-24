@@ -10756,11 +10756,30 @@ async function baseProcessIncomingMessage(messages) {
         }
     }
 
-    if (currentStateData) {
-        if (stateByPhone && stateByPhone.state === 'waiting_human' && (!stateByUserId || stateByUserId.state !== 'waiting_human')) {
+    const interactiveActiveStates = [
+        'awaiting_code_account_selection',
+        'selecting_plans',
+        'selecting_subscription_type',
+        'awaiting_payment_method',
+        'awaiting_payment_confirmation',
+        'awaiting_payment_renewal_confirmation',
+        'awaiting_payment_multi_renewal_confirmation',
+        'awaiting_payment_multi_renewal_selection',
+        'awaiting_payment_autofill_confirmation',
+        'awaiting_churn_account_selection',
+        'awaiting_churn_reason'
+    ];
+    const activeInteractiveState = [stateByUserId, stateByPhone, stateByRawPhone].find(s => s && interactiveActiveStates.includes(s.state));
+    if (activeInteractiveState) {
+        currentStateData = activeInteractiveState;
+        userStates.set(userId, { ...activeInteractiveState, chatJid: userId });
+        if (cleanPhoneJid) userStates.set(cleanPhoneJid, { ...activeInteractiveState, chatJid: userId });
+        if (realPhone) userStates.set(realPhone, { ...activeInteractiveState, chatJid: userId });
+    } else if (currentStateData) {
+        if (stateByPhone && stateByPhone.state === 'waiting_human' && (!stateByUserId || !interactiveActiveStates.includes(stateByUserId.state))) {
             currentStateData = stateByPhone;
             userStates.set(userId, { ...stateByPhone, chatJid: userId });
-        } else if (stateByUserId && stateByUserId.state === 'waiting_human' && cleanPhoneJid && (!stateByPhone || stateByPhone.state !== 'waiting_human')) {
+        } else if (stateByUserId && stateByUserId.state === 'waiting_human' && cleanPhoneJid && (!stateByPhone || !interactiveActiveStates.includes(stateByPhone.state))) {
             currentStateData = stateByUserId;
             userStates.set(cleanPhoneJid, { ...stateByUserId, chatJid: userId });
         }
