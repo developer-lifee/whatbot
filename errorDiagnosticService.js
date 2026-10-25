@@ -119,9 +119,24 @@ function approvePendingSolution(quotedText = '', approverPhone = '') {
             }
         }
 
-        // 2. Si no lo encontró por cita, tomar el último pendiente
+        // 2. Si no lo encontró por cita:
         if (targetIndex === -1) {
-            targetIndex = solutions.findIndex(s => s.status === 'PENDIENTE_APROBACION');
+            // Priorizar el ticket más reciente si está pendiente o si falló su commit
+            const first = solutions[0];
+            if (first && (first.status === 'PENDIENTE_APROBACION' || (first.status === 'APROBADO' && !first.commitHash))) {
+                targetIndex = 0;
+            } else {
+                // Tomar el pendiente más reciente siempre que no sea un ticket antiguo (> 12 horas)
+                const now = Date.now();
+                const foundIdx = solutions.findIndex(s => {
+                    if (s.status !== 'PENDIENTE_APROBACION') return false;
+                    const createdTime = s.createdAt ? new Date(s.createdAt).getTime() : 0;
+                    return (now - createdTime) < 1000 * 60 * 60 * 12;
+                });
+                if (foundIdx !== -1) {
+                    targetIndex = foundIdx;
+                }
+            }
         }
 
         if (targetIndex !== -1) {
@@ -643,9 +658,15 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 }
 
                 // Ejecutar el parche en código, commit y push usando Antigravity CLI
-                const commitResult = await executeFixAndCommit(approvedTicket);
+                let commitResult = null;
+                try {
+                    commitResult = await executeFixAndCommit(approvedTicket);
+                } catch (execErr) {
+                    console.error(`[ErrorDiagnostic] ❌ Excepción en executeFixAndCommit:`, execErr.message);
+                    commitResult = { success: false, error: execErr.message };
+                }
 
-                if (commitResult.success) {
+                if (commitResult && commitResult.success) {
                     saveResolvedCase(approvedTicket, commitResult);
                     const filesList = (commitResult.changedFiles && commitResult.changedFiles.length > 0)
                         ? commitResult.changedFiles.map(f => `• ${f}`).join('\n')

@@ -11074,17 +11074,51 @@ REGLAS:
         const timeSinceLastHumanMs = Date.now() - lastInteraction;
         const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
 
-        const isRecentlyActive = minutesSinceLastHuman < 120;
-        if (isRecentlyActive && ((currentStateData && currentStateData.agent) || mode === 'advisor' || minutesSinceLastHuman < 45)) {
-            console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} (Asesor activo hace ${minutesSinceLastHuman.toFixed(1)} mins o asignado a ${currentStateData ? currentStateData.agent : 'humano'}).`);
-            // Registrar que el cliente respondió para que aparezca en el panel de tickets
-            if (!currentStateData.clientWaitingSince) {
-                const updatedState = { ...currentStateData, clientWaitingSince: Date.now() };
-                userStates.set(userId, updatedState);
-                if (cleanPhoneJid) userStates.set(cleanPhoneJid, updatedState);
-                console.log(`[Tickets Panel] clientWaitingSince registrado para @${userId} — aparecerá en panel de asesores.`);
+        const wantsCodeKeywords = [
+            'código', 'codigo', 'actualizar hogar', 'mi codigo', 'mi código',
+            'enviar código', 'enviar codigo', 'el código', 'el codigo',
+            'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación',
+            'claude', 'magic link', 'enlace temporal', 'enlace de hogar', 'hogar'
+        ];
+        const isCodeRequestInWaiting = (wantsCodeKeywords.some(kw => cleanInput.includes(kw)) && !cleanInput.includes('qr') && !cleanInput.includes('barras') && !cleanInput.includes('pago')) || cleanInput === '?';
+
+        if (isCodeRequestInWaiting) {
+            console.log(`[Waiting Human Bypass] 🔑 Solicitud de código 2FA/OTP detectada en chat de @${userId} ("${cleanInput}"). Desactivando waiting_human para entrega automática.`);
+            const cleanState = { ...(typeof currentStateData === 'object' ? currentStateData : {}), state: 'authenticated' };
+            userStates.set(userId, cleanState);
+            if (cleanPhoneJid) userStates.set(cleanPhoneJid, cleanState);
+            currentState = 'authenticated';
+            currentStateData = cleanState;
+        } else {
+            const isRecentlyActive = minutesSinceLastHuman < 120;
+            if (isRecentlyActive && ((currentStateData && currentStateData.agent) || mode === 'advisor' || minutesSinceLastHuman < 45)) {
+                console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} (Asesor activo hace ${minutesSinceLastHuman.toFixed(1)} mins o asignado a ${currentStateData ? currentStateData.agent : 'humano'}).`);
+
+                // Si el soporte o asesores se encuentran en horario de descanso/almuerzo, avisar al cliente para no dejarlo sin respuesta
+                try {
+                    const { isSupportOpen, getOfflineReplyMessage } = require('./supportScheduleService');
+                    const supportStatus = isSupportOpen();
+                    const now = Date.now();
+                    const lastNotice = (currentStateData && currentStateData.lastRestNoticeSent) || 0;
+                    // Cooldown de 2 horas para no repetir el aviso en cada mensaje
+                    if (!supportStatus.open && (now - lastNotice > 1000 * 60 * 120)) {
+                        const offlineMsg = getOfflineReplyMessage(supportStatus);
+                        await message.reply(offlineMsg);
+                        if (currentStateData) currentStateData.lastRestNoticeSent = now;
+                    }
+                } catch (schedErr) {
+                    console.warn('[Support Schedule Notice] Error verificando horario:', schedErr.message);
+                }
+
+                // Registrar que el cliente respondió para que aparezca en el panel de tickets
+                if (!currentStateData.clientWaitingSince) {
+                    const updatedState = { ...currentStateData, clientWaitingSince: Date.now() };
+                    userStates.set(userId, updatedState);
+                    if (cleanPhoneJid) userStates.set(cleanPhoneJid, updatedState);
+                    console.log(`[Tickets Panel] clientWaitingSince registrado para @${userId} — aparecerá en panel de asesores.`);
+                }
+                return;
             }
-            return;
         }
 
         // 1. Evaluar si es una intención resoluble para reactivar el bot solo si NO hay asesor asignado ni charla reciente
@@ -14454,11 +14488,12 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 return;
             }
 
-            if (detection.intent === 'comprar') {
+            if (detection.intent === 'comprar' || /m[aá]s\s+plataformas|otros\s+servicios|qu[eé]\s+m[aá]s\s+tienen|qu[eé]\s+otros\s+servicios|otra\s+cuenta|agregar\s+otra|cat[aá]logo|qu[eé]\s+plataformas\s+tienen|qu[eé]\s+servicios\s+manejan/i.test(inputToUse)) {
                 const existingState = userStates.get(userId) || {};
+                const isAskingForMorePlatforms = /m[aá]s\s+plataformas|otros\s+servicios|qu[eé]\s+m[aá]s\s+tienen|qu[eé]\s+otros\s+servicios|otra\s+cuenta|agregar\s+otra|cat[aá]logo|qu[eé]\s+plataformas\s+tienen|qu[eé]\s+servicios\s+manejan|adicional/i.test(inputToUse);
 
                 // SI EL USUARIO TIENE CUENTAS Y NO MENCIONA UNA PLATAFORMA NUEVA, ASUMIMOS QUE ES RENOVACIÓN/PAGO
-                const isExplicitPurchase = ['comprar', 'nueva', 'nuevo', 'interesado', 'interesada', 'adquirir', 'quiero', 'venden', 'precio', 'cotizar', 'cuenta de', 'cuentas de'].some(kw => inputToUse.toLowerCase().includes(kw));
+                const isExplicitPurchase = isAskingForMorePlatforms || ['comprar', 'nueva', 'nuevo', 'interesado', 'interesada', 'adquirir', 'quiero', 'venden', 'precio', 'cotizar', 'cuenta de', 'cuentas de'].some(kw => inputToUse.toLowerCase().includes(kw));
 
                 const requestedPlatLower = (detection.detectedPlatform || "").toLowerCase().trim();
                 const userHasRequestedPlat = requestedPlatLower && userAccounts.some(acc => {
@@ -14473,10 +14508,15 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     return;
                 }
 
+                // Limpiar siempre estado de renovación heredado cuando inicia compra nueva o pide más plataformas
+                existingState.isRenewal = false;
+                existingState.items = [];
+                existingState.total = 0;
+
                 // Priorizamos la venta: Si ya tenemos algún nombre (venga de contactos o de la IA), seguimos adelante.
                 if (!foundName) {
                     await message.reply(`🤖 ¡Hola! Con gusto te ayudo con tu compra. ¿Me podrías regalar tu nombre y apellido completo para registrarte oficialmente? 😊`);
-                    userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'comprar', detectedPlatform: detection.detectedPlatform || null });
+                    userStates.set(userId, { ...existingState, state: 'awaiting_name_for_contact', nextFlow: 'comprar', detectedPlatform: detection.detectedPlatform || null, isRenewal: false, items: [], total: 0 });
                     return;
                 }
 
@@ -14493,7 +14533,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
                     if (!isSupportedPlatform) {
                         console.log(`[Catalog Guard] Servicio no comercializado detectado (${detection.detectedPlatform}) para @${userId}. Mostrando catálogo oficial e iniciando proceso de venta.`);
-                        const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName, items: [], total: 0 };
+                        const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName, isRenewal: false, items: [], total: 0 };
                         userStates.set(userId, nextState);
                         if (cleanPhoneJid) userStates.set(cleanPhoneJid, nextState);
                         await message.reply(`🤖 ¡Hola ${foundName}! Te informamos que actualmente no comercializamos *${detection.detectedPlatform}*. Sin embargo, te comparto nuestro catálogo oficial de servicios disponibles con entrega inmediata para que elijas el que más te guste:`);
@@ -14503,18 +14543,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
                     console.log(`[Flow Optimization] Saltando menú de plataformas para @${userId}. Plataforma detectada: ${detection.detectedPlatform}`);
 
-                    // Limpieza de seguridad: si el usuario cambió de idea respecto a lo que había en el carrito
-                    if (existingState.items && existingState.items.length > 0) {
-                        const currentPlat = (existingState.items[0].Streaming || existingState.items[0].platform?.name || "").toLowerCase();
-                        const newPlat = detection.detectedPlatform.toLowerCase();
-                        if (!newPlat.includes(currentPlat) && !currentPlat.includes(newPlat)) {
-                            console.log(`[Flow Optimization] Detectado cambio de interés (${currentPlat} -> ${newPlat}). Limpiando carrito previo.`);
-                            existingState.items = [];
-                            existingState.total = 0;
-                        }
-                    }
-
-                    const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName };
+                    const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName, isRenewal: false, items: [], total: 0 };
                     userStates.set(userId, nextState);
                     if (cleanPhoneJid) userStates.set(cleanPhoneJid, nextState);
                     await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
@@ -14522,7 +14551,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 }
 
                 // Flujo estándar con menú
-                const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName };
+                const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName, isRenewal: false, items: [], total: 0 };
                 userStates.set(userId, nextState);
                 if (cleanPhoneJid) userStates.set(cleanPhoneJid, nextState);
                 await message.reply(`🤖 ¡Perfecto ${foundName}! Con gusto te ayudo con tu compra.`);

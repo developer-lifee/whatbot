@@ -138,22 +138,25 @@ async function checkSpreadsheetStock(platformName) {
                 const isFree = !whatsapp && (!nombre || nombre.toLowerCase() === 'libre');
 
                 if (isFree && email) {
-                    const occupiedInAccount = data.filter(r => {
+                    const accountRows = data.filter(r => {
                         const rEmail = (r.correo || r.Correo || "").toString().toLowerCase().trim();
                         const rStreaming = normalizeStreamingName(r.Streaming || r.Plataforma);
+                        return rEmail === email && rStreaming === targetSearch;
+                    });
+                    const occupiedInAccount = accountRows.filter(r => {
                         const rWhatsapp = (r.whatsapp || "").toString().trim();
                         const rNombre = (r.Nombre || "").toString().trim();
-                        const isOccupied = rWhatsapp !== "" || (rNombre !== "" && rNombre.toLowerCase() !== 'libre');
-                        return rEmail === email && rStreaming === targetSearch && isOccupied;
+                        return rWhatsapp !== "" || (rNombre !== "" && rNombre.toLowerCase() !== 'libre');
                     }).length;
 
                     let maxProfiles = 5;
                     if (targetSearch.includes('disney')) maxProfiles = 7;
-                    else if (targetSearch.includes('prime') || targetSearch.includes('amazon')) maxProfiles = 6;
+                    else if (targetSearch.includes('prime') || targetSearch.includes('amazon') || targetSearch.includes('paramount') || targetSearch.includes('vix') || targetSearch.includes('hbo') || targetSearch.includes('max') || targetSearch.includes('spotify') || targetSearch.includes('apple') || targetSearch.includes('platzi')) maxProfiles = 6;
                     else if (targetSearch.includes('crunchy')) maxProfiles = 4;
                     else if (targetSearch.includes('extra')) maxProfiles = 1;
 
-                    if (occupiedInAccount >= maxProfiles) {
+                    const effectiveMax = Math.max(maxProfiles, accountRows.length);
+                    if (occupiedInAccount >= effectiveMax) {
                         return false;
                     }
                 }

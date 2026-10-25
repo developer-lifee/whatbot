@@ -194,23 +194,26 @@ function findAvailableSlot(platformName, allRows) {
                 // VERIFICACIÓN ESTRICTA CONTRA SOBREVENTA:
                 // Si la fila tiene correo, verificar que esa cuenta NO haya alcanzado el número máximo de perfiles ocupados
                 if (email) {
-                    const occupiedInAccount = allRows.filter(r => {
+                    const accountRows = allRows.filter(r => {
                         const rEmail = (r.correo || r.Correo || "").toString().toLowerCase().trim();
                         const rStreaming = normalizeStreamingName(r.Streaming || r.Plataforma);
+                        return rEmail === email && rStreaming === rowStreaming;
+                    });
+                    const occupiedInAccount = accountRows.filter(r => {
                         const rWhatsapp = (r.whatsapp || "").toString().trim();
                         const rNombre = (r.Nombre || "").toString().trim();
-                        const isOccupied = rWhatsapp !== "" || (rNombre !== "" && rNombre.toLowerCase() !== 'libre');
-                        return rEmail === email && rStreaming === rowStreaming && isOccupied;
+                        return rWhatsapp !== "" || (rNombre !== "" && rNombre.toLowerCase() !== 'libre');
                     }).length;
 
                     let maxProfiles = 5;
                     if (rowStreaming.includes('disney')) maxProfiles = 7;
-                    else if (rowStreaming.includes('prime') || rowStreaming.includes('amazon')) maxProfiles = 6;
+                    else if (rowStreaming.includes('prime') || rowStreaming.includes('amazon') || rowStreaming.includes('paramount') || rowStreaming.includes('vix') || rowStreaming.includes('hbo') || rowStreaming.includes('max') || rowStreaming.includes('spotify') || rowStreaming.includes('apple') || rowStreaming.includes('platzi')) maxProfiles = 6;
                     else if (rowStreaming.includes('crunchy')) maxProfiles = 4;
                     else if (rowStreaming.includes('extra')) maxProfiles = 1;
 
-                    if (occupiedInAccount >= maxProfiles) {
-                        console.warn(`[Sales Registry Anti-Sobreventa] ⚠️ Cuenta ${email} (${rowStreaming}) ya tiene ${occupiedInAccount}/${maxProfiles} cupos ocupados. Omitiendo fila vacía para evitar sobreventa.`);
+                    const effectiveMax = Math.max(maxProfiles, accountRows.length);
+                    if (occupiedInAccount >= effectiveMax) {
+                        console.warn(`[Sales Registry Anti-Sobreventa] ⚠️ Cuenta ${email} (${rowStreaming}) ya tiene ${occupiedInAccount}/${effectiveMax} cupos ocupados. Omitiendo fila vacía para evitar sobreventa.`);
                         continue;
                     }
                 }

@@ -630,8 +630,25 @@ async function showPlanSelection(message, userId, userStates) {
   }
 
   if (availablePlans.length === 0) {
-    await message.reply(`🤖 Lo sentimos, en este momento no hay planes con cupos libres disponibles para *${platform.name}*. Por favor intenta con otra plataforma o consúltanos más tarde.`);
-    state.currentIndex++;
+    const { addStockWaitlistEntry } = require('./availabilityService');
+    const sender = message.author || message.from;
+    const cleanPhone = (sender || '').replace('@c.us', '').replace(/\D/g, '');
+    const clientName = state.nombre || (state.user && state.user.nombre) || 'Cliente';
+    try {
+      addStockWaitlistEntry(userId, cleanPhone, clientName, platform.name);
+    } catch (_) {}
+
+    await message.reply(`🤖 Lo sentimos, en este momento no hay planes con cupos libres disponibles para *${platform.name}*. Te hemos registrado en nuestra lista de espera para avisarte tan pronto se liberen cupos. 😊`);
+
+    // Remover esta plataforma del carrito para evitar bucle infinito en calculateAndShowPrice
+    selected.splice(currentIndex, 1);
+
+    if (selected.length === 0) {
+      userStates.set(userId, { state: 'waiting_stock', pendingStockPlatforms: [platform.name], nombre: clientName });
+      return;
+    }
+
+    userStates.set(userId, { ...state, selected, currentIndex });
     await showPlanSelection(message, userId, userStates);
     return;
   }
@@ -825,6 +842,16 @@ async function calculateAndShowPrice(message, userId, userStates) {
   let responseText = 'Has seleccionado:\n';
   let hasErrors = false;
 
+  const validSelected = (selected || []).filter(s => s && s.chosenPlan);
+  if (validSelected.length === 0) {
+    userStates.set(userId, null);
+    return;
+  }
+  if (validSelected.length !== selected.length) {
+    selected.length = 0;
+    selected.push(...validSelected);
+  }
+
   selected.forEach(s => {
     const plan = s.chosenPlan;
     if (!plan) {
@@ -836,11 +863,18 @@ async function calculateAndShowPrice(message, userId, userStates) {
   });
 
   if (hasErrors) {
-    const firstMissingIndex = selected.findIndex(s => !s.chosenPlan);
-    if (firstMissingIndex !== -1) {
-      userStates.set(userId, { state: 'selecting_plans', selected: selected, currentIndex: firstMissingIndex, subscriptionType });
-      await showPlanSelection(message, userId, userStates);
-      return;
+    const attempts = (state.planSelectionAttempts || 0) + 1;
+    if (attempts >= 2) {
+      console.warn(`[Sales Service] ⚠️ Se detectó intento de bucle en calculateAndShowPrice para @${userId}. Omitiendo plataformas sin plan.`);
+      selected.length = 0;
+      selected.push(...validSelected);
+    } else {
+      const firstMissingIndex = selected.findIndex(s => !s.chosenPlan);
+      if (firstMissingIndex !== -1) {
+        userStates.set(userId, { state: 'selecting_plans', selected: selected, currentIndex: firstMissingIndex, subscriptionType, planSelectionAttempts: attempts });
+        await showPlanSelection(message, userId, userStates);
+        return;
+      }
     }
   }
 

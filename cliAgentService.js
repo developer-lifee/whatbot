@@ -144,7 +144,8 @@ async function callGemini38FlashHttp(prompt, systemInstruction = "Eres Antigravi
                     const response = await fetch(url, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify(payload),
+                        signal: AbortSignal.timeout(35000)
                     });
 
                     const data = await response.json();
@@ -161,6 +162,26 @@ async function callGemini38FlashHttp(prompt, systemInstruction = "Eres Antigravi
     }
 
     throw lastError || new Error("Error inesperado en llamada a Gemini / Antigravity CLI");
+}
+
+/**
+ * Extrae código JavaScript desempaquetando wrappers JSON de agy si están presentes
+ */
+function extractCodeFromResponse(resp) {
+    if (!resp) return null;
+    let text = resp;
+    try {
+        const parsed = JSON.parse(resp);
+        if (parsed) {
+            if (typeof parsed.response === 'string') text = parsed.response;
+            else if (typeof parsed.text === 'string') text = parsed.text;
+            else if (typeof parsed.output === 'string') text = parsed.output;
+            else if (typeof parsed.content === 'string') text = parsed.content;
+        }
+    } catch (e) {}
+
+    const match = text.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
+    return match ? match[1].trim() : text.trim();
 }
 
 /**
@@ -227,21 +248,39 @@ Indica en formato JSON un bloque de búsqueda y reemplazo EXACTO dentro del arch
                     }
                 }
 
-                if (parsedSnippet && parsedSnippet.buscar && parsedSnippet.reemplazarPor && originalCode.includes(parsedSnippet.buscar)) {
-                    const backupPath = `${fullPath}.bak`;
-                    fs.writeFileSync(backupPath, originalCode, 'utf8');
-                    const newContent = originalCode.replace(parsedSnippet.buscar, parsedSnippet.reemplazarPor);
-                    fs.writeFileSync(fullPath, newContent, 'utf8');
-                    try {
-                        execSync(`node -c "${fullPath}"`, { cwd: REPO_DIR });
-                        fs.unlinkSync(backupPath);
-                        modifiedFiles.push(relFile);
-                        console.log(`[Antigravity CLI] ✅ Bloque reemplazado y validado con éxito en ${relFile}`);
-                        continue;
-                    } catch (synErr) {
-                        console.error(`[Antigravity CLI] ❌ Error sintáctico tras reemplazo en ${relFile}. Revertiendo:`, synErr.message);
-                        fs.copyFileSync(backupPath, fullPath);
-                        fs.unlinkSync(backupPath);
+                if (parsedSnippet && parsedSnippet.buscar && parsedSnippet.reemplazarPor) {
+                    let searchTarget = parsedSnippet.buscar;
+                    let replaceTarget = parsedSnippet.reemplazarPor;
+                    let canApply = originalCode.includes(searchTarget);
+
+                    if (!canApply) {
+                        const normOriginal = originalCode.replace(/\r\n/g, '\n');
+                        const normSearch = searchTarget.replace(/\r\n/g, '\n');
+                        if (normOriginal.includes(normSearch)) {
+                            searchTarget = normSearch;
+                            replaceTarget = replaceTarget.replace(/\r\n/g, '\n');
+                            canApply = true;
+                        }
+                    }
+
+                    if (canApply) {
+                        const backupPath = `${fullPath}.bak`;
+                        fs.writeFileSync(backupPath, originalCode, 'utf8');
+                        const newContent = originalCode.replace(searchTarget, replaceTarget);
+                        fs.writeFileSync(fullPath, newContent, 'utf8');
+                        try {
+                            execSync(`node -c "${fullPath}"`, { cwd: REPO_DIR });
+                            fs.unlinkSync(backupPath);
+                            modifiedFiles.push(relFile);
+                            console.log(`[Antigravity CLI] ✅ Bloque reemplazado y validado con éxito en ${relFile}`);
+                            continue;
+                        } catch (synErr) {
+                            console.error(`[Antigravity CLI] ❌ Error sintáctico tras reemplazo en ${relFile}. Revertiendo:`, synErr.message);
+                            fs.copyFileSync(backupPath, fullPath);
+                            fs.unlinkSync(backupPath);
+                        }
+                    } else {
+                        console.warn(`[Antigravity CLI] ⚠️ El bloque 'buscar' no coincidió de forma idéntica en ${relFile}.`);
                     }
                 }
             } catch (snErr) {
@@ -272,14 +311,12 @@ REGLAS CRÍTICAS:
         let updatedCode = null;
         try {
             const resp = await callAgyCli(editPrompt, "Eres Antigravity CLI. Devuelve únicamente el bloque de código javascript.");
-            const match = resp.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
-            updatedCode = match ? match[1].trim() : resp.trim();
+            updatedCode = extractCodeFromResponse(resp);
         } catch (e) {
             console.warn('[Antigravity CLI] Falló generación con agy, intentando Gemini:', e.message);
             try {
                 const resp = await callGemini38FlashHttp(editPrompt);
-                const match = resp.match(/```(?:javascript|js)?\s*([\s\S]*?)```/i);
-                updatedCode = match ? match[1].trim() : resp.trim();
+                updatedCode = extractCodeFromResponse(resp);
             } catch (gErr) {
                 console.error('[Antigravity CLI] Fallaron agy y Gemini para generar código:', gErr.message);
             }
