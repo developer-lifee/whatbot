@@ -10911,10 +10911,35 @@ async function baseProcessIncomingMessage(messages) {
 
                 if (leadIndex !== -1 && leads[leadIndex].remaining > 0) {
                     const lead = leads[leadIndex];
-                    console.log(`[Bot Demo WhatsApp] 🤖 Mensaje de lead ${lead.phone} (${lead.botName}): "${message.body}". Créditos restantes: ${lead.remaining}`);
+                    const DEMO_TTL_MS = 2 * 60 * 60 * 1000; // 2 horas de vigencia máxima
+                    const lastUpdateMs = new Date(lead.updatedAt || lead.createdAt || 0).getTime();
+                    const isExpired = !lastUpdateMs || (Date.now() - lastUpdateMs > DEMO_TTL_MS);
 
-                    const { callGemini } = require('./aiService');
-                    const systemInstruction = `Eres el bot de WhatsApp configurado para la prueba gratuita de "${lead.botName}".
+                    const lowerMsg = String(message.body || '').toLowerCase();
+                    const streamingOrSupportRegex = /\b(netflix|disney|max|hbo|prime|amazon|spotify|youtube|crunchyroll|paramount|vix|chatgpt|gpt|canva|usuario|contraseñ|contrasen|clave|correo|credencial|codigo|código|pin|pantalla|perfil|hogar|pago|renovar|cuenta|acceso|servicio)\b/i;
+                    const hasBusinessIntent = streamingOrSupportRegex.test(lowerMsg);
+
+                    let isExistingStreamingClient = false;
+                    if (!isExpired && !hasBusinessIntent) {
+                        try {
+                            const clientAccounts = await getAccountsByPhone(cleanSender);
+                            if (Array.isArray(clientAccounts) && clientAccounts.length > 0) {
+                                isExistingStreamingClient = true;
+                            }
+                        } catch (accErr) {}
+                    }
+
+                    if (isExpired || hasBusinessIntent || isExistingStreamingClient || cleanSender.includes('3107946794')) {
+                        console.log(`[Bot Demo WhatsApp] ⏭️ Omitiendo y desactivando demo para ${lead.phone} (expirado=${isExpired}, intentNegocio=${hasBusinessIntent}, clienteActivo=${isExistingStreamingClient}). Continuando flujo normal de Sheerit.`);
+                        lead.remaining = 0;
+                        lead.updatedAt = new Date().toISOString();
+                        leads[leadIndex] = lead;
+                        fs.writeFileSync(leadsFile, JSON.stringify(leads, null, 2), 'utf8');
+                    } else {
+                        console.log(`[Bot Demo WhatsApp] 🤖 Mensaje de lead ${lead.phone} (${lead.botName}): "${message.body}". Créditos restantes: ${lead.remaining}`);
+
+                        const { callGemini } = require('./aiService');
+                        const systemInstruction = `Eres el bot de WhatsApp configurado para la prueba gratuita de "${lead.botName}".
 Tipo de bot: ${lead.botType}.
 Instrucciones del negocio / usuario:
 "${lead.instructions}"
@@ -10923,31 +10948,32 @@ REGLAS:
 2. Si es negocio, atiende dudas, da precios y sé muy cordial.
 3. No salgas del personaje.`;
 
-                    let reply = null;
-                    try {
-                        reply = await Promise.race([
-                            callGemini(`Cliente: ${message.body}\nBot:`, systemInstruction, false),
-                            new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Gemini')), 8500))
-                        ]);
-                    } catch (e) {
-                        reply = `¡Hola! Con gusto te colaboro en ${lead.botName}. ¿En qué producto o servicio te gustaría que te asesoremos hoy?`;
+                        let reply = null;
+                        try {
+                            reply = await Promise.race([
+                                callGemini(`Cliente: ${message.body}\nBot:`, systemInstruction, false),
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Gemini')), 8500))
+                            ]);
+                        } catch (e) {
+                            reply = `¡Hola! Con gusto te colaboro en ${lead.botName}. ¿En qué producto o servicio te gustaría que te asesoremos hoy?`;
+                        }
+
+                        lead.remaining = Math.max(0, lead.remaining - 1);
+                        lead.lastMessage = message.body;
+                        lead.updatedAt = new Date().toISOString();
+                        leads[leadIndex] = lead;
+                        fs.writeFileSync(leadsFile, JSON.stringify(leads, null, 2), 'utf8');
+
+                        let finalReply = reply ? reply.trim() : "¡Hola! Estoy listo para ayudarte.";
+                        if (lead.remaining === 0) {
+                            finalReply += `\n\n🎉 *¡Has completado tus 20 mensajes de prueba gratuita!*\n\nTu bot está listo para trabajar 24/7 en tu propio número oficial por solo *$10.000 COP al mes*.\n\nPuedes activarlo y generar tu código QR aquí: https://sheerit.co/servicios?phone=${lead.phone}&vincular=whatsapp o respondiendo a este chat.`;
+                        } else {
+                            finalReply += `\n\n_(Te quedan ${lead.remaining} msgs de prueba gratis)_`;
+                        }
+
+                        await message.reply(finalReply);
+                        return;
                     }
-
-                    lead.remaining = Math.max(0, lead.remaining - 1);
-                    lead.lastMessage = message.body;
-                    lead.updatedAt = new Date().toISOString();
-                    leads[leadIndex] = lead;
-                    fs.writeFileSync(leadsFile, JSON.stringify(leads, null, 2), 'utf8');
-
-                    let finalReply = reply ? reply.trim() : "¡Hola! Estoy listo para ayudarte.";
-                    if (lead.remaining === 0) {
-                        finalReply += `\n\n🎉 *¡Has completado tus 20 mensajes de prueba gratuita!*\n\nTu bot está listo para trabajar 24/7 en tu propio número oficial por solo *$10.000 COP al mes*.\n\nPuedes activarlo y generar tu código QR aquí: https://sheerit.co/servicios?phone=${lead.phone}&vincular=whatsapp o respondiendo a este chat.`;
-                    } else {
-                        finalReply += `\n\n_(Te quedan ${lead.remaining} msgs de prueba gratis)_`;
-                    }
-
-                    await message.reply(finalReply);
-                    return;
                 }
             }
         }

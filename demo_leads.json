@@ -11,17 +11,6 @@
     "updatedAt": "2026-10-22T14:36:32.841Z"
   },
   {
-    "phone": "573107946794",
-    "createdAt": "2026-10-17T19:33:59.614Z",
-    "offerSent": false,
-    "botName": "tienda de jeans",
-    "botType": "negocio",
-    "instructions": "vendemos jeans camisas y no vendemos chaquetas. Tratar de tú y con amabilidad. Precios y entrega inmediata. Responder corto y al grano. Pedir comprobante de pago",
-    "remaining": 0,
-    "updatedAt": "2026-10-24T01:31:49.569Z",
-    "lastMessage": "???"
-  },
-  {
     "phone": "573123456789",
     "createdAt": "2026-10-17T20:33:10.089Z",
     "offerSent": false,
