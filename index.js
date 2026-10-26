@@ -9976,7 +9976,41 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
                 }
 
 
-                await chat.sendMessage(`🚨 *ESCALAMIENTO IA SOPORTE*${ticketTag} de ${userTag}\n\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`);
+                let accountsInfo = '';
+                if (userAccounts && userAccounts.length > 0) {
+                    const activeAccs = userAccounts.slice(0, 3).map(a => `• *${a.Streaming || 'Servicio'}*: \`${a.correo || 'N/A'}\``).join('\n');
+                    accountsInfo = `\n📺 *Cuentas registradas:*\n${activeAccs}\n`;
+                }
+
+                const escalationMsg = `🚨 *ESCALAMIENTO IA SOPORTE*${ticketTag} de ${userTag}\n${accountsInfo}\n${fallbackResult.escalationSummary || 'Revisión manual requerida.'}`;
+
+                let mediaToSend = null;
+                if (mediaData) {
+                    const singleMedia = Array.isArray(mediaData) ? mediaData[0] : mediaData;
+                    if (singleMedia && singleMedia.data) {
+                        const { MessageMedia } = require('whatsapp-web.js');
+                        const mime = singleMedia.mimeType || singleMedia.mimetype || 'image/jpeg';
+                        mediaToSend = new MessageMedia(mime, singleMedia.data);
+                    }
+                }
+                if (!mediaToSend && message && message.hasMedia) {
+                    const downloaded = await downloadMediaWithRetry(message);
+                    if (downloaded && downloaded.data) {
+                        const { MessageMedia } = require('whatsapp-web.js');
+                        mediaToSend = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                    }
+                }
+
+                if (mediaToSend) {
+                    try {
+                        await chat.sendMessage(mediaToSend, { caption: escalationMsg });
+                    } catch (captionErr) {
+                        await chat.sendMessage(escalationMsg);
+                        await chat.sendMessage(mediaToSend);
+                    }
+                } else {
+                    await chat.sendMessage(escalationMsg);
+                }
             }
         } catch (e) { console.error('Error enviando escalamiento:', e); }
         globalLastPaymentUserId = userId;
@@ -13238,30 +13272,53 @@ REGLAS:
                                 const groupChat = await client.getChatById(GROUP_ID);
                                 if (groupChat) {
                                     const displayTarget = realPhone || userId.replace('@c.us', '').replace('@lid', '');
+                                    const targetEmails = (stateData.items && stateData.items.length > 0)
+                                        ? stateData.items.map(i => i.correo || i.Correo || i.email).filter(Boolean)
+                                        : (userAccounts && userAccounts.length > 0)
+                                            ? userAccounts.map(i => i.correo || i.Correo || i.email).filter(Boolean)
+                                            : [];
+                                    const emailLine = targetEmails.length > 0 ? `📧 *Cuenta(s):* \`${targetEmails.join(', ')}\`\n` : '';
+
                                     let adminMsg = `🚨 *COMPROBANTE DETECTADO INCOMPLETO* (@${displayTarget})\n` +
-                                        `⚠️ *PAGO INCOMPLETO ACCUMULADO* (Faltan $${diff})\n` +
+                                        `⚠️ *PAGO INCOMPLETO ACUMULADO* (Faltan $${diff})\n` +
+                                        `${emailLine}` +
                                         `Banco: ${check.bank || 'No identificado'}\n` +
                                         `Monto Recibido: $${check.amount}\n` +
                                         `Total Acumulado: $${totalPaidSoFar}\n` +
                                         `Monto Esperado: $${expectedTotal}\n\n` +
                                         `Valida el pago y confirma usando:\n*confirmar ${displayTarget}*`;
 
-                                    await groupChat.sendMessage(adminMsg);
                                     try {
                                         let mediaToForward = null;
-                                        const mediaMsg = messages.find(m => m && m.hasMedia);
+                                        const mediaMsg = (typeof messages !== 'undefined' && Array.isArray(messages))
+                                            ? messages.find(m => m && m.hasMedia)
+                                            : (message && message.hasMedia ? message : null);
                                         if (mediaMsg) {
-                                            mediaToForward = await mediaMsg.downloadMedia().catch(() => null);
+                                            const downloaded = await downloadMediaWithRetry(mediaMsg);
+                                            if (downloaded && downloaded.data) {
+                                                const { MessageMedia } = require('whatsapp-web.js');
+                                                mediaToForward = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                                            }
                                         }
-                                        if (!mediaToForward && mediaData.length > 0 && mediaData[0].data && mediaData[0].mimetype) {
+                                        if (!mediaToForward && mediaData.length > 0 && mediaData[0].data) {
                                             const { MessageMedia } = require('whatsapp-web.js');
-                                            mediaToForward = new MessageMedia(mediaData[0].mimetype, mediaData[0].data);
+                                            const mime = mediaData[0].mimeType || mediaData[0].mimetype || 'image/jpeg';
+                                            mediaToForward = new MessageMedia(mime, mediaData[0].data);
                                         }
+
                                         if (mediaToForward) {
-                                            await groupChat.sendMessage(mediaToForward);
+                                            try {
+                                                await groupChat.sendMessage(mediaToForward, { caption: adminMsg });
+                                            } catch (captionErr) {
+                                                await groupChat.sendMessage(adminMsg);
+                                                await groupChat.sendMessage(mediaToForward);
+                                            }
+                                        } else {
+                                            await groupChat.sendMessage(adminMsg);
                                         }
                                     } catch (mediaSendErr) {
                                         console.warn("No se pudo adjuntar imagen del comprobante incompleto al grupo:", mediaSendErr.message);
+                                        await groupChat.sendMessage(adminMsg);
                                     }
                                 }
                             } catch (adminErr) {
@@ -13646,8 +13703,16 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             ? stateData.items.map(i => i.Streaming || (i.platform ? i.platform.name : '') || i.name).filter(Boolean).join(', ')
                             : (check.inferredPlatform || 'No especificado');
 
+                        const targetEmails = (stateData.items && stateData.items.length > 0)
+                            ? stateData.items.map(i => i.correo || i.Correo || i.email).filter(Boolean)
+                            : (userAccounts && userAccounts.length > 0)
+                                ? userAccounts.map(i => i.correo || i.Correo || i.email).filter(Boolean)
+                                : [];
+                        const emailLine = targetEmails.length > 0 ? `📧 *Cuenta(s):* \`${targetEmails.join(', ')}\`\n` : '';
+
                         let adminMsg = `🚨 *COMPROBANTE DETECTADO - ${isRenewal ? 'RENOVACIÓN' : 'VENTA NUEVA'}* (@${displayTarget})\n` +
                             `Servicio: *${serviceNames}*\n` +
+                            `${emailLine}` +
                             `Banco: ${check.bank || 'No identificado'}\n` +
                             `Monto: ${check.amount ? `$${Number(check.amount).toLocaleString('es-CO')} COP` : 'No legible'}\n\n`;
 
@@ -13657,23 +13722,37 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
                         adminMsg += `Valida el pago y confirma usando:\n*confirmar ${displayTarget}*`;
 
-                        await groupChat.sendMessage(adminMsg);
-
                         try {
                             let mediaToForward = null;
-                            const mediaMsg = messages.find(m => m && m.hasMedia);
+                            const mediaMsg = (typeof messages !== 'undefined' && Array.isArray(messages))
+                                ? messages.find(m => m && m.hasMedia)
+                                : (message && message.hasMedia ? message : null);
                             if (mediaMsg) {
-                                mediaToForward = await mediaMsg.downloadMedia().catch(() => null);
+                                const downloaded = await downloadMediaWithRetry(mediaMsg);
+                                if (downloaded && downloaded.data) {
+                                    const { MessageMedia } = require('whatsapp-web.js');
+                                    mediaToForward = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                                }
                             }
-                            if (!mediaToForward && mediaData.length > 0 && mediaData[0].data && mediaData[0].mimetype) {
+                            if (!mediaToForward && mediaData.length > 0 && mediaData[0].data) {
                                 const { MessageMedia } = require('whatsapp-web.js');
-                                mediaToForward = new MessageMedia(mediaData[0].mimetype, mediaData[0].data);
+                                const mime = mediaData[0].mimeType || mediaData[0].mimetype || 'image/jpeg';
+                                mediaToForward = new MessageMedia(mime, mediaData[0].data);
                             }
+
                             if (mediaToForward) {
-                                await groupChat.sendMessage(mediaToForward);
+                                try {
+                                    await groupChat.sendMessage(mediaToForward, { caption: adminMsg });
+                                } catch (captionErr) {
+                                    await groupChat.sendMessage(adminMsg);
+                                    await groupChat.sendMessage(mediaToForward);
+                                }
+                            } else {
+                                await groupChat.sendMessage(adminMsg);
                             }
                         } catch (mediaSendErr) {
                             console.warn("No se pudo adjuntar imagen del comprobante al grupo:", mediaSendErr.message);
+                            await groupChat.sendMessage(adminMsg);
                         }
                     }
 
@@ -14144,16 +14223,56 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     const groupChat = await client.getChatById(GROUP_ID);
                     if (groupChat) {
                         const clientTag = getDisplayPhone(activeAccountWithProblem);
+                        const accountEmail = (activeAccountWithProblem.correo || activeAccountWithProblem.Correo || activeAccountWithProblem.email || '').trim();
+                        const accountProfile = (activeAccountWithProblem.perfil || activeAccountWithProblem['Pin perfil'] || activeAccountWithProblem.Perfil || '').trim();
+                        const accountProvider = (activeAccountWithProblem.proveedor || activeAccountWithProblem.Proveedor || activeAccountWithProblem['operador '] || '').trim();
+
+                        const emailLine = accountEmail ? `📧 *Cuenta:* \`${accountEmail}\`\n` : '';
+                        const profileLine = accountProfile ? `👤 *Perfil / PIN:* \`${accountProfile}\`\n` : '';
+                        const providerLine = accountProvider ? `🏢 *Proveedor:* \`${accountProvider}\`\n` : '';
+
                         const adminMsg = `🚨 *POSIBLE FALLO PREMATURO* (@${clientTag})\n` +
-                            `El cliente reporta un error pero su cuenta de *${activeAccountWithProblem.Streaming}* vence hasta el *${dateStr}*.\n\n` +
-                            `Favor revisar el chat de inmediato.`;
-                        await groupChat.sendMessage(adminMsg);
-                        if (message.hasMedia) {
-                            const mediaToForward = await message.downloadMedia();
-                            await groupChat.sendMessage(mediaToForward);
+                            `📺 *Plataforma:* *${activeAccountWithProblem.Streaming}*\n` +
+                            `${emailLine}` +
+                            `${profileLine}` +
+                            `${providerLine}` +
+                            `📅 *Vence:* ${dateStr}\n\n` +
+                            `⚠️ El cliente reporta un error antes de su fecha de vencimiento.\n` +
+                            `📸 Adjunto la captura del cliente para reporte de fallo/garantía.`;
+
+                        let mediaToSend = null;
+                        if (mediaData && mediaData.length > 0 && mediaData[0].data) {
+                            const { MessageMedia } = require('whatsapp-web.js');
+                            const mime = mediaData[0].mimeType || mediaData[0].mimetype || 'image/jpeg';
+                            mediaToSend = new MessageMedia(mime, mediaData[0].data);
+                        } else {
+                            const mediaMsg = (typeof messages !== 'undefined' && Array.isArray(messages))
+                                ? messages.find(m => m && m.hasMedia)
+                                : (message && message.hasMedia ? message : null);
+                            if (mediaMsg) {
+                                const downloaded = await downloadMediaWithRetry(mediaMsg);
+                                if (downloaded && downloaded.data) {
+                                    const { MessageMedia } = require('whatsapp-web.js');
+                                    mediaToSend = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                                }
+                            }
+                        }
+
+                        if (mediaToSend) {
+                            try {
+                                await groupChat.sendMessage(mediaToSend, { caption: adminMsg });
+                            } catch (captionErr) {
+                                console.warn("[FAULT DETECTOR] Error enviando imagen con caption, enviando por separado:", captionErr.message);
+                                await groupChat.sendMessage(adminMsg);
+                                await groupChat.sendMessage(mediaToSend);
+                            }
+                        } else {
+                            await groupChat.sendMessage(adminMsg);
                         }
                     }
-                } catch (e) { }
+                } catch (e) {
+                    console.error("[FAULT DETECTOR] Error notificando fallo prematuro:", e.message);
+                }
             }
         }
     }
@@ -16289,11 +16408,40 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                                 let contact;
                                 try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
                                 const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
-                                await groupChat.sendMessage(
-                                    `📸 *COMPROBANTE VALIDADO - REVISIÓN MANUAL* (@${realPhone})\n` +
-                                    `Monto: $${check.amount || '?'}\nBanco: ${check.bank || 'Desconocido'}\nLlave destino: ${check.destinationKey}\n\n` +
-                                    `⚠️ Es una de nuestras cuentas (manual). Para aprobar: *@bot confirmar ${realPhone}*`
-                                );
+
+                                const renewalEmails = (stateData.items || []).map(i => i.correo || i.Correo || i.email).filter(Boolean);
+                                const emailLine = renewalEmails.length > 0 ? `📧 *Cuenta:* \`${renewalEmails.join(', ')}\`\n` : '';
+
+                                const manualMsg = `📸 *COMPROBANTE VALIDADO - REVISIÓN MANUAL* (@${realPhone})\n` +
+                                    `Monto: $${check.amount || '?'}\n` +
+                                    `Banco: ${check.bank || 'Desconocido'}\n` +
+                                    `Llave destino: ${check.destinationKey}\n` +
+                                    `${emailLine}\n` +
+                                    `⚠️ Es una de nuestras cuentas (manual). Para aprobar: *@bot confirmar ${realPhone}*`;
+
+                                let mediaToForward = null;
+                                if (singleMediaData && singleMediaData.data) {
+                                    const { MessageMedia } = require('whatsapp-web.js');
+                                    const mime = singleMediaData.mimeType || singleMediaData.mimetype || 'image/jpeg';
+                                    mediaToForward = new MessageMedia(mime, singleMediaData.data);
+                                } else if (message.hasMedia) {
+                                    const downloaded = await downloadMediaWithRetry(message);
+                                    if (downloaded && downloaded.data) {
+                                        const { MessageMedia } = require('whatsapp-web.js');
+                                        mediaToForward = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                                    }
+                                }
+
+                                if (mediaToForward) {
+                                    try {
+                                        await groupChat.sendMessage(mediaToForward, { caption: manualMsg });
+                                    } catch (captionErr) {
+                                        await groupChat.sendMessage(manualMsg);
+                                        await groupChat.sendMessage(mediaToForward);
+                                    }
+                                } else {
+                                    await groupChat.sendMessage(manualMsg);
+                                }
                             }
                         } catch (e) { }
                         if (stateData.isRenewal) {
