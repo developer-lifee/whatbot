@@ -220,9 +220,31 @@ async function fetchDirectFromGraph() {
             if (finalHeader === 'vencimiento' && typeof val === 'number') {
                 val = excelSerialToDateString(val);
             }
+            if (typeof finalHeader === 'string' && finalHeader.toLowerCase() === 'streaming' && typeof val === 'string') {
+                val = val.trim().replace(/\s+/g, ' ').toUpperCase();
+                val = val.replace(/\b(WONER|ONWER)\b/g, 'OWNER');
+            }
             obj[finalHeader] = val;
         });
         return obj;
+    });
+}
+
+function sanitizeCustomersList(list) {
+    if (!Array.isArray(list)) return list;
+    return list.map(item => {
+        if (!item) return item;
+        if (item.Streaming && typeof item.Streaming === 'string') {
+            let s = item.Streaming.trim().replace(/\s+/g, ' ').toUpperCase();
+            s = s.replace(/\b(WONER|ONWER)\b/g, 'OWNER');
+            item.Streaming = s;
+        }
+        if (item.streaming && typeof item.streaming === 'string') {
+            let s = item.streaming.trim().replace(/\s+/g, ' ').toUpperCase();
+            s = s.replace(/\b(WONER|ONWER)\b/g, 'OWNER');
+            item.streaming = s;
+        }
+        return item;
     });
 }
 
@@ -320,8 +342,9 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
   global.activeRawDataPromise = (async () => {
     // 1. Intentar conexión DIRECTA a Microsoft Graph (tiempo real sin depender de Azure)
     try {
-      const directData = await fetchDirectFromGraph();
+      let directData = await fetchDirectFromGraph();
       if (Array.isArray(directData) && directData.length > 0) {
+        directData = sanitizeCustomersList(directData);
         try {
           fs.writeFileSync(localCachePath, JSON.stringify(directData, null, 2), 'utf8');
         } catch (err) {
@@ -343,7 +366,7 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
         if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
         
         const json = await response.json();
-        const data = json.data || [];
+        const data = sanitizeCustomersList(json.data || []);
         
         try {
           fs.writeFileSync(localCachePath, JSON.stringify(data, null, 2), 'utf8');
@@ -363,7 +386,7 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
           try {
             if (fs.existsSync(localCachePath)) {
               const cachedData = fs.readFileSync(localCachePath, 'utf8');
-              const data = JSON.parse(cachedData);
+              const data = sanitizeCustomersList(JSON.parse(cachedData));
               rawDataCache = data;
               rawDataCacheTime = Date.now();
               return data;

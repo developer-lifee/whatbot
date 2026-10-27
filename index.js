@@ -2016,13 +2016,22 @@ app.post('/api/admin/actions/send-info', async (req, res) => {
             if (!accounts || accounts.length === 0) return res.status(404).json({ success: false, message: 'Client not found', error: 'Client not found' });
 
             if (platform && platform.toString().trim() !== "") {
-                const targetPlat = platform.toString().toLowerCase().trim();
-                const filteredAccounts = accounts.filter(acc => {
-                    const streaming = (acc.Streaming || acc.Plataforma || '').toString().toLowerCase();
-                    return streaming.includes(targetPlat) || targetPlat.includes(streaming);
+                const targetPlat = platform.toString().toLowerCase().trim().replace(/\s+/g, ' ');
+                const exactAccounts = accounts.filter(acc => {
+                    const streaming = (acc.Streaming || acc.Plataforma || '').toString().toLowerCase().trim().replace(/\s+/g, ' ');
+                    return streaming === targetPlat;
                 });
-                if (filteredAccounts.length > 0) {
-                    accounts = filteredAccounts;
+                if (exactAccounts.length > 0) {
+                    accounts = exactAccounts;
+                } else {
+                    const filteredAccounts = accounts.filter(acc => {
+                        const streaming = (acc.Streaming || acc.Plataforma || '').toString().toLowerCase().trim().replace(/\s+/g, ' ');
+                        if (!targetPlat.includes('extra') && streaming.includes('extra')) return false;
+                        return streaming.includes(targetPlat) || targetPlat.includes(streaming);
+                    });
+                    if (filteredAccounts.length > 0) {
+                        accounts = filteredAccounts;
+                    }
                 }
             }
 
