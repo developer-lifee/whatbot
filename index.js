@@ -14253,7 +14253,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         if (mediaData && mediaData.length > 0 && mediaData[0].data) {
                             const { MessageMedia } = require('whatsapp-web.js');
                             const mime = mediaData[0].mimeType || mediaData[0].mimetype || 'image/jpeg';
-                            mediaToSend = new MessageMedia(mime, mediaData[0].data);
+                            mediaToSend = new MessageMedia(mime, mediaData[0].data, 'captura.jpg');
                         } else {
                             const mediaMsg = (typeof messages !== 'undefined' && Array.isArray(messages))
                                 ? messages.find(m => m && m.hasMedia)
@@ -14262,7 +14262,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                                 const downloaded = await downloadMediaWithRetry(mediaMsg);
                                 if (downloaded && downloaded.data) {
                                     const { MessageMedia } = require('whatsapp-web.js');
-                                    mediaToSend = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                                    mediaToSend = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data, 'captura.jpg');
                                 }
                             }
                         }
@@ -14273,7 +14273,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             } catch (captionErr) {
                                 console.warn("[FAULT DETECTOR] Error enviando imagen con caption, enviando por separado:", captionErr.message);
                                 await groupChat.sendMessage(adminMsg);
-                                await groupChat.sendMessage(mediaToSend);
+                                try {
+                                    await groupChat.sendMessage(mediaToSend);
+                                } catch (mErr) {
+                                    console.warn("[FAULT DETECTOR] No se pudo enviar el archivo multimedia adjunto:", mErr.message);
+                                }
                             }
                         } else {
                             await groupChat.sendMessage(adminMsg);
