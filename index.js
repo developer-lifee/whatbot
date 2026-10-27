@@ -13096,8 +13096,17 @@ REGLAS:
                                 stateData.isRenewal = false;
                                 userStates.set(userId, stateData);
                             } else {
+                                const { getPricingRules } = require('./apiService');
+                                const activeRules = await getPricingRules();
+                                const matchedPlatObj = findPlatformByName(userAccounts[0].Streaming || '', platforms);
+                                const tier = matchedPlatObj?.discountTier || 'A';
+                                const tierRules = activeRules.durationDiscounts[tier] || activeRules.durationDiscounts['A'];
                                 const multiMonths = [12, 6, 4, 3, 2, 1];
-                                const detectedMultiMonth = check.amount ? multiMonths.find(m => Math.abs((singlePrice * m) - check.amount) <= 1000) : 1;
+                                const detectedMultiMonth = check.amount ? multiMonths.find(m => {
+                                    const factor = tierRules[String(m)] ? tierRules[String(m)].factor : 1.0;
+                                    const discountedPrice = Math.ceil((singlePrice * m * factor) / 1000) * 1000;
+                                    return Math.abs((singlePrice * m) - check.amount) <= 1000 || Math.abs(discountedPrice - check.amount) <= 1000;
+                                }) : 1;
                                 const isSingleOrMultiMatch = !check.amount || detectedMultiMonth || (Math.abs(check.amount - singlePrice) <= 1000);
 
                                 if (isSingleOrMultiMatch) {
