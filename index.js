@@ -15319,16 +15319,28 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
             userStates.set(userId, { ...st, state: 'awaiting_payment_confirmation', netflixIsp: ispInfo });
 
-            // Si tenemos un matchId de Gmail precargado, podemos autovalidar inmediatamente!
-            if (st.gmailMatchId) {
+            // Si tenemos un matchId de Gmail precargado o auto-validación por llave/OCR, autovalidar y entregar credenciales inmediatamente!
+            let activeMatchId = st.gmailMatchId || null;
+            if (!activeMatchId && st.checkAmount) {
+                try {
+                    const { findMatchingPayment } = require('./gmailService');
+                    const lateMatch = await findMatchingPayment(st.checkAmount, 60, userId);
+                    if (lateMatch && lateMatch.id) activeMatchId = lateMatch.id;
+                } catch (e) { }
+            }
+
+            if (activeMatchId || st.autoValidatedByKey) {
                 await message.reply("🤖 ¡Excelente! He validado tu comprobante y registrado tu información de operador. Estoy generando tus credenciales, dame un momento... ⏳");
+                const methodLabel = activeMatchId
+                    ? `Gmail Match (${st.paymentMethod || 'Bre-B'})`
+                    : `Auto-OCR Llave (${st.paymentMethod || 'Transferencia'})`;
                 const validationResult = await executePaymentValidation(
                     userId,
-                    { ...st, netflixIsp: ispInfo, total: st.checkAmount, paymentMethod: `Gmail Match (${st.paymentMethod || 'Bre-B'})` },
+                    { ...st, isRenewal: false, netflixIsp: ispInfo, total: st.checkAmount || st.total, paymentMethod: methodLabel },
                     client,
                     userStates,
                     null,
-                    st.gmailMatchId
+                    activeMatchId
                 );
 
                 if (validationResult.success) {
