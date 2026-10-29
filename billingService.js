@@ -452,6 +452,13 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
         targetName = 'MICROSOFT 365';
     } else if (cleanName.includes('CRUNCHY')) {
         targetName = 'CRUNCHYROLL';
+    } else if (cleanName.includes('PLATZI')) {
+        targetName = 'PLATZI EXPERT';
+        if (cleanName.includes('PERSONAL') || cleanName.includes('TRIMESTRAL') || inputClean.includes('personal') || inputClean.includes('trimestral')) {
+            isPersonal = true;
+        } else {
+            isPersonal = false;
+        }
     } else if (cleanName.includes('CLAUDE')) {
         const { normalizeStreamingName } = require('./availabilityService');
         const normClaude = normalizeStreamingName(cleanName);
@@ -472,7 +479,8 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
                             (targetNorm.includes('CLAUDE') && pNameNorm.includes('CLAUDE')) ||
                             (targetNorm.includes('CRUNCHY') && pNameNorm.includes('CRUNCHY')) ||
                             (targetNorm.includes('APPLE') && pNameNorm.includes('APPLE')) ||
-                            (targetNorm.includes('MICROSOFT') && pNameNorm.includes('MICROSOFT'));
+                            (targetNorm.includes('MICROSOFT') && pNameNorm.includes('MICROSOFT')) ||
+                            (targetNorm.includes('PLATZI') && pNameNorm.includes('PLATZI'));
 
             if (isMatch) {
                 if (Array.isArray(p.plans) && p.plans.length > 0) {
@@ -536,6 +544,18 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
                         if (planX2 && planX2.price) return planX2.price;
                         return 30000;
                     }
+                    if (targetName === 'PLATZI EXPERT') {
+                        if (isPersonal) {
+                            const persPlan = p.plans.find(pl => (pl.name || '').toUpperCase().includes('PERSONAL') || (pl.name || '').toUpperCase().includes('TRIMESTRAL'));
+                            if (persPlan && persPlan.price) return persPlan.price;
+                            return 150000;
+                        } else {
+                            const compPlan = p.plans.find(pl => (pl.name || '').toUpperCase().includes('COMPARTIDA'));
+                            if (compPlan && compPlan.price) return compPlan.price;
+                            return 20000;
+                        }
+                    }
+
                     if (targetName === 'CLAUDE PRO') {
                         const planPro = p.plans.find(pl => {
                             const n = (pl.name || '').toUpperCase();
@@ -569,12 +589,22 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
         }
 
         // 2. Buscar coincidencia en planes de todas las plataformas
+        // (Evitar que nombres genéricos de plan como 'COMPARTIDA' o 'PERSONAL' hagan match cruzado con plataformas incorrectas)
+        const GENERIC_PLAN_NAMES = ['COMPARTIDA', 'PERSONAL', 'PERFIL', 'PANTALLA', 'ESTANDAR', 'ESTÁNDAR', 'BASICO', 'BÁSICO', 'PREMIUM', 'ANUAL', 'MENSUAL', 'TRIMESTRAL'];
         for (const p of platforms) {
             if (Array.isArray(p.plans)) {
+                const platNameUpper = (p.name || '').toUpperCase();
                 for (const pl of p.plans) {
-                    const plName = (pl.name || '').toUpperCase();
-                    if (plName === targetName || plName.includes(targetName) || targetName.includes(plName)) {
+                    const plName = (pl.name || '').toUpperCase().trim();
+                    if (!plName) continue;
+                    if (plName === targetName) {
                         if (pl.price) return pl.price;
+                    }
+                    if (targetName.includes(plName) || plName.includes(targetName)) {
+                        const isGeneric = GENERIC_PLAN_NAMES.includes(plName);
+                        if (!isGeneric || targetName.includes(platNameUpper) || platNameUpper.includes(targetName)) {
+                            if (pl.price) return pl.price;
+                        }
                     }
                 }
             }

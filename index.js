@@ -404,6 +404,7 @@ function isExplicitPaymentMessage(text) {
 let globalLastPaymentUserId = null; // Memoria del último usuario que envió un comprobante o pidió ayuda
 const messageQueues = new Map(); // Cola para agrupar mensajes por usuario
 const lastResponseTimestamps = new Map(); // Para evitar múltiples respuestas seguidas
+const faultAlertCooldowns = new Map(); // Evita alertas repetitivas de fallos prematuros (cooldown de 6h)
 const BATCH_INTERVAL = 12000; // 12 segundos para agrupar mensajes
 const RESPONSE_COOLDOWN = 15000; // 15 segundos entre respuestas automáticas (evita ráfagas separadas)
 global.supportQueue = []; // Cola global de soporte anti-spam
@@ -14214,12 +14215,17 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         }
     }
 
-    // --- DETECCIÓN INTELIGENTE DE FALLO PREMATURO (Solo para imágenes/mensajes con errores reales en la plataforma correspondiente) ---
-    if (detection && mediaData && mediaData.length > 0 && !isCodeRequestFromImage) {
+    // --- DETECCIÓN INTELIGENTE DE FALLO PREMATURO (Solo para reportes legítimos de soporte técnico con imágenes de fallas reales) ---
+    if (detection && detection.intent === 'soporte' && mediaData && mediaData.length > 0 && !isCodeRequestFromImage && !detection.isCodeScreen) {
         const explanationLower = (detection.explanation || "").toLowerCase();
         const bodyLower = inputToUse.toLowerCase();
-        const errorKeywords = ['falla', 'error', 'funciona', 'caido', 'suspendid', 'problema', 'sale asi', 'sacó', 'mira lo que', 'no deja', 'qué pasó', 'que paso', 'bloquead', 'no sirve'];
-        const hasErrorText = errorKeywords.some(k => explanationLower.includes(k) || bodyLower.includes(k));
+        const errorKeywords = [
+            'no me deja', 'no funciona', 'se cayó', 'se cayo', 'cuenta suspendida', 'suspendida',
+            'pantalla de error', 'contraseña incorrecta', 'clave incorrecta', 'error al reproducir',
+            'no sirve', 'bloqueada', 'sacó de la cuenta', 'saco de la cuenta', 'cerró sesión',
+            'cerro sesion', 'error técnico', 'falla técnica', 'no puedo ingresar', 'no me permite ingresar'
+        ];
+        const hasErrorText = errorKeywords.some(k => bodyLower.includes(k) || explanationLower.includes(k));
 
         if (hasErrorText) {
             const { isSamePlatformFamily } = require('./salesRegistryService');
@@ -14237,7 +14243,14 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             });
 
             if (activeAccountWithProblem) {
-                const expD = getJsDateFromExcel(activeAccountWithProblem.deben);
+                const cooldownKey = `${userId}_${activeAccountWithProblem.Streaming}`;
+                const lastAlertTime = faultAlertCooldowns.get(cooldownKey) || 0;
+                const SIX_HOURS = 6 * 60 * 60 * 1000;
+                if (Date.now() - lastAlertTime < SIX_HOURS) {
+                    console.log(`[FAULT DETECTOR] ⏳ Alerta en cooldown para @${userId} en ${activeAccountWithProblem.Streaming}. No se duplica alerta.`);
+                } else {
+                    faultAlertCooldowns.set(cooldownKey, Date.now());
+                    const expD = getJsDateFromExcel(activeAccountWithProblem.deben);
                 const dateStr = expD ? expD.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : activeAccountWithProblem.deben;
                 console.log(`[FAULT DETECTOR] 🚨 Posible fallo prematuro detectado para @${userId} en ${activeAccountWithProblem.Streaming}`);
                 try {
@@ -14297,6 +14310,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     }
                 } catch (e) {
                     console.error("[FAULT DETECTOR] Error notificando fallo prematuro:", e.message);
+                }
                 }
             }
         }

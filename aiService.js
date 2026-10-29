@@ -738,9 +738,10 @@ Realiza una extracción precisa (OCR) y describe detalladamente lo que se ve en 
    - NOTA NEQUI/BRE-V: Si la imagen muestra un encabezado "Pago realizado" y un código QR arriba con el texto "¡Escanea este QR con Nequi para verificar tu envio al instante!", es el comprobante oficial de transferencia exitosa de Nequi / Bre-V. Extrae todos sus datos como comprobante de pago exitoso.
 
 2. Si es una pantalla de INICIO DE SESIÓN, CÓDIGO DE ACCESO o 2FA:
-   - Identifica claramente la plataforma (Netflix, Disney+, Max/HBO, Prime Video, Spotify, ChatGPT, etc.).
-   - Extrae el correo o usuario mostrado en pantalla al que se envió el código (ej: "Hurkjua6554@outlook.com").
-   - Especifica qué solicita la pantalla (ej: "Código de 6 dígitos que vencerá en 15 minutos", "Código de hogar", etc.).
+   - Identifica claramente la plataforma (Claude / Anthropic, Netflix, Disney+, Max/HBO, Prime Video, Spotify, ChatGPT / OpenAI, Google, etc.).
+   - Extrae el correo o usuario mostrado en pantalla al que se envió el código (ej: "Hurkjua6554@outlook.com", correo de Claude/Anthropic).
+   - Especifica qué solicita la pantalla (ej: "Código de 6 dígitos que vencerá en 15 minutos", "Código de Claude / Anthropic", "Código de hogar", etc.).
+   - Aclara enfáticamente que es una pantalla de acceso / 2FA y NO un comprobante de pago bancario.
 
 3. Si es una pantalla de ERROR, vencimiento o falla técnica:
    - Si la pantalla dice "Renovar ahora", "Tus beneficios terminaron", "Renueva tu suscripción", "Tu membresía ha caducado": descríbela explícitamente como pantalla de AVISO DE RENOVACIÓN / MEMBRESÍA VENCIDA, identificando claramente la plataforma (ej: YouTube Premium, Spotify). Aclara que NO es una pantalla de código de acceso ni de verificación de hogar.
@@ -1183,6 +1184,23 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
     // 1. Pre-procesar la imagen con Gemini para extraer la descripción visual / OCR
     const imageDescription = await describeImageWithGemini(mediaData, chatHistory);
 
+    // Guardián inmediato: Descartar si es una pantalla de inicio de sesión, 2FA, código de verificación o Claude
+    const descLower = (imageDescription || "").toLowerCase();
+    const isLoginOrCodeScreen = [
+      'código de inicio', 'codigo de inicio', 'código de verificación', 'codigo de verificacion',
+      'código de 6 dígitos', 'codigo de 6 digitos', 'código de 4 dígitos', 'codigo de 4 digitos',
+      'login code', 'verification code', 'enter the code', 'enter code', 'ingresa el código', 'ingresa el codigo',
+      'enviamos un código', 'enviamos un codigo', 'enviamos a tu email', 'enviamos a tu correo',
+      'claude', 'anthropic', 'hogar con netflix', 'actualizar hogar', 'tu tv no forma parte', 'no forma parte del hogar',
+      'iniciar sesión', 'inicio de sesión', 'two-factor', '2fa', 'authenticator'
+    ].some(term => descLower.includes(term));
+
+    const hasExplicitBankPayment = ['pago realizado', 'transferencia exitosa', 'comprobante de transferencia', 'bold', 'nequi', 'daviplata', 'bancolombia'].some(term => descLower.includes(term));
+    if (isLoginOrCodeScreen && !hasExplicitBankPayment) {
+      console.log(`[isPaymentReceipt] 🛡️ Imagen descartada como comprobante (es pantalla de login/2FA/código): "${descLower.slice(0, 100)}..."`);
+      return { isReceipt: false, amount: null, bank: null, destinationKey: null, destinationName: null, isCodeScreen: true };
+    }
+
     // 2. Pasar la descripción a DeepSeek para la clasificación estructurada
     let promptTemplate = `Analiza la siguiente descripción textual de una imagen/comprobante y determina si corresponde a un COMPROBANTE DE PAGO, RECIBO DE TRANSFERENCIA o CAPTURA DE PANTALLA DE UNA TRANSACCIÓN EXITOSA.
 Contexto de la charla: {{CHAT_HISTORY}}
@@ -1216,6 +1234,7 @@ Reglas:
   - "isReceipt": true, "bank": "Bancolombia", "confidence": 1.0.
 - REGLA CRÍTICA (COMPROBANTES MODERNOS NEQUI / BRE-V CON QR): Los comprobantes de Nequi y Bre-V incluyen un código QR en la parte superior con el texto "¡Escanea este QR con Nequi para verificar tu envio al instante!" junto con "Pago realizado", "Para: Sheerit Esteban Avila", "Llave: 0087387259", "¿Cuánto?: $ ...", "Referencia: M...". ESTO ES UN COMPROBANTE DE PAGO EXITOSO Y VÁLIDO (isReceipt: true, confidence: 1.0). NUNCA lo consideres como factura pendiente ni como QR de cobro.
 - Si indica ERROR, TRANSACCIÓN RECHAZADA o CUENTA SUSPENDIDA, marca isReceipt: false.
+- REGLA CRÍTICA DE EXCLUSIÓN (LOGIN / 2FA / PANTALLA DE ACCESO O CLAUDE): Si la imagen describe un inicio de sesión, pantalla de verificación en 2 pasos (2FA), solicitud de código temporal de 6 dígitos, código enviado al email (ej: Claude, Anthropic, Netflix, Disney+, Google, OpenAI), o pantalla de error/actualizar hogar, DEBES responder con isReceipt: false, amount: null, bank: null, confidence: 0. Bajo NINGUNA circunstancia clasifiques una pantalla de login de Claude o código como comprobante de pago.
 - Para 'inferredPlatform': Examina el [Historial reciente] o texto adjunto. Si el cliente menciona "office", "office 365", pon "Microsoft 365". Si el cliente habla de HBO, Netflix, Disney, pon esa plataforma exacta.`;
 
     try {

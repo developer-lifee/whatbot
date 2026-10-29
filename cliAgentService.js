@@ -216,16 +216,55 @@ async function applyCodeModifications(ticket) {
         const originalCode = fs.readFileSync(fullPath, 'utf8');
 
         if (stats.size > 200000) {
-            console.log(`[Antigravity CLI] Archivo extenso (${relFile}, ${(stats.size/1024).toFixed(1)}KB). Buscando bloque específico...`);
+            console.log(`[Antigravity CLI] Archivo extenso (${relFile}, ${(stats.size/1024).toFixed(1)}KB). Extrayendo contexto relevante para reemplazo preciso...`);
+            
+            // Extraer palabras clave para localizar el fragmento exacto en el archivo grande
+            const textToSearch = `${ticket.plan || ''} ${ticket.diagnosis || ''} ${ticket.summary || ''} ${ticket.rawMessage || ''}`;
+            const quotedMatches = textToSearch.match(/'([^']+)'|"([^"]+)"|`([^`]+)`/g) || [];
+            const cleanTerms = quotedMatches.map(m => m.replace(/['"`]/g, '').trim()).filter(t => t.length >= 4);
+            const rawWords = textToSearch.split(/[\s,.;:()]+/).filter(w => w.length >= 5 && !['revisar', 'filtros', 'asignacion', 'modificar', 'archivo', 'codigo', 'reporte'].includes(w.toLowerCase()));
+            const searchTerms = Array.from(new Set([...cleanTerms, ...rawWords]));
+
+            const lines = originalCode.split('\n');
+            let bestLineIdx = -1;
+            let bestScore = 0;
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                let score = 0;
+                for (const term of searchTerms) {
+                    if (line.includes(term)) score += 3;
+                    else if (line.toLowerCase().includes(term.toLowerCase())) score += 1;
+                }
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestLineIdx = i;
+                }
+            }
+
+            let contextSnippet = "";
+            if (bestLineIdx >= 0) {
+                const start = Math.max(0, bestLineIdx - 40);
+                const end = Math.min(lines.length, bestLineIdx + 60);
+                contextSnippet = lines.slice(start, end).join('\n');
+            } else {
+                contextSnippet = lines.slice(0, 100).join('\n');
+            }
+
             const snippetPrompt = `Debes modificar el archivo grande "${relFile}" en el proyecto whatbot.
 PLAN DE LA SOLUCIÓN:
 ${ticket.plan}
 DIAGNÓSTICO:
 ${ticket.diagnosis || ''}
 
-Indica en formato JSON un bloque de búsqueda y reemplazo EXACTO dentro del archivo:
+AQUÍ TIENES EL FRAGMENTO REAL DEL ARCHIVO "${relFile}" DONDE DEBE APLICARSE LA MODIFICACIÓN:
+\`\`\`javascript
+${contextSnippet}
+\`\`\`
+
+Indica en formato JSON un bloque de búsqueda y reemplazo EXACTO. El bloque "buscar" DEBE existir idéntico (carácter por carácter) dentro del fragmento mostrado arriba:
 {
-  "buscar": "código existente exacto dentro del archivo a reemplazar (al menos 3 a 10 líneas para evitar ambigüedad)",
+  "buscar": "código existente exacto dentro del fragmento (de 3 a 10 líneas)",
   "reemplazarPor": "nuevo código de reemplazo con la solución implementada"
 }`;
             try {
