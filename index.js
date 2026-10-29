@@ -3635,6 +3635,66 @@ app.get('/api/admin/support-schedule', async (req, res) => {
     }
 });
 
+// ==================== GESTIÓN DE RECORDATORIOS DE WHATSAPP ====================
+app.get('/api/admin/reminders', (req, res) => {
+    try {
+        const { getAllReminders } = require('./whatsappRemindersService');
+        res.json(getAllReminders());
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/reminders', (req, res) => {
+    try {
+        const { createReminder } = require('./whatsappRemindersService');
+        const reminder = createReminder(req.body, client);
+        res.json({ success: true, reminder });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.put('/api/admin/reminders/:id', (req, res) => {
+    try {
+        const { updateReminder } = require('./whatsappRemindersService');
+        const reminder = updateReminder(req.params.id, req.body, client);
+        res.json({ success: true, reminder });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/reminders/:id/toggle', (req, res) => {
+    try {
+        const { toggleReminder } = require('./whatsappRemindersService');
+        const reminder = toggleReminder(req.params.id, req.body.enabled, client);
+        res.json({ success: true, reminder });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete('/api/admin/reminders/:id', (req, res) => {
+    try {
+        const { deleteReminder } = require('./whatsappRemindersService');
+        deleteReminder(req.params.id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/reminders/:id/test', async (req, res) => {
+    try {
+        const { testReminder } = require('./whatsappRemindersService');
+        const result = await testReminder(req.params.id, client);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // GET Public Support & Contact Configuration for Frontend Website
 app.get('/api/public/support-config', async (req, res) => {
     try {
@@ -9482,6 +9542,14 @@ client.on('ready', () => {
 
     // Iniciar Automatización Diaria (9am y 2pm)
     initDailyAutomation(client, userStates, pendingConfirmations, GROUP_ID);
+
+    // Iniciar Motor de Recordatorios de WhatsApp
+    try {
+        const { initReminders } = require('./whatsappRemindersService');
+        initReminders(client);
+    } catch (remErr) {
+        console.error('❌ Error inicializando motor de recordatorios:', remErr.message);
+    }
 
     // Procesar chats que quedaron sin leer mientras el bot estuvo apagado
     setTimeout(async () => {
