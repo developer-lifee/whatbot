@@ -14022,6 +14022,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'código de inicio', 'codigo de inicio', 'código de 4 dígitos', 'código de 6 dígitos',
             'codigo de 6', 'codigo de 4', '6-digit', 'authenticating', '2fa', 'authenticator', 'autenticación',
             'google authenticator', 'no forma parte', 'hogar con netflix', 'tu tv no forma parte',
+            'actualizar hogar', 'actualización de hogar', 'actualizacion de hogar', 'hogar de netflix',
+            'confirmar tu hogar', 'confirma tu hogar', 'hogar',
             'enviamos a tu email', 'ingresa el código', 'ingresa el codigo', 'código vence en 15', 'codigo vence en 15',
             'solicita el reenvio', 'solicita el reenvío', 'ver temporalmente', 'si estás de viaje', 'si estas de viaje',
             'fuera de casa', 'entendimos mal', 'obtener un código para ver netflix temporalmente',
@@ -14048,8 +14050,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
         if (wantsImgCode && !isIncorrectPassword && !isDateOrAccountQuery) {
             const isOptionsScreen = [
-                'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'estoy de viaje',
-                'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte', 'ver temporalmente',
+                'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'actualizar hogar',
+                'actualización de hogar', 'actualizacion de hogar', 'hogar de netflix', 'confirmar tu hogar', 'confirma tu hogar',
+                'estoy de viaje', 'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte', 'ver temporalmente',
                 'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'código para ver netflix temporalmente',
                 'obtén un código para ver contenido', 'de manera temporal', 'en este dispositivo de manera temporal',
                 'enviar email', 'red wifi de tu hogar',

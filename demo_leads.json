@@ -63,5 +63,16 @@
     "remaining": 18,
     "updatedAt": "2026-10-23T18:40:27.966Z",
     "lastMessage": "precios"
+  },
+  {
+    "phone": "573107748612",
+    "createdAt": "2026-10-28T01:02:13.406Z",
+    "offerSent": false,
+    "botName": "Pruebas",
+    "botType": "negocio",
+    "instructions": "Reglas de estilo: Tratar de tú y con amabilidad",
+    "remaining": 19,
+    "updatedAt": "2026-10-28T01:02:31.454Z",
+    "lastMessage": "Hola"
   }
 ]
