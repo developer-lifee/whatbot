@@ -309,6 +309,11 @@ userStates.set = function (key, value) {
         if (!value.waitingTimestamp) {
             value.waitingTimestamp = Date.now();
         }
+        // Si entra en waiting_human y no es un mensaje saliente manual de asesor sin respuesta,
+        // asegurar que clientWaitingSince esté activo para que aparezca en Tickets Libres del panel
+        if (!value.clientWaitingSince && value.waiting_human_mode !== 'advisor') {
+            value.clientWaitingSince = Date.now();
+        }
     }
     const result = originalSet(key, value);
     saveUserStates();
@@ -2376,8 +2381,9 @@ app.get('/api/admin/tickets', async (req, res) => {
                 if (!pendingStates.includes(stateStr)) return null;
 
                 // Si el estado fue puesto por mensaje saliente del asesor (recordatorio/cobro manual)
-                // y el cliente aun NO ha respondido (clientWaitingSince es null), no se suma a Tickets Libres
-                if (typeof state === 'object' && state.waiting_human_mode === 'advisor' && !state.clientWaitingSince) {
+                // y el cliente aun NO ha respondido (clientWaitingSince es null), SOLO se excluye si NO está asignado a un asesor.
+                // Si ya está asignado a un asesor (state.agent), debe verse en "Mis Tickets" del asesor correspondiente.
+                if (typeof state === 'object' && state.waiting_human_mode === 'advisor' && !state.clientWaitingSince && !state.agent) {
                     return null;
                 }
 
@@ -2434,11 +2440,36 @@ app.get('/api/admin/tickets', async (req, res) => {
         const { fetchRawData } = require('./apiService');
         const excelRows = await fetchRawData().catch(() => []);
 
-        // 2.1 Sincronizar cuentas marcadas para "cortar" en Excel para que aparezcan SIEMPRE como tickets (sin excepción manual)
+        // 2.1 Sincronizar cuentas marcadas para "cortar" en Excel o con mora >= 3 días para que aparezcan SIEMPRE como tickets
         if (!showAllChats && Array.isArray(excelRows) && excelRows.length > 0) {
+            const { getJsDateFromExcel, getTodayInBogota } = require('./apiService');
+            const todayBogota = getTodayInBogota ? getTodayInBogota() : new Date();
+
             for (const row of excelRows) {
                 const obs = String(row.observaciones || row.Observaciones || '').toLowerCase();
-                if (obs.includes('cortar') || obs.includes('corte')) {
+                const isExplicitCut = obs.includes('cortar') || obs.includes('corte');
+
+                // Verificar si tiene >= 3 días de mora en columna 'deben' / 'vencimiento' sin promesa de pago
+                let isOverdueCut = false;
+                const clientDueDate = row.deben || row.Deben || row.Columna4 || row.vencimiento;
+                if (clientDueDate && getJsDateFromExcel) {
+                    const jsDate = getJsDateFromExcel(clientDueDate);
+                    if (jsDate && !isNaN(jsDate.getTime())) {
+                        const diffDays = Math.floor((todayBogota.getTime() - jsDate.getTime()) / (1000 * 3600 * 24));
+                        const isPaymentPromise = [
+                            'paga el', 'pagara el', 'pagará el', 'cancela el', 'cancelará el',
+                            'esperar', 'acuerdo', 'promesa', 'convenio', 'hasta el', 'hablar con',
+                            'lunes', 'martes', 'miercoles', 'miércoles', 'jueves', 'viernes', 'sabado', 'sábado', 'domingo',
+                            'quincena', 'fin de mes'
+                        ].some(keyword => obs.includes(keyword)) || /\b(30|31|01|02|03|04|05|15)\b/.test(obs);
+
+                        if (diffDays >= 3 && !isPaymentPromise) {
+                            isOverdueCut = true;
+                        }
+                    }
+                }
+
+                if (isExplicitCut || isOverdueCut) {
                     const rawPhone = String(row.numero || row.Numero || row.telefono || row.Telefono || row.celular || '').replace(/\D/g, '');
                     if (rawPhone.length >= 10) {
                         const cleanP = rawPhone.length === 10 ? '57' + rawPhone : rawPhone;
@@ -2460,7 +2491,9 @@ app.get('/api/admin/tickets', async (req, res) => {
                                 state: 'waiting_human',
                                 category: 'Corte / Churn',
                                 nombre: clientName,
-                                advisorReason: `Corte de Servicio: ${serviceName} (Nota: ${row.observaciones || row.Observaciones || 'cortar'})`,
+                                advisorReason: isExplicitCut 
+                                    ? `Corte de Servicio: ${serviceName} (Nota: ${row.observaciones || row.Observaciones || 'cortar'})`
+                                    : `Corte de Servicio: ${serviceName} (Mora >= 3 días)`,
                                 churnPlatforms: [serviceName],
                                 clientWaitingSince: Date.now()
                             });

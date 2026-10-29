@@ -1911,14 +1911,6 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
             const destId = r.phone + '@c.us';
             const suspendMsg = `⚠️ *AVISO DE CORTE INMINENTE* ⚠️\n\nHola ${r.name}, te informamos que por falta de respuesta, tus cuentas de *${r.services.join(', ')}* serán suspendidas el día de hoy a menos de que envíes el comprobante de pago en el transcurso del día.\n\nPor favor envíanos tu comprobante lo antes posible para evitar la interrupción del servicio.`;
             await safeSend(null, suspendMsg, destId, client || message._client);
-            if (userStates && userStates.has(destId)) {
-                const st = userStates.get(destId);
-                const stateStr = (typeof st === 'object') ? st.state : st;
-                if (stateStr === 'waiting_human') {
-                    userStates.delete(destId);
-                    console.log(`[Auto-Billing] Cleared waiting_human state for ${destId} during suspension notice.`);
-                }
-            }
             exitososCorte++;
             await new Promise(res => setTimeout(res, 1000));
         } catch (e) {
@@ -1926,11 +1918,12 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         }
     }
 
-    // CREAR TICKETS EN MARIADB ÚNICAMENTE PARA LOS QUE YA TIENEN EL AVISO DE CORTE PREVIO
-    if (toReview.length > 0) {
+    // CREAR TICKETS EN MARIADB PARA TODOS LOS CLIENTES DE CORTE (Avisos de hoy y revisiones pendientes)
+    const allCutoffClients = [...toSuspend, ...toReview];
+    if (allCutoffClients.length > 0) {
         try {
             const { pool } = require('./database');
-            for (const r of toReview) {
+            for (const r of allCutoffClients) {
                 const destId = r.phone + '@c.us';
                 await pool.query(
                     'INSERT IGNORE INTO chats (chat_id, customer_phone, last_message_text, last_message_time) VALUES (?, ?, ?, NOW())',
@@ -1943,12 +1936,19 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
                     [
                         destId,
                         `Corte de Servicio: ${r.name}`,
-                        `Corte requerido por mora persistente tras aviso de corte previo. Servicios: ${r.services.join(' | ')}`
+                        `Corte requerido por mora persistente (>3 días). Servicios: ${r.services.join(' | ')}`
                     ]
                 );
                 if (userStates) {
                     const st = userStates.get(destId) || {};
-                    userStates.set(destId, { ...st, state: 'waiting_human', category: 'Corte / Churn', churnPlatforms: r.services });
+                    userStates.set(destId, {
+                        ...st,
+                        state: 'waiting_human',
+                        category: 'Corte / Churn',
+                        nombre: r.name,
+                        churnPlatforms: r.services,
+                        clientWaitingSince: Date.now()
+                    });
                 }
             }
         } catch (ticketErr) {
