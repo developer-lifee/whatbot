@@ -14966,9 +14966,18 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     }
                 }
 
-                // Si no es un caso de 2FA/código, revisamos si ya le habíamos pedido detalles
+                // Si no es un caso de 2FA/código con imagen, revisamos si pide código/enlace por texto antes de tratarlo como soporte o pago
                 const wasAwaitingDetails = currentStateData && currentStateData.state === 'awaiting_support_details';
                 const cleanText = (message.body || "").toLowerCase().trim();
+                const isCodeTextRequest = ['código', 'codigo', 'solicité', 'solicite', 'pedí', 'pedi', 'enlace', 'link', 'token', '2fa', 'claude'].some(kw => cleanText.includes(kw));
+                if (isCodeTextRequest && userAccounts && userAccounts.length > 0) {
+                    const targetAccount = userAccounts.find(acc => platform && (acc.servicio || '').toLowerCase().includes(platform.toLowerCase())) || userAccounts[0];
+                    if (targetAccount) {
+                        userStates.delete(userId);
+                        await processAccountVerificationCode(message, userId, targetAccount, realPhone, client, userStates);
+                        return;
+                    }
+                }
                 const isExplicitHumanRequest = cleanText.includes('asesor') || cleanText.includes('humano') || cleanText === '5';
 
                 if (wasAwaitingDetails || isExplicitHumanRequest) {
