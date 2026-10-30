@@ -3,7 +3,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { getAccountsByPhone, fetchRawData } = require('./apiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
-const { callGemini38Flash, callAgyCli, callGemini38FlashHttp, extractJsonFromAgyOutput, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
+const { callGemini38Flash, callAgyCli, extractJsonFromAgyOutput, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
 
 const ERRORS_LOG_PATH = path.join(__dirname, 'logs', 'reported_errors.json');
 const PENDING_SOLUTIONS_PATH = path.join(__dirname, 'logs', 'pending_error_solutions.json');
@@ -504,19 +504,6 @@ Devuelve un JSON estrictamente estructurado así:
             console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI:', agyErr.message);
         }
 
-        // Fallback robusto con Gemini 3.8 Flash HTTP si el binario agy no respondió
-        try {
-            console.log('[ErrorDiagnostic] 🔄 Invocando fallback Gemini HTTP para análisis de ingeniería...');
-            const rawHttp = await callGemini38FlashHttp(prompt, "Eres Antigravity CLI. Inspecciona los archivos y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
-            const parsedHttp = extractJsonFromAgyOutput(rawHttp);
-            if (parsedHttp && (parsedHttp.causaRaiz || parsedHttp.planCodigo || parsedHttp.summary || parsedHttp.platform)) {
-                console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de fallback Gemini HTTP:', JSON.stringify({ platform: parsedHttp.platform, clientName: parsedHttp.clientName, summary: parsedHttp.summary }));
-                return parsedHttp;
-            }
-        } catch (httpErr) {
-            console.warn('[ErrorDiagnostic] Error invocando fallback Gemini HTTP:', httpErr.message);
-        }
-
         return fallbackSolution;
     };
 
@@ -732,13 +719,17 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             }
         }
 
-        // 2. FLUJO DE AJUSTE CON @cambio <solucion>
+        // 2. FLUJO DE AJUSTE CON @cambio <solucion> O REVALIDACIÓN CON @continuar
+        const isContinue = /^@?continuar\b/i.test(textTrimmed) || /^@?revalidar\b/i.test(textTrimmed) || /^@?seguir\b/i.test(textTrimmed);
         const changeMatch = textTrimmed.match(/^@?cambio[+: ]\s*(.+)/is) || textTrimmed.match(/^@?cambio\b(.*)/is);
-        if (changeMatch) {
-            const userInstruction = changeMatch[1] ? changeMatch[1].trim() : '';
-            if (!userInstruction) {
+        if (changeMatch || isContinue) {
+            const userInstruction = isContinue 
+                ? 'Profundizar y revalidar exhaustivamente el mensaje y contexto de la incidencia para generar una solución de código concreta y definitiva en los archivos del bot.' 
+                : (changeMatch[1] ? changeMatch[1].trim() : '');
+            if (!userInstruction && !isContinue) {
                 const hintMsg = `⚠️ Por favor especifica qué cambio o solución deseas. Ejemplo:\n` +
-                    `*@cambio validar contra las alertas de Gmail de Bancolombia y no contra Excel*`;
+                    `*@cambio validar contra las alertas de Gmail de Bancolombia y no contra Excel*\n` +
+                    `O escribe *@continuar* para que profundice y revalide la solución en el código.`;
                 try { await message.reply(hintMsg); } catch (e) {
                     if (client && client.sendMessage) await client.sendMessage(groupChatId, hintMsg).catch(() => {});
                 }
@@ -756,16 +747,19 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             const contextText = `${textTrimmed} ${quotedText}`.trim();
             const pendingTicket = getLatestPendingSolution(contextText);
             if (!pendingTicket) {
-                const noTicketMsg = `ℹ️ No encontré ninguna propuesta pendiente para modificar.\n` +
-                    `Por favor responde citando el mensaje del ticket de diagnóstico que deseas cambiar escribiendo *@cambio <tu indicación>*.`;
+                const noTicketMsg = `ℹ️ No encontré ninguna propuesta pendiente para modificar o revalidar.\n` +
+                    `Por favor responde citando el mensaje del ticket de diagnóstico que deseas cambiar escribiendo *@cambio <tu indicación>* o *@continuar*.`;
                 try { await message.reply(noTicketMsg); } catch (e) {
                     if (client && client.sendMessage) await client.sendMessage(groupChatId, noTicketMsg).catch(() => {});
                 }
                 return;
             }
 
-            const adjustingNotice = `⏳ *[REAJUSTANDO PROPUESTA SEGÚN TU INDICACIÓN]* (Ticket #${pendingTicket.id})...\n` +
-                `Analizando: "${userInstruction}"`;
+            const adjustingNotice = isContinue
+                ? `🔄 *[REVALIDANDO Y PROFUNDIZANDO SOLUCIÓN EN CÓDIGO]* (Ticket #${pendingTicket.id})...\n` +
+                  `Reexaminando contexto e inspeccionando lógica interna con Antigravity CLI...`
+                : `⏳ *[REAJUSTANDO PROPUESTA SEGÚN TU INDICACIÓN]* (Ticket #${pendingTicket.id})...\n` +
+                  `Analizando: "${userInstruction}"`;
             try { await message.reply(adjustingNotice); } catch (e) {
                 if (client && client.sendMessage) await client.sendMessage(groupChatId, adjustingNotice).catch(() => {});
             }
@@ -806,7 +800,8 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             if (updatedCliSolution.commitDetallado) {
                 adjustedMsg += `📝 *Commit Propuesto:* \n\`\`\`\n${updatedCliSolution.commitDetallado}\n\`\`\`\n\n`;
             }
-            adjustedMsg += `👉 *Para implementar cambios en código y subir a GitHub:* Escribe *@commit*\n`;
+            adjustedMsg += `👉 *Para implementar cambios en código y subir a GitHub:* Escribe *@commit* o *@aceptar*\n`;
+            adjustedMsg += `🔄 *Para profundizar o revalidar solución:* Escribe *@continuar*\n`;
             adjustedMsg += `✏️ *Para seguir ajustando:* Escribe *@cambio <tu ajuste>*\n\n`;
             adjustedMsg += `⚠️ *Nota:* El comando *@restart* solo estará disponible una vez que apruebes con *@commit*.`;
 
@@ -1266,6 +1261,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             responseMsg += `\n📝 *Commit Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
         }
         responseMsg += `\n👉 *Para implementar cambio en código y subir a GitHub:* Escribe *@commit* o *@aceptar*\n`;
+        responseMsg += `🔄 *Para profundizar o revalidar solución:* Escribe *@continuar*\n`;
         responseMsg += `✏️ *Para pedir otra solución o ajuste:* Escribe *@cambio <la solución que quieres>*\n`;
 
         // Responder citando el mensaje del asesor o directamente si falla el quote

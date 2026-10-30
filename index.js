@@ -309,9 +309,9 @@ userStates.set = function (key, value) {
         if (!value.waitingTimestamp) {
             value.waitingTimestamp = Date.now();
         }
-        // Si entra en waiting_human y no es un mensaje saliente manual de asesor sin respuesta,
-        // asegurar que clientWaitingSince esté activo para que aparezca en Tickets Libres del panel
-        if (!value.clientWaitingSince && value.waiting_human_mode !== 'advisor') {
+        // Si entra en waiting_human y no tiene clientWaitingSince explicitamente en null (marcado por intervencion saliente manual del asesor),
+        // asegurar que clientWaitingSince esté activo para que aparezca de inmediato en Tickets Libres del panel
+        if (!value.clientWaitingSince && value.clientWaitingSince !== null) {
             value.clientWaitingSince = Date.now();
         }
     }
@@ -2482,23 +2482,31 @@ app.get('/api/admin/tickets', async (req, res) => {
                         const resolvedAt = (curState && typeof curState === 'object') ? curState.resolvedAt : null;
                         const isRecentlyResolved = curStateStr === 'resolved' && resolvedAt && (Date.now() - resolvedAt < 24 * 3600 * 1000);
 
-                        if (!isRecentlyResolved && curStateStr !== 'waiting_human') {
+                        if (!isRecentlyResolved) {
                             const serviceName = row.Streaming || row.streaming || 'Servicio';
                             const clientName = row.Nombre || row.nombre || 'Cliente';
                             const st = (typeof curState === 'object' ? curState : {}) || {};
-                            userStates.set(destId, {
+                            const existingPlatforms = Array.isArray(st.churnPlatforms) ? st.churnPlatforms : (st.churnPlatforms ? [st.churnPlatforms] : []);
+                            const updatedPlatforms = Array.from(new Set([...existingPlatforms, serviceName].filter(Boolean)));
+
+                            const updatedState = {
                                 ...st,
                                 state: 'waiting_human',
                                 category: 'Corte / Churn',
-                                nombre: clientName,
+                                nombre: (st.nombre && st.nombre !== 'Cliente') ? st.nombre : clientName,
                                 advisorReason: isExplicitCut 
-                                    ? `Corte de Servicio: ${serviceName} (Nota: ${row.observaciones || row.Observaciones || 'cortar'})`
-                                    : `Corte de Servicio: ${serviceName} (Mora >= 3 días)`,
-                                churnPlatforms: [serviceName],
-                                clientWaitingSince: Date.now()
-                            });
-                            if (!targetEntries.some(([id]) => id === destId)) {
-                                targetEntries.push([destId, userStates.get(destId)]);
+                                    ? `Corte de Servicio: ${updatedPlatforms.join(', ')} (Nota: ${row.observaciones || row.Observaciones || 'cortar'})`
+                                    : `Corte de Servicio: ${updatedPlatforms.join(', ')} (Mora >= 3 días)`,
+                                churnPlatforms: updatedPlatforms,
+                                clientWaitingSince: st.clientWaitingSince || Date.now()
+                            };
+                            userStates.set(destId, updatedState);
+
+                            const existingIdx = targetEntries.findIndex(([id]) => id === destId);
+                            if (existingIdx === -1) {
+                                targetEntries.push([destId, updatedState]);
+                            } else {
+                                targetEntries[existingIdx] = [destId, updatedState];
                             }
                         }
                     }
@@ -11197,7 +11205,8 @@ REGLAS:
                 waitingCount: 0,
                 lastHumanInteraction: Date.now(),
                 waiting_human_mode: 'advisor',
-                nombre: foundName
+                nombre: foundName,
+                clientWaitingSince: (currentStateData && currentStateData.clientWaitingSince) ? currentStateData.clientWaitingSince : Date.now()
             };
             userStates.set(userId, muteObj);
             userStates.set(cleanPhoneJid, muteObj);
@@ -15885,6 +15894,9 @@ client.on('message', async (message) => {
         if (st && typeof st === 'object') {
             st.lastMessage = message.body || "";
             st.lastMessageTime = message.timestamp * 1000;
+            if (st.state === 'waiting_human') {
+                st.clientWaitingSince = st.clientWaitingSince || Date.now();
+            }
             userStates.set(message.from, st);
         }
     }
