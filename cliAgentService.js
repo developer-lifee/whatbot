@@ -525,6 +525,7 @@ if (require.main === module) {
 module.exports = {
     callGemini38Flash: callAgyCli,
     callAgyCli,
+    callGemini38FlashHttp,
     extractJsonFromAgyOutput,
     executeFixAndCommit,
     applyCodeModifications,

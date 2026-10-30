@@ -3,7 +3,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { getAccountsByPhone, fetchRawData } = require('./apiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
-const { callGemini38Flash, callAgyCli, extractJsonFromAgyOutput, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
+const { callGemini38Flash, callAgyCli, callGemini38FlashHttp, extractJsonFromAgyOutput, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
 
 const ERRORS_LOG_PATH = path.join(__dirname, 'logs', 'reported_errors.json');
 const PENDING_SOLUTIONS_PATH = path.join(__dirname, 'logs', 'pending_error_solutions.json');
@@ -502,6 +502,19 @@ Devuelve un JSON estrictamente estructurado así:
             }
         } catch (agyErr) {
             console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI:', agyErr.message);
+        }
+
+        // Fallback robusto con Gemini 3.8 Flash HTTP si el binario agy no respondió
+        try {
+            console.log('[ErrorDiagnostic] 🔄 Invocando fallback Gemini HTTP para análisis de ingeniería...');
+            const rawHttp = await callGemini38FlashHttp(prompt, "Eres Antigravity CLI. Inspecciona los archivos y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
+            const parsedHttp = extractJsonFromAgyOutput(rawHttp);
+            if (parsedHttp && (parsedHttp.causaRaiz || parsedHttp.planCodigo || parsedHttp.summary || parsedHttp.platform)) {
+                console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de fallback Gemini HTTP:', JSON.stringify({ platform: parsedHttp.platform, clientName: parsedHttp.clientName, summary: parsedHttp.summary }));
+                return parsedHttp;
+            }
+        } catch (httpErr) {
+            console.warn('[ErrorDiagnostic] Error invocando fallback Gemini HTTP:', httpErr.message);
         }
 
         return fallbackSolution;

@@ -3107,18 +3107,20 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
         const cleanPhone = phone.replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
-        const userId = cleanPhone + '@c.us';
         const last10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+        const normalized57 = last10.length === 10 ? '57' + last10 : cleanPhone;
+        const userId = cleanPhone + '@c.us';
 
         // 1. Obtener estado previo del ticket que se está resolviendo
-        const targetState = userStates.get(userId) || userStates.get(cleanPhone + '@lid') || userStates.get(cleanPhone + '@c.us') || {};
+        const targetState = userStates.get(userId) || userStates.get(cleanPhone + '@lid') || userStates.get(cleanPhone + '@c.us') || userStates.get(normalized57 + '@c.us') || userStates.get(last10 + '@c.us') || {};
         const targetRealPhone = targetState.realPhone ? String(targetState.realPhone).replace(/\D/g, '') : '';
         const targetNombre = (targetState.nombre || '').toLowerCase().trim();
 
-        // Obtener todos los posibles JIDs asociados a este teléfono (LID y teléfono real)
-        const possibleJids = [cleanPhone + '@c.us', cleanPhone + '@lid'];
+        // Obtener todos los posibles JIDs asociados a este teléfono (LID y teléfono real con o sin prefijo 57)
+        const possibleJids = [cleanPhone + '@c.us', cleanPhone + '@lid', normalized57 + '@c.us', normalized57 + '@lid', last10 + '@c.us'];
         if (targetRealPhone) {
-            possibleJids.push(targetRealPhone + '@c.us', targetRealPhone + '@lid');
+            const realLast10 = targetRealPhone.slice(-10);
+            possibleJids.push(targetRealPhone + '@c.us', targetRealPhone + '@lid', `57${realLast10}@c.us`, `${realLast10}@c.us`);
         }
 
         let resolvedDbPhone = '';
@@ -3270,6 +3272,23 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
             const cleanTarget = targetJid.replace('@c.us', '').replace('@lid', '');
             probablyFinishedTickets.delete(cleanTarget);
             probablyFinishedTickets.delete(cleanPhone);
+            if (last10) probablyFinishedTickets.delete(last10);
+            if (normalized57) probablyFinishedTickets.delete(normalized57);
+        }
+
+        // Asegurar que tanto la versión con 57 como la de 10 dígitos queden explícitamente en resolved
+        if (last10 && last10.length === 10) {
+            const keysToSync = [`57${last10}@c.us`, `${last10}@c.us`];
+            for (const k of keysToSync) {
+                const s = userStates.get(k) || {};
+                userStates.set(k, {
+                    ...(typeof s === 'object' ? s : { state: s }),
+                    state: 'resolved',
+                    agent: agentName,
+                    resolvedAt: Date.now(),
+                    botMuted: false
+                });
+            }
         }
 
         // Auto-resolver tickets de otras personas que tengan las mismas cuentas/correos
