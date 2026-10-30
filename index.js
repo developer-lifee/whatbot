@@ -6804,9 +6804,10 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
         const { pool } = require('./database');
 
         // Authorization check to ensure advisors cannot edit each other
+        let isReqAdmin = false;
         if (requester_email) {
             const [reqRows] = await pool.query('SELECT role FROM agents WHERE email = ?', [requester_email.trim().toLowerCase()]);
-            const isReqAdmin = reqRows.length > 0 && reqRows[0].role === 'admin';
+            isReqAdmin = reqRows.length > 0 && reqRows[0].role === 'admin';
             const isSelf = requester_email.trim().toLowerCase() === email.trim().toLowerCase();
             if (!isReqAdmin && !isSelf) {
                 return res.status(403).json({ success: false, message: 'No tienes permiso para modificar el horario de otro colaborador.' });
@@ -6826,8 +6827,33 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
         }
 
         // Support Config and Roles lookup
-        const { getSupportScheduleConfig } = require('./supportScheduleService');
+        const { getSupportScheduleConfig, getNowInBogota } = require('./supportScheduleService');
         const supportConfig = getSupportScheduleConfig();
+
+        // Determinar si el día editado ya ocurrió en el pasado (Bogotá)
+        const nowBogota = getNowInBogota();
+        const todayBogotaYMD = `${nowBogota.getFullYear()}-${String(nowBogota.getMonth() + 1).padStart(2, '0')}-${String(nowBogota.getDate()).padStart(2, '0')}`;
+        
+        let isPastDate = false;
+        if (weekStartStr && weekStartStr !== 'default' && /^\d{4}-\d{2}-\d{2}$/.test(weekStartStr)) {
+            const [wY, wM, wD] = weekStartStr.split('-').map(Number);
+            const targetDayVal = day_of_week !== undefined ? parseInt(day_of_week) : 1;
+            // day_of_week: 1=Lunes (offset 0), ..., 6=Sábado (offset 5), 0=Domingo (offset 6)
+            const dayOffset = targetDayVal === 0 ? 6 : targetDayVal - 1;
+            const targetDate = new Date(wY, wM - 1, wD + dayOffset);
+            const targetYMD = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}-${String(targetDate.getDate()).padStart(2, '0')}`;
+            isPastDate = targetYMD < todayBogotaYMD;
+        }
+
+        // Obtener turnos existentes de este asesor para verificar si solo está recortando horas heredadas
+        const [existingAgentSlots] = await pool.query(
+            'SELECT day_of_week, start_time, end_time FROM agent_schedules WHERE agent_id = ? AND week_start = ?',
+            [agentId, weekStartStr]
+        );
+        const existingSlotsMap = new Map();
+        for (const es of existingAgentSlots) {
+            existingSlotsMap.set(es.day_of_week, es);
+        }
 
         const [allAgents] = await pool.query('SELECT id, role, fullname FROM agents');
         const agentMap = {};
@@ -6866,7 +6892,18 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
             const limitStartMinTotal = startLimitH * 60 + startLimitM;
             const limitEndMinTotal = endLimitH * 60 + endLimitM;
 
-            if (startMinTotal < limitStartMinTotal || endMinTotal > limitEndMinTotal) {
+            // EXCEPCIÓN DE RESPETO HISTÓRICO Y CASOS DE FUERZA MAYOR / APAGÓN:
+            // 1. Si quien guarda es Admin (Esteban), tiene flexibilidad total.
+            // 2. Si es una fecha pasada, no bloquear por la regla nueva de apertura.
+            // 3. Si el turno ya estaba registrado previamente con inicio < 10:00 (ej. 09:00) y solo están recortando o ajustando,
+            //    se permite mantener o recortar sobre la base ya pactada.
+            const prevSlot = existingSlotsMap.get(dayOfWeek);
+            const prevStart = prevSlot ? prevSlot.start_time.substring(0, 5) : null;
+            const isRetainingOrTrimmingHistoricalStart = prevStart && (startTime >= prevStart && startMinTotal < limitStartMinTotal);
+
+            const isStartLimitExempt = isReqAdmin || isPastDate || isRetainingOrTrimmingHistoricalStart;
+
+            if ((!isStartLimitExempt && startMinTotal < limitStartMinTotal) || endMinTotal > limitEndMinTotal) {
                 return res.status(400).json({
                     success: false,
                     message: `Los turnos de soporte deben estar estrictamente dentro de la franja permitida de ${configStartLimit} a ${configEndLimit}.`
