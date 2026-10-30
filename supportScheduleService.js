@@ -170,7 +170,6 @@ async function isSupportOpen() {
 function getQueuePosition(userId, userStates) {
   if (!userStates) return null;
   const now = Date.now();
-  const TWO_HOURS = 2 * 60 * 60 * 1000;
   const queue = [];
   
   for (const [id, state] of userStates.entries()) {
@@ -184,21 +183,17 @@ function getQueuePosition(userId, userStates) {
         ? (state.clientWaitingSince || state.waitingTimestamp || state.lastHumanInteraction || state.lastMessageTime || 0)
         : 0;
       
-      // Solo contar chats que entraron en espera recientemente (últimas 2 horas)
-      if (waitingSince && (now - waitingSince) < TWO_HOURS) {
-        queue.push({ id, ts: waitingSince });
-      } else if (id === userId) {
-        queue.push({ id, ts: now });
-      }
+      // Incluir todos los chats en estado de espera ordenados por antigüedad real (oldest first)
+      queue.push({ id, ts: waitingSince || now });
     }
   }
 
-  // Sort queue by timestamp (oldest first)
+  // Sort queue by timestamp (oldest first: a.ts - b.ts)
   queue.sort((a, b) => a.ts - b.ts);
 
   // Find index of userId
   const index = queue.findIndex(item => item.id === userId);
-  if (index === -1) return 1;
+  if (index === -1) return null;
   return index + 1; // 1-based index (ej: #1, #2, #3)
 }
 async function checkUpcomingDayCoverage(client, groupId) {
@@ -637,4 +632,3 @@ module.exports = {
   getNowInBogota,
   formatTime12h
 };
-

@@ -1,0 +1,94 @@
+[
+  {
+    "id": "rem_claude_usage",
+    "title": "Revisar uso de Claude",
+    "target": "120363102144405222@g.us",
+    "targetLabel": "👥 Grupo Sheerit General",
+    "message": "🔔 *RECORDATORIO DIARIO:*\nPor favor revisar el consumo y uso de tokens de las cuentas de Claude para verificar disponibilidad y límites.",
+    "type": "recurring",
+    "time": "10:00",
+    "days": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      0
+    ],
+    "daysLabel": "Todos los días",
+    "enabled": true,
+    "createdAt": "2026-10-29T22:36:09.101Z",
+    "lastSentAt": null
+  },
+  {
+    "id": "rem_1793323443491_2kcr2",
+    "title": "Revisar uso de Claude",
+    "target": "120363102144405222@g.us",
+    "targetLabel": "👥 Grupo Sheerit General",
+    "message": "🔔 *RECORDATORIO DIARIO:*\nPor favor revisar el consumo y uso de tokens de las cuentas de Claude para verificar disponibilidad y límites.\n\nValidar los dispositivos, los claude coude, uso y las llaves API",
+    "type": "recurring",
+    "time": "18:00",
+    "datetime": "",
+    "days": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      0
+    ],
+    "daysLabel": "Todos los días",
+    "enabled": true,
+    "createdAt": "2026-10-30T01:24:03.491Z",
+    "lastSentAt": null,
+    "updatedAt": "2026-10-30T01:24:39.553Z"
+  },
+  {
+    "id": "rem_1793323877611_7s03z",
+    "title": "Renovacion de cuentas con el Provedor Net",
+    "target": "120363102144405222@g.us",
+    "targetLabel": "👥 Grupo Sheerit General",
+    "message": "Revisar en el grupo el reporte del bot por cuentas a renovar con el proveedor NET",
+    "type": "recurring",
+    "time": "17:00",
+    "datetime": null,
+    "days": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      0
+    ],
+    "daysLabel": "Todos los días",
+    "enabled": true,
+    "createdAt": "2026-10-30T01:31:17.611Z",
+    "lastSentAt": null
+  },
+  {
+    "id": "rem_1793323877619_ry3jh",
+    "title": "Renovacion de cuentas con el Provedor Net",
+    "target": "120363102144405222@g.us",
+    "targetLabel": "👥 Grupo Sheerit General",
+    "message": "Revisar en el grupo el reporte del bot por cuentas a renovar con el proveedor NET",
+    "type": "recurring",
+    "time": "17:00",
+    "datetime": null,
+    "days": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      0
+    ],
+    "daysLabel": "Todos los días",
+    "enabled": true,
+    "createdAt": "2026-10-30T01:31:17.619Z",
+    "lastSentAt": null
+  }
+]

@@ -15626,8 +15626,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 break;
             }
 
-            // Update user state first so they are placed at the end of the queue
-            userStates.set(userId, { ...currentSt, waitingCount: count + 1, waitingTimestamp: Date.now() });
+            // Update user state first preserving original waitingTimestamp if present so FIFO order is respected
+            userStates.set(userId, { ...currentSt, waitingCount: count + 1, waitingTimestamp: currentSt.waitingTimestamp || Date.now() });
 
             const { getQueuePosition } = require('./supportScheduleService');
             const pos = getQueuePosition(userId, userStates) || 1;
