@@ -473,6 +473,9 @@ const storage = multer.diskStorage({
 const upload = multer({ storage: storage });
 
 // Main App Routes
+const soundboxRouter = require("./soundboxService");
+app.use("/api/soundbox", soundboxRouter);
+
 app.get('/', (req, res) => {
     res.send('Hola, mundo! This is Sheerit Whatbot Express Server.');
 });
