@@ -13511,9 +13511,66 @@ REGLAS:
                             }
                             return;
                         } else {
+                            // 1. Purgar estado residual contaminado si no corresponde a un carrito activo reciente
+                            const isStaleState = stateData.state === 'waiting_human' || stateData.state === 'main_menu' || (stateData.timestamp && (Date.now() - stateData.timestamp > 4 * 60 * 60 * 1000));
+                            if (isStaleState) {
+                                console.log(`[PAYMENT AUTO-VALIDATE] 🧹 Purgando estado residual (${stateData.state}) para @${userId}`);
+                                delete stateData.items;
+                                delete stateData.isRenewal;
+                                delete stateData.total;
+                            }
+
+                            // 2. Priorizar plataforma inferida por OCR/IA sobre estados residuales
+                            const inferredPlat = (check.inferredPlatform || stateData.targetPlatform || '').toString().trim();
+                            if (inferredPlat) {
+                                try {
+                                    const { getPlatformPriceFromExcel } = require('./billingService');
+                                    const normInferred = inferredPlat.toLowerCase();
+                                    const activeList = Array.isArray(stateData.activeAccounts) ? stateData.activeAccounts : [];
+                                    const hasActiveMatch = activeList.some(acc => {
+                                        const p = (acc.Streaming || acc.Plataforma || '').toString().toLowerCase();
+                                        return p && (p.includes(normInferred) || normInferred.includes(p));
+                                    });
+                                    if (!hasActiveMatch) {
+                                        const currentItemPlat = (stateData.items && stateData.items[0]) ? (stateData.items[0].Streaming || stateData.items[0].Plataforma || (stateData.items[0].platform && stateData.items[0].platform.name) || '').toString().toLowerCase() : '';
+                                        if (!currentItemPlat || (!currentItemPlat.includes(normInferred) && !normInferred.includes(currentItemPlat))) {
+                                            const inferredPrice = getPlatformPriceFromExcel(inferredPlat, []) || check.amount || 20000;
+                                            stateData.items = [{
+                                                Streaming: inferredPlat,
+                                                Plataforma: inferredPlat,
+                                                platform: { name: inferredPlat, price: inferredPrice },
+                                                price: inferredPrice,
+                                                plan: { months: 1, label: '1 Mes', finalPrice: inferredPrice }
+                                            }];
+                                            stateData.total = inferredPrice;
+                                        }
+                                        stateData.isRenewal = false;
+                                        stateData.isNewSale = true;
+                                    }
+                                } catch (e) {
+                                    console.warn('[PAYMENT AUTO-VALIDATE] Error verificando plataforma inferida:', e.message);
+                                }
+                            }
+
+                            // 3. Asegurar propiedad price en cada item de compras nuevas
+                            if (stateData.isNewSale || stateData.isRenewal === false) {
+                                stateData.isNewSale = true;
+                                stateData.isRenewal = false;
+                                if (Array.isArray(stateData.items)) {
+                                    const { getPlatformPriceFromExcel } = require('./billingService');
+                                    stateData.items.forEach(item => {
+                                        if (!item.price) {
+                                            const pName = item.Streaming || item.Plataforma || (item.platform && item.platform.name) || '';
+                                            const pPrice = (item.platform && item.platform.price) || (item.plan && item.plan.finalPrice) || (pName ? getPlatformPriceFromExcel(pName, []) : 0) || stateData.total || check.amount || 0;
+                                            if (pPrice) item.price = pPrice;
+                                        }
+                                    });
+                                }
+                            }
+
                             const match = await findMatchingPayment(check.amount, 60, userId); // Ventana de 60 min
                             if (match) {
-                                console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} ($${check.amount})`);
+                                console.log(`[PAYMENT AUTO-VALIDATE] ✅ Match encontrado en Gmail para @${userId} (${check.amount})`);
 
                                 // INTELIGENCIA DE RENOVACIÓN DE COMBOS Y MÚLTIPLES CUENTAS:
                                 if (stateData.isRenewal && stateData.items && stateData.items.length > 1 && check.amount) {
