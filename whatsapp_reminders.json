@@ -19,7 +19,7 @@
     "daysLabel": "Todos los días",
     "enabled": true,
     "createdAt": "2026-10-29T22:36:09.101Z",
-    "lastSentAt": null
+    "lastSentAt": "2026-10-30T15:00:00.127Z"
   },
   {
     "id": "rem_1793323443491_2kcr2",
@@ -42,7 +42,7 @@
     "daysLabel": "Todos los días",
     "enabled": true,
     "createdAt": "2026-10-30T01:24:03.491Z",
-    "lastSentAt": null,
+    "lastSentAt": "2026-10-30T23:00:00.235Z",
     "updatedAt": "2026-10-30T01:24:39.553Z"
   },
   {
@@ -50,10 +50,10 @@
     "title": "Renovacion de cuentas con el Provedor Net",
     "target": "120363102144405222@g.us",
     "targetLabel": "👥 Grupo Sheerit General",
-    "message": "Revisar en el grupo el reporte del bot por cuentas a renovar con el proveedor NET",
+    "message": "🔔 RECORDATORIO DIARIO:\n\nRevisar en el grupo el reporte del bot por cuentas a renovar con el proveedor NET",
     "type": "recurring",
     "time": "17:00",
-    "datetime": null,
+    "datetime": "",
     "days": [
       1,
       2,
@@ -66,16 +66,17 @@
     "daysLabel": "Todos los días",
     "enabled": true,
     "createdAt": "2026-10-30T01:31:17.611Z",
-    "lastSentAt": null
+    "lastSentAt": "2026-10-30T22:00:00.386Z",
+    "updatedAt": "2026-10-30T23:15:57.550Z"
   },
   {
-    "id": "rem_1793323877619_ry3jh",
-    "title": "Renovacion de cuentas con el Provedor Net",
+    "id": "rem_1793381717440_xfhw7",
+    "title": "LOS TIKETS",
     "target": "120363102144405222@g.us",
     "targetLabel": "👥 Grupo Sheerit General",
-    "message": "Revisar en el grupo el reporte del bot por cuentas a renovar con el proveedor NET",
+    "message": "CERRAR LOS TIKETS",
     "type": "recurring",
-    "time": "17:00",
+    "time": "11:00",
     "datetime": null,
     "days": [
       1,
@@ -88,7 +89,7 @@
     ],
     "daysLabel": "Todos los días",
     "enabled": true,
-    "createdAt": "2026-10-30T01:31:17.619Z",
+    "createdAt": "2026-10-30T17:35:17.440Z",
     "lastSentAt": null
   }
 ]

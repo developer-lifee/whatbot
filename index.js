@@ -14654,6 +14654,59 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
             // 3. IDENTIDAD TERCERO movido arriba
 
+            // 3.5 INTERCEPCIÓN TEMPRANA DE PANTALLA DE HOGAR (NETFLIX / DISNEY+) POR IMAGEN O TEXTO OCR
+            const lowerInputHogar = inputToUse.toLowerCase();
+            const isHogarLockDetected = (
+                lowerInputHogar.includes('no forma parte del hogar') ||
+                lowerInputHogar.includes('no es parte de tu hogar') ||
+                lowerInputHogar.includes('actualizar el hogar') ||
+                lowerInputHogar.includes('actualizar hogar') ||
+                lowerInputHogar.includes('estoy de viaje') ||
+                lowerInputHogar.includes('ver temporalmente') ||
+                lowerInputHogar.includes('confirmar cambio de hogar') ||
+                lowerInputHogar.includes('tu tv no está conectado al hogar')
+            ) && !lowerInputHogar.includes('ya envi') && !lowerInputHogar.includes('ya le di') && !lowerInputHogar.includes('envié el correo');
+
+            if (isHogarLockDetected && message.hasMedia) {
+                let platHogar = (detection.detectedPlatform || '').toLowerCase();
+                if (!platHogar) {
+                    if (lowerInputHogar.includes('disney')) platHogar = 'disney';
+                    else if (lowerInputHogar.includes('netflix') || lowerInputHogar.includes('estoy de viaje')) platHogar = 'netflix';
+                }
+                if (!platHogar) {
+                    try {
+                        const { getClientServices } = require('./apiService');
+                        const clientRows = await getClientServices(userId);
+                        if (Array.isArray(clientRows) && clientRows.length > 0) {
+                            const hasDisney = clientRows.some(r => (r.servicio || r.plataforma || '').toLowerCase().includes('disney'));
+                            const hasNetflix = clientRows.some(r => (r.servicio || r.plataforma || '').toLowerCase().includes('netflix'));
+                            if (hasDisney && !hasNetflix) platHogar = 'disney';
+                            else if (hasNetflix) platHogar = 'netflix';
+                        }
+                    } catch (errH) {
+                        console.error('[Hogar Interceptor] Error consultando servicios del cliente:', errH.message);
+                    }
+                }
+
+                if (platHogar.includes('disney')) {
+                    await message.reply(
+                        "🤖 Veo que tu televisor muestra el bloqueo de *Hogar de Disney+*. ¡No te preocupes! Para solucionarlo en segundos, sigue estos pasos:\n\n" +
+                        "1️⃣ En tu TV, selecciona la opción *\"Actualizar Hogar\"* o *\"Estoy fuera de casa\"*.\n" +
+                        "2️⃣ En la siguiente pantalla, dale clic a *\"Enviar correo electrónico\"* (te pedirá un código de acceso único).\n" +
+                        "3️⃣ Apenas te salga que el correo fue enviado, escríbeme por aquí *\"código de Disney\"* (o ingresa a *https://sheerit.co/actualizar/* con tu número de celular) y te entregaré el código de inmediato. ✨"
+                    );
+                    return;
+                } else {
+                    await message.reply(
+                        "🤖 Veo que tu televisor muestra el aviso de *Hogar con Netflix*. ¡Es muy fácil solucionarlo! Sigue estos pasos:\n\n" +
+                        "1️⃣ En la pantalla de tu TV, selecciona *\"Actualizar el Hogar con Netflix\"* o *\"Estoy de viaje / Ver temporalmente\"*.\n" +
+                        "2️⃣ Luego selecciona la opción *\"Enviar correo electrónico\"*.\n" +
+                        "3️⃣ En cuanto el TV te indique que el correo fue enviado, escríbeme por aquí *\"ya envié el correo\"* (o entra a *https://sheerit.co/actualizar/*) para aprobarte el enlace o darte el código al instante. 🍿"
+                    );
+                    return;
+                }
+            }
+
             // Determinar si el nombre es completo según la IA o si ya lo teníamos validado
             const nameIsComplete = detection.isNameComplete || false;
 
