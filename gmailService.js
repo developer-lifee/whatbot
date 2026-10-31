@@ -411,6 +411,10 @@ function isValidVerificationCode(code, fullText) {
     if (/^(202\d|203\d)$/.test(code)) {
         return false;
     }
+    // Excluir códigos postales del pie de página corporativo de Netflix (ej. Los Gatos, CA 95032 / 95008)
+    if (/^(95032|95008)$/.test(code)) {
+        return false;
+    }
     // Si el código está en formato de fecha en el texto (ej. 2026-06-16 o 16-06-2026)
     const datePattern = new RegExp(`(?:\\d{1,4}[-\\/\\s]\\d{1,2}[-\\/\\s]${code})|(?:${code}[-\\/\\s]\\d{1,2}[-\\/\\s]\\d{1,4})`, 'i');
     if (datePattern.test(fullText)) {
@@ -460,7 +464,9 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
             if (diffMinutes > toleranceMinutes) continue;
 
             const subject = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'subject')?.value || 'Sin asunto';
+            const fromHeader = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'from')?.value || '';
             const decodedSubject = decodeQuotedPrintable(subject);
+            const decodedFrom = decodeQuotedPrintable(fromHeader);
 
             // Filtrar en memoria por palabras clave del asunto para omitir correos no relacionados
             const subjectLower = decodedSubject.toLowerCase();
@@ -486,56 +492,76 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
 
             let code = null;
 
+            // Detectar si es un correo proveniente de Netflix
+            const isNetflixMail = /netflix/i.test(decodedSubject) || /netflix/i.test(decodedFrom) || /netflix/i.test(superCleanBody);
+
             // Si el correo es específicamente de actualización de hogar de Netflix, es por ENLACE, no por código de 4 dígitos
-            const isNetflixHouseholdUpdate = /actualizar.*hogar|update-primary-location|c[oó]mo actualizar/i.test(decodedSubject) ||
-                /actualizar.*hogar|update-primary-location/i.test(superCleanBody);
+            const isNetflixHouseholdUpdate = /actualizar.*hogar|update-primary-location|c[oó]mo actualizar|confirmar.*hogar|update.*household/i.test(decodedSubject) ||
+                /actualizar.*hogar|update-primary-location|c[oó]mo actualizar tu hogar/i.test(superCleanBody);
 
             if (!isNetflixHouseholdUpdate) {
-                // Buscar la palabra "código" o "pin" y capturar el primer número de 4-8 dígitos o alfanumérico que aparezca cerca
-                const specificCodeMatch = superCleanBody.match(/(?:c[oó]digo|pin|code)[\s\S]{0,250}?\b([0-9]{4,8}|[A-Z0-9]{6,8})\b/i);
-
-                if (specificCodeMatch && /[0-9]/.test(specificCodeMatch[1])) {
-                    const tempCode = specificCodeMatch[1].toUpperCase();
-                    if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
-                        code = tempCode;
+                if (isNetflixMail) {
+                    // En Netflix (ej. 'Tu código de acceso temporal de Netflix' o inicio de sesión), aceptar únicamente códigos de exactamente 4 dígitos numéricos
+                    const netflixSpecificMatch = superCleanBody.match(/(?:c[oó]digo|pin|code|ingresa|introduce)[\s\S]{0,250}?\b(\d{4})\b/i);
+                    if (netflixSpecificMatch && isValidVerificationCode(netflixSpecificMatch[1], decodedSubject + ' ' + superCleanBody)) {
+                        code = netflixSpecificMatch[1];
                     }
-                }
-
-                if (!code) {
-                    // Fallback 1: Buscar explícitamente 6 dígitos o formato con guion 3-3 (típico en Amazon/Disney+/Netflix)
-                    const hyphenMatch = superCleanBody.match(/\b([0-9]{3})-([0-9]{3})\b/);
-                    const sixDigitMatch = superCleanBody.match(/\b([0-9]{6})\b/);
-                    if (hyphenMatch) {
-                        const tempCode = hyphenMatch[1] + hyphenMatch[2];
-                        if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
-                            code = tempCode;
-                        }
-                    } else if (sixDigitMatch) {
-                        const tempCode = sixDigitMatch[1];
-                        if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
-                            code = tempCode;
+                    if (!code) {
+                        const allFourDigits = superCleanBody.match(/\b\d{4}\b/g) || decodedSnippet.match(/\b\d{4}\b/g) || [];
+                        for (const candidate of allFourDigits) {
+                            if (isValidVerificationCode(candidate, decodedSubject + ' ' + superCleanBody)) {
+                                code = candidate;
+                                break;
+                            }
                         }
                     }
-                }
+                } else {
+                    // Buscar la palabra "código" o "pin" y capturar el primer número de 4-8 dígitos o alfanumérico que aparezca cerca
+                    const specificCodeMatch = superCleanBody.match(/(?:c[oó]digo|pin|code)[\s\S]{0,250}?\b([0-9]{4,8}|[A-Z0-9]{6,8})\b/i);
 
-                if (!code) {
-                    // Fallback 2: Código alfanumérico mixto (Max)
-                    const alphaNumMatch = superCleanBody.match(/\b([A-Z0-9]{6,8})\b/i);
-                    if (alphaNumMatch && /[A-Z]/i.test(alphaNumMatch[1]) && /[0-9]/.test(alphaNumMatch[1])) {
-                        const tempCode = alphaNumMatch[1].toUpperCase();
+                    if (specificCodeMatch && /[0-9]/.test(specificCodeMatch[1])) {
+                        const tempCode = specificCodeMatch[1].toUpperCase();
                         if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
                             code = tempCode;
                         }
                     }
-                }
 
-                if (!code) {
-                    // Fallback 3: Cualquier número de 4 a 8 dígitos suelto
-                    const fallbackMatch = superCleanBody.match(/\b\d{4,8}\b/) || decodedSnippet.match(/\b\d{4,8}\b/);
-                    if (fallbackMatch) {
-                        const tempCode = fallbackMatch[0];
-                        if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
-                            code = tempCode;
+                    if (!code) {
+                        // Fallback 1: Buscar explícitamente 6 dígitos o formato con guion 3-3 (típico en Amazon/Disney+)
+                        const hyphenMatch = superCleanBody.match(/\b([0-9]{3})-([0-9]{3})\b/);
+                        const sixDigitMatch = superCleanBody.match(/\b([0-9]{6})\b/);
+                        if (hyphenMatch) {
+                            const tempCode = hyphenMatch[1] + hyphenMatch[2];
+                            if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
+                                code = tempCode;
+                            }
+                        } else if (sixDigitMatch) {
+                            const tempCode = sixDigitMatch[1];
+                            if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
+                                code = tempCode;
+                            }
+                        }
+                    }
+
+                    if (!code) {
+                        // Fallback 2: Código alfanumérico mixto (Max)
+                        const alphaNumMatch = superCleanBody.match(/\b([A-Z0-9]{6,8})\b/i);
+                        if (alphaNumMatch && /[A-Z]/i.test(alphaNumMatch[1]) && /[0-9]/.test(alphaNumMatch[1])) {
+                            const tempCode = alphaNumMatch[1].toUpperCase();
+                            if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
+                                code = tempCode;
+                            }
+                        }
+                    }
+
+                    if (!code) {
+                        // Fallback 3: Cualquier número de 4 a 8 dígitos suelto
+                        const fallbackMatch = superCleanBody.match(/\b\d{4,8}\b/) || decodedSnippet.match(/\b\d{4,8}\b/);
+                        if (fallbackMatch) {
+                            const tempCode = fallbackMatch[0];
+                            if (isValidVerificationCode(tempCode, decodedSubject + ' ' + superCleanBody)) {
+                                code = tempCode;
+                            }
                         }
                     }
                 }
@@ -740,21 +766,36 @@ async function getEmailsFromInbox(email, maxResults = 15) {
             const superCleanBody = cleanBodyForCode.replace(/\b(?:F9F9F9|FFFFFF|000000|E5E5E5|CCCCCC|DEDEDE)\b/gi, ' ');
 
             let code = null;
-            const specificCodeMatch = superCleanBody.match(/(?:c[oó]digo|pin|code)[\s\S]{0,250}?\b([0-9]{4,8}|[A-Z0-9]{6,8})\b/i);
-            if (specificCodeMatch && /[0-9]/.test(specificCodeMatch[1])) {
-                code = specificCodeMatch[1].toUpperCase();
-            }
-            if (!code) {
-                const sixDigitMatch = superCleanBody.match(/\b([0-9]{6})\b/);
-                if (sixDigitMatch) code = sixDigitMatch[1];
+            const decodedSubj = decodeQuotedPrintable(subject);
+            const decodedFromStr = decodeQuotedPrintable(from);
+            const isNetflixMail = /netflix/i.test(decodedSubj) || /netflix/i.test(decodedFromStr) || /netflix/i.test(superCleanBody);
+            const isNetflixHouseholdUpdate = /actualizar.*hogar|update-primary-location|c[oó]mo actualizar|confirmar.*hogar|update.*household/i.test(decodedSubj) ||
+                /actualizar.*hogar|update-primary-location|c[oó]mo actualizar tu hogar/i.test(superCleanBody);
+
+            if (!isNetflixHouseholdUpdate) {
+                if (isNetflixMail) {
+                    const netflixMatch = superCleanBody.match(/(?:c[oó]digo|pin|code|ingresa|introduce)[\s\S]{0,250}?\b(\d{4})\b/i);
+                    if (netflixMatch && isValidVerificationCode(netflixMatch[1], decodedSubj + ' ' + superCleanBody)) {
+                        code = netflixMatch[1];
+                    }
+                } else {
+                    const specificCodeMatch = superCleanBody.match(/(?:c[oó]digo|pin|code)[\s\S]{0,250}?\b([0-9]{4,8}|[A-Z0-9]{6,8})\b/i);
+                    if (specificCodeMatch && /[0-9]/.test(specificCodeMatch[1])) {
+                        code = specificCodeMatch[1].toUpperCase();
+                    }
+                    if (!code) {
+                        const sixDigitMatch = superCleanBody.match(/\b([0-9]{6})\b/);
+                        if (sixDigitMatch) code = sixDigitMatch[1];
+                    }
+                }
             }
 
             const link = extractBestLink(decodedHtml || decodedText);
 
             emailsList.push({
                 id: msg.id,
-                subject: decodeQuotedPrintable(subject),
-                from: decodeQuotedPrintable(from),
+                subject: decodedSubj,
+                from: decodedFromStr,
                 date: dateStr,
                 internalDate,
                 snippet: decodeQuotedPrintable(snippet),

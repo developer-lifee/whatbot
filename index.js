@@ -14656,6 +14656,12 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
             // 3.5 INTERCEPCIÓN TEMPRANA DE PANTALLA DE HOGAR (NETFLIX / DISNEY+) POR IMAGEN O TEXTO OCR
             const lowerInputHogar = inputToUse.toLowerCase();
+            const isSheeritVerifierScreen = (
+                lowerInputHogar.includes('confirmar hogar en netflix') ||
+                lowerInputHogar.includes('código de acceso de 4 dígitos') ||
+                lowerInputHogar.includes('codigo de acceso de 4 digitos') ||
+                (lowerInputHogar.includes('verificación completada') && lowerInputHogar.includes('netflix'))
+            );
             const isHogarLockDetected = (
                 lowerInputHogar.includes('no forma parte del hogar') ||
                 lowerInputHogar.includes('no es parte de tu hogar') ||
@@ -14664,14 +14670,29 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 lowerInputHogar.includes('estoy de viaje') ||
                 lowerInputHogar.includes('ver temporalmente') ||
                 lowerInputHogar.includes('confirmar cambio de hogar') ||
-                lowerInputHogar.includes('tu tv no está conectado al hogar')
+                lowerInputHogar.includes('tu tv no está conectado al hogar') ||
+                isSheeritVerifierScreen
             ) && !lowerInputHogar.includes('ya envi') && !lowerInputHogar.includes('ya le di') && !lowerInputHogar.includes('envié el correo');
+
+            if (isSheeritVerifierScreen && message.hasMedia) {
+                await message.reply(
+                    `🤖 ¡Veo que ya estás en nuestro portal de verificación de **Netflix**! 📺✨\n\n` +
+                    `Aquí tienes cómo completar el acceso según lo que aparezca en tu pantalla de Netflix:\n\n` +
+                    `🔴 **Opción 1: Si estás en un TV y elegiste "Actualizar Hogar -> Enviar correo"**\n` +
+                    `• En tu televisor **NO** se ingresa ningún código numérico.\n` +
+                    `• Solo debes tocar el **botón rojo** de esa página (*"Confirmar Hogar en Netflix"* / *"Sí, la envié yo"*) desde tu celular y tu TV se desbloqueará automáticamente en unos segundos.\n\n` +
+                    `🔢 **Opción 2: Si tu pantalla de Netflix te pide ingresar un código de 4 dígitos**\n` +
+                    `• En tu TV o celular debes seleccionar primero **"Ver temporalmente"** (o **"Estoy de viaje"**) y darle a **"Enviar correo"**.\n` +
+                    `• Espera 15 segundos, vuelve a presionar **"Verificar ahora"** en el portal web y te aparecerá el **código exacto de 4 dígitos** para digitarlo en tu pantalla.`
+                );
+                return;
+            }
 
             if (isHogarLockDetected && message.hasMedia) {
                 let platHogar = (detection.detectedPlatform || '').toLowerCase();
                 if (!platHogar) {
                     if (lowerInputHogar.includes('disney')) platHogar = 'disney';
-                    else if (lowerInputHogar.includes('netflix') || lowerInputHogar.includes('estoy de viaje')) platHogar = 'netflix';
+                    else if (lowerInputHogar.includes('netflix') || lowerInputHogar.includes('estoy de viaje') || isSheeritVerifierScreen) platHogar = 'netflix';
                 }
                 if (!platHogar) {
                     try {
