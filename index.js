@@ -2148,7 +2148,8 @@ app.get('/api/admin/available-accounts', async (req, res) => {
     try {
         const platformQuery = (req.query.platform || '').trim();
         const { fetchRawData } = require('./apiService');
-        const { normalizeStreamingName, isSamePlatformFamily } = require('./salesRegistryService');
+        const { normalizeStreamingName } = require('./availabilityService');
+        const { isSamePlatformFamily } = require('./salesRegistryService');
         const allRows = await fetchRawData().catch(() => []);
         
         const accountsMap = new Map(); // email -> { email, streaming, freeSlots, totalSlots }
