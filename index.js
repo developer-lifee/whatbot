@@ -2121,8 +2121,10 @@ app.post('/api/admin/sales/create', async (req, res) => {
             isRenewal: !!isRenewal,
             items: items.map(it => ({
                 platform: { name: it.platformName },
+                platformName: it.platformName,
+                preferredEmail: it.preferredEmail || it.correo || null,
                 _rowNumber: it._rowNumber || it.index || null,
-                correo: it.correo || null,
+                correo: it.correo || it.preferredEmail || null,
                 contraseña: it.contraseña || null,
                 pin: it.pin || null,
                 deben: it.deben || null
@@ -2138,6 +2140,54 @@ app.post('/api/admin/sales/create', async (req, res) => {
         res.json({ success: true, results });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// Endpoint para consultar cuentas/correos con cupos libres en Excel por plataforma
+app.get('/api/admin/available-accounts', async (req, res) => {
+    try {
+        const platformQuery = (req.query.platform || '').trim();
+        const { fetchRawData } = require('./apiService');
+        const { normalizeStreamingName, isSamePlatformFamily } = require('./salesRegistryService');
+        const allRows = await fetchRawData().catch(() => []);
+        
+        const accountsMap = new Map(); // email -> { email, streaming, freeSlots, totalSlots }
+        
+        for (const row of allRows) {
+            const rowStreaming = row.Streaming || row.Plataforma || '';
+            const email = (row.correo || row.Correo || '').toString().toLowerCase().trim();
+            if (!email || !rowStreaming) continue;
+            
+            if (platformQuery) {
+                const normQuery = normalizeStreamingName(platformQuery);
+                const normRow = normalizeStreamingName(rowStreaming);
+                if (normQuery !== normRow && !isSamePlatformFamily(normRow, normQuery) && !rowStreaming.toLowerCase().includes(platformQuery.toLowerCase())) {
+                    continue;
+                }
+            }
+            
+            const whatsapp = (row.whatsapp || '').toString().trim();
+            const nombre = (row.Nombre || row.nombre || '').toString().trim();
+            const isFree = !whatsapp && (!nombre || nombre.toLowerCase() === 'libre');
+            
+            const key = `${rowStreaming.toUpperCase()}:::${email}`;
+            if (!accountsMap.has(key)) {
+                accountsMap.set(key, {
+                    streaming: rowStreaming,
+                    email,
+                    freeSlots: 0,
+                    totalSlots: 0
+                });
+            }
+            const acc = accountsMap.get(key);
+            acc.totalSlots++;
+            if (isFree) acc.freeSlots++;
+        }
+        
+        const accounts = Array.from(accountsMap.values());
+        res.json({ success: true, accounts });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 

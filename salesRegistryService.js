@@ -169,9 +169,10 @@ function parseExcelDate(dateStr) {
  * Busca un cupo disponible para una plataforma específica.
  * Un cupo es "disponible" si la plataforma coincide y el campo 'whatsapp' o 'Nombre' está vacío.
  */
-function findAvailableSlot(platformName, allRows) {
+function findAvailableSlot(platformName, allRows, targetEmail = null) {
     const targetPlatform = normalizeStreamingName(platformName);
     const config = getAvailabilityConfig();
+    const cleanTargetEmail = targetEmail ? targetEmail.toString().toLowerCase().trim() : null;
 
     for (let i = 0; i < allRows.length; i++) {
         const row = allRows[i];
@@ -182,6 +183,9 @@ function findAvailableSlot(platformName, allRows) {
         // Si la plataforma coincide
         if (rowStreaming === targetPlatform || isSamePlatformFamily(rowStreaming, targetPlatform)) {
             const email = (row.correo || row.Correo || "").toString().toLowerCase().trim();
+            if (cleanTargetEmail && email !== cleanTargetEmail) {
+                continue;
+            }
             if (email && config[email] && config[email].immediate === false) {
                 continue;
             }
@@ -623,7 +627,8 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 continue;
             }
 
-            const slot = findAvailableSlot(platformName, allRows);
+            const preferredEmail = item.preferredEmail || item.correo || null;
+            const slot = findAvailableSlot(platformName, allRows, preferredEmail);
 
             if (slot) {
                 const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths);
