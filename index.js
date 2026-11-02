@@ -2518,10 +2518,29 @@ app.get('/api/admin/tickets', async (req, res) => {
             }
         }
 
+        const INVALID_NAME_WORDS = new Set([
+            'cliente', 'cliente whatsapp', 'puedo', 'pueden', 'quiero', 'quisiera', 'necesito', 'tengo',
+            'como', 'cómo', 'cuando', 'cuándo', 'donde', 'dónde', 'quien', 'quién', 'cual', 'cuál',
+            'para', 'por', 'favor', 'porfa', 'buenas', 'buenos', 'tardes', 'dias', 'días', 'noches',
+            'hola', 'holi', 'gracias', 'muchas', 'ayuda', 'codigo', 'código', 'disculpa', 'disculpe',
+            'una', 'un', 'el', 'la', 'los', 'las', 'mi', 'mis', 'tu', 'tus', 'su', 'sus', 'me', 'te', 'se',
+            'pregunta', 'consulta', 'info', 'informacion', 'información', 'saber', 'ver', 'hacer',
+            'cambiar', 'renovar', 'pagar', 'comprar', 'adquirir', 'tienes', 'tienen', 'hay', 'esta', 'está',
+            'este', 'ese', 'esa', 'esto', 'eso', 'amigo', 'amiga', 'bro', 'compa', 'admin', 'asesor',
+            'bot', 'soporte', 'servicio', 'cuenta', 'perfil', 'clave', 'contraseña', 'correo', 'pago',
+            'ya', 'no', 'si', 'sí', 'ok', 'vale', 'listo', 'bien', 'mal', 'mas', 'más', 'pero', 'porque',
+            'netflix', 'disney', 'spotify', 'max', 'hbo', 'amazon', 'prime', 'crunchyroll', 'youtube',
+            'canva', 'gpt', 'chatgpt', 'claude', 'gemini', 'microsoft', 'paramount', 'vix', 'apple', 'iptv', 'plex'
+        ]);
+
         const isInvalidName = (name) => {
             if (!name) return true;
             const clean = String(name).trim();
-            if (clean === "Cliente" || clean === "Cliente WhatsApp") return true;
+            if (clean.length < 2) return true;
+            const lower = clean.toLowerCase();
+            if (INVALID_NAME_WORDS.has(lower)) return true;
+            const firstWord = lower.split(/\s+/)[0];
+            if (clean.split(/\s+/).length === 1 && INVALID_NAME_WORDS.has(firstWord)) return true;
             if (clean.startsWith("Cliente ") && /^\d+$/.test(clean.substring(8).trim())) return true;
             if (/^\+?\d[\d\s\-]+$/.test(clean)) return true;
             return false;
@@ -2531,8 +2550,8 @@ app.get('/api/admin/tickets', async (req, res) => {
             const cleanDigits = userId.replace(/\D/g, '');
             const isLid = userId.includes('@lid') || (!cleanDigits.startsWith('57') && cleanDigits.length > 10) || cleanDigits.length > 12;
 
-            // 1. Obtener y resolver el NOMBRE y TELÉFONO del contacto
-            let resolvedName = typeof state === 'object' ? state.nombre : null;
+            // 1. Obtener nombre inicial de estado (solo si es válido) y datos de contactMap
+            let resolvedName = (typeof state === 'object' && !isInvalidName(state.nombre)) ? state.nombre : null;
             let resolvedPhoneFromLid = null;
             const contactInfo = contactMap.get(cleanDigits);
 
@@ -2577,28 +2596,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                 } catch (e) { }
             }
 
-            if (isInvalidName(resolvedName)) {
-                try {
-                    const [nameMsgRows] = await pool.query(
-                        'SELECT body FROM messages WHERE chat_id = ? ORDER BY id ASC LIMIT 10',
-                        [userId]
-                    );
-                    for (const row of nameMsgRows) {
-                        const txt = row.body || '';
-                        const mMatch = txt.match(/(?:hola|dia|tarde|noches|buen d[ií]a|gracias)\s+([A-Za-zÁÉÍÓÚáéíóúñÑ]{3,20})/i);
-                        if (mMatch && !isInvalidName(mMatch[1])) {
-                            resolvedName = mMatch[1].charAt(0).toUpperCase() + mMatch[1].slice(1).toLowerCase();
-                            break;
-                        }
-                    }
-                } catch(e) {}
-            }
-
-            if (isInvalidName(resolvedName)) {
-                resolvedName = "Cliente";
-            }
-
-            // 2. === Resolver LID a teléfono real ===
+            // 2. === Resolver LID a teléfono real PRIMERO (para poder buscar el nombre en Excel y BD por teléfono) ===
             let phone = userId.replace('@c.us', '').replace('@lid', '');
 
             if (isLid) {
@@ -2719,6 +2717,7 @@ app.get('/api/admin/tickets', async (req, res) => {
 
             let accounts = [];
 
+            // 3. Buscar nombre en Excel usando el displayPhone ya resuelto
             if (isInvalidName(resolvedName)) {
                 try {
                     const { getAccountsByPhone } = require('./apiService');
@@ -2727,16 +2726,18 @@ app.get('/api/admin/tickets', async (req, res) => {
                         const firstAcc = accounts[0];
                         const first = (typeof (firstAcc.Nombre || firstAcc.nombre) === 'string') ? (firstAcc.Nombre || firstAcc.nombre) : "";
                         const last = (typeof (firstAcc.apellido || firstAcc.Apellido) === 'string') ? (firstAcc.apellido || firstAcc.Apellido) : "";
-                        if (first && first.trim()) {
-                            resolvedName = `${first} ${last}`.trim();
+                        const candidate = `${first} ${last}`.trim();
+                        if (!isInvalidName(candidate)) {
+                            resolvedName = candidate;
                         }
                     }
                 } catch (err) { }
             }
 
+            // 4. Buscar nombre en la tabla oficial `customers` usando displayPhone
             if (isInvalidName(resolvedName)) {
                 try {
-                    const [custRows] = await pool.query("SELECT fullname FROM customers WHERE phone = ?", [displayPhone]);
+                    const [custRows] = await pool.query("SELECT fullname FROM customers WHERE phone = ? OR phone LIKE ?", [displayPhone, `%${displayPhone.slice(-10)}`]);
                     if (custRows.length > 0 && custRows[0].fullname) {
                         const fn = custRows[0].fullname;
                         if (!isInvalidName(fn)) {
@@ -2746,7 +2747,29 @@ app.get('/api/admin/tickets', async (req, res) => {
                 } catch (err) { }
             }
 
-            if (!isInvalidName(resolvedName) && typeof state === 'object') {
+            // 5. Fallback final: buscar en mensajes SALIENTES del bot/asesor (is_from_me = 1) donde se saluda al cliente por su nombre (ej. "Hola sharay,")
+            if (isInvalidName(resolvedName)) {
+                try {
+                    const [nameMsgRows] = await pool.query(
+                        'SELECT body FROM messages WHERE chat_id = ? AND is_from_me = 1 ORDER BY id ASC LIMIT 15',
+                        [userId]
+                    );
+                    for (const row of nameMsgRows) {
+                        const txt = row.body || '';
+                        const mMatch = txt.match(/(?:hola|buen d[ií]a|buenas tardes|buenas noches)\s+([A-Za-zÁÉÍÓÚáéíóúñÑ]{3,20})/i);
+                        if (mMatch && !isInvalidName(mMatch[1])) {
+                            resolvedName = mMatch[1].charAt(0).toUpperCase() + mMatch[1].slice(1).toLowerCase();
+                            break;
+                        }
+                    }
+                } catch(e) {}
+            }
+
+            if (isInvalidName(resolvedName)) {
+                resolvedName = "Cliente";
+            }
+
+            if (typeof state === 'object') {
                 state.nombre = resolvedName;
                 userStates.set(userId, state);
             }
