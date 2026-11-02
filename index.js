@@ -11200,8 +11200,9 @@ REGLAS:
     }
 
     // --- DETECCIÓN DIRECTA DE ASESOR HUMANO EN EL HISTORIAL DEL CHAT (ANTI-INTERRUPCIÓN) ---
-    // Si un asesor humano habló en el chat en los últimos 45 minutos (sin emoji 🤖), silenciar de inmediato
+    // Si un asesor humano habló en el chat en los últimos 45 minutos (sin emoji 🤖), verificar antes de silenciar
     let hasRecentHuman = false;
+    let lastHumanAdvisorTimestamp = 0;
     try {
         const chat = await message.getChat().catch(() => null);
         if (chat) {
@@ -11212,12 +11213,52 @@ REGLAS:
                     const ageMinutes = (nowSec - m.timestamp) / 60;
                     if (ageMinutes <= 45) {
                         hasRecentHuman = true;
+                        lastHumanAdvisorTimestamp = m.timestamp * 1000;
                         break;
                     }
                 }
             }
         }
     } catch (e) { }
+
+    // 0. BYPASS UNIVERSAL DE COMPROBANTE DE PAGO:
+    // Si el cliente envía una imagen de comprobante bancario (ej: respondiendo a un cobro de corte manual de asesor),
+    // el bot NUNCA debe silenciarse. Debe validar y procesar el pago de inmediato.
+    if (message.hasMedia) {
+        try {
+            const media = await downloadMediaWithRetry(message);
+            if (media && media.data && media.mimetype) {
+                const cleanMime = media.mimetype.split(';')[0].trim();
+                const isAudio = message.type === 'ptt' || message.type === 'audio' || cleanMime.startsWith('audio/');
+                if (!isAudio) {
+                    const { isPaymentReceipt } = require('./aiService');
+                    const hist = await getChatHistoryText(message, 10);
+                    const singleMediaObj = { data: media.data, mimeType: cleanMime };
+                    const check = await isPaymentReceipt(singleMediaObj, hist);
+                    if (check && check.isReceipt) {
+                        console.log(`[Payment Receipt Universal Bypass] 💳 Comprobante de pago detectado para @${userId} ($${check.amount || 'N/A'}). Saltando bloqueo de asesor humano.`);
+                        const curState = (typeof currentStateData === 'object') ? currentStateData : {};
+                        userStates.set(userId, { ...curState, state: 'awaiting_payment_confirmation' });
+                        if (cleanPhoneJid) userStates.set(cleanPhoneJid, { ...curState, state: 'awaiting_payment_confirmation' });
+                        await handleAwaitingPaymentConfirmation(message, userId, true, singleMediaObj);
+                        return;
+                    }
+                }
+            }
+        } catch (mediaErr) {
+            console.warn('[Payment Receipt Universal Bypass] Error comprobando media:', mediaErr.message);
+        }
+    }
+
+    // BYPASS DE LLAVE O SOLICITUD DE CUENTA DE PAGO:
+    // Si el cliente pide la llave, número de cuenta o medios de pago (ej. "Me confirma porfa el número", "a qué cuenta pago")
+    const cleanInputBody = (message.body || '').trim().toLowerCase();
+    const isPaymentAccountRequest = /me\s*confirma.*(n[uú]mero|cuenta|llave)|n[uú]mero\s*de\s*(cuenta|nequi|bancolombia|daviplata)|cu[aá]l\s*es\s*la\s*llave|donde\s*(te\s*)?(transfiero|pago)|p[aá]same\s*la\s*llave|datos?\s*de\s*pago|medios?\s*de\s*pago|\bnequi\b|\bdaviplata\b|\bbancolombia\b|\bllave\b|\bbre-v\b|\bbrev\b/i.test(cleanInputBody) && !cleanInputBody.includes('falla') && !cleanInputBody.includes('caida') && !cleanInputBody.includes('pantalla');
+    if (isPaymentAccountRequest && !message.hasMedia) {
+        console.log(`[Payment Request Universal Bypass] @${userId} solicita llave o datos de pago ("${message.body}"). Entregando medios de pago de inmediato.`);
+        await sendPaymentMethodDetails(message, userId, null);
+        return;
+    }
 
     if (hasRecentHuman && !message.body?.toLowerCase().includes('@bot') && message.body?.trim().toLowerCase() !== 'menu') {
         // En lugar de una lista de keywords frágil, usamos la IA para decidir si el mensaje
@@ -11228,7 +11269,7 @@ REGLAS:
             const { detectInitialIntent } = require('./aiService');
             const quickHist = await getChatHistoryText(message, 5);
             const quickDetection = await detectInitialIntent(message.body || '', quickHist, null, []);
-            const solvableByBot = ['credenciales', 'codigo', 'soporte'];
+            const solvableByBot = ['credenciales', 'codigo', 'soporte', 'pagar', 'renovar'];
             if (quickDetection && solvableByBot.includes(quickDetection.intent)) {
                 isBotSolvable = true;
                 console.log(`[BOT MUTE BYPASS] IA detectó intención resoluble '${quickDetection.intent}' para @${userId}. Permitiendo respuesta del bot aunque haya asesor activo.`);
@@ -11243,7 +11284,7 @@ REGLAS:
                 ...(typeof currentStateData === 'object' ? currentStateData : {}),
                 state: 'waiting_human',
                 waitingCount: 0,
-                lastHumanInteraction: Date.now(),
+                lastHumanInteraction: lastHumanAdvisorTimestamp || (currentStateData && currentStateData.lastHumanInteraction) || Date.now() - (15 * 60 * 1000),
                 waiting_human_mode: 'advisor',
                 nombre: foundName,
                 clientWaitingSince: (currentStateData && currentStateData.clientWaitingSince) ? currentStateData.clientWaitingSince : Date.now()
