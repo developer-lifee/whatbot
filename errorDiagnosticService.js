@@ -35,6 +35,7 @@ function isErrorDiagnosticGroup(chatId, chatName = '') {
 // Control de mensajes de reporte ya procesados o en ejecución concurrente para evitar duplicados
 const processedReportMessageIds = new Set();
 const activeReportMessageIds = new Set();
+const activeReportSenders = new Map();
 // Cache para deduplicar mensajes idénticos enviados en ráfaga (mismo texto/remitente en ventana de 15 segundos)
 const recentTextReportsCache = new Map();
 
@@ -46,6 +47,11 @@ setInterval(() => {
     for (const [key, timestamp] of recentTextReportsCache.entries()) {
         if (now - timestamp > 60 * 1000) {
             recentTextReportsCache.delete(key);
+        }
+    }
+    for (const [sender, timestamp] of activeReportSenders.entries()) {
+        if (now - timestamp > 60 * 1000) {
+            activeReportSenders.delete(sender);
         }
     }
 }, 5 * 60 * 1000);
@@ -81,7 +87,8 @@ function getLatestPendingSolution(targetText = '') {
         if (targetText) {
             const matchId = targetText.match(/#?(ERR-[\w-]+)/i);
             if (matchId) {
-                const found = solutions.find(s => s.id === matchId[1]);
+                const searchId = matchId[1].toUpperCase();
+                const found = solutions.find(s => s.id && s.id.toUpperCase() === searchId);
                 if (found) return found;
             }
         }
@@ -123,7 +130,8 @@ function approvePendingSolution(quotedText = '', approverPhone = '') {
         if (quotedText) {
             const matchId = quotedText.match(/#?(ERR-[\w-]+)/i);
             if (matchId) {
-                targetIndex = solutions.findIndex(s => s.id === matchId[1]);
+                const searchId = matchId[1].toUpperCase();
+                targetIndex = solutions.findIndex(s => s.id && s.id.toUpperCase() === searchId);
             }
         }
 
@@ -641,6 +649,43 @@ async function handleAdvisorErrorReport(message, client, userStates) {
 
         // 1. FLUJO DE APROBACIÓN CON @commit (o @aceptar)
         const isCommit = /^@?commit\b/i.test(textTrimmed) || /^@?acept(ar|o)\b/i.test(textTrimmed);
+        const isContinue = /^@?continuar\b/i.test(textTrimmed) || /^@?revalidar\b/i.test(textTrimmed) || /^@?seguir\b/i.test(textTrimmed);
+        const changeMatch = textTrimmed.match(/^@?cambio[+: ]\s*(.+)/is) || textTrimmed.match(/^@?cambio\b(.*)/is);
+        const isCommand = isCommit || isContinue || Boolean(changeMatch);
+
+        // Prevenir tickets duplicados cuando un asesor envía captura y texto por separado o mensajes en ráfaga
+        if (!isCommand) {
+            const lastActiveTime = activeReportSenders.get(senderPhone);
+            if (lastActiveTime && (Date.now() - lastActiveTime < 20000)) {
+                console.log(`[ErrorDiagnostic] ⚠️ Diagnóstico ya activo o reciente (<20s) para asesor @${senderPhone}. Evitando duplicar ticket.`);
+                if (msgId) activeReportMessageIds.delete(msgId);
+                return;
+            }
+            activeReportSenders.set(senderPhone, Date.now());
+
+            // Si es una captura sin texto explicativo, esperar 3.5s a que llegue el mensaje de texto contiguo
+            if (message.hasMedia && (!effectiveText || effectiveText.trim().length === 0)) {
+                console.log(`[ErrorDiagnostic] ⏳ Captura recibida sin texto de @${senderPhone}. Esperando 3.5s a texto complementario...`);
+                await new Promise(r => setTimeout(r, 3500));
+                if (chat && chat.fetchMessages) {
+                    try {
+                        const freshMsgs = await chat.fetchMessages({ limit: 6 });
+                        const followUp = [...freshMsgs].reverse().find(m => {
+                            if (!m || (m.id && m.id._serialized === message.id._serialized)) return false;
+                            const a = (m.author || m.from || '').replace(/\D/g, '');
+                            return a === senderPhone && !m.hasMedia && (m.body || '').trim().length > 3;
+                        });
+                        if (followUp) {
+                            effectiveText = followUp.body.trim();
+                            const followUpId = followUp.id ? (followUp.id._serialized || followUp.id.id) : null;
+                            if (followUpId) processedReportMessageIds.add(followUpId);
+                            console.log(`[ErrorDiagnostic] 🔗 Texto complementario fusionado con captura: "${effectiveText}"`);
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+
         if (isCommit) {
             let quotedText = '';
             if (message.hasQuotedMsg) {
@@ -650,7 +695,27 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 } catch (e) {}
             }
 
-            const contextText = `${textTrimmed} ${quotedText}`.trim();
+            // Buscar ID de ticket en texto, cita o auto-resolver desde el historial reciente del grupo
+            let targetTicketId = null;
+            const idMatch = `${textTrimmed} ${quotedText}`.match(/#?(ERR-[\w-]+)/i);
+            if (idMatch) {
+                targetTicketId = idMatch[1].toUpperCase();
+            } else if (chat && chat.fetchMessages) {
+                try {
+                    const recents = await chat.fetchMessages({ limit: 15 });
+                    for (const m of [...recents].reverse()) {
+                        const mText = (m.body || '') + ' ' + (m.caption || '');
+                        const foundTicket = mText.match(/Ticket #?(ERR-[\w-]+)/i) || mText.match(/#?(ERR-[\w-]+)/i);
+                        if (foundTicket) {
+                            targetTicketId = foundTicket[1].toUpperCase();
+                            console.log(`[ErrorDiagnostic] 🎯 Ticket #${targetTicketId} auto-resuelto desde historial reciente del grupo para @commit`);
+                            break;
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            const contextText = targetTicketId ? `${targetTicketId} ${textTrimmed} ${quotedText}`.trim() : `${textTrimmed} ${quotedText}`.trim();
             const approvedTicket = approvePendingSolution(contextText, senderPhone);
             if (approvedTicket) {
                 // Si el ticket no tenía archivos especificados pero sí un plan técnico, inferirlos del plan o commit
@@ -742,8 +807,6 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         }
 
         // 2. FLUJO DE AJUSTE CON @cambio <solucion> O REVALIDACIÓN CON @continuar
-        const isContinue = /^@?continuar\b/i.test(textTrimmed) || /^@?revalidar\b/i.test(textTrimmed) || /^@?seguir\b/i.test(textTrimmed);
-        const changeMatch = textTrimmed.match(/^@?cambio[+: ]\s*(.+)/is) || textTrimmed.match(/^@?cambio\b(.*)/is);
         if (changeMatch || isContinue) {
             const userInstruction = isContinue 
                 ? 'Profundizar y revalidar exhaustivamente el mensaje y contexto de la incidencia para generar una solución de código concreta y definitiva en los archivos del bot.' 
@@ -762,11 +825,31 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             if (message.hasQuotedMsg) {
                 try {
                     const quoted = await message.getQuotedMessage();
-                    if (quoted && quoted.body) quotedText = quoted.body;
+                    if (quoted && (quoted.body || quoted.caption)) quotedText = quoted.caption || quoted.body;
                 } catch (e) {}
             }
 
-            const contextText = `${textTrimmed} ${quotedText}`.trim();
+            // Buscar ID de ticket en texto, cita o auto-resolver desde el historial reciente del grupo
+            let targetTicketId = null;
+            const idMatch = `${textTrimmed} ${quotedText}`.match(/#?(ERR-[\w-]+)/i);
+            if (idMatch) {
+                targetTicketId = idMatch[1].toUpperCase();
+            } else if (chat && chat.fetchMessages) {
+                try {
+                    const recents = await chat.fetchMessages({ limit: 15 });
+                    for (const m of [...recents].reverse()) {
+                        const mText = (m.body || '') + ' ' + (m.caption || '');
+                        const foundTicket = mText.match(/Ticket #?(ERR-[\w-]+)/i) || mText.match(/#?(ERR-[\w-]+)/i);
+                        if (foundTicket) {
+                            targetTicketId = foundTicket[1].toUpperCase();
+                            console.log(`[ErrorDiagnostic] 🎯 Ticket #${targetTicketId} auto-resuelto desde historial reciente del grupo para @continuar/@cambio`);
+                            break;
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            const contextText = targetTicketId ? `${targetTicketId} ${textTrimmed} ${quotedText}`.trim() : `${textTrimmed} ${quotedText}`.trim();
             const pendingTicket = getLatestPendingSolution(contextText);
             if (!pendingTicket) {
                 const noTicketMsg = `ℹ️ No encontré ninguna propuesta pendiente para modificar o revalidar.\n` +

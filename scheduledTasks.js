@@ -110,6 +110,7 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
     });
 
     // 3. REENVÍO DE CÓDIGOS GMAIL (Cada 2 minutos)
+    const sentGroupCodeIds = new Set();
     schedule.scheduleJob('*/2 * * * *', async () => {
         try {
             const { findRecentCodes } = require('./gmailService');
@@ -118,7 +119,19 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
             if (codes.length > 0) {
                 const chat = await client.getChatById(groupId);
                 for (const c of codes) {
-                    const message = `📧 *CÓDIGO DETECTADO EN GMAIL*\n\n*Asunto:* ${c.subject}\n*Código:* ${c.code || 'No detectado en snippet'}\n*Detalle:* ${c.snippet}...\n*Recibido hace:* ${c.time} min`;
+                    const uniqueKey = c.id || `${c.subject}_${c.code || ''}_${c.link || ''}`;
+                    if (sentGroupCodeIds.has(uniqueKey)) continue;
+                    sentGroupCodeIds.add(uniqueKey);
+                    if (sentGroupCodeIds.size > 200) {
+                        const first = sentGroupCodeIds.values().next().value;
+                        sentGroupCodeIds.delete(first);
+                    }
+
+                    let message = `📧 *CÓDIGO DETECTADO EN GMAIL*\n\n*Asunto:* ${c.subject}\n*Código:* ${c.code || (c.link ? 'No requerido (Acceso por Enlace)' : 'No detectado en snippet')}`;
+                    if (c.link) {
+                        message += `\n*Enlace de acceso:* ${c.link}`;
+                    }
+                    message += `\n*Detalle:* ${c.snippet}...\n*Recibido hace:* ${c.time} min`;
                     await chat.sendMessage(message);
                 }
             }

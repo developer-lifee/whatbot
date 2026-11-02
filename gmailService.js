@@ -411,8 +411,8 @@ function isValidVerificationCode(code, fullText) {
     if (/^(202\d|203\d)$/.test(code)) {
         return false;
     }
-    // Excluir códigos postales del pie de página corporativo de Netflix (ej. Los Gatos, CA 95032 / 95008)
-    if (/^(95032|95008)$/.test(code)) {
+    // Excluir códigos postales / PMBs del pie de página corporativo de Netflix y Anthropic/Claude (ej. Los Gatos 95032 / 95008, Anthropic 90375 / 94104 / 94105 / 94107 / 94108 / 548)
+    if (/^(95032|95008|90375|94104|94105|94107|94108|548)$/.test(code)) {
         return false;
     }
     // Si el código está en formato de fecha en el texto (ej. 2026-06-16 o 16-06-2026)
@@ -494,6 +494,8 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
 
             // Detectar si es un correo proveniente de Netflix
             const isNetflixMail = /netflix/i.test(decodedSubject) || /netflix/i.test(decodedFrom) || /netflix/i.test(superCleanBody);
+            // Detectar si es un correo proveniente de Claude / Anthropic
+            const isClaudeMail = /claude|anthropic/i.test(decodedSubject) || /claude|anthropic/i.test(decodedFrom) || /claude|anthropic/i.test(superCleanBody);
 
             // Si el correo es específicamente de actualización de hogar de Netflix, es por ENLACE, no por código de 4 dígitos
             const isNetflixHouseholdUpdate = /actualizar.*hogar|update-primary-location|c[oó]mo actualizar|confirmar.*hogar|update.*household/i.test(decodedSubject) ||
@@ -513,6 +515,18 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
                                 code = candidate;
                                 break;
                             }
+                        }
+                    }
+                } else if (isClaudeMail) {
+                    // En Claude / Anthropic, únicamente aceptar códigos OTP de exactamente 6 dígitos numéricos o magic link
+                    const claudeCodeMatch = superCleanBody.match(/(?:c[oó]digo|code|verification|login)[\s\S]{0,150}?\b(\d{6})\b/i);
+                    if (claudeCodeMatch && isValidVerificationCode(claudeCodeMatch[1], decodedSubject + ' ' + superCleanBody)) {
+                        code = claudeCodeMatch[1];
+                    }
+                    if (!code) {
+                        const sixDigitMatch = superCleanBody.match(/\b([0-9]{6})\b/);
+                        if (sixDigitMatch && isValidVerificationCode(sixDigitMatch[1], decodedSubject + ' ' + superCleanBody)) {
+                            code = sixDigitMatch[1];
                         }
                     }
                 } else {
@@ -571,6 +585,7 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
             const link = extractBestLink(decodedHtml || decodedText);
 
             codesFound.push({
+                id: fullMsg.data.id,
                 subject: decodedSubject,
                 snippet: decodedSnippet.substring(0, 150),
                 code,
