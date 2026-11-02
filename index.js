@@ -10526,7 +10526,9 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
             try {
                 const groupChat = await client.getChatById(GROUP_ID);
                 if (groupChat) {
-                    await groupChat.sendMessage(`🚨 *CÓDIGO MANUAL REQUERIDO* de @${realPhone}\n📺 Plataforma: *${streamingName}*\n📧 Cuenta: *${accountEmail}*${originTag}\n\n_Por favor entrega el código manualmente y vincula su token de Gmail si aplica._`);
+                    const { getClientDisplayInfo } = require('./billingService');
+                    const clientInfo = await getClientDisplayInfo(userId, client, message, userStates ? userStates.get(userId) : null);
+                    await groupChat.sendMessage(`🚨 *CÓDIGO MANUAL REQUERIDO* de ${clientInfo.userTag}\n📺 Plataforma: *${streamingName}*\n📧 Cuenta: *${accountEmail}*${originTag}\n\n_Por favor entrega el código manualmente y vincula su token de Gmail si aplica._`);
                 }
             } catch (err) {
                 console.error("Error notificando al grupo sobre código manual:", err.message);
@@ -15802,13 +15804,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         try {
                             const chat = await client.getChatById(GROUP_ID);
                             if (chat) {
-                                let realPhone = userId.replace(/\D/g, '');
-                                try {
-                                    const contact = await message.getContact();
-                                    if (contact && contact.number) realPhone = contact.number;
-                                } catch (e) { }
+                                const { getClientDisplayInfo } = require('./billingService');
+                                const clientInfo = await getClientDisplayInfo(userId, client, message, stateData);
                                 const platInfo = analysis.detectedPlatform ? ` (${analysis.detectedPlatform})` : '';
-                                await chat.sendMessage(`🚨 *Soporte Técnico Requerido* (@${realPhone})${platInfo}\n\nMotivo del cliente: "${inputToUse}"`);
+                                await chat.sendMessage(`🚨 *Soporte Técnico Requerido* (${clientInfo.userTag})${platInfo}\n\nMotivo del cliente: "${inputToUse}"`);
                             }
                         } catch (error) {
                             console.error('Error enviando mensaje de soporte al grupo:', error);
@@ -15827,12 +15826,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             try {
                 const chat = await client.getChatById(GROUP_ID);
                 if (chat) {
-                    let realPhone = userId.replace(/\D/g, '');
-                    try {
-                        const contact = await message.getContact();
-                        if (contact && contact.number) realPhone = contact.number;
-                    } catch (e) { }
-                    await chat.sendMessage(`🚨 *Atención Asesor Requerida* (@${realPhone})\n\nMotivo del cliente: "${inputToUse}"`);
+                    const { getClientDisplayInfo } = require('./billingService');
+                    const clientInfo = await getClientDisplayInfo(userId, client, message, stateData);
+                    await chat.sendMessage(`🚨 *Atención Asesor Requerida* (${clientInfo.userTag})\n\nMotivo del cliente: "${inputToUse}"`);
                 }
             } catch (error) {
                 console.error('Error enviando mensaje al grupo:', error);
@@ -16308,14 +16304,9 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
                 if (fallback.needsEscalation) {
                     const chat = await client.getChatById(GROUP_ID);
                     if (chat) {
-                        let contact;
-                        try {
-                            contact = await message.getContact();
-                        } catch (e) {
-                            contact = { number: userId.replace(/\D/g, '') };
-                        }
-                        const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
-                        await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (@${realPhone})\nResumen: ${fallback.escalationSummary}`);
+                        const { getClientDisplayInfo } = require('./billingService');
+                        const clientInfo = await getClientDisplayInfo(userId, client, message, userStates.get(userId));
+                        await chat.sendMessage(`🚨 *ESCALACIÓN DESDE EL MENÚ* (${clientInfo.userTag})\nResumen: ${fallback.escalationSummary}`);
                     }
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', advisorReason: fallback.escalationSummary }); // No seteamos lastHumanInteraction para permitir reactivación por IA si el cliente pide otra cosa
                 }
@@ -16938,10 +16929,9 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                             try {
                                 const groupChat = await client.getChatById(GROUP_ID);
                                 if (groupChat) {
-                                    let contact;
-                                    try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
-                                    const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
-                                    await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO por LLAVE* (@${realPhone})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Desconocido'}\nLlave destino: ${check.destinationKey}\n\nEl bot ya entregó el servicio automáticamente.`);
+                                    const { getClientDisplayInfo } = require('./billingService');
+                                    const clientInfo = await getClientDisplayInfo(userId, client, message, stateData);
+                                    await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO por LLAVE* (${clientInfo.userTag})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Desconocido'}\nLlave destino: ${check.destinationKey}\n\nEl bot ya entregó el servicio automáticamente.`);
                                 }
                             } catch (e) { }
                             return;
@@ -16972,10 +16962,15 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
             const chat = await client.getChatById(GROUP_ID);
             if (chat) {
                 const type = message.hasMedia ? "📸 Comprobante de pago" : "✅ Confirmación de pago por texto";
-                let contact;
-                try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
-                const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
-                await chat.sendMessage(`🚨 ${type} recibido de @${realPhone}. Por favor revisar.\n\nPara validar: *@bot confirmar ${realPhone}* o *si me llegó ${realPhone}*`);
+                const { getClientDisplayInfo } = require('./billingService');
+                const clientInfo = await getClientDisplayInfo(userId, client, message, stateData);
+                
+                let confirmOptions = `*@bot confirmar ${clientInfo.primaryId}*`;
+                if (clientInfo.secondaryId) {
+                    confirmOptions += ` o *@bot confirmar ${clientInfo.secondaryId}*`;
+                }
+
+                await chat.sendMessage(`🚨 ${type} recibido de ${clientInfo.userTag}. Por favor revisar.\n\nPara validar: ${confirmOptions} o *si me llegó ${clientInfo.primaryId}*`);
             }
         } catch (error) {
             console.error('Error enviando notificación al grupo:', error);

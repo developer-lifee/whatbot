@@ -986,10 +986,23 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         } catch (e) { }
     }
 
-    const userId = phone.includes('@') ? phone : (isLid ? phone + '@lid' : phone + '@c.us');
+    let userId = phone.includes('@') ? phone : (isLid ? phone + '@lid' : phone + '@c.us');
     const realPhoneJid = realPhoneResolved ? (realPhoneResolved + '@c.us') : null;
     const displayPhone = (realPhoneResolved || userId.replace('@c.us', '').replace('@lid', ''));
-    const stateData = userStates.get(userId) || (realPhoneJid ? userStates.get(realPhoneJid) : null) || userStates.get(cleanPhoneDigits);
+    let stateData = userStates.get(userId) || (realPhoneJid ? userStates.get(realPhoneJid) : null) || userStates.get(cleanPhoneDigits);
+
+    // Búsqueda cruzada en userStates si el cliente usó LID y el admin pasó el teléfono real (o viceversa)
+    if (!stateData) {
+        for (const [k, v] of userStates.entries()) {
+            if (!v) continue;
+            const vPhone = (v.realPhone || v.phone || v.numero || '').toString().replace(/\D/g, '');
+            if (vPhone && (vPhone === cleanPhoneDigits || (realPhoneResolved && vPhone === realPhoneResolved))) {
+                stateData = v;
+                userId = k;
+                break;
+            }
+        }
+    }
 
     // Detectar si el admin especificó una plataforma en el comando (ej: "confirmar 57... netflix")
     const platformWords = ['netflix', 'spotify', 'amazon', 'prime', 'hbo', 'max', 'disney', 'star', 'microsoft', 'crunchyroll', 'paramount', 'vix', 'apple', 'youtube', 'canva', 'magis', 'iptv', 'plex'];

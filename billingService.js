@@ -1990,6 +1990,93 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
   }
 }
 
+/**
+ * Obtiene la información de identificación visual y comandos para el cliente (LID fix, WhatsApp username/pushname, teléfono real).
+ */
+async function getClientDisplayInfo(userId, client = null, message = null, stateData = null) {
+  let contact = null;
+  if (message && typeof message.getContact === 'function') {
+    try { contact = await message.getContact(); } catch (e) { }
+  }
+  if (!contact && client && typeof client.getContactById === 'function') {
+    try { contact = await client.getContactById(userId); } catch (e) { }
+  }
+
+  const rawDigits = (contact && contact.number) ? String(contact.number).replace(/\D/g, '') : String(userId || '').replace(/\D/g, '');
+  const isLid = String(userId || '').includes('@lid') || (!rawDigits.startsWith('57') && rawDigits.length > 10) || rawDigits.length > 12;
+
+  // 1. Nombre de contacto
+  let name = (stateData && stateData.nombre && stateData.nombre !== 'Cliente' && stateData.nombre !== 'Cliente WhatsApp')
+    ? stateData.nombre
+    : ((contact && (contact.name || contact.pushname || contact.shortName)) || (message && message._data && message._data.notifyName) || '');
+
+  // 2. Handle / pushname de WhatsApp (lo que el usuario tiene de @ o nombre público)
+  let handle = (contact && (contact.pushname || contact.shortName)) || (message && message._data && message._data.notifyName) || '';
+  if (handle) {
+    handle = handle.trim().replace(/^@+/, '');
+  }
+
+  // 3. Teléfono real
+  let resolvedPhone = null;
+  if (stateData && stateData.realPhone) {
+    resolvedPhone = String(stateData.realPhone).replace(/\D/g, '');
+  }
+  if (!resolvedPhone && !isLid && rawDigits.startsWith('57') && rawDigits.length <= 13) {
+    resolvedPhone = rawDigits;
+  }
+  if (!resolvedPhone) {
+    try {
+      resolvedPhone = await resolveRealPhoneFromJid(userId, client, name);
+    } catch (e) { }
+  }
+  if (resolvedPhone) {
+    resolvedPhone = String(resolvedPhone).replace(/\D/g, '');
+  }
+
+  // 4. Etiqueta amigable para asesores (userTag)
+  let userTag = '';
+  const namePart = name ? `*${name}*` : '';
+  const handlePart = (handle && handle.toLowerCase() !== (name || '').toLowerCase()) ? `@${handle}` : '';
+
+  if (resolvedPhone) {
+    if (namePart && handlePart) {
+      userTag = `${namePart} (${handlePart} · +${resolvedPhone})`;
+    } else if (namePart) {
+      userTag = `${namePart} (+${resolvedPhone})`;
+    } else if (handlePart) {
+      userTag = `${handlePart} (+${resolvedPhone})`;
+    } else {
+      userTag = `+${resolvedPhone}`;
+    }
+  } else if (isLid) {
+    if (namePart && handlePart) {
+      userTag = `${namePart} (${handlePart} · LID: ${rawDigits})`;
+    } else if (namePart || handle) {
+      const showName = namePart || `*${handle}*`;
+      userTag = `${showName} (@${(handle || rawDigits).replace(/^@/, '')} · LID: ${rawDigits})`;
+    } else {
+      userTag = `@${rawDigits}`;
+    }
+  } else {
+    userTag = namePart ? `${namePart} (+${rawDigits})` : `+${rawDigits}`;
+  }
+
+  const primaryId = resolvedPhone || rawDigits;
+  const secondaryId = (isLid && resolvedPhone && rawDigits !== resolvedPhone) ? rawDigits : null;
+
+  return {
+    contact,
+    name,
+    handle,
+    resolvedPhone,
+    rawDigits,
+    isLid,
+    userTag,
+    primaryId,
+    secondaryId
+  };
+}
+
 module.exports = {
   safeSend,
   getPlatformPriceFromExcel,
@@ -2002,6 +2089,7 @@ module.exports = {
   adjustDurationToMatchAmount,
   checkPendingWebSaleForPhone,
   resolveRealPhoneFromJid,
+  getClientDisplayInfo,
   isNameMatch,
   isStreamingMatch,
   extractPlatformFromText
