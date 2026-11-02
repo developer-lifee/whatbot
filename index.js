@@ -1346,12 +1346,13 @@ async function approveBoldOrder(orderId) {
                 }
                 await applyLabelToChat(phoneId, client, ['pago', 'revisión', 'manual']).catch(() => { });
             } else if (renewalItems.length > 0) {
+                const targetPhoneId = (renewalItems[0].targetPhoneId && renewalItems[0].targetPhoneId.includes('@')) ? renewalItems[0].targetPhoneId : phoneId;
                 const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
                 const venc = renewalItems[0].vencimiento || "";
                 const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
                 const successMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\n¡Gracias por renovar con Sheerit! 😊`;
-                await client.sendMessage(phoneId, successMsg);
-                userStates.set(phoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: phoneId, lastPaymentValidated: Date.now() });
+                await client.sendMessage(targetPhoneId, successMsg);
+                userStates.set(targetPhoneId, { state: 'main_menu', nombre: `${customerData.firstName} ${customerData.lastName}`, chatJid: targetPhoneId, lastPaymentValidated: Date.now() });
             } else {
                 const successMsg = `¡Hola ${customerData.firstName}! 👋\n\nHemos recibido tu pago exitosamente y tu pedido ya está registrado en nuestro sistema. En breve te enviaremos tus credenciales.`;
                 await client.sendMessage(phoneId, successMsg);
