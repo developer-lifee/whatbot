@@ -36,3 +36,8 @@ frontend_audit.log
 
 # Contacts cache
 contacts_cache.json
+
+# Large wiki binary files
+wiki_media/
+*.docx
+*.pdf

@@ -14,7 +14,7 @@ let isVectorizing = false;
 /**
  * Loads and segments admin knowledge base.
  */
-function loadAdminDocs() {
+function loadAdminDocs(query = '') {
     const docs = [];
     if (fs.existsSync(ADMIN_KNOWLEDGE_FILE)) {
         try {
@@ -40,6 +40,44 @@ function loadAdminDocs() {
                     id: 'role_permissions',
                     category: 'Permisos',
                     text: `Permisos de Roles: Admin (${raw.role_permissions.admin}), Asesor (${raw.role_permissions.advisor})`
+                });
+            }
+            if (raw.wiki_operations) {
+                const qLower = (query || '').toLowerCase();
+                const wikiKeys = Object.keys(raw.wiki_operations);
+                
+                // Buscar capítulos relevantes por coincidencia semántica
+                let matchedKeys = wikiKeys.filter(k => {
+                    const kLower = k.toLowerCase();
+                    return qLower.includes(kLower) || 
+                           (kLower === 'excel' && (qLower.includes('columna') || qLower.includes('celda') || qLower.includes('hoja') || qLower.includes('credencial'))) ||
+                           (kLower === 'cortes en general' && (qLower.includes('corte') || qLower.includes('cortar') || qLower.includes('deudor') || qLower.includes('deben'))) ||
+                           (kLower === 'datos importantes' && (qLower.includes('tarjeta') || qLower.includes('baneada') || qLower.includes('no sirve') || qLower.includes('temporal'))) ||
+                           (kLower === 'tareas diarias' && (qLower.includes('cobro') || qLower.includes('renovacion') || qLower.includes('contacto') || qLower.includes('diaria'))) ||
+                           (kLower === 'netflix' && (qLower.includes('net') || qLower.includes('extra') || qLower.includes('pantalla'))) ||
+                           (kLower === 'disney' && (qLower.includes('disney') || qLower.includes('plus'))) ||
+                           (kLower === 'hbo' && (qLower.includes('hbo') || qLower.includes('max') || qLower.includes('platino'))) ||
+                           (kLower === 'chatgpt' && (qLower.includes('gpt') || qLower.includes('chat') || qLower.includes('openai'))) ||
+                           (kLower === 'youtube' && (qLower.includes('yt') || qLower.includes('premium') || qLower.includes('invitacion'))) ||
+                           (kLower === 'spotify' && (qLower.includes('musica') || qLower.includes('spoti'))) ||
+                           (kLower === 'claude' && (qLower.includes('anthropic') || qLower.includes('code'))) ||
+                           (kLower === 'gemini' && (qLower.includes('google') || qLower.includes('advanced')));
+                });
+
+                // Si no hay coincidencia específica o la consulta es general, incluir los capítulos esenciales de operaciones
+                if (matchedKeys.length === 0) {
+                    matchedKeys = ['EXCEL', 'DATOS IMPORTANTES', 'TAREAS DIARIAS', 'CORTES EN GENERAL'];
+                }
+
+                matchedKeys.slice(0, 3).forEach(k => {
+                    const sec = raw.wiki_operations[k];
+                    if (sec && sec.full_text) {
+                        docs.push({
+                            id: `wiki_${k}`,
+                            category: `Wiki Sheerit (${sec.title})`,
+                            text: sec.full_text.slice(0, 3500)
+                        });
+                    }
                 });
             }
         } catch (e) {
@@ -71,8 +109,8 @@ function getLiveAdminContext({ query = '', agentName = '', agentEmail = '' } = {
         `- ID ${id}: Disponible = ${cfg.isAvailable}, Motivo = "${cfg.reason || 'N/A'}", Incidente = "${cfg.incident || 'Ninguno'}"`
     ).join('\n') || 'Todas las plataformas operando con stock normal.';
 
-    // 4. Admin Knowledge docs
-    const adminDocs = loadAdminDocs().map(d => `[${d.category}] ${d.text}`).join('\n\n');
+    // 4. Admin Knowledge docs & Wiki
+    const adminDocs = loadAdminDocs(query).map(d => `[${d.category}] ${d.text}`).join('\n\n');
 
     return {
         recentAudit,
@@ -160,15 +198,26 @@ REGLAS DE RESPUESTA:
         console.error('[Admin Assistant Service] Error generating AI response:', err.message);
     }
 
-    // Fallback response if Gemini API is unreachable
+    // Fallback response if Gemini API is unreachable (extracts direct answer from Wiki)
+    let fallbackText = `🤖 **Resumen del Asistente Sheerit**:\n\n` +
+        `He consultado la base de conocimientos y la Wiki oficial para tu consulta: "*${query}*".\n\n`;
+
+    if (adminDocs && adminDocs.includes('Wiki Sheerit')) {
+        const wikiExtract = adminDocs.split('Wiki Sheerit').slice(1).map(s => s.slice(0, 900)).join('\n\n---\n\n');
+        fallbackText += `📖 **Procedimiento Operativo de la Wiki**:\n${wikiExtract}\n\n`;
+    } else {
+        fallbackText += `• **Cuentas 2FA**: ${twoFaSummary.split('\n')[0] || 'Sin registros'}\n` +
+            `• **Auditoría reciente**: ${recentAudit.split('\n')[0] || 'Sin cambios recientes'}\n\n`;
+    }
+
+    fallbackText += `📄 Puedes consultar o descargar el manual completo de 57 páginas en formato PDF desde la sección de Guías o en: \`/docs/wiki_sheerit_completa.pdf\`.`;
+
     return {
         success: true,
-        answer: `🤖 **Resumen del Asistente Sheerit**:\n\n` +
-                `He analizado el registro operativo del sistema para tu consulta: "*${query}*".\n\n` +
-                `• **Cuentas 2FA**: ${twoFaSummary.split('\n')[0] || 'Sin registros'}\n` +
-                `• **Auditoría reciente**: ${recentAudit.split('\n')[0] || 'Sin cambios recientes'}\n\n` +
-                `¿Deseas que profundice en algún área específica?`,
-        buttons: []
+        answer: fallbackText,
+        buttons: [
+            { label: '📖 Ver PDF de la Wiki (57 págs)', tab: 'policies' }
+        ]
     };
 }
 
