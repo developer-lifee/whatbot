@@ -35,12 +35,20 @@ function isErrorDiagnosticGroup(chatId, chatName = '') {
 // Control de mensajes de reporte ya procesados o en ejecución concurrente para evitar duplicados
 const processedReportMessageIds = new Set();
 const activeReportMessageIds = new Set();
+// Cache para deduplicar mensajes idénticos enviados en ráfaga (mismo texto/remitente en ventana de 15 segundos)
+const recentTextReportsCache = new Map();
 
 setInterval(() => {
     if (processedReportMessageIds.size > 1000) {
         processedReportMessageIds.clear();
     }
-}, 10 * 60 * 1000);
+    const now = Date.now();
+    for (const [key, timestamp] of recentTextReportsCache.entries()) {
+        if (now - timestamp > 60 * 1000) {
+            recentTextReportsCache.delete(key);
+        }
+    }
+}, 5 * 60 * 1000);
 
 /**
  * Guarda o actualiza una propuesta de solución pendiente de aprobación
@@ -576,6 +584,20 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             return;
         }
         activeReportMessageIds.add(msgId);
+    }
+
+    // Deduplicación por contenido y remitente: previene duplicados cuando WhatsApp despacha dos mensajes contiguos idénticos
+    const senderKey = (message.author || message.from || 'unknown').replace(/\D/g, '');
+    const textFingerprint = (effectiveText || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    if (textFingerprint.length > 8) {
+        const reportKey = `${senderKey}:${textFingerprint}`;
+        const lastSeen = recentTextReportsCache.get(reportKey);
+        if (lastSeen && (Date.now() - lastSeen < 15000)) {
+            console.log(`[ErrorDiagnostic] ⚠️ Reporte duplicado en ráfaga (<15s) ignorado para @${senderKey}: "${textFingerprint.slice(0, 40)}..."`);
+            if (msgId) activeReportMessageIds.delete(msgId);
+            return;
+        }
+        recentTextReportsCache.set(reportKey, Date.now());
     }
 
     try {
