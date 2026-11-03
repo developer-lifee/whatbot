@@ -4,6 +4,7 @@ const path = require('path');
 const { getAuditLogs, formatAuditLogsForPrompt } = require('./auditService');
 const { loadSecrets } = require('./totpService');
 const { getAvailabilityConfig } = require('./availabilityService');
+const { formatChunksForPrompt, retrieveRelevantChunks } = require('./wikiRagService');
 
 const ADMIN_KNOWLEDGE_FILE = path.join(__dirname, 'admin_knowledge.json');
 
@@ -109,8 +110,10 @@ function getLiveAdminContext({ query = '', agentName = '', agentEmail = '' } = {
         `- ID ${id}: Disponible = ${cfg.isAvailable}, Motivo = "${cfg.reason || 'N/A'}", Incidente = "${cfg.incident || 'Ninguno'}"`
     ).join('\n') || 'Todas las plataformas operando con stock normal.';
 
-    // 4. Admin Knowledge docs & Wiki
-    const adminDocs = loadAdminDocs(query).map(d => `[${d.category}] ${d.text}`).join('\n\n');
+    // 4. Admin Knowledge docs & Semantic RAG Chunks
+    const ragKnowledge = formatChunksForPrompt(query, 4);
+    const standardDocs = loadAdminDocs(query).map(d => `[${d.category}] ${d.text}`).join('\n\n');
+    const adminDocs = [standardDocs, ragKnowledge].filter(Boolean).join('\n\n---\n\n');
 
     return {
         recentAudit,
