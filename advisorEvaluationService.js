@@ -11,6 +11,93 @@ if (!fs.existsSync(path.join(__dirname, 'logs'))) {
 }
 
 /**
+ * Genera un perfil psicolaboral y conductual detallado basado en las métricas
+ * de reacción, escucha activa, apego a reglas y condiciones cognitivas.
+ */
+function buildPsychologicalProfile({
+    accuracyRate = 0,
+    averageTimePerCase = 0,
+    tabSwitchesCount = 0,
+    audioCasesScore = 0,
+    hasDyslexia = false,
+    hasAdhd = false,
+    hasVisualFatigue = false,
+    medicalNotes = ''
+}) {
+    // 1. Tolerancia a la Presión Temporal y Control Emocional
+    let pressureTolerance = 85;
+    let pressureDesc = 'Buen control emocional bajo límites de tiempo de respuesta.';
+    if (averageTimePerCase < 18 && accuracyRate >= 80) {
+        pressureTolerance = 95;
+        pressureDesc = 'Sobresaliente templanza y serenidad. Alta agilidad cognitiva y toma de decisiones firme bajo cronómetro.';
+    } else if (averageTimePerCase < 14 && accuracyRate < 70) {
+        pressureTolerance = 45;
+        pressureDesc = 'Patrón de impulsividad no reflexiva. Tiende a responder con precipitación cometiendo errores por falta de análisis.';
+    } else if (averageTimePerCase > 45) {
+        pressureTolerance = 55;
+        pressureDesc = 'Sensibilidad a la presión temporal. Tiende al sobreanálisis o experimentar lentitud ante volumen concurrente de mensajes.';
+    }
+
+    // 2. Escucha Activa y Procesamiento Auditivo
+    let activeListening = audioCasesScore || (accuracyRate >= 80 ? 90 : 70);
+    let listeningDesc = activeListening >= 80
+        ? 'Excelente discriminación fonológica y retención de instrucciones complejas recibidas por nota de voz.'
+        : 'Capacidad de síntesis auditiva intermedia; puede requerir reescuchar mensajes de clientes para no omitir datos.';
+
+    // 3. Integridad Operativa y Apego a Protocolos
+    let operationalIntegrity = 95;
+    let integrityDesc = 'Alto respeto por los protocolos de seguridad bancaria (Bre-V) y confidencialidad.';
+    if (tabSwitchesCount >= 4) {
+        operationalIntegrity = 30;
+        integrityDesc = 'Alerta de confiabilidad: Propensión a buscar atajos o asistencia externa no autorizada durante evaluaciones.';
+    } else if (tabSwitchesCount >= 2) {
+        operationalIntegrity = 65;
+        integrityDesc = 'Integridad bajo observación: Registra salidas de ventana durante la resolución de incidencias.';
+    }
+
+    // 4. Empatía y Desescalamiento de Clientes
+    let customerEmpathy = accuracyRate >= 75 ? 90 : 65;
+    let empathyDesc = accuracyRate >= 75
+        ? 'Enfoque constructivo hacia el cliente, capacidad de contener quejas con amabilidad sin perder el rigor de la empresa.'
+        : 'Puede presentar respuestas reactivas o apresuradas en situaciones de clientes molestos.';
+
+    // 5. Diagnóstico Psicolaboral Síntesis
+    let profileTitle = 'Perfil Analítico y Resolutivo';
+    let recommendations = 'Apto para atención al cliente y gestión multicanal.';
+
+    if (hasDyslexia) {
+        profileTitle = 'Perfil Vulnerable en Transcripción Alfanumérica (Dislexia)';
+        recommendations = 'No apto para chat en vivo con manejo de claves complejas o cuentas bancarias. Reubicar en soporte por voz o labores sin digitación crítica.';
+    } else if (tabSwitchesCount >= 4) {
+        profileTitle = 'Perfil con Riesgo de Transgresión de Normas';
+        recommendations = 'No recomendado por conductas de atajo y evasión de parámetros de evaluación.';
+    } else if (accuracyRate >= 85 && averageTimePerCase <= 35) {
+        profileTitle = 'Perfil de Alto Rendimiento (Ágil y Preciso)';
+        recommendations = 'Perfil ideal para liderar soporte prioritario y manejo simultáneo de múltiples chats de alta demanda.';
+    } else if (accuracyRate < 70) {
+        profileTitle = 'Perfil Técnico en Desarrollo';
+        recommendations = 'Requiere supervisión constante y formación en políticas antes de interactuar directamente con clientes.';
+    }
+
+    return {
+        metrics: {
+            pressureTolerance,
+            activeListening,
+            operationalIntegrity,
+            customerEmpathy
+        },
+        descriptors: {
+            pressureDesc,
+            listeningDesc,
+            integrityDesc,
+            empathyDesc
+        },
+        profileTitle,
+        recommendations
+    };
+}
+
+/**
  * Determina la recomendación de contratación y motivos basados en precisión,
  * tiempos de respuesta y condiciones cognitivas/de lectura.
  */
@@ -97,7 +184,23 @@ async function saveAdvisorEvaluation(data) {
     const averageTimePerCase = Number(data.averageTimePerCase || (data.casesCount ? Math.round(totalTimeSeconds / data.casesCount) : 0));
     const tabSwitchesCount = Number(data.tabSwitchesCount || data.tabSwitches || 0);
     const audioCasesScore = Number(data.audioCasesScore || 0);
-    const detailedAnswers = JSON.stringify(data.detailedAnswers || data.answers || {});
+    const psychProfile = buildPsychologicalProfile({
+        accuracyRate,
+        averageTimePerCase,
+        tabSwitchesCount,
+        audioCasesScore,
+        hasDyslexia,
+        hasAdhd,
+        hasVisualFatigue,
+        medicalNotes
+    });
+
+    let answersObject = data.detailedAnswers || data.answers || {};
+    if (typeof answersObject === 'string') {
+        try { answersObject = JSON.parse(answersObject); } catch (_) {}
+    }
+    answersObject.psychologicalProfile = psychProfile;
+    const detailedAnswers = JSON.stringify(answersObject);
 
     const { recommendation, rejectionReasons } = evaluateHiringRecommendation({
         hasDyslexia,
@@ -183,7 +286,7 @@ async function getAdvisorEvaluations() {
             `SELECT id, candidate_name, candidate_email, candidate_phone, has_dyslexia, has_adhd, 
                     has_visual_fatigue, medical_notes, total_score, accuracy_rate, total_time_seconds, 
                     average_time_per_case, tab_switches_count, audio_cases_score, hiring_recommendation, 
-                    rejection_reasons, created_at 
+                    rejection_reasons, detailed_answers, created_at 
              FROM advisor_evaluations 
              ORDER BY created_at DESC 
              LIMIT 200`
@@ -201,5 +304,6 @@ async function getAdvisorEvaluations() {
 module.exports = {
     saveAdvisorEvaluation,
     getAdvisorEvaluations,
-    evaluateHiringRecommendation
+    evaluateHiringRecommendation,
+    buildPsychologicalProfile
 };
