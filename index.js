@@ -2391,6 +2391,14 @@ app.get('/api/admin/tickets', async (req, res) => {
         // Run classification asynchronously in background
         updateAiTicketsClassification().catch(err => console.error("[AI Classification Async]", err));
 
+        // Prevent resolved tickets from being automatically reopened during ticket list fetch
+        const isTicketPermanentlyResolved = (st) => {
+            if (!st || typeof st !== 'object') return false;
+            if (st.state === 'resolved') return true;
+            if (st.resolvedAt && (!st.lastMessageTime || st.resolvedAt >= st.lastMessageTime)) return true;
+            return false;
+        };
+
         const showAllChats = req.query.allChats === 'true';
         let targetEntries = [];
 
