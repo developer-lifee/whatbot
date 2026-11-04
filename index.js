@@ -1987,6 +1987,67 @@ app.post('/api/admin/client/update-expiration', express.json(), async (req, res)
     }
 });
 
+// Endpoint para aplicar corte de servicio y gestionar reinicio de dispositivos cuando se sacan todas las sesiones
+app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
+    try {
+        const { rowNumber, phone, streaming, email, reason, resetDevices, password, agentName } = req.body;
+        if (password !== 'admin123') {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+
+        const { updateExcelData, fetchRawData, getTodayInBogota } = require('./apiService');
+        const { resetDeviceUsage } = require('./deviceLimitService');
+        let targetRow = parseInt(rowNumber);
+
+        if (!targetRow || isNaN(targetRow)) {
+            const allRows = await fetchRawData();
+            const cleanPhone = (phone || '').toString().replace(/\D/g, '');
+            const target = allRows.find(r => {
+                const rPhone = (r.numero || r.Numero || r.whatsapp || '').toString().replace(/\D/g, '');
+                const rStreaming = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
+                const matchPhone = cleanPhone && rPhone.includes(cleanPhone.slice(-10));
+                const matchStreaming = !streaming || rStreaming.includes(streaming.toLowerCase());
+                return matchPhone && matchStreaming;
+            });
+            if (target) {
+                targetRow = target._rowNumber || (allRows.indexOf(target) + 2);
+            }
+        }
+
+        if (!targetRow || isNaN(targetRow)) {
+            return res.status(404).json({ success: false, message: 'No se encontró la fila del cliente en Excel' });
+        }
+
+        const today = getTodayInBogota ? getTodayInBogota() : new Date();
+        const dateStr = today.toLocaleDateString('es-CO');
+        const author = agentName || 'admin';
+        const cleanReason = (reason || 'No renovó').trim();
+        const obsValue = `cortar - ${cleanReason} (${author} ${dateStr})`;
+
+        console.log(`[Admin Cut Service] Marcando corte en fila ${targetRow}: "${obsValue}"`);
+        const result = await updateExcelData(targetRow, { "observaciones": obsValue });
+
+        let devicesReset = false;
+        if (resetDevices) {
+            // El límite de códigos no aplica a cuando sacamos todas las sesiones
+            devicesReset = resetDeviceUsage(phone, email || streaming);
+            console.log(`[Admin Cut Service] Límite de dispositivos reseteado para ${phone} / ${email || streaming}:`, devicesReset);
+        }
+
+        res.json({
+            success: true,
+            message: `Servicio marcado para corte exitosamente.${resetDevices ? ' Límite de dispositivos reseteado.' : ''}`,
+            rowNumber: targetRow,
+            observaciones: obsValue,
+            devicesReset,
+            result
+        });
+    } catch (e) {
+        console.error('[Admin Cut Service Error]:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/admin/actions/send-info', async (req, res) => {
     try {
         const { phone, type, password, message: customMessage, platform } = req.body;

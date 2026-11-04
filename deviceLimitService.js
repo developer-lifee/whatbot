@@ -169,21 +169,50 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
 }
 
 /**
- * Resetea el contador de dispositivos (para soporte o tras renovación)
+ * Resetea el contador de dispositivos (para soporte, tras renovación o cuando se sacan todas las sesiones).
+ * El límite de códigos no aplica cuando sacamos todas las sesiones.
  */
-function resetDeviceUsage(phone, emailOrPlatform, profile = null) {
+function resetDeviceUsage(phone, emailOrPlatform = null, profile = null) {
     const usage = loadDeviceUsage();
-    const key = getNormalizedKey(phone, emailOrPlatform, profile);
-    const legacyKey = profile ? getNormalizedKey(phone, emailOrPlatform, null) : key;
+    const cleanPhone = (phone || '').toString().replace(/\D/g, '');
+    const normPhone = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
     let modified = false;
-    if (usage[key]) {
-        delete usage[key];
-        modified = true;
+
+    // 1. Clave exacta por perfil / plataforma
+    if (emailOrPlatform) {
+        const key = getNormalizedKey(phone, emailOrPlatform, profile);
+        const legacyKey = profile ? getNormalizedKey(phone, emailOrPlatform, null) : key;
+        if (usage[key]) {
+            delete usage[key];
+            modified = true;
+        }
+        if (usage[legacyKey]) {
+            delete usage[legacyKey];
+            modified = true;
+        }
     }
-    if (usage[legacyKey]) {
-        delete usage[legacyKey];
-        modified = true;
+
+    // 2. Limpieza exhaustiva de cualquier registro que pertenezca al número de teléfono
+    if (normPhone) {
+        Object.keys(usage).forEach(k => {
+            if (k.startsWith(normPhone)) {
+                delete usage[k];
+                modified = true;
+            }
+        });
     }
+
+    // 3. Si se pasa una cuenta de correo maestro y se sacaron todas las sesiones de esa cuenta completa
+    if (emailOrPlatform && emailOrPlatform.includes('@')) {
+        const cleanEmail = emailOrPlatform.toLowerCase().trim();
+        Object.keys(usage).forEach(k => {
+            if (k.includes(cleanEmail)) {
+                delete usage[k];
+                modified = true;
+            }
+        });
+    }
+
     if (modified) {
         saveDeviceUsage(usage);
         return true;
