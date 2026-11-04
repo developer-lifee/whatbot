@@ -19,6 +19,7 @@ function buildPsychologicalProfile({
     averageTimePerCase = 0,
     tabSwitchesCount = 0,
     audioCasesScore = 0,
+    transpositionErrorsCount = 0,
     hasDyslexia = false,
     hasAdhd = false,
     hasVisualFatigue = false,
@@ -65,8 +66,11 @@ function buildPsychologicalProfile({
     let profileTitle = 'Perfil Analítico y Resolutivo';
     let recommendations = 'Apto para atención al cliente y gestión multicanal.';
 
-    if (hasDyslexia) {
-        profileTitle = 'Perfil Vulnerable en Transcripción Alfanumérica (Dislexia)';
+    if (transpositionErrorsCount >= 2) {
+        profileTitle = 'Perfil con Dislexia / Transposición Alfanumérica Detectada en Prueba';
+        recommendations = `ALTO RIESGO OPERATIVO: Falló ${transpositionErrorsCount} pruebas de discriminación visual rápida (inversión de números de cuenta o letras en contraseñas). No apto para chat en vivo; alto riesgo de error en entrega de claves o confirmación de cuentas bancarias.`;
+    } else if (hasDyslexia) {
+        profileTitle = 'Perfil Vulnerable en Transcripción Alfanumérica (Dislexia Declarada)';
         recommendations = 'No apto para chat en vivo con manejo de claves complejas o cuentas bancarias. Reubicar en soporte por voz o labores sin digitación crítica.';
     } else if (tabSwitchesCount >= 4) {
         profileTitle = 'Perfil con Riesgo de Transgresión de Normas';
@@ -110,6 +114,7 @@ function evaluateHiringRecommendation({
     averageTimePerCase = 0,
     tabSwitchesCount = 0,
     audioCasesScore = 0,
+    transpositionErrorsCount = 0,
     medicalNotes = ''
 }) {
     const reasons = [];
@@ -125,8 +130,14 @@ function evaluateHiringRecommendation({
         );
     }
 
-    // 2. Filtro estricto por Dislexia para cargos de chat y manejo de credenciales
-    if (hasDyslexia) {
+    // 2. Filtro estricto por Dislexia / Transposición de Caracteres (Empírica o Declarada)
+    if (transpositionErrorsCount >= 2) {
+        reasons.push(
+            `DISLEXIA / TRANSPOSICIÓN DETECTADA EN PRUEBA (${transpositionErrorsCount} fallas): ` +
+            "El candidato invirtió letras o números en cotejo de contraseñas de streaming o llaves Bre-V. " +
+            "Riesgo operativo crítico para chat en vivo y validación bancaria."
+        );
+    } else if (hasDyslexia) {
         reasons.push(
             "DISLEXIA DECLARADA: Alto riesgo operativo para chat en vivo. " +
             "Dificultades en decodificación y transposición de caracteres comprometen " +
@@ -151,7 +162,7 @@ function evaluateHiringRecommendation({
 
     if (tabSwitchesCount >= 4) {
         recommendation = 'DESCARTADO_TRAMPA_DETECTADA';
-    } else if (hasDyslexia) {
+    } else if (transpositionErrorsCount >= 2 || hasDyslexia) {
         recommendation = 'NO_RECOMENDADO_CHAT';
     } else if (accuracyRate < 70) {
         recommendation = 'DESCARTADO_BAJA_PRECISION';
@@ -184,11 +195,13 @@ async function saveAdvisorEvaluation(data) {
     const averageTimePerCase = Number(data.averageTimePerCase || (data.casesCount ? Math.round(totalTimeSeconds / data.casesCount) : 0));
     const tabSwitchesCount = Number(data.tabSwitchesCount || data.tabSwitches || 0);
     const audioCasesScore = Number(data.audioCasesScore || 0);
+    const transpositionErrorsCount = Number(data.transpositionErrorsCount || 0);
     const psychProfile = buildPsychologicalProfile({
         accuracyRate,
         averageTimePerCase,
         tabSwitchesCount,
         audioCasesScore,
+        transpositionErrorsCount,
         hasDyslexia,
         hasAdhd,
         hasVisualFatigue,
@@ -211,6 +224,7 @@ async function saveAdvisorEvaluation(data) {
         averageTimePerCase,
         tabSwitchesCount,
         audioCasesScore,
+        transpositionErrorsCount,
         medicalNotes
     });
 
@@ -222,13 +236,13 @@ async function saveAdvisorEvaluation(data) {
             `INSERT INTO advisor_evaluations 
             (candidate_name, candidate_email, candidate_phone, has_dyslexia, has_adhd, has_visual_fatigue, 
              medical_notes, total_score, accuracy_rate, total_time_seconds, average_time_per_case, 
-             tab_switches_count, audio_cases_score, hiring_recommendation, rejection_reasons, detailed_answers)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             tab_switches_count, audio_cases_score, transposition_errors_count, hiring_recommendation, rejection_reasons, detailed_answers)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 candidateName, candidateEmail, candidatePhone,
                 hasDyslexia ? 1 : 0, hasAdhd ? 1 : 0, hasVisualFatigue ? 1 : 0,
                 medicalNotes, totalScore, accuracyRate, totalTimeSeconds, averageTimePerCase,
-                tabSwitchesCount, audioCasesScore, recommendation, rejectionReasons, detailedAnswers
+                tabSwitchesCount, audioCasesScore, transpositionErrorsCount, recommendation, rejectionReasons, detailedAnswers
             ]
         );
         savedId = result.insertId;
@@ -285,8 +299,8 @@ async function getAdvisorEvaluations() {
         const [rows] = await pool.query(
             `SELECT id, candidate_name, candidate_email, candidate_phone, has_dyslexia, has_adhd, 
                     has_visual_fatigue, medical_notes, total_score, accuracy_rate, total_time_seconds, 
-                    average_time_per_case, tab_switches_count, audio_cases_score, hiring_recommendation, 
-                    rejection_reasons, detailed_answers, created_at 
+                    average_time_per_case, tab_switches_count, audio_cases_score, transposition_errors_count, 
+                    hiring_recommendation, rejection_reasons, detailed_answers, created_at 
              FROM advisor_evaluations 
              ORDER BY created_at DESC 
              LIMIT 200`
