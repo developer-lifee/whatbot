@@ -8149,7 +8149,7 @@ Lógica de recuperación ("recoveredState"):
     * Caso A (CONVERSACIÓN ACTIVA): Si en el historial reciente aparece un mensaje del "Asistente" (humano, sin el emoji 🤖) hablando con el usuario, pidiendo datos o dando soporte. ES VITAL que si ves al Asistente humano hablando, devuelvas "waiting_human" para no interrumpirlo.
     * Caso B (SILENCIO FORZADO): Si el usuario ha enviado múltiples mensajes de queja, insultos o insistencia extrema (ej: "hola???", "alguien??", "que pasa?") sin respuesta, y el bot no tiene una solución técnica inmediata. 
 - "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
-- "awaiting_payment_confirmation": Si el mensaje es una imagen o texto indicando "ya pagué", "aquí el recibo", etc.
+- "awaiting_payment_confirmation": Si el mensaje ACTUAL es explícitamente una imagen de comprobante o texto indicando "ya pagué", "aquí el recibo", etc. NUNCA devuelvas "awaiting_payment_confirmation" si el mensaje actual pide credenciales, reporta problemas de acceso o si un asesor humano ya confirmó la actualización/entrega en el historial.
 - Si no hay un flujo claro a medias, pon null. 
 
 Regla de Frustración:
