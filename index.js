@@ -4650,29 +4650,8 @@ app.post('/api/public/advisor-test/submit', express.json(), async (req, res) => 
         const { saveAdvisorEvaluation } = require('./advisorEvaluationService');
         const result = await saveAdvisorEvaluation(req.body);
 
-        // Notificación automática a WhatsApp de administración
-        try {
-            if (global.client && typeof global.client.sendMessage === 'function') {
-                const recBadge = result.recommendation === 'APTO_CONTRATAR' ? '🟢 APTO PARA CONTRATAR' :
-                    (result.recommendation === 'NO_RECOMENDADO_CHAT' ? '🔴 NO RECOMENDADO CHAT (Dislexia / Error Credenciales)' :
-                    (result.recommendation === 'DESCARTADO_TRAMPA_DETECTADA' ? '🚨 DESCARTADO (Trampa / IA Detectada)' :
-                    (result.recommendation === 'DESCARTADO_BAJA_PRECISION' ? '🔴 DESCARTADO (Baja Precisión)' : '🟡 EN OBSERVACIÓN')));
-
-                const alertMsg = `📋 *NUEVO CANDIDATO EVALUADO (Filtro Sheerit)*\n\n` +
-                    `👤 *Nombre:* ${req.body.candidateName || 'Sin Nombre'}\n` +
-                    `📱 *WhatsApp:* +57 ${req.body.candidatePhone || 'N/A'}\n` +
-                    `🎯 *Precisión Técnica:* ${req.body.accuracyRate || 0}%\n` +
-                    `⏱️ *Tiempo Promedio:* ${req.body.averageTimePerCase || 0}s por caso\n` +
-                    `🧠 *Dislexia:* ${req.body.hasDyslexia ? 'SÍ (🔴 Alto Riesgo)' : 'NO'}\n` +
-                    `🚨 *Salidas de Pestaña (IA):* ${req.body.tabSwitchesCount || 0}\n` +
-                    `⚖️ *Veredicto:* *${recBadge}*\n\n` +
-                    `👉 Ver postulantes en: https://sheerit.co/aiuda/admin`;
-
-                for (const gid of ['120363102144405222@g.us', '120363427163636523@g.us']) {
-                    global.client.sendMessage(gid, alertMsg).catch(() => {});
-                }
-            }
-        } catch (_) {}
+        // Los resultados se mantienen 100% confidenciales en el panel web de administración
+        // No se envían a grupos de WhatsApp para proteger la privacidad de los postulantes y del administrador.
 
         res.json(result);
     } catch (e) {
