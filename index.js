@@ -2005,7 +2005,7 @@ app.post('/api/admin/client/update-expiration', express.json(), async (req, res)
 // Endpoint para aplicar corte de servicio y gestionar reinicio de dispositivos cuando se sacan todas las sesiones
 app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
     try {
-        const { rowNumber, phone, streaming, email, reason, resetDevices, password, agentName } = req.body;
+        const { rowNumber, phone, streaming, email, reason, resetDevices, leaveSlotVirgin = true, password, agentName } = req.body;
         if (password !== 'admin123') {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
@@ -2014,8 +2014,13 @@ app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
         const { resetDeviceUsage } = require('./deviceLimitService');
         let targetRow = parseInt(rowNumber);
 
-        if (!targetRow || isNaN(targetRow)) {
-            const allRows = await fetchRawData();
+        let targetData = null;
+        const allRows = await fetchRawData();
+        if (targetRow && !isNaN(targetRow)) {
+            targetData = allRows[targetRow - 2];
+        }
+
+        if (!targetRow || isNaN(targetRow) || !targetData) {
             const cleanPhone = (phone || '').toString().replace(/\D/g, '');
             const target = allRows.find(r => {
                 const rPhone = (r.numero || r.Numero || r.whatsapp || '').toString().replace(/\D/g, '');
@@ -2026,6 +2031,7 @@ app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
             });
             if (target) {
                 targetRow = target._rowNumber || (allRows.indexOf(target) + 2);
+                targetData = target;
             }
         }
 
@@ -2039,8 +2045,50 @@ app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
         const cleanReason = (reason || 'No renovó').trim();
         const obsValue = `cortar - ${cleanReason} (${author} ${dateStr})`;
 
-        console.log(`[Admin Cut Service] Marcando corte en fila ${targetRow}: "${obsValue}"`);
-        const result = await updateExcelData(targetRow, { "observaciones": obsValue });
+        // Respaldo preventivo en base de datos histórica si se va a dejar la casilla virgen
+        if (leaveSlotVirgin && targetData) {
+            try {
+                const { pool } = require('./database');
+                const prevPhone = (phone || targetData.numero || targetData.Numero || targetData.whatsapp || '').toString().replace(/\D/g, '');
+                const prevStreaming = streaming || targetData.Streaming || targetData.Plataforma || '';
+                const prevEmail = email || targetData.correo || targetData.Correo || '';
+                const prevProfile = `${targetData.Nombre || ''} ${targetData.Apellido || ''}`.trim();
+                const prevPin = targetData["pin perfil"] || targetData.pin || targetData.pin_perfil || '';
+                const prevVenc = targetData.deben || targetData.vencimiento || null;
+
+                if (prevPhone && pool) {
+                    await pool.query(
+                        `INSERT INTO excel_historical_records 
+                            (customer_phone, streaming_platform, account_email, profile_name, profile_pin, fecha_corte, vencimiento, payment_method, amount_paid)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         ON DUPLICATE KEY UPDATE 
+                            fecha_corte = VALUES(fecha_corte),
+                            profile_name = VALUES(profile_name)`,
+                        [prevPhone, prevStreaming, prevEmail, prevProfile, prevPin, dateStr, prevVenc, 'Corte Admin', 0]
+                    );
+                }
+            } catch (hErr) {
+                console.warn("[Admin Cut Service] No se pudo guardar snapshot en histórico DB:", hErr.message);
+            }
+        }
+
+        let updatePayload = {};
+        if (leaveSlotVirgin) {
+            updatePayload = {
+                "Nombre": "libre",
+                "Apellido": "",
+                "numero": "",
+                "whatsapp": "",
+                "deben": "",
+                "observaciones": ""
+            };
+            console.log(`[Admin Cut Service] Dejando casilla virgen en fila ${targetRow} (Nombre='libre', teléfono y vencimiento vacíos)`);
+        } else {
+            updatePayload = { "observaciones": obsValue };
+            console.log(`[Admin Cut Service] Marcando corte en fila ${targetRow}: "${obsValue}"`);
+        }
+
+        const result = await updateExcelData(targetRow, updatePayload);
 
         let devicesReset = false;
         if (resetDevices) {
@@ -2051,9 +2099,12 @@ app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
 
         res.json({
             success: true,
-            message: `Servicio marcado para corte exitosamente.${resetDevices ? ' Límite de dispositivos reseteado.' : ''}`,
+            message: leaveSlotVirgin 
+                ? `Servicio cortado y casilla liberada ("virgen") exitosamente para nueva venta.${resetDevices ? ' Límite de dispositivos reseteado.' : ''}`
+                : `Servicio marcado para corte exitosamente.${resetDevices ? ' Límite de dispositivos reseteado.' : ''}`,
             rowNumber: targetRow,
-            observaciones: obsValue,
+            leaveSlotVirgin: !!leaveSlotVirgin,
+            observaciones: leaveSlotVirgin ? '' : obsValue,
             devicesReset,
             result
         });
