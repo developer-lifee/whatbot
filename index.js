@@ -8146,10 +8146,10 @@ Lógica de recuperación ("recoveredState"):
     * Caso A: Si el mensaje menciona un medio de pago (Nequi, Daviplata, etc.) y en el historial el asistente ya dio un total a pagar.
     * Caso B (COLABORATIVO): Si el "Asistente" (humano, sin 🤖) negoció un precio (ej: "te queda en 21") y el usuario actual acepta (ej: "Listo", "Dale", "Vale"). EN ESTE CASO, el bot debe saltar aquí para dar los medios de pago. Si detectas el monto negociado, ponlo en metadata.total.
 - "waiting_human": 
-    * Caso A (CONVERSACIÓN ACTIVA): Si en el historial reciente aparece un mensaje del "Asistente" (humano, sin el emoji 🤖) hablando con el usuario, pidiendo datos o dando soporte. ES VITAL que si ves al Asistente humano hablando, devuelvas "waiting_human" para no interrumpirlo.
+    * Caso A (CONVERSACIÓN ACTIVA): Si en el historial reciente aparece un mensaje del "Asistente" (humano, sin el emoji 🤖) hablando con el usuario, pidiendo datos o dando soporte. ES VITAL que si ves al Asistente humano hablando, devuelvas "waiting_human" para no interrumpirlo. EXCEPCIÓN: Si el usuario solicita explícitamente un código de verificación/acceso (ej: "solicitar el código", "necesito el código", "reenviar el correo"), NO devuelvas "waiting_human" aunque un asesor haya enviado un código previamente.
     * Caso B (SILENCIO FORZADO): Si el usuario ha enviado múltiples mensajes de queja, insultos o insistencia extrema (ej: "hola???", "alguien??", "que pasa?") sin respuesta, y el bot no tiene una solución técnica inmediata. 
 - "awaiting_purchase_platforms": Si el usuario está preguntando por precios de plataformas específicas, comparando planes o preguntando "cuánto cuesta".
-- "awaiting_payment_confirmation": Si el mensaje ACTUAL es explícitamente una imagen de comprobante o texto indicando "ya pagué", "aquí el recibo", etc. NUNCA devuelvas "awaiting_payment_confirmation" si el mensaje actual pide credenciales, reporta problemas de acceso o si un asesor humano ya confirmó la actualización/entrega en el historial.
+- "awaiting_payment_confirmation": Si el mensaje ACTUAL es explícitamente una imagen de comprobante o texto indicando "ya pagué", "aquí el recibo", etc. NUNCA devuelvas "awaiting_payment_confirmation" si el mensaje actual pide credenciales, solicita un código de verificación/acceso, reporta problemas de acceso o si un asesor humano ya confirmó la actualización/entrega en el historial.
 - Si no hay un flujo claro a medias, pon null. 
 
 Regla de Frustración:
