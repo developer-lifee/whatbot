@@ -222,12 +222,18 @@ async function syncHistoricoToDb() {
                 continue;
             }
 
-            // Parse amount_paid (deben)
-            let amountPaid = 0;
-            if (hist.deben) {
-                const parsed = parseInt(hist.deben.toString().replace(/\D/g, ''));
-                if (!isNaN(parsed)) amountPaid = parsed;
-            }
+            // Determinar amount_paid según el precio real de la plataforma en streaming_prices
+            // En Excel la columna 'deben' contiene la fecha de vencimiento, NO un precio en pesos
+            let amountPaid = 13000;
+            try {
+                const [priceRows] = await pool.query(
+                    'SELECT normal_price FROM streaming_prices WHERE UPPER(TRIM(platform)) = UPPER(TRIM(?)) LIMIT 1',
+                    [streaming]
+                );
+                if (priceRows.length > 0 && priceRows[0].normal_price) {
+                    amountPaid = Math.round(Number(priceRows[0].normal_price));
+                }
+            } catch (_) {}
 
             // Format vencimiento
             let vencimientoDate = null;

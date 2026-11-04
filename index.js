@@ -1712,11 +1712,22 @@ app.get('/api/admin/stats', async (req, res) => {
             }));
 
             // 3. Clientes con mayor inversión
+            // Se usa el precio real de la plataforma (o amount_paid si es un valor de precio real <= 35000)
+            // Se previene la corrupción por fechas de Excel en la columna 'deben' (ej: 29042026 o seriales 46202)
             const [spentRows] = await pool.query(`
-                SELECT customer_phone, SUM(amount_paid) as count 
-                FROM excel_historical_records 
-                ${dateFilterExcel}
-                GROUP BY customer_phone 
+                SELECT 
+                    h.customer_phone, 
+                    SUM(
+                        CASE 
+                            WHEN h.amount_paid > 0 AND h.amount_paid <= 35000 THEN h.amount_paid
+                            WHEN sp.normal_price IS NOT NULL THEN sp.normal_price
+                            ELSE 13000
+                        END
+                    ) as count 
+                FROM excel_historical_records h
+                LEFT JOIN streaming_prices sp ON UPPER(TRIM(h.streaming_platform)) = UPPER(TRIM(sp.platform))
+                ${dateFilterExcel ? dateFilterExcel.replace(/customer_phone/g, 'h.customer_phone') : ''}
+                GROUP BY h.customer_phone 
                 ORDER BY count DESC 
                 LIMIT 5
             `);
@@ -1811,14 +1822,18 @@ app.get('/api/admin/client-history', async (req, res) => {
 
                         if (!streaming || !emailAcct || !cutDate) continue;
 
-                        // Parse amount_paid (deben) - Ignorar si la casilla contiene una fecha (ej: 29/04/2026 -> 29042026)
-                        let amountPaid = 0;
-                        if (hist.deben) {
-                            const parsed = parseInt(hist.deben.toString().replace(/\D/g, ''));
-                            if (!isNaN(parsed) && parsed < 200000) {
-                                amountPaid = parsed;
+                        // Determinar amount_paid según el precio real de la plataforma en streaming_prices
+                        // En Excel la columna 'deben' contiene la fecha de vencimiento, NO un precio en pesos
+                        let amountPaid = 13000;
+                        try {
+                            const [priceRows] = await pool.query(
+                                'SELECT normal_price FROM streaming_prices WHERE UPPER(TRIM(platform)) = UPPER(TRIM(?)) LIMIT 1',
+                                [streaming]
+                            );
+                            if (priceRows.length > 0 && priceRows[0].normal_price) {
+                                amountPaid = Math.round(Number(priceRows[0].normal_price));
                             }
-                        }
+                        } catch (_) {}
 
                         // Format vencimiento
                         let vencimientoDate = null;
