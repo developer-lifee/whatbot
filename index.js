@@ -7978,7 +7978,41 @@ app.post('/api/admin/bonuses/save', express.json(), async (req, res) => {
                 [newId, agentId, numAmount, reason, performer || 'estebanavila182@outlook.com']
             );
 
-            return res.json({ success: true, message: 'Ajuste registrado correctamente' });
+            // Sincronización Automática con Contabilidad (Flujo de Caja Real)
+            if (numAmount < 0) {
+                try {
+                    const accountingService = require('./accountingService');
+                    const entryDate = new Date().toISOString().split('T')[0];
+                    const rawBase = req.body.advance_base ? Math.abs(parseFloat(req.body.advance_base)) : Math.abs(numAmount);
+                    const commVal = req.body.commission_amount ? Math.abs(parseFloat(req.body.commission_amount)) : 0;
+
+                    // 1. Egreso por el monto del adelanto entregado al asesor
+                    await accountingService.addTransaction(
+                        'expense',
+                        'NOMINA',
+                        rawBase,
+                        `Adelanto de nómina: ${agentName} (${reason})`,
+                        entryDate,
+                        1
+                    );
+
+                    // 2. Ingreso por la comisión cobrada ($10.000 COP)
+                    if (commVal > 0) {
+                        await accountingService.addTransaction(
+                            'income',
+                            'COMISIONES',
+                            commVal,
+                            `Comisión por trámite de adelanto: ${agentName}`,
+                            entryDate,
+                            1
+                        );
+                    }
+                } catch (accErr) {
+                    console.error('[Accounting Sync] Error registrando adelanto en contabilidad:', accErr.message);
+                }
+            }
+
+            return res.json({ success: true, message: 'Ajuste registrado correctamente y sincronizado con contabilidad' });
         }
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -8105,6 +8139,23 @@ app.post('/api/admin/payroll/close', express.json(), async (req, res) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [agentId, pMonth, sDate, eDate, totHours, trHours, normHours, rateToUse, totBonuses, finalPayment, pLabel, stat]);
 
+        // Auto-registrar egreso en cash_flow_entries por la liquidación de nómina
+        if (stat === 'paid' && finalPayment > 0) {
+            try {
+                const accountingService = require('./accountingService');
+                const entryDate = eDate || new Date().toISOString().split('T')[0];
+                const desc = `Liquidación de nómina: ${agent.fullname} (${pLabel})`;
+                // Limpiar previo egreso automatizado para este mismo período y asesor si existía
+                await pool.query(
+                    'DELETE FROM cash_flow_entries WHERE platform = "NOMINA" AND is_automated = 1 AND description LIKE ?',
+                    [`Liquidación de nómina: ${agent.fullname} (${pLabel})%`]
+                );
+                await accountingService.addTransaction('expense', 'NOMINA', finalPayment, desc, entryDate, 1);
+            } catch (accErr) {
+                console.error('[Accounting Sync] Error registrando nómina en contabilidad:', accErr.message);
+            }
+        }
+
         res.json({
             success: true,
             promoted,
@@ -8144,8 +8195,26 @@ app.post('/api/admin/payroll/reopen', express.json(), async (req, res) => {
         const { pool } = require('./database');
 
         if (id) {
+            const [rows] = await pool.query('SELECT mp.*, a.fullname FROM monthly_payroll mp JOIN agents a ON mp.agent_id = a.id WHERE mp.id = ?', [id]);
+            if (rows.length > 0) {
+                const rec = rows[0];
+                await pool.query(
+                    'DELETE FROM cash_flow_entries WHERE platform = "NOMINA" AND is_automated = 1 AND description LIKE ?',
+                    [`Liquidación de nómina: ${rec.fullname} (${rec.period_label})%`]
+                );
+            }
             await pool.query('DELETE FROM monthly_payroll WHERE id = ?', [id]);
         } else if (agent_id) {
+            const [rows] = await pool.query(
+                'SELECT mp.*, a.fullname FROM monthly_payroll mp JOIN agents a ON mp.agent_id = a.id WHERE mp.agent_id = ? AND (mp.payroll_month = ? OR (mp.start_date = ? AND mp.end_date = ?))',
+                [agent_id, payroll_month, start_date, end_date]
+            );
+            for (const rec of rows) {
+                await pool.query(
+                    'DELETE FROM cash_flow_entries WHERE platform = "NOMINA" AND is_automated = 1 AND description LIKE ?',
+                    [`Liquidación de nómina: ${rec.fullname} (${rec.period_label})%`]
+                );
+            }
             await pool.query(
                 'DELETE FROM monthly_payroll WHERE agent_id = ? AND (payroll_month = ? OR (start_date = ? AND end_date = ?))',
                 [agent_id, payroll_month, start_date, end_date]
