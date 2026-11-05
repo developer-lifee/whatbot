@@ -18,6 +18,9 @@ const wantsCodeKeywords = [
 
 const CODE_REQUEST_REGEX = /(?:c[oó0g]dig[oó0]|g[oó0]dig[oó0]|token|2fa|otp|totp)/i;
 
+// Patterns indicating that a previously provided code was rejected or failed
+const CODE_FAILURE_REGEX = /(?:no\s+funciona|no\s+me\s+sirve|codigo\s+incorrecto|código\s+incorrecto|invalido|inválido|no\s+es|error\s+de\s+codigo|error\s+de\s+código|no\s+agarra|no\s+da)/i;
+
 /**
  * Checks if a message text is requesting a 2FA/TOTP code.
  * @param {string} text 
@@ -27,6 +30,16 @@ function isCodeRequest(text) {
     if (!text) return false;
     const cleanText = text.toLowerCase().trim();
     return CODE_REQUEST_REGEX.test(cleanText) || wantsCodeKeywords.some(keyword => cleanText.includes(keyword));
+}
+
+/**
+ * Checks if a message text reports that a 2FA/TOTP code failed or was incorrect.
+ * @param {string} text 
+ * @returns {boolean}
+ */
+function isCodeFailureReport(text) {
+    if (!text) return false;
+    return CODE_FAILURE_REGEX.test(text.toLowerCase().trim());
 }
 
 /**
@@ -47,6 +60,24 @@ function generateGPTCode(email) {
         console.error(`[TOTP Service] Error generating code for ${email}:`, error.message);
         return null;
     }
+}
+
+/**
+ * Attempts to retrieve an email OTP / verification code via Gmail fallback if token exists.
+ * @param {string} email 
+ * @returns {Promise<string|null>}
+ */
+async function getEmailCodeFallback(email) {
+    if (!email) return null;
+    try {
+        const gmailAuthService = require('./gmailAuthService');
+        if (gmailAuthService && typeof gmailAuthService.getRecentCodeFromGmail === 'function') {
+            return await gmailAuthService.getRecentCodeFromGmail(email);
+        }
+    } catch (err) {
+        console.warn(`[TOTP Service] Fallback de Gmail no disponible o sin token para ${email}:`, err.message);
+    }
+    return null;
 }
 
 /**
@@ -157,12 +188,15 @@ function saveUsage(usage) {
 
 module.exports = {
     generateGPTCode,
+    getEmailCodeFallback,
     checkAndIncrementUsage,
     resetAllUsage,
     saveSecret,
     deleteSecret,
     loadSecrets,
     isCodeRequest,
+    isCodeFailureReport,
     wantsCodeKeywords,
-    CODE_REQUEST_REGEX
+    CODE_REQUEST_REGEX,
+    CODE_FAILURE_REGEX
 };
