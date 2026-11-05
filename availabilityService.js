@@ -175,13 +175,15 @@ async function checkSpreadsheetStock(platformName) {
 
 /**
  * Returns the availability status for a platform.
+ * Supports options object or boolean flag for isRenewal.
  * Returns: { immediate: boolean, reason: string | null }
  */
-async function getPlatformAvailability(platformName) {
+async function getPlatformAvailability(platformName, options = {}) {
     const config = getAvailabilityConfig();
+    const isRenewal = typeof options === 'boolean' ? options : !!(options && options.isRenewal);
     
     // Normalizar nombre de búsqueda
-    const normalizedQuery = platformName.toLowerCase().trim();
+    const normalizedQuery = (platformName || "").toLowerCase().trim();
     const targetNormalized = normalizeStreamingName(platformName);
 
     // 1. Coincidencia exacta de texto
@@ -204,17 +206,30 @@ async function getPlatformAvailability(platformName) {
         };
     }
     
-    // Verificar el stock en el Excel primero (incluso para familiares/invitaciones como Apple One)
-    const hasStock = await checkSpreadsheetStock(platformName);
-    if (!hasStock) {
-        return {
-            immediate: false,
-            available: false,
-            reason: "No hay cupos libres disponibles en este momento en el sistema para entrega automática."
-        };
+    // Si no es renovación, verificar el stock en el Excel
+    // Si es renovación de un cupo ya asignado, el cliente ya posee su cuenta activa
+    if (!isRenewal) {
+        const hasStock = await checkSpreadsheetStock(platformName);
+        if (!hasStock) {
+            return {
+                immediate: false,
+                available: false,
+                reason: "No hay cupos libres disponibles en este momento en el sistema para entrega automática."
+            };
+        }
     }
     
-    // Si hay stock, pero es un plan familiar/invitación, requiere activación manual
+    // Si es renovación para planes 'extra' / 'netflix extra', el cupo ya existe y no requiere activación manual
+    const isExtraPlan = normalizedQuery.includes('extra') || targetNormalized === 'netflix_extra';
+    if (isRenewal && isExtraPlan) {
+        return {
+            immediate: true,
+            available: true,
+            reason: null
+        };
+    }
+
+    // Si es cuenta nueva o plan familiar que requiere invitación, requiere activación manual
     const FAMILY_KEYWORDS = ['youtube', 'apple', 'microsoft', 'google', 'spotify individual', 'spotify personal', 'spotify familiar', 'familiar', 'family', 'xbox', 'netflix extra', 'extra', 'individual', 'personal', 'correo propio', 'tu correo'];
     const isFamily = FAMILY_KEYWORDS.some(key => normalizedQuery.includes(key));
     if (isFamily) {
@@ -232,8 +247,8 @@ async function getPlatformAvailability(platformName) {
     };
 }
 
-async function isPlatformAvailable(platformName) {
-    const res = await getPlatformAvailability(platformName);
+async function isPlatformAvailable(platformName, options = {}) {
+    const res = await getPlatformAvailability(platformName, options);
     return res && res.available !== false;
 }
 
