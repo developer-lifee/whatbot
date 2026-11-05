@@ -32,6 +32,7 @@ async function initPlatformsTables() {
         platform_id INT NOT NULL,
         name VARCHAR(100) NOT NULL,
         price DECIMAL(10,2) NOT NULL DEFAULT 0,
+        original_price DECIMAL(10,2) DEFAULT NULL,
         characteristics JSON,
         detalles TEXT,
         is_personal_email TINYINT(1) DEFAULT 0,
@@ -42,6 +43,10 @@ async function initPlatformsTables() {
         FOREIGN KEY (platform_id) REFERENCES platforms(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    try {
+      await pool.query('ALTER TABLE platform_plans ADD COLUMN IF NOT EXISTS original_price DECIMAL(10,2) DEFAULT NULL');
+    } catch (e) {}
 
     // 3. Verificar si hay plataformas en la BD
     const [existing] = await pool.query('SELECT COUNT(*) as count FROM platforms');
@@ -84,11 +89,12 @@ async function seedPlatformsToDb(platformsArray) {
     if (Array.isArray(p.plans) && p.plans.length > 0) {
       for (const pl of p.plans) {
         await pool.query(`
-          INSERT INTO platform_plans (id, platform_id, name, price, characteristics, detalles, is_personal_email, is_active)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+          INSERT INTO platform_plans (id, platform_id, name, price, original_price, characteristics, detalles, is_personal_email, is_active)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
           ON DUPLICATE KEY UPDATE
             name = VALUES(name),
             price = VALUES(price),
+            original_price = VALUES(original_price),
             characteristics = VALUES(characteristics),
             detalles = VALUES(detalles),
             is_personal_email = VALUES(is_personal_email);
@@ -97,6 +103,7 @@ async function seedPlatformsToDb(platformsArray) {
           p.id,
           pl.name,
           pl.price || 0,
+          pl.originalPrice || null,
           JSON.stringify(pl.characteristics || []),
           pl.detalles || '',
           pl.isPersonalEmail ? 1 : 0
@@ -141,6 +148,7 @@ async function getPlatformsFromDb() {
         id: plan.id,
         name: plan.name,
         price: parseFloat(plan.price),
+        originalPrice: plan.original_price ? parseFloat(plan.original_price) : undefined,
         characteristics,
         detalles: plan.detalles || undefined,
         isPersonalEmail: Boolean(plan.is_personal_email)

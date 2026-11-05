@@ -132,7 +132,8 @@
       {
         "id": 603,
         "name": "ChatGPT Pro (20x a 25x vs Gratis - $100 USD)",
-        "price": 150000,
+        "price": 120000,
+        "originalPrice": 150000,
         "characteristics": [
           "Capacidad estimada: 20x a 25x más volumen de cómputo que el plan gratis",
           "Basado en el nivel Pro Standard Usage ($100 USD/mes)",
@@ -148,7 +149,8 @@
       {
         "id": 604,
         "name": "ChatGPT Pro Scale (50x a 100x vs Gratis - $200 USD)",
-        "price": 250000,
+        "price": 190000,
+        "originalPrice": 250000,
         "characteristics": [
           "Capacidad estimada: 50x a 100x respecto al plan gratuito",
           "Basado en el nivel Pro More Usage ($200 USD/mes)",
@@ -642,7 +644,8 @@
       {
         "id": 2303,
         "name": "Claude Pro 5x (20x a 25x vs Gratis)",
-        "price": 150000,
+        "price": 120000,
+        "originalPrice": 150000,
         "characteristics": [
           "Capacidad estimada: 20x a 25x más volumen de tokens que el plan gratis",
           "Plan de alto rendimiento para trabajo continuo y sesiones pesadas",
@@ -657,7 +660,8 @@
       {
         "id": 2304,
         "name": "Claude Max Scale (50x a 100x vs Gratis)",
-        "price": 250000,
+        "price": 190000,
+        "originalPrice": 250000,
         "characteristics": [
           "Capacidad máxima: 50x a 100x respecto a una cuenta gratuita",
           "Basado en la suscripción de máxima potencia de $200 USD de Anthropic",
