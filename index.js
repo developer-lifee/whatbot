@@ -7893,42 +7893,136 @@ app.get('/api/admin/logs', async (req, res) => {
     }
 });
 
-// POST Add or Update Bonus
+// POST Add or Update Bonus / Advance (Only Esteban / Admin can edit)
 app.post('/api/admin/bonuses/save', express.json(), async (req, res) => {
     try {
-        const { email, amount, reason, bonus_month } = req.body;
-        if (!email || !amount || !reason || !bonus_month) {
+        const { id, email, amount, reason, bonus_month, performed_by } = req.body;
+        if (!email || amount === undefined || amount === null || amount === '' || !reason || !bonus_month) {
             return res.status(400).json({ success: false, message: 'Faltan campos requeridos' });
         }
 
+        const performer = (performed_by || '').trim().toLowerCase();
+        // Solo lo puede editar Esteban (o admin explícito)
+        if (id && performer && performer !== 'estebanavila182@outlook.com') {
+            return res.status(403).json({ success: false, message: 'Solo Esteban tiene autorización exclusiva para modificar ajustes de nómina.' });
+        }
+
         const { pool } = require('./database');
-        const [agentRows] = await pool.query('SELECT id FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
+        const [agentRows] = await pool.query('SELECT id, fullname FROM agents WHERE email = ?', [email.trim().toLowerCase()]);
         if (!agentRows || agentRows.length === 0) {
             return res.status(404).json({ success: false, message: 'Asesor no encontrado' });
         }
         const agentId = agentRows[0].id;
+        const agentName = agentRows[0].fullname;
+        const numAmount = parseFloat(amount);
 
-        await pool.query(
-            'INSERT INTO agent_bonuses (agent_id, bonus_month, amount, reason) VALUES (?, ?, ?, ?)',
-            [agentId, bonus_month, parseFloat(amount), reason]
-        );
+        // Asegurar que la tabla de auditoría exista
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS agent_bonus_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                bonus_id INT NOT NULL,
+                agent_id INT NOT NULL,
+                action ENUM('create', 'edit', 'delete') NOT NULL DEFAULT 'edit',
+                old_amount DECIMAL(10,2) NULL,
+                new_amount DECIMAL(10,2) NULL,
+                old_reason VARCHAR(255) NULL,
+                new_reason VARCHAR(255) NULL,
+                performed_by VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
 
-        res.json({ success: true, message: 'Bono registrado correctamente' });
+        if (id) {
+            const [oldRows] = await pool.query('SELECT * FROM agent_bonuses WHERE id = ?', [id]);
+            if (oldRows.length === 0) {
+                return res.status(404).json({ success: false, message: 'Registro de ajuste no encontrado' });
+            }
+            const old = oldRows[0];
+            const oldAmount = parseFloat(old.amount);
+            const oldReason = old.reason;
+
+            await pool.query(
+                'UPDATE agent_bonuses SET amount = ?, reason = ?, bonus_month = ? WHERE id = ?',
+                [numAmount, reason, bonus_month, id]
+            );
+
+            // Registrar en historial de auditoría
+            await pool.query(
+                'INSERT INTO agent_bonus_history (bonus_id, agent_id, action, old_amount, new_amount, old_reason, new_reason, performed_by) VALUES (?, ?, "edit", ?, ?, ?, ?, ?)',
+                [id, agentId, oldAmount, numAmount, oldReason, reason, performer || 'estebanavila182@outlook.com']
+            );
+
+            // Registrar en logs generales del sistema
+            try {
+                await pool.query(
+                    'INSERT INTO system_activity_logs (agent_email, agent_name, action_type, description, metadata) VALUES (?, ?, "BONUS_EDIT", ?, ?)',
+                    [
+                        performer || 'estebanavila182@outlook.com',
+                        'Esteban (Admin)',
+                        `Edición de ajuste de ${agentName}: antes $${oldAmount} (${oldReason}) -> ahora $${numAmount} (${reason})`,
+                        JSON.stringify({ bonus_id: id, old_amount: oldAmount, new_amount: numAmount, old_reason: oldReason, new_reason: reason })
+                    ]
+                );
+            } catch (logErr) { /* ignore */ }
+
+            return res.json({ success: true, message: 'Ajuste de nómina actualizado correctamente y registrado en historial' });
+        } else {
+            const [insertRes] = await pool.query(
+                'INSERT INTO agent_bonuses (agent_id, bonus_month, amount, reason) VALUES (?, ?, ?, ?)',
+                [agentId, bonus_month, numAmount, reason]
+            );
+            const newId = insertRes.insertId;
+
+            await pool.query(
+                'INSERT INTO agent_bonus_history (bonus_id, agent_id, action, old_amount, new_amount, old_reason, new_reason, performed_by) VALUES (?, ?, "create", NULL, ?, NULL, ?, ?)',
+                [newId, agentId, numAmount, reason, performer || 'estebanavila182@outlook.com']
+            );
+
+            return res.json({ success: true, message: 'Ajuste registrado correctamente' });
+        }
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
 });
 
-// POST Delete Bonus
+// GET History of a specific bonus / advance
+app.get('/api/admin/bonuses/:id/history', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { pool } = require('./database');
+        const [rows] = await pool.query(
+            'SELECT * FROM agent_bonus_history WHERE bonus_id = ? ORDER BY id DESC',
+            [id]
+        );
+        res.json({ success: true, history: rows });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Delete Bonus (With Audit & Restrict to Esteban)
 app.post('/api/admin/bonuses/delete', express.json(), async (req, res) => {
     try {
-        const { id } = req.body;
+        const { id, performed_by } = req.body;
         if (!id) return res.status(400).json({ success: false, message: 'Falta el id del bono' });
 
-        const { pool } = require('./database');
-        await pool.query('DELETE FROM agent_bonuses WHERE id = ?', [id]);
+        const performer = (performed_by || '').trim().toLowerCase();
+        if (performer && performer !== 'estebanavila182@outlook.com') {
+            return res.status(403).json({ success: false, message: 'Solo Esteban tiene autorización para eliminar ajustes de nómina.' });
+        }
 
-        res.json({ success: true, message: 'Bono eliminado correctamente' });
+        const { pool } = require('./database');
+        const [oldRows] = await pool.query('SELECT * FROM agent_bonuses WHERE id = ?', [id]);
+        if (oldRows.length > 0) {
+            const old = oldRows[0];
+            await pool.query(
+                'INSERT INTO agent_bonus_history (bonus_id, agent_id, action, old_amount, new_amount, old_reason, new_reason, performed_by) VALUES (?, ?, "delete", ?, NULL, ?, NULL, ?)',
+                [id, old.agent_id, parseFloat(old.amount), old.reason, performer || 'estebanavila182@outlook.com']
+            );
+        }
+
+        await pool.query('DELETE FROM agent_bonuses WHERE id = ?', [id]);
+        res.json({ success: true, message: 'Ajuste eliminado correctamente y archivado en auditoría' });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
