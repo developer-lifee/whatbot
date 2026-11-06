@@ -183,6 +183,15 @@
   * **Caché Local de Exclusión en Frontend:** En `TicketsView.tsx`, se integró `recentlyResolvedPhonesRef` (TTL 60s) que filtra en el cliente cualquier ticket recién resuelto, e incorpora timeout de seguridad de 8s para desbloquear siempre la interfaz.
   * **Saneamiento en Producción:** Se ejecutó un script en MariaDB eliminando 16 filas duplicadas de hoy, ajustando las métricas de Carol de 26 a **10 resoluciones reales**.
 
+### 13. Configuración de Memoria Swap (4 GB) y Monitor Preventivo de RAM (`systemMonitorService.js`)
+- **Problema:** Al reiniciar PM2 (`pm2 restart whatbot`), el servidor VPS experimentó un bloqueo temporal (*swap thrashing*) durante la inicialización simultánea de Puppeteer/Chromium, retrasando el banner SSH y peticiones web.
+- **Causa Raíz:** El VPS tenía **0 Bytes de memoria Swap configurados** y 3.8 GB de RAM física. Cuando la instancia saliente y entrante de Chromium coincidieron en memoria, se superó el límite físico sin ningún colchón de amortiguación.
+- **Solución y Mejoras Desarrolladas:**
+  * **Activación de Swap de 4 GB:** Se creó `/swapfile` (4 GB), permisos `600`, persistencia en `/etc/fstab` y optimización `vm.swappiness = 20` (en `/etc/sysctl.conf`).
+  * **Módulo `systemMonitorService.js`:** Lectura de precisión de `/proc/meminfo` (RAM total, usada, libre, `MemAvailable` y Swap).
+  * **Cron de Alerta Preventiva:** Evalúa cada 3 minutos el estado de la memoria. Si la RAM usada supera el 85% o el Swap supera el 60%, envía una notificación detallada a los grupos de WhatsApp (`120363427163636523@g.us` y `120363102144405222@g.us`) con un enfriamiento inteligente de 30 minutos.
+  * **Métricas en API:** Se expuso el estado en `/api/admin/system-health` (`memory`) para visualización directa en el dashboard administrativo.
+
 ---
 
 ## Estructura de Tablas Clave en MariaDB

@@ -897,8 +897,10 @@ app.get('/api/admin/system-health', async (req, res) => {
     try {
         const { getOneDriveHealth } = require('./apiService');
         const { getOneDriveTokenInfo } = require('./oneDriveAuthService');
+        const { getMemoryUsage } = require('./systemMonitorService');
         const health = getOneDriveHealth();
         const tokenInfo = getOneDriveTokenInfo();
+        const memory = getMemoryUsage();
         res.json({
             success: true,
             timestamp: new Date().toISOString(),
@@ -912,7 +914,8 @@ app.get('/api/admin/system-health', async (req, res) => {
             agyCli: {
                 installed: true,
                 path: '/usr/local/bin/agy'
-            }
+            },
+            memory
         });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -17841,6 +17844,14 @@ async function startClientWithRetries(maxRetries = 5) {
 }
 
 startClientWithRetries();
+
+// Monitor de Memoria RAM y Swap con alertas preventivas por WhatsApp
+try {
+    const { startMemoryMonitor } = require('./systemMonitorService');
+    startMemoryMonitor(() => (typeof client !== 'undefined' ? client : null));
+} catch (memErr) {
+    console.error('[Startup] Error inicializando monitor de memoria:', memErr.message);
+}
 
 // Escáner Atiende Pendientes deshabilitado de bucle periódico para evitar duplicados y respuestas tardías
 // Los mensajes entrantes se procesan en tiempo real por los eventos 'message' y 'message_create'
