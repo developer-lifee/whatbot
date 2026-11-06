@@ -241,6 +241,22 @@ async function syncPriceToPublicCatalog(accountingPlatformName, newPrice) {
     targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('apple') && p.plan_name.toLowerCase().includes('tv'));
   } else if (rawKey === 'AMAZON' || rawKey === 'PRIME') {
     targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('prime'));
+  } else if (rawKey === 'GPT') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('gpt') && p.plan_name.toLowerCase().includes('1.5x'));
+  } else if (rawKey === 'CHATGPT PLUS (4X A 6X)') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('gpt') && p.plan_name.toLowerCase().includes('4x'));
+  } else if (rawKey === 'CHATGPT PRO ($100 USD)') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('gpt') && (p.plan_name.toLowerCase().includes('20x') || p.plan_name.toLowerCase().includes('100')));
+  } else if (rawKey === 'CHATGPT PRO SCALE ($200 USD)') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('gpt') && (p.plan_name.toLowerCase().includes('50x') || p.plan_name.toLowerCase().includes('200')));
+  } else if (rawKey === 'CLAUDE') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('claude') && p.plan_name.toLowerCase().includes('1.5x'));
+  } else if (rawKey === 'CLAUDE X2') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('claude') && p.plan_name.toLowerCase().includes('4x'));
+  } else if (rawKey === 'CLAUDE MAX X5') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('claude') && (p.plan_name.toLowerCase().includes('5x') || p.plan_name.toLowerCase().includes('20x')));
+  } else if (rawKey === 'CLAUDE MAX') {
+    targetPlan = plans.find(p => p.platform_name.toLowerCase().includes('claude') && (p.plan_name.toLowerCase().includes('50x') || p.plan_name.toLowerCase().includes('scale')));
   } else {
     // Mapeo por similitud de nombre
     const cleanKey = rawKey.replace(/[^A-Z0-9]/g, '');
