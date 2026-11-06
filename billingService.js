@@ -706,7 +706,7 @@ function extractPlatformFromText(text) {
     if (/\bplex\b/i.test(txt)) return 'PLEX';
     if (/\b(crunchyroll|crunchy)\b/i.test(txt)) return 'CRUNCHYROLL';
     if (/\b(apple|apple\s*one|apple\s*tv|apple\s*music)\b/i.test(txt)) return 'APPLE ONE';
-    if (/\bclaude\b/i.test(txt)) return 'CLAUDE';
+    if (/\b(claude|claud|anthropic)\b/i.test(txt) || /clau(de)?\s*code/i.test(txt) || /\bclaucode\b/i.test(txt) || /\bclaudecode\b/i.test(txt)) return 'CLAUDE';
     if (/\b(chatgpt|gpt)\b/i.test(txt)) return 'CHATGPT';
     if (/\bcanva\b/i.test(txt)) return 'CANVA';
     return null;
@@ -792,12 +792,27 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             }
         }
 
-        // Validar si tiene un pago en proceso de validación humana
+        // Pre-cargar cuentas del usuario para verificar si ya tiene la plataforma activa
+        let userAccounts = (preloadedAccounts && Array.isArray(preloadedAccounts) && preloadedAccounts.length > 0)
+            ? preloadedAccounts
+            : await getAccountsByPhone(phoneNumber, contactName);
+
+        const requestedPlatform = extractPlatformFromText(triggerMessage);
+        const hasActiveRequestedPlatform = requestedPlatform && userAccounts && userAccounts.some(acc => {
+            const streaming = acc.Streaming || acc.streaming || "";
+            return isStreamingMatch(streaming, requestedPlatform);
+        });
+
+        // Validar si tiene un pago en proceso de validación humana RECIENTE (máximo 4 horas)
         let isPendingValidation = false;
+        const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
         if (userStates) {
             const stateData = userStates.get(userId);
             if (stateData && (stateData.state === 'waiting_admin_confirmation' || stateData.state === 'awaiting_payment_confirmation')) {
-                isPendingValidation = true;
+                const stateAge = Date.now() - (stateData.timestamp || 0);
+                if (stateData.timestamp && stateAge < FOUR_HOURS_MS) {
+                    isPendingValidation = true;
+                }
             }
         }
 
@@ -805,7 +820,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             try {
                 const { pool } = require('./database');
                 const [pendingSales] = await pool.query(
-                    "SELECT * FROM web_sales_pending WHERE whatsapp LIKE ? OR whatsapp = ?",
+                    "SELECT * FROM web_sales_pending WHERE (whatsapp LIKE ? OR whatsapp = ?) AND (createdAt >= NOW() - INTERVAL 4 HOUR OR createdAt IS NULL) ORDER BY createdAt DESC LIMIT 1",
                     [`%${phoneNumber}%`, phoneNumber]
                 );
                 if (pendingSales && pendingSales.length > 0) {
@@ -816,7 +831,9 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             }
         }
 
-        if (isPendingValidation) {
+        // Si el cliente solicita credenciales de un servicio que YA TIENE ACTIVO en Excel,
+        // no bloquearlo con mensaje de pago pendiente
+        if (isPendingValidation && !hasActiveRequestedPlatform) {
             const pendingSale = await checkPendingWebSaleForPhone(phoneNumber);
             if (pendingSale) {
                 const amountFmt = pendingSale.amount ? `$${Number(pendingSale.amount).toLocaleString('es-CO')} COP` : '';
@@ -837,18 +854,14 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
         ) : null;
         const hasRecentPayment = existingState && (
             (existingState.lastPaymentValidated && Date.now() - existingState.lastPaymentValidated < 1000 * 60 * 30) ||
-            existingState.state === 'awaiting_payment_confirmation' ||
-            existingState.state === 'waiting_admin_confirmation'
+            ((existingState.state === 'awaiting_payment_confirmation' || existingState.state === 'waiting_admin_confirmation') &&
+             existingState.timestamp && (Date.now() - existingState.timestamp < FOUR_HOURS_MS))
         );
 
-        if (hasRecentPayment) {
+        if (hasRecentPayment && !hasActiveRequestedPlatform) {
             await safeSend(null, "🤖 ¡Hola! Tu pago ha sido recibido y registrado con éxito. 🎉 En este momento nuestro equipo está procesando la asignación de tu servicio. Te enviaremos tus credenciales de acceso directamente por aquí a la mayor brevedad. ¡Muchas gracias por tu compra! 😊", userId, client);
             return;
         }
-
-        let userAccounts = (preloadedAccounts && Array.isArray(preloadedAccounts) && preloadedAccounts.length > 0)
-            ? preloadedAccounts
-            : await getAccountsByPhone(phoneNumber, contactName);
 
         if (userAccounts.length === 0) {
             await safeSend(null, "🤖 No encontré servicios activos vinculados a este número. Si compraste desde otro número, por favor dímelo para ayudarte a buscar o contacta a un asesor.", userId, client);
@@ -856,7 +869,6 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
         }
 
         // --- VALIDACIÓN DE PLATAFORMA ESPECÍFICA ---
-        const requestedPlatform = extractPlatformFromText(triggerMessage);
         if (requestedPlatform) {
             const hasPlatform = userAccounts.some(acc => {
                 const streaming = acc.Streaming || acc.streaming || "";

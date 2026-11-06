@@ -156,6 +156,19 @@
   * Se ejecutó un script de saneamiento en el VPS marcando como `resolved` los 272 chats inactivos mayores a 7 días.
   * Resultado: La numeración de turnos es ahora real, consecutiva y limpia (ej. Steven pasó de #355 a **Turno #24**).
 
+### 11. Desbloqueo de Validación de Pagos Obsoletos y Entrega de Códigos Claude Code (`claucode`)
+- **Problema:** Clientes con servicios activos (ej. Manuel con Claude y Spotify) al pedir códigos ("necesito codigo de inicio de sesion", "claucode") eran interceptados repetidamente con el mensaje: *"🤖 Tu pago está registrado en nuestro sistema y está en proceso de validación..."*, impidiendo la entrega del enlace o código 2FA.
+- **Causa Raíz:**
+  1. Estados de `awaiting_payment_confirmation` y `waiting_admin_confirmation` en `user_states.json` no tenían expiración de tiempo (176 usuarios atrapados con estados de semanas/meses atrás).
+  2. En `index.js`, `isPaymentState` bloqueaba completamente el interceptor de códigos si el usuario tenía dicho estado viejo.
+  3. En `billingService.js` (`processCheckCredentials`), `isPendingValidation` no verificaba la antigüedad del estado ni si el cliente ya tenía una cuenta activa en Excel para la plataforma pedida.
+  4. La expresión regular para Claude solo buscaba `\bclaude\b`, ignorando variaciones habituales como `claucode`, `claudecode` o `claude code`.
+- **Solución:**
+  * **Auto-Expiración de Estados:** Se configuró un TTL estricto de 4 horas para estados de pago e interactivos en `index.js` y `billingService.js`. Si un estado es más antiguo, se purga automáticamente.
+  * **Prioridad a Cuentas Activas:** Si un cliente ya tiene una cuenta activa en Excel para la plataforma solicitada, el bot entrega sus accesos/códigos y nunca lo bloquea con avisos de pago pendiente.
+  * **Soporte de Variantes Claude Code:** Se agregaron `claucode`, `claudecode`, `claude code` al interceptor de códigos de `index.js` y a `extractPlatformFromText` en `billingService.js`.
+  * **Bypass Inteligente:** Al solicitar códigos en espera de asesor, el bot permite la continuidad inmediata hacia el extractor automático de códigos de Gmail.
+
 ---
 
 ## Estructura de Tablas Clave en MariaDB

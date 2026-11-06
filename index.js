@@ -11575,7 +11575,28 @@ async function baseProcessIncomingMessage(messages) {
         'awaiting_churn_account_selection',
         'awaiting_churn_reason'
     ];
-    const activeInteractiveState = [stateByUserId, stateByPhone, stateByRawPhone].find(s => s && interactiveActiveStates.includes(s.state));
+
+    // Limpiar estados interactivos/pago obsoletos (> 4 horas sin actividad)
+    for (const candState of [stateByUserId, stateByPhone, stateByRawPhone]) {
+        if (candState && interactiveActiveStates.includes(candState.state)) {
+            const lastTime = candState.timestamp || candState.lastMessageTime || 0;
+            const ageHours = lastTime ? (Date.now() - lastTime) / (1000 * 3600) : 999;
+            if (ageHours > 4) {
+                console.log(`[Auto-Expire Synced] Limpiado estado interactivo/pago antiguo (${candState.state}, ${ageHours.toFixed(1)}h) para @${userId} / @${cleanPhoneJid}.`);
+                userStates.delete(userId);
+                if (cleanPhoneJid) userStates.delete(cleanPhoneJid);
+                if (realPhone) userStates.delete(realPhone);
+            }
+        }
+    }
+
+    const activeInteractiveState = [stateByUserId, stateByPhone, stateByRawPhone].find(s => {
+        if (!s || !interactiveActiveStates.includes(s.state)) return false;
+        const lastTime = s.timestamp || s.lastMessageTime || 0;
+        const ageHours = lastTime ? (Date.now() - lastTime) / (1000 * 3600) : 999;
+        return ageHours <= 4;
+    });
+
     if (activeInteractiveState) {
         currentStateData = activeInteractiveState;
         userStates.set(userId, { ...activeInteractiveState, chatJid: userId });
@@ -12098,23 +12119,30 @@ REGLAS:
                 const txt = (message.body || "").toLowerCase();
                 const salesInquiryKeywords = ['interesa', 'precio', 'cuanto', 'cuánto', 'vale', 'cuesta', 'como funciona', 'cómo funciona', 'se cae', 'tengo que estar', 'comprar', 'dudas', 'informacion', 'información'];
                 const isSalesQuestion = salesInquiryKeywords.some(kw => txt.includes(kw));
-                const codeActionKeywords = ['dame el codigo', 'dame codigo', 'dame el código', 'necesito el codigo', 'necesito el código', 'mandame el codigo', 'mi codigo', 'codigo porfa', 'el codigo', 'sacar codigo', 'solicito codigo'];
+                const codeActionKeywords = [
+                    'dame el codigo', 'dame codigo', 'dame el código', 'necesito el codigo', 'necesito el código',
+                    'mandame el codigo', 'mi codigo', 'codigo porfa', 'el codigo', 'sacar codigo', 'solicito codigo',
+                    'claucode', 'claudecode', 'claude code', 'codigo claude', 'código claude',
+                    'codigo de inicio', 'código de inicio', 'codigo inicio', 'código inicio', 'iniciar sesion', 'iniciar sesión'
+                ];
                 const isExplicitCodeAction = codeActionKeywords.some(kw => txt.includes(kw));
-                const isShortCodeMsg = txt.split(/\s+/).length <= 4 && (txt.includes('codigo') || txt.includes('código') || txt.includes('2fa') || txt.includes('verificacion') || txt.includes('verificación'));
+                const isShortCodeMsg = txt.split(/\s+/).length <= 4 && (txt.includes('codigo') || txt.includes('código') || txt.includes('2fa') || txt.includes('verificacion') || txt.includes('verificación') || txt.includes('claucode') || txt.includes('claudecode') || /\bcode\b/i.test(txt));
 
                 const isCodeRequest = !isSalesQuestion && (isExplicitCodeAction || isShortCodeMsg);
                 const isCredentialsRequest = (detection && detection.intent === 'credenciales') || cleanInput === '2' || txt.includes('credenciales') || txt.includes('datos de acceso') || txt.includes('mis datos');
 
-                if (isCredentialsRequest || isCodeRequest) {
-                    console.log(`[Bypass Waiting Human] 🔑 El usuario @${userId.replace('@c.us', '')} pidió credenciales/código. Procesando de forma automática.`);
+                if (isCredentialsRequest) {
+                    console.log(`[Bypass Waiting Human] 🔑 El usuario @${userId.replace('@c.us', '')} pidió credenciales. Procesando de forma automática.`);
                     const { processCheckCredentials } = require('./billingService');
                     await processCheckCredentials(userId, client, message.body, "", userStates);
                     return;
                 }
 
-                // HILO ACTIVO CON ASESOR: Si el asesor interactuó hace menos de 15 minutos, SILENCIO ABSOLUTO.
-                // Permite conversaciones fluidas como "Si señor" -> sin interrupciones del bot.
-                if (minutesSinceLastHuman <= 15) {
+                if (isCodeRequest) {
+                    console.log(`[Bypass Waiting Human] 🔑 El usuario @${userId.replace('@c.us', '')} pidió código de verificación/2FA. Continuando al interceptor de códigos.`);
+                    currentState = undefined;
+                    currentStateData = undefined;
+                } else if (minutesSinceLastHuman <= 15) {
                     console.log(`[BOT MUTE ACTIVE THREAD] Asesor interactuó hace ${minutesSinceLastHuman.toFixed(1)} mins con @${userId}. Manteniendo silencio absoluto por hilo activo con asesor.`);
                     return;
                 }
@@ -13445,21 +13473,24 @@ REGLAS:
 
     const wantsCodeKeywords = [
         'código', 'codigo', 'codigoo', 'codigooo', 'actualizar hogar', 'mi codigo', 'mi código',
-        'enviar código', 'enviar codigo', 'el código', 'el codigo',
+        'enviar código', 'enviar codigo', 'el código', 'el codigo', 'code',
         'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación',
-        'envia el codigo', 'envía el código', 'mandar codigo', 'mandar código'
+        'envia el codigo', 'envía el código', 'mandar codigo', 'mandar código',
+        'claucode', 'claudecode', 'claude code', 'codigo claude', 'código claude',
+        'inicio de sesion', 'inicio de sesión', 'iniciar sesion', 'iniciar sesión'
     ];
     const platformsSupported = [
-        'netflix', 'disney', 'claude', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt',
+        'netflix', 'disney', 'claude', 'claucode', 'claudecode', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt',
         'youtube', 'spotify', 'paramount', 'apple', 'canva',
         'crunchyroll', 'vix', 'gamma', 'iptv', 'magis', 'microsoft'
     ];
-    const isPaymentState = currentStateData && (currentStateData.state === 'awaiting_payment_confirmation' || currentStateData.state === 'waiting_admin_confirmation');
-    const isPaymentOrReceipt = isPaymentState || lowerBody.includes('qr') || lowerBody.includes('barras') || lowerBody.includes('pago') || lowerBody.includes('comprobante') || lowerBody.includes('recibo') || lowerBody.includes('abono') || lowerBody.includes('transferencia');
-    const hasExplicitCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) || /\bc[oó]dig[oó]+\b/i.test(lowerBody);
+    const isRecentPaymentState = currentStateData && (currentStateData.state === 'awaiting_payment_confirmation' || currentStateData.state === 'waiting_admin_confirmation') && (Date.now() - (currentStateData.timestamp || 0) < 4 * 3600 * 1000);
+    const hasPaymentWord = lowerBody.includes('qr') || lowerBody.includes('barras') || lowerBody.includes('pago') || lowerBody.includes('comprobante') || lowerBody.includes('recibo') || lowerBody.includes('abono') || lowerBody.includes('transferencia');
+    const isPaymentOrReceipt = (isRecentPaymentState && hasPaymentWord) || (!message.hasMedia ? false : hasPaymentWord);
+    const hasExplicitCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) || /\b(c[oó]dig[oó]+|code)\b/i.test(lowerBody) || /clau(de)?\s*code/i.test(lowerBody);
     const hasCodeKeyword = hasExplicitCodeKeyword && !isPaymentOrReceipt;
     const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
-    const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw) || /\bc[oó]dig[oó]+\b/i.test(lowerBody)) && !isPaymentOrReceipt;
+    const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw) || /\b(c[oó]dig[oó]+|code)\b/i.test(lowerBody) || /clau(de)?\s*code/i.test(lowerBody)) && !isPaymentOrReceipt;
 
     if (hasCodeKeyword || (isQuestionOrCode && hasPlatformKeyword)) {
         try {
@@ -13496,6 +13527,9 @@ REGLAS:
                             if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
                                 return streamingName.includes('amazon') || streamingName.includes('prime');
                             }
+                            if (matchedPlatform === 'claude' || matchedPlatform === 'claucode' || matchedPlatform === 'claudecode') {
+                                return streamingName.includes('claude');
+                            }
                             return streamingName.includes(matchedPlatform);
                         });
                     }
@@ -13503,7 +13537,8 @@ REGLAS:
                     // Si especificó una plataforma pero no está entre sus cuentas activas, no usar fallbacks
                     if (matchedPlatform && !targetAccount) {
                         const activePlats = Array.from(new Set(userAccounts.map(a => (a.Streaming || "").toUpperCase()).filter(Boolean))).join(', ');
-                        await message.reply(`🤖 Veo que solicitas un código para *${matchedPlatform.toUpperCase()}*, pero no tienes una cuenta activa de esa plataforma vinculada a tu número de WhatsApp. ${activePlats ? `Actualmente solo tienes activo: *${activePlats}*` : 'No tienes servicios activos con nosotros'}.\n\nSi deseas renovar o adquirir tu cuenta de *${matchedPlatform.toUpperCase()}*, por favor indícalo para ayudarte. 😊`);
+                        const platDisplayName = (matchedPlatform === 'claucode' || matchedPlatform === 'claudecode') ? 'CLAUDE' : matchedPlatform.toUpperCase();
+                        await message.reply(`🤖 Veo que solicitas un código para *${platDisplayName}*, pero no tienes una cuenta activa de esa plataforma vinculada a tu número de WhatsApp. ${activePlats ? `Actualmente solo tienes activo: *${activePlats}*` : 'No tienes servicios activos con nosotros'}.\n\nSi deseas renovar o adquirir tu cuenta de *${platDisplayName}*, por favor indícalo para ayudarte. 😊`);
                         return;
                     }
                 }
@@ -15336,6 +15371,14 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         // Limpiamos el estado actual para que el mensaje sea procesado por la lógica global (case undefined)
         currentState = undefined;
         currentStateData = undefined;
+        if (userId) {
+            userStates.delete(userId);
+            const cleanKey = userId.replace('@c.us', '').replace('@lid', '').replace(/\D/g, '');
+            if (cleanKey) {
+                userStates.delete(cleanKey);
+                userStates.delete(`${cleanKey}@c.us`);
+            }
+        }
     }
 
     switch (currentState) {
