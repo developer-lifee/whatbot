@@ -4698,6 +4698,38 @@ app.post('/api/admin/accounting/transaction', async (req, res) => {
     }
 });
 
+// Endpoints para Historial de Renovaciones de Cuentas Matriz (Proveedores y Flujo Real)
+app.get('/api/admin/accounting/renewals', async (req, res) => {
+    try {
+        const renewals = await accountingService.getAccountRenewals(req.query);
+        res.json(renewals);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/accounting/renewals/save', async (req, res) => {
+    try {
+        const { renewalData, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const result = await accountingService.recordAccountRenewal(renewalData);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/admin/accounting/renewals/delete', async (req, res) => {
+    try {
+        const { id, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const result = await accountingService.deleteAccountRenewal(id);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 // Endpoint to write human support schedule configuration
 app.post('/api/admin/support-schedule/save', (req, res) => {

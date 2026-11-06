@@ -75,11 +75,12 @@ async function initAccountingTables() {
         id INT AUTO_INCREMENT PRIMARY KEY,
         platform VARCHAR(100) NOT NULL,
         email VARCHAR(255) NULL DEFAULT '',
+        provider VARCHAR(100) NULL,
         total_cost DECIMAL(10,2) NOT NULL DEFAULT 0,
         profile_slots INT NOT NULL DEFAULT 1,
         duration_days INT NOT NULL DEFAULT 30,
         expiration_date DATE NULL,
-        payment_method VARCHAR(100) NULL,
+        payment_method VARCHAR(255) NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -87,6 +88,36 @@ async function initAccountingTables() {
     try {
       await pool.query('ALTER TABLE streaming_costs MODIFY COLUMN email VARCHAR(255) NULL DEFAULT \'\'');
     } catch (alterErr) { /* ya es nullable */ }
+
+    try {
+      const [costCols] = await pool.query("SHOW COLUMNS FROM streaming_costs");
+      if (!costCols.some(c => c.Field === 'provider')) {
+        await pool.query("ALTER TABLE streaming_costs ADD COLUMN provider VARCHAR(100) NULL AFTER email");
+      }
+      if (costCols.some(c => c.Field === 'payment_method' && c.Type.includes('100'))) {
+        await pool.query("ALTER TABLE streaming_costs MODIFY COLUMN payment_method VARCHAR(255) NULL");
+      }
+    } catch (colErr) { /* ignore */ }
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS account_renewals (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        platform VARCHAR(100) NOT NULL,
+        account_email VARCHAR(255) NOT NULL,
+        provider VARCHAR(100) NULL,
+        payment_method VARCHAR(255) NULL,
+        amount_paid DECIMAL(12,2) NOT NULL DEFAULT 0,
+        renewal_date DATE NOT NULL,
+        expiration_date DATE NOT NULL,
+        duration_days INT NOT NULL DEFAULT 30,
+        profile_slots INT NOT NULL DEFAULT 1,
+        notes TEXT NULL,
+        registered_by VARCHAR(100) NULL,
+        sync_to_cash_flow TINYINT(1) DEFAULT 1,
+        cash_flow_entry_id INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS cash_flow_entries (
@@ -160,16 +191,17 @@ async function getCosts() {
  * Guarda o actualiza un costo
  */
 async function saveCost(data) {
-  const { id, platform, email, total_cost, profile_slots, duration_days, expiration_date, payment_method } = data;
+  await initAccountingTables();
+  const { id, platform, email, provider, total_cost, profile_slots, duration_days, expiration_date, payment_method } = data;
   if (id) {
     await pool.query(
-      'UPDATE streaming_costs SET platform = ?, email = ?, total_cost = ?, profile_slots = ?, duration_days = ?, expiration_date = ?, payment_method = ? WHERE id = ?',
-      [platform.toUpperCase(), email, total_cost, profile_slots || 1, duration_days || 30, expiration_date || null, payment_method || null, id]
+      'UPDATE streaming_costs SET platform = ?, email = ?, provider = ?, total_cost = ?, profile_slots = ?, duration_days = ?, expiration_date = ?, payment_method = ? WHERE id = ?',
+      [platform.toUpperCase(), email, provider || null, total_cost, profile_slots || 1, duration_days || 30, expiration_date || null, payment_method || null, id]
     );
   } else {
     await pool.query(
-      'INSERT INTO streaming_costs (platform, email, total_cost, profile_slots, duration_days, expiration_date, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [platform.toUpperCase(), email, total_cost, profile_slots || 1, duration_days || 30, expiration_date || null, payment_method || null]
+      'INSERT INTO streaming_costs (platform, email, provider, total_cost, profile_slots, duration_days, expiration_date, payment_method) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [platform.toUpperCase(), email, provider || null, total_cost, profile_slots || 1, duration_days || 30, expiration_date || null, payment_method || null]
     );
   }
   return { success: true };
@@ -180,6 +212,170 @@ async function saveCost(data) {
  */
 async function deleteCost(id) {
   await pool.query('DELETE FROM streaming_costs WHERE id = ?', [id]);
+  return { success: true };
+}
+
+/**
+ * Registra la renovación y pago exacto de una cuenta matriz
+ * Almacena el monto real (sube/baja por promoción), proveedor, tarjeta/método, fecha vencimiento
+ * y lo conecta con el flujo de caja contable (egreso real de dinero).
+ */
+async function recordAccountRenewal(data) {
+  await initAccountingTables();
+  const {
+    platform,
+    account_email,
+    provider,
+    payment_method,
+    amount_paid,
+    renewal_date,
+    expiration_date,
+    duration_days = 30,
+    profile_slots = 5,
+    notes = '',
+    registered_by = 'Asesor',
+    sync_to_cash_flow = true,
+    sync_to_excel = false
+  } = data;
+
+  if (!platform || !account_email || !renewal_date || !expiration_date) {
+    throw new Error('Faltan datos requeridos (plataforma, correo, fecha renovación, fecha vencimiento).');
+  }
+
+  const cleanPlat = platform.trim().toUpperCase();
+  const cleanEmail = account_email.trim();
+  const paidAmount = parseFloat(amount_paid) || 0;
+
+  let cashFlowEntryId = null;
+
+  // 1. Asentar egreso real en flujo de caja contable si está marcado
+  if (sync_to_cash_flow && paidAmount > 0) {
+    const desc = `Renovación cuenta ${cleanPlat} (${cleanEmail}) | Prov: ${provider || 'Directo'} | Pago: ${payment_method || 'N/A'}`;
+    const [resCf] = await pool.query(
+      'INSERT INTO cash_flow_entries (type, platform, amount, description, entry_date, is_automated) VALUES (?, ?, ?, ?, ?, ?)',
+      ['expense', cleanPlat, paidAmount, desc, renewal_date, 1]
+    );
+    cashFlowEntryId = resCf.insertId;
+  }
+
+  // 2. Insertar registro histórico en account_renewals
+  const [resRen] = await pool.query(
+    `INSERT INTO account_renewals 
+     (platform, account_email, provider, payment_method, amount_paid, renewal_date, expiration_date, duration_days, profile_slots, notes, registered_by, sync_to_cash_flow, cash_flow_entry_id) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      cleanPlat,
+      cleanEmail,
+      provider ? provider.trim() : null,
+      payment_method ? payment_method.trim() : null,
+      paidAmount,
+      renewal_date,
+      expiration_date,
+      duration_days || 30,
+      profile_slots || 1,
+      notes || null,
+      registered_by || null,
+      sync_to_cash_flow ? 1 : 0,
+      cashFlowEntryId
+    ]
+  );
+
+  // 3. Sincronizar / actualizar tabla base de costos de streaming (streaming_costs)
+  const [costRows] = await pool.query(
+    'SELECT id FROM streaming_costs WHERE UPPER(platform) = ? AND LOWER(email) = ?',
+    [cleanPlat, cleanEmail.toLowerCase()]
+  );
+  if (costRows.length > 0) {
+    await pool.query(
+      `UPDATE streaming_costs 
+       SET total_cost = ?, expiration_date = ?, provider = ?, payment_method = ?, duration_days = ?, profile_slots = ? 
+       WHERE id = ?`,
+      [paidAmount, expiration_date, provider || null, payment_method || null, duration_days || 30, profile_slots || 1, costRows[0].id]
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO streaming_costs 
+       (platform, email, provider, total_cost, profile_slots, duration_days, expiration_date, payment_method) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [cleanPlat, cleanEmail, provider || null, paidAmount, profile_slots || 1, duration_days || 30, expiration_date, payment_method || null]
+    );
+  }
+
+  // 4. Sincronización opcional hacia Excel Online (OneDrive Graph) si está activo
+  let excelUpdatedRows = 0;
+  if (sync_to_excel) {
+    try {
+      const { fetchCustomersData, writeRowToGraphDirect } = require('./apiService');
+      const allCustomers = await fetchCustomersData();
+      const matching = allCustomers.filter(c => (c.correo || '').trim().toLowerCase() === cleanEmail.toLowerCase());
+      
+      const combinedPaymentMethod = provider 
+        ? `${provider.trim()} - ${payment_method ? payment_method.trim() : ''}`.trim()
+        : (payment_method ? payment_method.trim() : '');
+
+      for (const row of matching) {
+        if (row.rowNumber) {
+          const updates = {
+            vencimiento: expiration_date
+          };
+          if (combinedPaymentMethod) {
+            updates["Metodo de pago"] = combinedPaymentMethod;
+          }
+          await writeRowToGraphDirect(row.rowNumber, updates);
+          excelUpdatedRows++;
+        }
+      }
+    } catch (err) {
+      console.error('[Account Renewal] Error sincronizando a Excel Online:', err.message);
+    }
+  }
+
+  return {
+    success: true,
+    renewal_id: resRen.insertId,
+    cash_flow_entry_id: cashFlowEntryId,
+    excel_updated_rows: excelUpdatedRows,
+    message: 'Renovación de cuenta registrada exitosamente.'
+  };
+}
+
+/**
+ * Obtiene el historial de renovaciones de cuentas
+ */
+async function getAccountRenewals(filters = {}) {
+  await initAccountingTables();
+  let query = 'SELECT * FROM account_renewals WHERE 1=1';
+  const params = [];
+
+  if (filters.platform) {
+    query += ' AND platform = ?';
+    params.push(filters.platform.toUpperCase().trim());
+  }
+  if (filters.month && filters.year) {
+    query += ' AND MONTH(renewal_date) = ? AND YEAR(renewal_date) = ?';
+    params.push(filters.month, filters.year);
+  } else if (filters.year) {
+    query += ' AND YEAR(renewal_date) = ?';
+    params.push(filters.year);
+  }
+
+  query += ' ORDER BY renewal_date DESC, id DESC LIMIT ?';
+  params.push(parseInt(filters.limit) || 100);
+
+  const [rows] = await pool.query(query, params);
+  return rows;
+}
+
+/**
+ * Elimina un registro de renovación de cuenta y revierte el egreso en flujo de caja si existía
+ */
+async function deleteAccountRenewal(id) {
+  await initAccountingTables();
+  const [rows] = await pool.query('SELECT cash_flow_entry_id FROM account_renewals WHERE id = ?', [id]);
+  if (rows.length > 0 && rows[0].cash_flow_entry_id) {
+    await pool.query('DELETE FROM cash_flow_entries WHERE id = ?', [rows[0].cash_flow_entry_id]);
+  }
+  await pool.query('DELETE FROM account_renewals WHERE id = ?', [id]);
   return { success: true };
 }
 
@@ -632,5 +828,8 @@ module.exports = {
   addCashFlowEntry: addTransaction,
   getTransactions,
   calculateDailyAccounting,
-  calculateRealCashFlow
+  calculateRealCashFlow,
+  recordAccountRenewal,
+  getAccountRenewals,
+  deleteAccountRenewal
 };
