@@ -74,6 +74,13 @@ function isSamePlatformFamily(name1, name2) {
         return false;
     }
 
+    // REGLA CRÍTICA 6: ChatGPT Plus (4x a 6x) / Alta Capacidad NUNCA debe cruzarse con ChatGPT Estándar / Normal
+    const isGptHigh1 = n1.includes('4x') || n1.includes('6x') || name1.toLowerCase().includes('4x') || name1.toLowerCase().includes('6x');
+    const isGptHigh2 = n2.includes('4x') || n2.includes('6x') || name2.toLowerCase().includes('4x') || name2.toLowerCase().includes('6x');
+    if (isGptHigh1 !== isGptHigh2) {
+        return false;
+    }
+
     const mainRoots = ['gemini', 'apple', 'youtube', 'spotify', 'disney', 'hbo', 'netflix', 'microsoft', 'office', 'prime', 'vix', 'crunchyroll', 'crunchy', 'chatgpt', 'gpt', 'paramount'];
     for (const root of mainRoots) {
         let normalizedN1 = n1.replace(/chatgpt|chat gpt/g, 'gpt');

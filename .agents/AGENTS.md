@@ -192,6 +192,15 @@
   * **Cron de Alerta Preventiva:** Evalúa cada 3 minutos el estado de la memoria. Si la RAM usada supera el 85% o el Swap supera el 60%, envía una notificación detallada a los grupos de WhatsApp (`120363427163636523@g.us` y `120363102144405222@g.us`) con un enfriamiento inteligente de 30 minutos.
   * **Métricas en API:** Se expuso el estado en `/api/admin/system-health` (`memory`) para visualización directa en el dashboard administrativo.
 
+### 14. Separación de Tiers de ChatGPT en Asignación Automática y Búsqueda Flexible (`salesRegistryService.js` & `ClientsView.tsx`)
+- **Problema:** Un cliente (Willington Canacue, `3026281061`) compró en la web *ChatGPT Normal / Compartido* ($21.749 COP), pero el bot le asignó una cuenta de *ChatGPT Plus (4x a 6x)* ($35.000 COP, `sheeritdediagama@gmail.com`). Adicionalmente, el cliente no aparecía en la vista de búsqueda del panel administrativo "Base de Datos".
+- **Causa Raíz:**
+  1. *Fusión Indebida de Tiers:* En `salesRegistryService.js`, `isSamePlatformFamily` emparejaba cualquier servicio que contuviera la raíz `'gpt'`. Al estar agotados todos los cupos de `GPT` normal (filas 435-485 y 1078-1086), el buscador saltó al siguiente cupo libre, que correspondía a la fila 1088 de `CHATGPT PLUS (4X A 6X)` ($35.000).
+  2. *Búsqueda con Espacios en Frontend:* En Excel el celular se guardó con espacios (`"57 302 6281061"`). `ClientsView.tsx` hacía `phoneVal.includes(search)` exacto sin normalizar dígitos, devolviendo 0 resultados al tipear `3026281061`.
+- **Solución y Mejoras Desarrolladas:**
+  * **Regla Crítica 6 en `salesRegistryService.js`:** Se prohibió terminantemente el cruce entre planes de alta capacidad (*4x*, *6x*) y planes normales/estándar de ChatGPT. Si el tier no coincide exactamente, el bot no asigna la cuenta y marca la orden para asignación manual.
+  * **Normalización de Teléfonos en `ClientsView.tsx`:** La búsqueda general y por columna ahora elimina caracteres no numéricos (`replace(/\D/g, '')`), permitiendo encontrar al cliente al instante ingresando los 10 dígitos o con código de país.
+
 ---
 
 ## Estructura de Tablas Clave en MariaDB
