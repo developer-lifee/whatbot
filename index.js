@@ -17134,7 +17134,10 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
     const knownKeys = ['0087387259', '1032936324', '46772753713', '3118587974'];
     const isPaymentKeyEcho = knownKeys.some(k => k === rawDigits || (rawDigits.length >= 8 && k.includes(rawDigits)));
     if (isPaymentKeyEcho) {
-        const expectedTotal = stateData.total ? `$${Number(stateData.total).toLocaleString('es-CO')} COP` : '';
+        const calculatedTotal = (stateData.items && stateData.items.length > 0)
+            ? stateData.items.reduce((sum, item) => sum + (Number(item.price || item.precio || 0) * Number(item.quantity || item.cantidad || 1)), 0)
+            : Number(stateData.total || 0);
+        const expectedTotal = calculatedTotal > 0 ? `${calculatedTotal.toLocaleString('es-CO')} COP` : '';
         await message.reply(`🤖 ¡Exacto! Esa es nuestra llave/cuenta oficial. Transfiere ${expectedTotal ? `*${expectedTotal}*` : 'el valor acordado'} a ese número y envíame aquí la captura del comprobante para entregarte tus credenciales de inmediato. ⚡😊`);
         return;
     }
