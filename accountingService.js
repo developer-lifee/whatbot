@@ -370,6 +370,7 @@ async function calculateDailyAccounting() {
       const dailyIncome = price / 30;
       dailyAccounting[platKey].ingreso_total += dailyIncome;
       dailyAccounting[platKey].active_profiles += 1;
+      dailyAccounting[platKey].monthly_client_income = (dailyAccounting[platKey].monthly_client_income || 0) + price;
     });
   });
 
@@ -435,15 +436,19 @@ async function calculateDailyAccounting() {
 
     const amount = parseFloat(entry.amount);
     if (entry.type === 'income') {
-      dailyAccounting[plat].ingreso_total += amount;
+      if (dailyAccounting[plat].is_cash_flow_only) {
+        dailyAccounting[plat].ingreso_total += amount;
+        dailyAccounting[plat].monthly_client_income = (dailyAccounting[plat].monthly_client_income || 0) + amount;
+      } else {
+        dailyAccounting[plat].today_cash_income = (dailyAccounting[plat].today_cash_income || 0) + amount;
+      }
     } else {
-      dailyAccounting[plat].egreso_total += amount;
-    }
-
-    // Para plataformas exclusivas de flujo de caja libre (ej. Nómina, Comisiones, etc.),
-    // el egreso mensual es el valor del asiento real, no multiplicado por 30
-    if (dailyAccounting[plat].is_cash_flow_only) {
-      dailyAccounting[plat].monthly_inventory_cost = dailyAccounting[plat].egreso_total;
+      if (dailyAccounting[plat].is_cash_flow_only) {
+        dailyAccounting[plat].egreso_total += amount;
+        dailyAccounting[plat].monthly_inventory_cost = (dailyAccounting[plat].monthly_inventory_cost || 0) + amount;
+      } else {
+        dailyAccounting[plat].today_cash_expense = (dailyAccounting[plat].today_cash_expense || 0) + amount;
+      }
     }
   });
 
@@ -455,10 +460,13 @@ async function calculateDailyAccounting() {
   let globalMonthlyCost = 0;
   
   rows.forEach(r => {
+    r.monthly_income = r.monthly_client_income !== undefined ? r.monthly_client_income : (r.is_cash_flow_only ? r.ingreso_total : (r.ingreso_total * 30));
+    r.monthly_expense = r.monthly_inventory_cost !== undefined ? r.monthly_inventory_cost : (r.is_cash_flow_only ? r.egreso_total : (r.egreso_total * 30));
+
     globalIngresoTotal += r.ingreso_total;
     globalEgresoTotal += r.egreso_total;
-    globalMonthlyIncome += r.is_cash_flow_only ? r.ingreso_total : (r.ingreso_total * 30);
-    globalMonthlyCost += (r.monthly_inventory_cost !== undefined ? r.monthly_inventory_cost : (r.is_cash_flow_only ? r.egreso_total : r.egreso_total * 30));
+    globalMonthlyIncome += r.monthly_income;
+    globalMonthlyCost += r.monthly_expense;
   });
 
   rows.forEach(r => {
@@ -470,8 +478,8 @@ async function calculateDailyAccounting() {
     // % de Egreso sobre el egreso global
     r.egreso_porcentaje = globalEgresoTotal > 0 ? (r.egreso_total / globalEgresoTotal) * 100 : 0;
     
-    // Indicador Ganancia (Margen de utilidad sobre el costo de la propia plataforma)
-    r.indicador_gan = r.egreso_total > 0 ? (r.utilidad_total / r.egreso_total) * 100 : 0;
+    // Indicador Ganancia (Margen de utilidad sobre el costo de la propia plataforma mensual)
+    r.indicador_gan = r.monthly_expense > 0 ? (((r.monthly_income - r.monthly_expense) / r.monthly_expense) * 100) : 0;
   });
 
   const globalUtilidadTotal = globalIngresoTotal - globalEgresoTotal;
