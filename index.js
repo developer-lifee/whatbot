@@ -7351,11 +7351,12 @@ app.post('/api/admin/agents/schedule/save', express.json(), async (req, res) => 
                 totalGroupDailyNetMinutes += Math.max(0, diff - breakMin);
             }
 
-            if (totalGroupDailyNetMinutes > maxGroupDailyHours * 60) {
+            // Excepción: Esteban (Admin) tiene flexibilidad total para autorizar horas adicionales o reducir intercalación según demanda
+            if (!isReqAdmin && totalGroupDailyNetMinutes > maxGroupDailyHours * 60) {
                 const totalHoursCalc = (totalGroupDailyNetMinutes / 60).toFixed(1);
                 return res.status(400).json({
                     success: false,
-                    message: `Límite grupal excedido: Los turnos de este día suman ${totalHoursCalc} horas netas entre todos los asesores, superando el límite grupal de ${maxGroupDailyHours} horas diarias permitidas.`
+                    message: `Límite grupal excedido: Los turnos de este día suman ${totalHoursCalc} horas netas entre todos los asesores, superando el límite grupal de ${maxGroupDailyHours} horas diarias permitidas (intercalación activa). Si se requiere turno anticipado (desde las 4 PM o 3 PM) por alta demanda, solicita a Esteban que ajuste la bolsa grupal.`
                 });
             }
         }

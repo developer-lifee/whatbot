@@ -396,9 +396,9 @@ async function calculateDailyAccounting() {
     // Si no hay perfiles activos en Excel, se necesitan 0 cuentas (no se incurre en costo de inventario)
     const accountsNeeded = item.active_profiles > 0 ? Math.ceil(item.active_profiles / slots) : 0;
     
-    // Egreso total mensual de compra de cuentas matriz necesarias
+    // Egreso total mensual de compra de cuentas matriz necesarias (normalizado a 30 días según duración)
     item.accounts_needed = accountsNeeded;
-    item.monthly_inventory_cost = accountsNeeded * costInfo.total_cost;
+    item.monthly_inventory_cost = duration > 0 ? (accountsNeeded * costInfo.total_cost * (30 / duration)) : (accountsNeeded * costInfo.total_cost);
     
     // Egreso diario de inventario (fórmula Excel)
     item.egreso_total = duration > 0 ? (item.monthly_inventory_cost / duration) : 0;
