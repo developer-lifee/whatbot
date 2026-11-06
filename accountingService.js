@@ -19,14 +19,14 @@ const SEED_STREAMING_COSTS = [
   { platform: 'PLATZI', email: '', total_cost: 169154, profile_slots: 3, duration_days: 90, expiration_date: null },
   { platform: 'NETFLIX EXTRA', email: '', total_cost: 9900, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'HBO PLATINO', email: '', total_cost: 30000, profile_slots: 5, duration_days: 30, expiration_date: null },
-  { platform: 'APPLE TV', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },
-  { platform: 'MICROSOFT COMPARTIDA', email: '', total_cost: 1, profile_slots: 1, duration_days: 31, expiration_date: null },
-  { platform: 'GEMINI COMPARTIDA', email: '', total_cost: 1, profile_slots: 1, duration_days: 31, expiration_date: null },
+  { platform: 'APPLE TV', email: '', total_cost: 0, profile_slots: 1, duration_days: 30, expiration_date: null },
+  { platform: 'MICROSOFT COMPARTIDA', email: '', total_cost: 0, profile_slots: 1, duration_days: 31, expiration_date: null },
+  { platform: 'GEMINI COMPARTIDA', email: '', total_cost: 0, profile_slots: 1, duration_days: 31, expiration_date: null },
   { platform: 'CANVA', email: '', total_cost: 5000, profile_slots: 5, duration_days: 30, expiration_date: null },
-  { platform: 'SPOTIFY OWNER', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },
-  { platform: 'YOUTUBE OWNER', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },
+  { platform: 'SPOTIFY OWNER', email: '', total_cost: 0, profile_slots: 1, duration_days: 30, expiration_date: null },
+  { platform: 'YOUTUBE OWNER', email: '', total_cost: 0, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'CLAUDE', email: '', total_cost: 76000, profile_slots: 10, duration_days: 31, expiration_date: null },
-  { platform: 'PLATZI COMPARTIDA', email: '', total_cost: 1, profile_slots: 5, duration_days: 30, expiration_date: null }
+  { platform: 'PLATZI COMPARTIDA', email: '', total_cost: 0, profile_slots: 5, duration_days: 30, expiration_date: null }
 ];
 
 const SEED_STREAMING_PRICES = [
@@ -581,26 +581,48 @@ async function calculateDailyAccounting() {
     };
   });
 
+  // Lista de plataformas cuyo costo ya está implícito en la cuenta matriz principal
+  const IMPLICIT_COST_PLATFORMS = new Set([
+    'SPOTIFY OWNER',
+    'YOUTUBE OWNER',
+    'APPLE TV',
+    'MICROSOFT COMPARTIDA',
+    'GEMINI COMPARTIDA',
+    'PLATZI COMPARTIDA'
+  ]);
+
   // Calcular egresos unitarios y egresos totales de inventario según perfiles activos
   Object.keys(dailyAccounting).forEach(plat => {
     const item = dailyAccounting[plat];
-    const costInfo = costMap[plat] || { total_cost: 1000, profile_slots: 1, duration_days: 30 };
-    
-    // Cuentas completas necesarias para suplir a todos los clientes activos
-    const slots = costInfo.profile_slots || 1;
-    const duration = costInfo.duration_days || 30;
-    // Si no hay perfiles activos en Excel, se necesitan 0 cuentas (no se incurre en costo de inventario)
-    const accountsNeeded = item.active_profiles > 0 ? Math.ceil(item.active_profiles / slots) : 0;
-    
-    // Egreso total mensual de compra de cuentas matriz necesarias (normalizado a 30 días según duración)
-    item.accounts_needed = accountsNeeded;
-    item.monthly_inventory_cost = duration > 0 ? (accountsNeeded * costInfo.total_cost * (30 / duration)) : (accountsNeeded * costInfo.total_cost);
-    
-    // Egreso diario de inventario (fórmula Excel)
-    item.egreso_total = duration > 0 ? (item.monthly_inventory_cost / duration) : 0;
-    
-    // Egreso unitario de 1 sola cuenta normalizada (para análisis unitario)
-    item.unit_daily_cost = accountsNeeded > 0 && duration > 0 ? ((costInfo.total_cost / slots / duration) * slots) : 0;
+    const costInfo = costMap[plat] || { total_cost: 0, profile_slots: 1, duration_days: 30 };
+    const isImplicit = IMPLICIT_COST_PLATFORMS.has(plat) || costInfo.total_cost === 0;
+
+    item.is_implicit_cost = isImplicit;
+
+    if (isImplicit) {
+      // El costo ya está cubierto en la compra principal (Spotify Familiar, YouTube Familiar, Apple One, etc.)
+      // No requiere compra de cuentas adicionales y su costo directo es $0 (100% margen neto)
+      item.accounts_needed = 0;
+      item.monthly_inventory_cost = 0;
+      item.egreso_total = 0;
+      item.unit_daily_cost = 0;
+    } else {
+      // Cuentas completas necesarias para suplir a todos los clientes activos
+      const slots = costInfo.profile_slots || 1;
+      const duration = costInfo.duration_days || 30;
+      // Si no hay perfiles activos en Excel, se necesitan 0 cuentas (no se incurre en costo de inventario)
+      const accountsNeeded = item.active_profiles > 0 ? Math.ceil(item.active_profiles / slots) : 0;
+      
+      // Egreso total mensual de compra de cuentas matriz necesarias (normalizado a 30 días según duración)
+      item.accounts_needed = accountsNeeded;
+      item.monthly_inventory_cost = duration > 0 ? (accountsNeeded * costInfo.total_cost * (30 / duration)) : (accountsNeeded * costInfo.total_cost);
+      
+      // Egreso diario de inventario (fórmula Excel)
+      item.egreso_total = duration > 0 ? (item.monthly_inventory_cost / duration) : 0;
+      
+      // Egreso unitario de 1 sola cuenta normalizada (para análisis unitario)
+      item.unit_daily_cost = accountsNeeded > 0 && duration > 0 ? ((costInfo.total_cost / slots / duration) * slots) : 0;
+    }
   });
 
   // 3. Procesar egresos adicionales u otros registrados del día en cash_flow_entries (flujo de caja real)
@@ -675,7 +697,14 @@ async function calculateDailyAccounting() {
     r.egreso_porcentaje = globalEgresoTotal > 0 ? (r.egreso_total / globalEgresoTotal) * 100 : 0;
     
     // Indicador Ganancia (Margen de utilidad sobre el costo de la propia plataforma mensual)
-    r.indicador_gan = r.monthly_expense > 0 ? (((r.monthly_income - r.monthly_expense) / r.monthly_expense) * 100) : 0;
+    if (r.monthly_expense > 0) {
+      r.indicador_gan = ((r.monthly_income - r.monthly_expense) / r.monthly_expense) * 100;
+    } else if (r.monthly_income > 0) {
+      // Plataforma con costo implícito en cuenta matriz (Spotify/YouTube familiar, etc.): 100% de margen limpio
+      r.indicador_gan = 100;
+    } else {
+      r.indicador_gan = 0;
+    }
   });
 
   const globalUtilidadTotal = globalIngresoTotal - globalEgresoTotal;
