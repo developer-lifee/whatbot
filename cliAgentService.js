@@ -34,7 +34,6 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
             const agyArgs = [
                 '-p', fullPrompt,
                 '--model', cliModel,
-                '--effort', 'low',
                 '--output-format', 'json',
                 '--disable-slash-commands',
                 '--dangerously-skip-permissions'
