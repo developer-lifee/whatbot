@@ -7965,6 +7965,19 @@ app.post('/api/admin/bonuses/save', express.json(), async (req, res) => {
                 );
             } catch (logErr) { /* ignore */ }
 
+            // Sincronizar actualización con cash_flow_entries si es adelanto
+            if (numAmount < 0) {
+                try {
+                    const rawBase = req.body.advance_base ? Math.abs(parseFloat(req.body.advance_base)) : Math.abs(numAmount);
+                    await pool.query(
+                        'UPDATE cash_flow_entries SET amount = ?, description = ? WHERE platform = "NOMINA" AND is_automated = 1 AND description LIKE ?',
+                        [rawBase, `Adelanto de nómina: ${agentName} (${reason})`, `%(${oldReason})%`]
+                    );
+                } catch (updAccErr) {
+                    console.error('[CashFlow Sync] Error al actualizar asiento contable:', updAccErr.message);
+                }
+            }
+
             return res.json({ success: true, message: 'Ajuste de nómina actualizado correctamente y registrado en historial' });
         } else {
             const [insertRes] = await pool.query(
@@ -8053,6 +8066,18 @@ app.post('/api/admin/bonuses/delete', express.json(), async (req, res) => {
                 'INSERT INTO agent_bonus_history (bonus_id, agent_id, action, old_amount, new_amount, old_reason, new_reason, performed_by) VALUES (?, ?, "delete", ?, NULL, ?, NULL, ?)',
                 [id, old.agent_id, parseFloat(old.amount), old.reason, performer || 'estebanavila182@outlook.com']
             );
+
+            // Revertir asiento en cash_flow_entries si correspondía a un adelanto o abono
+            if (parseFloat(old.amount) < 0) {
+                try {
+                    await pool.query(
+                        'DELETE FROM cash_flow_entries WHERE platform = "NOMINA" AND is_automated = 1 AND description LIKE ?',
+                        [`%(${old.reason})%`]
+                    );
+                } catch (delAccErr) {
+                    console.error('[CashFlow Sync] Error al eliminar asiento contable:', delAccErr.message);
+                }
+            }
         }
 
         await pool.query('DELETE FROM agent_bonuses WHERE id = ?', [id]);

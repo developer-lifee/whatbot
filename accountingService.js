@@ -10,7 +10,6 @@ const SEED_STREAMING_COSTS = [
   { platform: 'SPOTIFY', email: 'alep2037@yopmail.com', total_cost: 30500, profile_slots: 5, duration_days: 30, expiration_date: '2024-07-18' },
   { platform: 'VIX', email: 'combitds@spotinetonline.org', total_cost: 5000, profile_slots: 7, duration_days: 30, expiration_date: '2024-08-03' },
   { platform: 'PARAMOUNT', email: 'spotinetparamoun919822@spotinetshop.com', total_cost: 23900, profile_slots: 3, duration_days: 30, expiration_date: '2024-07-05' },
-  { platform: 'XBOX', email: 'sheerit294@outlook.com', total_cost: 30800, profile_slots: 5, duration_days: 30, expiration_date: '2024-08-27' },
   { platform: 'IPTV', email: 'http://tvpro.tech:8080', total_cost: 5000, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-16' },
   { platform: 'GPT', email: 'Sheerstreaming@gmail.com', total_cost: 85000, profile_slots: 23, duration_days: 31, expiration_date: '2024-06-17' },
   { platform: 'YOUTUBE', email: 'Sheerstreaming@gmail.com', total_cost: 41900, profile_slots: 6, duration_days: 32, expiration_date: '2024-06-18' },
@@ -23,7 +22,6 @@ const SEED_STREAMING_COSTS = [
   { platform: 'APPLE TV', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'MICROSOFT COMPARTIDA', email: '', total_cost: 1, profile_slots: 1, duration_days: 31, expiration_date: null },
   { platform: 'GEMINI COMPARTIDA', email: '', total_cost: 1, profile_slots: 1, duration_days: 31, expiration_date: null },
-  { platform: 'GAMMA', email: '', total_cost: 81000, profile_slots: 5, duration_days: 30, expiration_date: null },
   { platform: 'CANVA', email: '', total_cost: 5000, profile_slots: 5, duration_days: 30, expiration_date: null },
   { platform: 'SPOTIFY OWNER', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'YOUTUBE OWNER', email: '', total_cost: 1, profile_slots: 1, duration_days: 30, expiration_date: null },
@@ -56,8 +54,6 @@ const SEED_STREAMING_PRICES = [
   { platform: 'MICROSOFT COMPARTIDA', normal_price: 5000 },
   { platform: 'PLATZI', normal_price: 150000 },
   { platform: 'PLATZI COMPARTIDA', normal_price: 20000 },
-  { platform: 'GAMMA', normal_price: 25000 },
-  { platform: 'XBOX', normal_price: 15000 },
   { platform: 'IPTV', normal_price: 10000 }
 ];
 
@@ -389,17 +385,18 @@ async function calculateDailyAccounting() {
     // Cuentas completas necesarias para suplir a todos los clientes activos
     const slots = costInfo.profile_slots || 1;
     const duration = costInfo.duration_days || 30;
-    const accountsNeeded = item.active_profiles > 0 ? Math.ceil(item.active_profiles / slots) : 1;
+    // Si no hay perfiles activos en Excel, se necesitan 0 cuentas (no se incurre en costo de inventario)
+    const accountsNeeded = item.active_profiles > 0 ? Math.ceil(item.active_profiles / slots) : 0;
     
     // Egreso total mensual de compra de cuentas matriz necesarias
     item.accounts_needed = accountsNeeded;
     item.monthly_inventory_cost = accountsNeeded * costInfo.total_cost;
     
     // Egreso diario de inventario (fórmula Excel)
-    item.egreso_total = item.monthly_inventory_cost / duration;
+    item.egreso_total = duration > 0 ? (item.monthly_inventory_cost / duration) : 0;
     
     // Egreso unitario de 1 sola cuenta normalizada (para análisis unitario)
-    item.unit_daily_cost = (costInfo.total_cost / slots / duration) * slots;
+    item.unit_daily_cost = accountsNeeded > 0 && duration > 0 ? ((costInfo.total_cost / slots / duration) * slots) : 0;
   });
 
   // 3. Procesar egresos adicionales u otros registrados del día en cash_flow_entries (flujo de caja real)
@@ -422,8 +419,11 @@ async function calculateDailyAccounting() {
         indicador_gan: 0,
         active_profiles: 0,
         accounts_needed: 0,
-        monthly_inventory_cost: 0
+        monthly_inventory_cost: 0,
+        is_cash_flow_only: true
       };
+    } else {
+      dailyAccounting[plat].has_cash_flow = true;
     }
 
     const amount = parseFloat(entry.amount);
@@ -431,6 +431,12 @@ async function calculateDailyAccounting() {
       dailyAccounting[plat].ingreso_total += amount;
     } else {
       dailyAccounting[plat].egreso_total += amount;
+    }
+
+    // Para plataformas exclusivas de flujo de caja libre (ej. Nómina, Comisiones, etc.),
+    // el egreso mensual es el valor del asiento real, no multiplicado por 30
+    if (dailyAccounting[plat].is_cash_flow_only) {
+      dailyAccounting[plat].monthly_inventory_cost = dailyAccounting[plat].egreso_total;
     }
   });
 
@@ -444,8 +450,8 @@ async function calculateDailyAccounting() {
   rows.forEach(r => {
     globalIngresoTotal += r.ingreso_total;
     globalEgresoTotal += r.egreso_total;
-    globalMonthlyIncome += (r.ingreso_total * 30);
-    globalMonthlyCost += (r.monthly_inventory_cost || (r.egreso_total * 30));
+    globalMonthlyIncome += r.is_cash_flow_only ? r.ingreso_total : (r.ingreso_total * 30);
+    globalMonthlyCost += (r.monthly_inventory_cost !== undefined ? r.monthly_inventory_cost : (r.is_cash_flow_only ? r.egreso_total : r.egreso_total * 30));
   });
 
   rows.forEach(r => {
