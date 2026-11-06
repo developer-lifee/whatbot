@@ -169,6 +169,20 @@
   * **Soporte de Variantes Claude Code:** Se agregaron `claucode`, `claudecode`, `claude code` al interceptor de códigos de `index.js` y a `extractPlatformFromText` en `billingService.js`.
   * **Bypass Inteligente:** Al solicitar códigos en espera de asesor, el bot permite la continuidad inmediata hacia el extractor automático de códigos de Gmail.
 
+### 12. De-duplicación de Métricas de Resolución y Prevención de Reapertura de Tickets (`TicketsView.tsx` & `index.js`)
+- **Problema:** En el panel de métricas, los asesores veían números inflados (ej. Carol con "22 hoy" habiendo cerrado 3 a 5 tickets) y los tickets recién cerrados reaparecían unos segundos después en su bandeja o el botón se quedaba en *"Resolviendo..."*.
+- **Causa Raíz:**
+  1. *Mensajes de salida de asesor (`message.fromMe`):* Cuando un asesor cerraba un ticket y enviaba un mensaje final por WhatsApp (ej. *"con gusto, que tengas buen día"*), `message.fromMe` cambiaba ciegamente el estado a `waiting_human` conservando el asesor asignado, resucitando de inmediato el ticket en "Mis Tickets".
+  2. *Inserción ciega en BD:* En `/api/admin/tickets/resolve`, cada clic o reintento ejecutaba un nuevo `INSERT INTO resolved_tickets_log` sin verificar si ya existía una resolución reciente para ese teléfono y asesor (se encontraron 26 registros en BD para únicamente 10 clientes reales).
+  3. *Métricas con `COUNT(*)`:* El endpoint `/api/admin/tickets/metrics` sumaba todas las filas registradas en lugar de clientes únicos resueltos (`COUNT(DISTINCT phone)`).
+  4. *Ciclo de Polling en Frontend:* En `TicketsView.tsx`, el intervalo de 10s traía de nuevo tickets si la actualización en caché demoraba milisegundos, o bloqueaba el botón si `isResolving` no se reseteaba ante demoras.
+- **Solución y Mejoras Desarrolladas:**
+  * **Protección `message.fromMe`:** En `index.js`, si el chat se encuentra en estado `resolved` (o resuelto en las últimas 4 horas), los mensajes salientes del asesor mantienen el estado `resolved` y nunca lo revierten a `waiting_human`.
+  * **De-duplicación en BD:** Tanto en resolución individual como en lote, se consulta si existe un registro de `resolved_tickets_log` en una ventana de 2 horas. Si existe, se actualizan los datos (`UPDATE`) en lugar de insertar un duplicado.
+  * **Métricas Reales por Cliente:** Se modificó la consulta en `/api/admin/tickets/metrics` para computar `COUNT(DISTINCT phone)`.
+  * **Caché Local de Exclusión en Frontend:** En `TicketsView.tsx`, se integró `recentlyResolvedPhonesRef` (TTL 60s) que filtra en el cliente cualquier ticket recién resuelto, e incorpora timeout de seguridad de 8s para desbloquear siempre la interfaz.
+  * **Saneamiento en Producción:** Se ejecutó un script en MariaDB eliminando 16 filas duplicadas de hoy, ajustando las métricas de Carol de 26 a **10 resoluciones reales**.
+
 ---
 
 ## Estructura de Tablas Clave en MariaDB
