@@ -18,34 +18,54 @@ const execFileAsync = util.promisify(execFile);
 
 const REPO_DIR = path.resolve(__dirname);
 const AGY_MODEL = 'Gemini 3.8 Flash (High)';
+const AGY_CLI_MODELS = ['gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low'];
 const GEMINI_MODEL = AGY_MODEL;
 
 /**
  * Invoca directamente el CLI oficial de Antigravity (agy) autenticado con la cuenta de Google
+ * con rotación automática de modelos Gemini 3.8 Flash y respaldo HTTP si el binario falla.
  */
 async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
     const fullPrompt = `${systemInstruction}\n\n${prompt}`;
-    try {
-        const agyBin = fs.existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : (fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy');
-        const agyArgs = [
-            '-p', fullPrompt,
-            '--effort', 'low',
-            '--output-format', 'json',
-            '--disable-slash-commands',
-            '--dangerously-skip-permissions'
-        ];
-        const { stdout } = await execFileAsync(agyBin, agyArgs, {
-            cwd: REPO_DIR,
-            encoding: 'utf8',
-            timeout: 180000, // 3 minutos máximo para agy
-            maxBuffer: 20 * 1024 * 1024,
-            env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
-        });
-        const trimmed = (stdout || '').trim();
-        if (trimmed) return trimmed;
-    } catch (e) {
-        console.warn('[Antigravity CLI] Advertencia ejecutando binario agy:', e.message);
+    const agyBin = fs.existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : (fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy');
+
+    for (const cliModel of AGY_CLI_MODELS) {
+        try {
+            const agyArgs = [
+                '-p', fullPrompt,
+                '--model', cliModel,
+                '--effort', 'low',
+                '--output-format', 'json',
+                '--disable-slash-commands',
+                '--dangerously-skip-permissions'
+            ];
+            const { stdout } = await execFileAsync(agyBin, agyArgs, {
+                cwd: REPO_DIR,
+                encoding: 'utf8',
+                timeout: 180000, // 3 minutos máximo para agy
+                maxBuffer: 20 * 1024 * 1024,
+                env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
+            });
+            const trimmed = (stdout || '').trim();
+            if (trimmed && !trimmed.includes('RESOURCE_EXHAUSTED') && !trimmed.includes('"status":"ERROR"')) {
+                console.log(`[Antigravity CLI] ✅ Respuesta generada exitosamente con modelo ${cliModel}`);
+                return trimmed;
+            }
+            console.warn(`[Antigravity CLI] Modelo ${cliModel} devolvió respuesta incompleta o con error, probando siguiente...`);
+        } catch (e) {
+            console.warn(`[Antigravity CLI] Advertencia ejecutando binario agy con ${cliModel}:`, e.message.split('\n')[0]);
+        }
     }
+
+    // Fallback automático a API HTTP de Gemini si el binario CLI falló en todos los modelos
+    try {
+        console.log('[Antigravity CLI] 🔄 Usando respaldo HTTP directo a Gemini Flash...');
+        const httpResp = await callGemini38FlashHttp(prompt, systemInstruction);
+        if (httpResp) return httpResp;
+    } catch (httpErr) {
+        console.warn('[Antigravity CLI] Falló también el respaldo HTTP de Gemini:', httpErr.message);
+    }
+
     return null;
 }
 

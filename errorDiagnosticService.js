@@ -414,32 +414,41 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
 
     const generatePromise = async () => {
         let prompt = '';
+        const effectiveImgPath = imagePath || (previousTicket && previousTicket.imagePath) || null;
         if (userAdjustment && previousTicket) {
-            prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería de software para el repositorio whatbot).
-El usuario solicitó un AJUSTE / CAMBIO a una propuesta técnica previa:
+            const imgInstruction = effectiveImgPath && fs.existsSync(path.resolve(__dirname, effectiveImgPath))
+                ? `\n- PANTALLAZO DEL TICKET EN DISCO: "${path.resolve(__dirname, effectiveImgPath)}" (Inspecciónalo si necesitas verificar mensajes o contexto visual del reporte).`
+                : '';
+            const wasGenericPreliminary = previousTicket.isPreliminary || /Discrepancia detectada en la lógica de/i.test(previousTicket.diagnosis || '');
+            prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería de software para el repositorio whatbot en /root/whatbot).
+El usuario solicitó ${wasGenericPreliminary ? 'PROFUNDIZAR Y DIAGNOSTICAR EN EL CÓDIGO REAL' : 'un AJUSTE / CAMBIO a una propuesta técnica previa'}:
 
-PROPUESTA PREVIA:
-- Caso: ${previousTicket.summary || extractedInfo.summary}
-- Diagnóstico previo: ${previousTicket.diagnosis}
-- Plan previo: ${previousTicket.plan}
-- Archivos previos: ${(previousTicket.files || []).join(', ')}
+CONTEXTO DEL REPORTE ORIGINAL:
+- Caso / Mensaje del asesor: "${previousTicket.rawMessage || previousTicket.summary || extractedInfo.summary}"
+- Cliente: ${previousTicket.clientPhone || extractedInfo.clientPhone || 'No especificado'} (${previousTicket.clientName || 'N/A'})
+- Plataforma: ${previousTicket.platform || extractedInfo.platform || 'Por determinar según reporte'}${imgInstruction}
+${!wasGenericPreliminary ? `- Diagnóstico previo: ${previousTicket.diagnosis}\n- Plan previo: ${previousTicket.plan}\n- Archivos previos: ${(previousTicket.files || []).join(', ')}` : '⚠️ NOTA: El diagnóstico previo fue una plantilla preliminar genérica. Ignórala por completo y realiza una inspección real del código fuente.'}
 
-INDICACIÓN / CORRECCIÓN DEL USUARIO:
+INDICACIÓN / INSTRUCCIÓN DEL USUARIO:
 "${userAdjustment}"
 
-Notas de diagnóstico del sistema:
+Notas de auditoría del sistema:
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
-Genera una NUEVA propuesta técnica que incorpore estrictamente la solución que el usuario quiere.
-Devuelve un JSON estrictamente estructurado así:
+INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
+1. Inspecciona directamente los archivos reales del repositorio (/root/whatbot: index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js, etc.) buscando las funciones, estados o condiciones involucradas en el reporte.
+2. PROHIBIDO devolver respuestas genéricas como "Discrepancia detectada en la lógica de General" o "Validar en index.js y billingService.js los filtros". Especifica exactamente qué variable, función o flujo en el código causa el comportamiento y cómo corregirlo línea por línea.
+3. NUNCA inventes carpetas o archivos que no existan en /root/whatbot.
+4. Devuelve exclusivamente un JSON válido con esta estructura exacta:
 {
-  "causaRaiz": "Explicación concisa y técnica de la causa raíz actualizada con la indicación del usuario",
-  "planCodigo": "Pasos detallados de las modificaciones en código ajustadas",
-  "commitDetallado": "Título y cuerpo del commit propuesto explicando los cambios",
-  "archivosAfectados": ["archivo1.js", "archivo2.js"]
+  "platform": "Nombre real de la plataforma involucrada (ej: Claude, ChatGPT, Netflix, etc.)",
+  "causaRaiz": "Explicación técnica específica indicando qué parte exacta del código o estado produjo el fallo y por qué",
+  "planCodigo": "Pasos numerados detallados indicando archivo real, función/bloque y el cambio exacto de código requerido",
+  "commitDetallado": "Mensaje de commit en español formato conventional commits con título y viñetas técnicas",
+  "archivosAfectados": ["archivo_real1.js", "archivo_real2.js"]
 }`;
-        } else if (imagePath) {
-            const absoluteImgPath = path.resolve(__dirname, imagePath);
+        } else if (effectiveImgPath) {
+            const absoluteImgPath = path.resolve(__dirname, effectiveImgPath);
             prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería de software para el repositorio whatbot en este servidor).
 Un asesor reportó una incidencia técnica enviando una captura de pantalla al grupo de WhatsApp "Errors bot".
 
@@ -454,40 +463,45 @@ ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES CLAVE DE INGENIERÍA:
 1. Inspecciona y examina directamente el archivo de imagen en "${absoluteImgPath}" usando tus herramientas de visión / lectura de archivos.
-   - Lee con absoluto detalle todo el texto del pantallazo: los mensajes del cliente, lo que pide (ej: código 2FA para GPT / ChatGPT, renovación, soporte, etc.), las respuestas del bot, números de teléfono o nombres.
-   - Identifica la plataforma REAL del servicio (ej: "ChatGPT / GPT", "Netflix", "Amazon", "Disney", "Crunchyroll", etc.).
+   - Lee con absoluto detalle todo el texto del pantallazo: los mensajes del cliente, lo que pide (ej: código 2FA para GPT / ChatGPT, Claude Code, renovación, soporte, etc.), las respuestas del bot, números de teléfono o nombres.
+   - Identifica la plataforma REAL del servicio (ej: "ChatGPT / GPT", "Claude", "Netflix", "Amazon", "Disney", "Crunchyroll", etc.).
    ⚠️ NOTA CRÍTICA: "WHATSAPP" NO ES LA PLATAFORMA DEL PROBLEMA. WhatsApp es la aplicación de chat donde el cliente escribe. NUNCA respondas que la plataforma es WHATSAPP.
 2. Inspecciona el código fuente REAL de este repositorio (/root/whatbot):
-   - Archivos existentes relevantes: totpService.js (manejo de códigos 2FA de GPT y límites de dispositivos), index.js (enrutamiento de mensajes y estados), billingService.js, aiService.js, availabilityService.js, etc.
+   - Archivos existentes relevantes: totpService.js (manejo de códigos 2FA de GPT y límites de dispositivos), index.js (enrutamiento de mensajes y estados), billingService.js, aiService.js, availabilityService.js, salesRegistryService.js, etc.
    ⚠️ REGLA DE ORO: NUNCA inventes carpetas ni nombres de archivo inexistentes como "services/excelService.js" o "controllers/whatsappController.js". Todo el código del bot está en archivos JavaScript en la raíz de /root/whatbot.
 3. Devuelve tu respuesta técnica exclusivamente en un JSON estructurado así (sin texto adicional fuera del JSON):
 {
   "clientName": string | null,
   "clientPhone": string | null,
-  "platform": string, // ej: "ChatGPT / GPT", "Netflix", "Amazon", etc. NUNCA "WHATSAPP".
+  "platform": string, // ej: "ChatGPT / GPT", "Claude", "Netflix", "Amazon", etc. NUNCA "WHATSAPP".
   "problemType": string, // ej: "solicitud_codigo_2fa", "renovacion_vs_compra", "no_entrega_credenciales", etc.
   "summary": "Resumen fiel y exacto del caso según la captura (ej: Cliente solicita código 2FA para GPT y el bot no responde)",
-  "causaRaiz": "Explicación técnica detallada de por qué ocurrió el fallo en el código del bot",
+  "causaRaiz": "Explicación técnica detallada de por qué ocurrió el fallo en el código del bot (mencionando funciones/estados reales)",
   "planCodigo": "Pasos detallados de las modificaciones en código requeridas en los archivos reales del repositorio",
   "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios",
   "archivosAfectados": ["totpService.js", "index.js"]
 }`;
         } else {
-            prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería para el repositorio whatbot).
+            prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería para el repositorio whatbot en /root/whatbot).
 Un asesor reportó la siguiente incidencia en el grupo de WhatsApp "Errors bot":
-- Caso / Resumen: ${extractedInfo.summary || effectiveText || 'Error reportado en chat'}
+- Mensaje / Reporte exacto del asesor: "${effectiveText || extractedInfo.summary || 'Error reportado en chat'}"
+- Resumen extraído: ${extractedInfo.summary || effectiveText || 'Error reportado en chat'}
 - Cliente: ${extractedInfo.clientPhone || 'No especificado'} (${extractedInfo.clientName || 'N/A'})
-- Plataforma: ${extractedInfo.platform || 'General'}
+- Plataforma detectada: ${extractedInfo.platform || 'Por identificar'}
 - Tipo de problema: ${extractedInfo.problemType || 'incidencia'}
+- Contexto reciente del chat:
+${recentChatContext || 'Sin contexto adicional'}
 - Estado actual en sistema:
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
-INSTRUCCIÓN:
-Analiza los archivos reales de este repositorio (/root/whatbot: index.js, aiService.js, totpService.js, billingService.js, etc.) y genera un plan de solución en código.
-⚠️ NUNCA inventes archivos inexistentes como "services/excelService.js" o carpetas ficticias.
-Devuelve un JSON estrictamente estructurado así:
+INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
+1. Busca e inspecciona en los archivos reales de /root/whatbot (index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) las funciones, expresiones regulares o estados de usuario (ej. userStates, awaiting_payment_confirmation, waiting_human, extractPlatformFromText, processCheckCredentials, etc.) relacionados con el reporte del asesor.
+2. PROHIBIDO entregar respuestas genéricas o plantillas vagas. Explica con precisión técnica qué condición o línea de código produce el problema reportado y detalla la solución exacta.
+3. ⚠️ NUNCA inventes archivos inexistentes como "services/excelService.js" o carpetas ficticias.
+4. Devuelve un JSON estrictamente estructurado así:
 {
-  "causaRaiz": "Explicación concisa y técnica de por qué ocurrió el fallo en el código o datos",
+  "platform": "Plataforma real identificada (ej: Claude, ChatGPT, Netflix, General)",
+  "causaRaiz": "Explicación técnica precisa de por qué ocurrió el fallo en el código o estado (mencionando funciones/estados reales)",
   "planCodigo": "Pasos detallados de las modificaciones en código en los archivos reales para resolverlo de raíz",
   "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios y la prevención de regresión",
   "archivosAfectados": ["archivo_real1.js", "archivo_real2.js"]
@@ -874,7 +888,9 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 { summary: pendingTicket.summary, clientPhone: pendingTicket.clientPhone, platform: pendingTicket.platform, problemType: 'ajuste_usuario' },
                 [`⚠️ Solicitud de cambio del usuario: "${userInstruction}"`, `Diagnóstico previo: ${pendingTicket.diagnosis}`],
                 userInstruction,
-                pendingTicket
+                pendingTicket,
+                pendingTicket.imagePath || null,
+                pendingTicket.rawMessage || pendingTicket.summary || ''
             );
 
             // Extraer archivos afectados garantizados a partir de la respuesta o del contenido del plan
@@ -1325,6 +1341,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             platform: platDisplay,
             rawMessage: effectiveText || extractedInfo.rawOcr || extractedInfo.summary || '',
             rawOcr: extractedInfo.rawOcr || '',
+            imagePath: fullImageDiskPath || imageDiskPath || null,
             diagnosis: cliSolution.causaRaiz,
             plan: cliSolution.planCodigo,
             commitMessage: cliSolution.commitDetallado,
