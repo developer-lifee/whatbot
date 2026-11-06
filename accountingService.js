@@ -791,13 +791,14 @@ async function calculateDailyAccounting() {
     const realMonthlyIncome = inv.clients.reduce((sum, cl) => sum + cl.paid_amount, 0);
     const expectedPricePerSlot = priceMap[inv.platform] || 20000;
     const netBalance = realMonthlyIncome - monthlyAccountCost;
-    const underpayingClients = inv.clients.filter(cl => cl.paid_amount < expectedPricePerSlot);
+    // Ignorar descuentos normales de combo ($500 - $5.000 COP); marcar solo cuando pagaron el precio de un tier inferior
+    const underpayingClients = inv.clients.filter(cl => cl.paid_amount < (expectedPricePerSlot - 6000));
 
     let usdTier = '$20 USD';
     if (costInfo.total_cost >= 700000) usdTier = '$200 USD';
     else if (costInfo.total_cost >= 350000) usdTier = '$100 USD';
 
-    // Marcar como Red Flag si la cuenta da pérdida, cuesta >= $100 USD, o tiene clientes que pagaron menos del subplan
+    // Marcar como Red Flag si la cuenta da pérdida, cuesta >= $100 USD, o tiene clientes alojados de un tier inferior
     if (netBalance < 0 || costInfo.total_cost >= 350000 || underpayingClients.length > 0) {
       let alertReason = '';
       if (inv.platform === 'CLAUDE MAX') {
