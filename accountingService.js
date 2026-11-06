@@ -565,7 +565,7 @@ async function calculateDailyAccounting() {
     const rawEmail = (c.correo || '').toString().trim().toLowerCase();
     if (!rawStream) return;
     const platKey = normalizePlatformKey(rawStream);
-    if (rawEmail && rawEmail.includes('@')) {
+    if (rawEmail && !rawEmail.startsWith('http')) {
       if (!distinctMasterEmailsByPlat[platKey]) distinctMasterEmailsByPlat[platKey] = new Set();
       distinctMasterEmailsByPlat[platKey].add(rawEmail);
 
@@ -710,7 +710,7 @@ async function calculateDailyAccounting() {
       dailyAccounting[platKey].monthly_client_income = (dailyAccounting[platKey].monthly_client_income || 0) + price;
 
       // Registrar cliente en el inventario de la cuenta matriz para la auditoría de Red Flags
-      if (rawEmail && rawEmail.includes('@')) {
+      if (rawEmail && !rawEmail.startsWith('http')) {
         const invKey = `${platKey}::${rawEmail}`;
         if (masterAccountsInventory[invKey]) {
           masterAccountsInventory[invKey].occupied_slots += 1;
@@ -781,24 +781,26 @@ async function calculateDailyAccounting() {
     }
   });
 
-  // Construir auditoría de Red Flags para cuentas de Claude, ChatGPT y Gemini
+  // Construir auditoría de Red Flags para todas las cuentas matriz con pérdida o sub-facturación en subplanes
   const redFlags = [];
   Object.values(masterAccountsInventory).forEach(inv => {
+    if (IMPLICIT_COST_PLATFORMS.has(inv.platform) || inv.platform === 'NETFLIX EXTRA' || inv.platform === 'PLATZI') return;
     const isAiPlat = inv.platform.includes('CLAUDE') || inv.platform.includes('GPT') || inv.platform.includes('CHATGPT') || (inv.platform === 'GEMINI');
-    if (!isAiPlat) return;
-    const costInfo = costMap[inv.platform] || { total_cost: 85000, profile_slots: inv.total_slots || 5, duration_days: 31 };
+    const costInfo = costMap[inv.platform] || { total_cost: 85000, profile_slots: inv.total_slots || 5, duration_days: 30 };
+    if (!costInfo.total_cost || costInfo.total_cost <= 0) return;
     const monthlyAccountCost = Math.round(costInfo.total_cost * (30 / (costInfo.duration_days || 30)));
     const realMonthlyIncome = inv.clients.reduce((sum, cl) => sum + cl.paid_amount, 0);
     const expectedPricePerSlot = priceMap[inv.platform] || 20000;
     const netBalance = realMonthlyIncome - monthlyAccountCost;
-    // Ignorar descuentos normales de combo ($500 - $5.000 COP); marcar solo cuando pagaron el precio de un tier inferior
-    const underpayingClients = inv.clients.filter(cl => cl.paid_amount < (expectedPricePerSlot - 6000));
+    // Ignorar descuentos normales de combo ($500 - $5.000 COP); marcar solo cuando pagaron el precio de un tier inferior en subplanes IA
+    const underpayingClients = isAiPlat ? inv.clients.filter(cl => cl.paid_amount < (expectedPricePerSlot - 6000)) : [];
 
-    let usdTier = '$20 USD';
+    let usdTier = 'COP Matriz';
     if (costInfo.total_cost >= 700000) usdTier = '$200 USD';
     else if (costInfo.total_cost >= 350000) usdTier = '$100 USD';
+    else if (isAiPlat) usdTier = '$20 USD';
 
-    // Marcar como Red Flag si la cuenta da pérdida, cuesta >= $100 USD, o tiene clientes alojados de un tier inferior
+    // Marcar como Red Flag si la cuenta da pérdida (netBalance < 0), cuesta >= $100 USD, o tiene clientes alojados de un tier inferior
     if (netBalance < 0 || costInfo.total_cost >= 350000 || underpayingClients.length > 0) {
       let alertReason = '';
       if (inv.platform === 'CLAUDE MAX') {
