@@ -1749,6 +1749,123 @@ app.get('/api/admin/stats', async (req, res) => {
     }
 });
 
+// Endpoint: Dinámica de perfiles libres y ocupados por plataforma y cuenta maestra
+app.get('/api/admin/analytics/free-profiles', async (req, res) => {
+    try {
+        const { fetchCustomersData } = require('./apiService');
+        const rows = await fetchCustomersData(1, 500, false);
+
+        const isLibre = (r) => {
+            const whatsapp = (r.whatsapp || r.numero || "").toString().trim();
+            const nombre = (r.Nombre || "").toString().trim().toLowerCase();
+            return (!whatsapp || whatsapp === "" || whatsapp === "0") && (!nombre || nombre === "" || nombre === "libre" || nombre === "disponible" || nombre === "vacio");
+        };
+
+        let totalCupos = 0;
+        let totalOcupados = 0;
+        let totalLibres = 0;
+
+        const platformsMap = {};
+
+        rows.forEach((r, idx) => {
+            const streaming = (r.Streaming || "OTRO").toString().toUpperCase().trim();
+            const rawCorreo = (r.correo || "").toString().trim();
+            const correo = rawCorreo || "Sin correo asignado";
+            const libre = isLibre(r);
+
+            totalCupos++;
+            if (libre) totalLibres++;
+            else totalOcupados++;
+
+            if (!platformsMap[streaming]) {
+                platformsMap[streaming] = {
+                    platform: streaming,
+                    totalCupos: 0,
+                    ocupados: 0,
+                    libres: 0,
+                    cuentasMap: {}
+                };
+            }
+            platformsMap[streaming].totalCupos++;
+            if (libre) platformsMap[streaming].libres++;
+            else platformsMap[streaming].ocupados++;
+
+            const accKey = `${streaming}__${correo.toLowerCase()}`;
+            if (!platformsMap[streaming].cuentasMap[accKey]) {
+                platformsMap[streaming].cuentasMap[accKey] = {
+                    id: accKey,
+                    platform: streaming,
+                    email: rawCorreo || "Sin correo",
+                    vencimiento: r.vencimiento || "",
+                    total: 0,
+                    ocupados: 0,
+                    libres: 0,
+                    profiles: []
+                };
+            }
+            platformsMap[streaming].cuentasMap[accKey].total++;
+            if (libre) platformsMap[streaming].cuentasMap[accKey].libres++;
+            else platformsMap[streaming].cuentasMap[accKey].ocupados++;
+
+            platformsMap[streaming].cuentasMap[accKey].profiles.push({
+                rowNumber: r._rowNumber || idx + 2,
+                nombre: r.Nombre || "",
+                apellido: r.apellido || "",
+                whatsapp: r.whatsapp || r.numero || "",
+                pin: r["Pin perfil"] || "",
+                vencimiento: r.deben || r.vencimiento || "",
+                isLibre: libre
+            });
+        });
+
+        const platformsList = Object.values(platformsMap).map(p => {
+            const accounts = Object.values(p.cuentasMap).map(acc => ({
+                ...acc,
+                occupancyRate: Math.round((acc.ocupados / (acc.total || 1)) * 100)
+            })).sort((a, b) => b.libres - a.libres);
+
+            return {
+                platform: p.platform,
+                totalCupos: p.totalCupos,
+                ocupados: p.ocupados,
+                libres: p.libres,
+                totalAccounts: accounts.length,
+                accountsWithFreeCount: accounts.filter(a => a.libres > 0).length,
+                occupancyRate: Math.round((p.ocupados / (p.totalCupos || 1)) * 100),
+                accounts
+            };
+        }).sort((a, b) => b.libres - a.libres);
+
+        const allAccounts = [];
+        platformsList.forEach(p => {
+            p.accounts.forEach(acc => {
+                allAccounts.push(acc);
+            });
+        });
+
+        const exhaustedPlatforms = platformsList.filter(p => p.libres === 0).map(p => p.platform);
+        const criticalPlatforms = platformsList.filter(p => p.libres > 0 && p.libres <= 2).map(p => p.platform);
+
+        res.json({
+            summary: {
+                totalCupos,
+                totalOcupados,
+                totalLibres,
+                occupancyRate: Math.round((totalOcupados / (totalCupos || 1)) * 100),
+                totalAccounts: allAccounts.length,
+                accountsWithFree: allAccounts.filter(a => a.libres > 0).length,
+                exhaustedPlatforms,
+                criticalPlatforms
+            },
+            platforms: platformsList,
+            accounts: allAccounts.sort((a, b) => b.libres - a.libres)
+        });
+    } catch (e) {
+        console.error("[Free Profiles API] Error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Endpoint to retrieve specific client profile by phone number (including subscriptions, payments, and notes)
 app.get('/api/admin/client-history', async (req, res) => {
     try {
