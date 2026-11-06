@@ -18,7 +18,7 @@ const SEED_STREAMING_COSTS = [
   { platform: 'YOUTUBE', email: 'Sheerstreaming@gmail.com', total_cost: 41900, profile_slots: 6, duration_days: 32, expiration_date: '2024-06-18' },
   { platform: 'APPLE ONE', email: '', total_cost: 83900, profile_slots: 5, duration_days: 30, expiration_date: null },
   { platform: 'MICROSOFT', email: '', total_cost: 46000, profile_slots: 5, duration_days: 31, expiration_date: null },
-  { platform: 'GEMINI', email: '', total_cost: 79900, profile_slots: 6, duration_days: 32, expiration_date: null },
+  { platform: 'GEMINI', email: 'discoveryrelesbiana@gmail.com', total_cost: 79900, profile_slots: 5, duration_days: 32, expiration_date: null },
   { platform: 'PLATZI', email: '', total_cost: 169154, profile_slots: 3, duration_days: 90, expiration_date: null },
   { platform: 'NETFLIX EXTRA', email: '', total_cost: 9900, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'HBO PLATINO', email: '', total_cost: 30000, profile_slots: 5, duration_days: 30, expiration_date: null },
@@ -767,11 +767,11 @@ async function calculateDailyAccounting() {
       const slots = costInfo.profile_slots || 1;
       const duration = costInfo.duration_days || 30;
       const theoreticalAccounts = item.active_profiles > 0 ? Math.ceil(item.active_profiles / slots) : 0;
-      // En subplanes de Claude y GPT usamos el número real de cuentas maestras activas en Excel si tienen clientes
+      // Contar cuántas cuentas maestras reales (correos únicos en Excel) existen para esta plataforma
       const realEmailsCount = distinctMasterEmailsByPlat[plat] ? distinctMasterEmailsByPlat[plat].size : 0;
-      const isAiTier = plat.includes('CLAUDE') || plat.includes('GPT') || plat.includes('CHATGPT');
+      // Si la plataforma es de múltiples perfiles por correo (slots > 1) y tiene correos maestros en Excel, usar el conteo real de cuentas en Excel
       const accountsNeeded = item.active_profiles > 0
-        ? (isAiTier && realEmailsCount > 0 ? Math.max(realEmailsCount, theoreticalAccounts) : theoreticalAccounts)
+        ? (slots > 1 && realEmailsCount > 0 ? realEmailsCount : theoreticalAccounts)
         : 0;
       
       item.accounts_needed = accountsNeeded;
@@ -781,10 +781,10 @@ async function calculateDailyAccounting() {
     }
   });
 
-  // Construir auditoría de Red Flags para cuentas de Claude y ChatGPT (especialmente $100 USD y $200 USD)
+  // Construir auditoría de Red Flags para cuentas de Claude, ChatGPT y Gemini
   const redFlags = [];
   Object.values(masterAccountsInventory).forEach(inv => {
-    const isAiPlat = inv.platform.includes('CLAUDE') || inv.platform.includes('GPT') || inv.platform.includes('CHATGPT');
+    const isAiPlat = inv.platform.includes('CLAUDE') || inv.platform.includes('GPT') || inv.platform.includes('CHATGPT') || (inv.platform === 'GEMINI');
     if (!isAiPlat) return;
     const costInfo = costMap[inv.platform] || { total_cost: 85000, profile_slots: inv.total_slots || 5, duration_days: 31 };
     const monthlyAccountCost = Math.round(costInfo.total_cost * (30 / (costInfo.duration_days || 30)));
