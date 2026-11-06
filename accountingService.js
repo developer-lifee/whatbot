@@ -297,6 +297,13 @@ async function calculateDailyAccounting() {
   // 1. Filtrar clientes activos
   const activeClients = [];
   clients.forEach(c => {
+    // Si la fila de Excel está vacía (sin nombre, sin correo, sin número o sin plataforma de streaming), se descarta
+    const hasIdentifier = Boolean((c.Nombre || c.nombre || '').toString().trim() || (c.correo || '').toString().trim() || (c.whatsapp || c.numero || '').toString().trim());
+    const hasStreaming = Boolean((c.Streaming || '').toString().trim());
+    if (!hasIdentifier || !hasStreaming) {
+      return;
+    }
+
     const dateVal = c.deben || c.vencimiento;
     let isActive = false;
     if (dateVal) {
