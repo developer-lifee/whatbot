@@ -171,6 +171,7 @@ function getQueuePosition(userId, userStates) {
   if (!userStates) return null;
   const now = Date.now();
   const queue = [];
+  const MAX_QUEUE_AGE_MS = 48 * 60 * 60 * 1000; // Máximo 48 horas para tickets en fila activa
   
   for (const [id, state] of userStates.entries()) {
     if (!state) continue;
@@ -178,10 +179,18 @@ function getQueuePosition(userId, userStates) {
     if (stateStr === 'waiting_human' || stateStr === 'waiting_admin_confirmation') {
       // Ignorar números internos del bot o grupos
       if (id.includes('3118587974') || id.includes('269285859545110') || id.includes('@g.us')) continue;
+
+      // Si el asesor intervino manualmente y el cliente no ha escrito, omitir de la fila
+      if (typeof state === 'object' && state.waiting_human_mode === 'advisor' && !state.clientWaitingSince && !state.agent) {
+        continue;
+      }
       
       const waitingSince = typeof state === 'object' 
         ? (state.clientWaitingSince || state.waitingTimestamp || state.lastHumanInteraction || state.lastMessageTime || 0)
         : 0;
+
+      // Filtrar chats viejos (>48h) para evitar inflar la numeración de turnos a 300+
+      if (waitingSince && (now - waitingSince > MAX_QUEUE_AGE_MS)) continue;
       
       // Incluir todos los chats en estado de espera ordenados por antigüedad real (oldest first)
       queue.push({ id, ts: waitingSince || now });
