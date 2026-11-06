@@ -15863,15 +15863,18 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         } catch (e) { }
                     }
                 } else if (responseOption === '2') {
-                    await message.reply("🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio manualmente. ¡Gracias por tu paciencia! 😊");
+                    const reqPlatform = currentStateData.requestedPlatform || currentStateData.selectedPlatform || currentStateData.platform || '';
+                    const platformStr = reqPlatform ? ` de *${reqPlatform.toUpperCase()}*` : '';
+                    await message.reply(`🤖 Entendido. He pausado el registro automático para que un asesor de soporte revise tu comprobante y te entregue tu nuevo servicio${platformStr} manualmente. ¡Gracias por tu paciencia! 😊`);
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
                     try {
                         const groupChat = await client.getChatById(GROUP_ID);
                         if (groupChat) {
-                            await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO)* de @${getDisplayPhone()}\n` +
-                                `Monto: $${currentStateData.amount}\n` +
+                            await groupChat.sendMessage(`🚨 *PAGO MANUAL REQUERIDO (NUEVO SERVICIO${reqPlatform ? ': ' + reqPlatform.toUpperCase() : ''})* de @${getDisplayPhone()}\n` +
+                                `Monto: ${currentStateData.amount}\n` +
                                 `Banco: ${currentStateData.bank || 'Nequi'}\n` +
                                 `Asunto: ${currentStateData.subject}\n` +
+                                `Plataforma solicitada: ${reqPlatform ? reqPlatform.toUpperCase() : 'No especificada'}\n` +
                                 `El cliente indicó que el pago NO es para renovar su cuenta actual de ${(currentStateData.matchedAccount.Streaming || "Servicio").toUpperCase()}.`);
                         }
                     } catch (e) { }
