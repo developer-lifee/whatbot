@@ -6,14 +6,24 @@
 - **Contraseña**: `Gianmarco0504.`
 - **Directorio Bot en VPS**: `/root/whatbot`
 - **Proceso PM2**: `whatbot`
+- **Directorio Web Frontend**: `/var/www/sheerit.com.co`
+- **Servidor Web**: Nginx con SSL (Certbot Let's Encrypt)
+
+## Repositorios y Rutas Locales
+- **Backend Whatbot**: `/Users/estebanavila/desarrollo/whatbot` (Rama `main`)
+- **Frontend Sheeritpage**: `/Users/estebanavila/desarrollo/sheeritpage` (Rama `main`)
 
 ## Reglas de Despliegue y Commit
 1. **Mensajes de Commit**: Todos los mensajes de commit de Git DEBEN ser escritos estrictamente **en español** (ej. `fix: corregir ruta absoluta de LocalAuth y reinicio limpio`).
 2. **Flujo de Despliegue**: Al realizar cambios en el bot:
    - Hacer commit local.
    - Hacer `git push origin main` localmente.
-   - Conectarse al VPS via SSH, ejecutar `git pull origin main` y reiniciar el bot con `pm2 restart whatbot`.
-3. **Limpieza de Sesión WhatsApp**: Si WhatsApp Web falla al iniciar (`Target closed`), hacer backup de `.wwebjs_auth`, limpiar archivos de bloqueo (`SingletonLock`, `SingletonSocket`) y reiniciar el servicio PM2.
+   - Conectarse al VPS via SSH, ejecutar `git pull origin main` y reiniciar el bot con `pm2 restart whatbot` (únicamente bajo autorización).
+3. **Flujo de Despliegue Web (Frontend)**:
+   - Compilar localmente con `npm run build` en `sheeritpage`.
+   - Transferir la carpeta generada: `scp -r dist/assets dist/index.html root@147.79.75.135:/var/www/sheerit.com.co/`.
+   - Verificar permisos y correcta entrega de activos en Nginx.
+4. **Limpieza de Sesión WhatsApp**: Si WhatsApp Web falla al iniciar (`Target closed`), hacer backup de `.wwebjs_auth`, limpiar archivos de bloqueo (`SingletonLock`, `SingletonSocket`) y reiniciar el servicio PM2.
 
 ## Reglas del Asistente CLI y Flujo con Grupo 'Errors bot'
 1. **PROHIBICIÓN ESTRICTA DE REINICIO AUTOMÁTICO**:
@@ -34,7 +44,38 @@
    - El equipo en el grupo puede seguir conversando e iterando sobre la solución en el chat.
    - Cuando se escriba `@aceptar` (o se cite la propuesta con `@aceptar`), el CLI ejecuta directamente el commit en Git en el VPS y reporta el hash y archivos afectados.
 
-## Historial de Cambios y Despliegues (24 de Septiembre de 2026)
+---
+
+## Arquitectura del Ecosistema Sheerit
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                          PORTAL CLIENTES & ADMIN                       │
+│              https://sheerit.co (React + Vite + Tailwind)              │
+│                /var/www/sheerit.com.co (Servido por Nginx)             │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ HTTP / REST / WebSockets
+┌───────────────────────────────────▼────────────────────────────────────┐
+│                       BACKEND WHATSAPP BOT & APIS                      │
+│                Proceso Node.js (PM2: whatbot en VPS)                   │
+├───────────────────────────────────┬────────────────────────────────────┤
+│ • whatsapp-web.js (Puppeteer)     │ • Sincronización Microsoft Graph   │
+│ • Sistema de Tickets y Colas      │ • OCR Pagos Gemini 3.8 Flash       │
+│ • Motor Contable y Flujo de Caja  │ • Dinámica de Stock y Perfiles     │
+└─────────────┬─────────────────────┴───────────────┬────────────────────┘
+              │                                     │
+┌─────────────▼──────────────┐        ┌─────────────▼────────────────────┐
+│   MARIADB LOCAL (VPS)      │        │      MICROSOFT ONEDRIVE          │
+│ • tickets & resolved_logs  │        │ • Documentos/neflis_negro.xlsx   │
+│ • cash_flow_entries        │        │ • Auth Device Code Flow rotativo │
+│ • account_renewals         │        │ • excel_cache.json (Fallback)    │
+│ • streaming_costs          │        │ • pending_excel_updates.json     │
+└────────────────────────────┘        └──────────────────────────────────┘
+```
+
+---
+
+## Historial Detallado de Cambios, Despliegues y Módulos
 
 ### 1. Corrección de Ruta Web Portal Clientes (`sheerit.co/actualizar/`)
 - **Problema:** Nginx arrojaba error `403 Forbidden` al ingresar a `https://sheerit.co/actualizar/`.
@@ -65,8 +106,6 @@
   * Al responder con `@aceptar`, el CLI ejecuta directamente el `git commit` en el repositorio del VPS y notifica con el hash generado.
   * Se mantiene la prohibición estricta de reinicio automático de PM2.
 
-
-
 ### 6. Renovación Integral de OneDrive Graph API, Alertas Proactivas y Comando @restart
 - **Problema:** El token de acceso y refresh token de Microsoft Graph API estaban desactualizados/expirados, provocando que las lecturas y escrituras al archivo `Documentos/neflis_negro.xlsx` en OneDrive fallaran silenciosamente y recurrieran al `excel_cache.json` desactualizado sin que los administradores recibieran una alerta inmediata.
 - **Solución y Mejoras Desarrolladas:**
@@ -78,4 +117,97 @@
     - `@bot estado`: Informa el estado en tiempo real de OneDrive, Antigravity CLI, WhatsApp Web y la fecha/hora de la última sincronización.
     - `@restart` / `!restart`: Permite a los administradores reiniciar el proceso PM2 de forma segura directamente desde WhatsApp.
   * **Endpoints Web de Administración:** Se expuso `/api/admin/system-health` y `/api/admin/onedrive/renew` para monitorear el estado y forzar renovaciones desde el dashboard web administrativo.
-- **Despliegue:** Sincronizado en VPS y reiniciado en PM2 bajo autorización explícita.
+
+### 7. Contabilidad Avanzada, Costos Implícitos y Registro de Salidas (`AccountingView.tsx`)
+- **Problema 1 (Cuentas Owner y Compartidas con márgenes irreales):** Cuentas como Spotify Owner, YouTube Owner o Platzi Compartida arrojaban márgenes de 800,000% y costos inflados porque su costo base ya estaba amortizado en la cuenta matriz.
+- **Solución 1:** En `accountingService.js` se definieron `IMPLICIT_COST_PLATFORMS` con `is_implicit_cost: true`, fijando su costo en `$0 COP`, cuentas compradas en `0 (En Matriz)` y margen limpio del 100%.
+- **Problema 2 (Productos obsoletos):** Gamma y Xbox figuraban con egresos automáticos a pesar de ya no existir en la matriz de Excel.
+- **Solución 2:** Se eliminaron los cargos automáticos de plataformas retiradas y se sincronizó con el catálogo real.
+- **Problema 3 (Falta de registro exacto de salidas y método de pago en renovaciones):** En Excel los asesores registran vencimiento de cuenta matriz, CCV temporal, medio de pago o proveedor (ej. transferencias o 'net') de forma desestructurada, impidiendo cuadrar el flujo de caja real.
+- **Solución 3:**
+  * Se creó la tabla `account_renewals` en MariaDB (con campos: `account_email`, `platform`, `provider`, `payment_method`, `renewal_date`, `expiration_date`, `amount_paid`, `notes`, `registered_by`).
+  * Se añadieron endpoints `/api/admin/accounting/renewals` (GET, POST `/save`, DELETE `/delete`).
+  * Cada renovación registrada descuenta automáticamente del balance contable mensual.
+  * Se implementó el panel modal interactivo en `sheerit.co/contabilidad` para consulta y registro rápido por asesores.
+
+### 8. Corrección de Casilla Virgen al Cortar Servicio (`Nombre: ""` en vez de `"libre"`)
+- **Problema:** Al liberar un cupo desde `ClientsView.tsx` ("Dejar casilla virgen"), el sistema guardaba literalmente `"libre"` en el campo `Nombre`, provocando que en Excel Online el perfil quedara registrado como si el cliente se llamara "libre".
+- **Causa Raíz:** En `ClientsView.tsx` y en el endpoint `/api/admin/client/cut-service` se asignaba `"Nombre": "libre"` de forma explícita.
+- **Solución:**
+  * En `ClientsView.tsx` (líneas 319-320) y en `whatbot/index.js` (líneas 2078 y 5069) se sustituyó `"libre"` por cadena vacía `""`.
+  * Se corrió un script de saneamiento contra Microsoft Graph API blanqueando todas las filas en OneDrive. Verificación actual: 0 filas con el texto `"libre"`.
+
+### 9. Tabla Dinámica de Perfiles Libres y Stock en Tiempo Real (`AnalyticsDashboard.tsx`)
+- **Objetivo:** Reproducir y potenciar la tabla dinámica de Excel que calcula cuántos perfiles libres quedan por cuenta y por plataforma, integrándola directamente en el módulo de Analítica web.
+- **Implementación Técnica:**
+  * **Endpoint `/api/admin/analytics/free-profiles`:** Agrupa en menos de 3ms todas las filas de la matriz viva de Excel calculando cupos totales, ocupados, libres, tasa de ocupación y desglose de cuentas maestras.
+  * **Pestaña `Perfiles Libres y Stock (Dinámica)`:** Con badge contador en vivo (`summary.totalLibres`) y tarjeta de acceso directo en el panel de finanzas.
+  * **4 KPIs Principales:** Perfiles Libres Totales, Cuentas con Disponibilidad, Ocupación Matriz y Alerta de Plataformas Agotadas (0 cupos).
+  * **Doble Modo de Visualización:**
+    - *Vista Dinámica por Plataforma*: Acordeón por servicio con barra visual de ocupación, listado de cuentas con botón de copiar correo, fecha de corte y desplegable de cupos (Fila de Excel, cliente o `✨ LIBRE`).
+    - *Vista Plana de Cuentas*: Tabla tabular ordenada con búsqueda rápida y filtros (`Todas`, `🟢 Con Stock (>0)`, `🔴 Agotadas (0)`).
+  * **Sincronización:** Botón "Sincronizar Stock" para forzar lectura inmediata contra OneDrive.
+
+### 10. Corrección de Turnos Inflados (#300+) y Purgado de Estados (`supportScheduleService.js`)
+- **Problema:** Los tickets en el panel mostraban números de turno superiores a 300 (ej. `Turno #301`, `Turno #355`) a pesar de haber solo ~30 tickets activos en la interfaz.
+- **Causa Raíz:** En `user_states.json` habían quedado acumulados **272 estados en espera** (`waiting_human`) de meses anteriores sin cerrar. La función `getQueuePosition` los incluía a todos en la cola antes de los tickets nuevos.
+- **Solución:**
+  * Se actualizó `getQueuePosition` en `supportScheduleService.js` con una ventana de corte `MAX_QUEUE_AGE_MS = 48 horas`, computando únicamente chats con actividad reciente y donde el cliente esté activamente esperando.
+  * Se ejecutó un script de saneamiento en el VPS marcando como `resolved` los 272 chats inactivos mayores a 7 días.
+  * Resultado: La numeración de turnos es ahora real, consecutiva y limpia (ej. Steven pasó de #355 a **Turno #24**).
+
+---
+
+## Estructura de Tablas Clave en MariaDB
+
+```sql
+-- Historial de tickets resueltos por asesores
+CREATE TABLE IF NOT EXISTS resolved_tickets_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    phone VARCHAR(30) NOT NULL,
+    customerName VARCHAR(100),
+    agent VARCHAR(100) NOT NULL,
+    category VARCHAR(50),
+    claimedAt DATETIME NULL,
+    durationSeconds INT DEFAULT 0,
+    resolvedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Registro exacto de salidas a proveedores por renovaciones
+CREATE TABLE IF NOT EXISTS account_renewals (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    account_email VARCHAR(150) NOT NULL,
+    platform VARCHAR(50) NOT NULL,
+    provider VARCHAR(100) DEFAULT NULL,
+    payment_method VARCHAR(100) DEFAULT NULL,
+    renewal_date DATE NOT NULL,
+    expiration_date DATE NOT NULL,
+    amount_paid DECIMAL(12,2) NOT NULL,
+    notes TEXT,
+    registered_by VARCHAR(100) DEFAULT 'Admin',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Costos base de streaming y categorización
+CREATE TABLE IF NOT EXISTS streaming_costs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    platform VARCHAR(50) NOT NULL UNIQUE,
+    provider VARCHAR(100) DEFAULT 'Proveedor General',
+    cost_per_account DECIMAL(12,2) NOT NULL,
+    profiles_per_account INT DEFAULT 1,
+    sale_price_per_profile DECIMAL(12,2) NOT NULL,
+    total_cost DECIMAL(12,2) DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## Guía Rápida de Comandos Administrativos (WhatsApp)
+
+| Comando | Grupo / Chat | Descripción |
+| :--- | :--- | :--- |
+| `@bot estado` | Grupos Admin | Reporta salud de OneDrive, Antigravity CLI, WhatsApp Web y filas sincronizadas |
+| `@bot renovar-onedrive` | Grupos Admin | Genera código Device Code de Microsoft para re-autorizar OneDrive en 1 clic |
+| `@restart` / `!restart` | Grupos Admin | Reinicia de forma segura el proceso PM2 `whatbot` |
+| `@aceptar` | Errors Bot (`120363427163636523@g.us`) | Aprueba y ejecuta directamente el commit en Git formulado por el CLI |
