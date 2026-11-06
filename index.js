@@ -3574,12 +3574,30 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
         const claimedAtDate = stateData.claimedAt ? new Date(stateData.claimedAt) : null;
         const durationSeconds = stateData.claimedAt ? Math.round((Date.now() - stateData.claimedAt) / 1000) : 0;
 
-        // Log resolved ticket con categoría y tiempo de resolución
+        // Log resolved ticket con categoría y tiempo de resolución (de-duplicado en ventana de 2 horas)
         try {
-            await pool.query(
-                'INSERT INTO resolved_tickets_log (phone, customerName, agent, category, claimedAt, durationSeconds) VALUES (?, ?, ?, ?, ?, ?)',
-                [cleanPhone, customerName, agentName, category, claimedAtDate, durationSeconds]
+            const [existingRows] = await pool.query(
+                `SELECT id FROM resolved_tickets_log 
+                 WHERE (phone = ? OR phone LIKE ?) 
+                   AND agent = ? 
+                   AND resolvedAt >= NOW() - INTERVAL 2 HOUR 
+                 ORDER BY id DESC LIMIT 1`,
+                [cleanPhone, `%${last10}%`, agentName]
             );
+
+            if (existingRows && existingRows.length > 0) {
+                await pool.query(
+                    `UPDATE resolved_tickets_log 
+                     SET resolvedAt = NOW(), durationSeconds = ?, category = ?, customerName = ? 
+                     WHERE id = ?`,
+                    [durationSeconds, category, customerName, existingRows[0].id]
+                );
+            } else {
+                await pool.query(
+                    'INSERT INTO resolved_tickets_log (phone, customerName, agent, category, claimedAt, durationSeconds, resolvedAt) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+                    [cleanPhone, customerName, agentName, category, claimedAtDate, durationSeconds]
+                );
+            }
         } catch (logErr) {
             console.error('[Resolved Log] Error logging resolved ticket:', logErr.message);
         }
@@ -3650,10 +3668,20 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                             const otherCustomerName = await getRealCustomerName(otherPhone, otherStateData.nombre);
 
                             try {
-                                await pool.query(
-                                    'INSERT INTO resolved_tickets_log (phone, customerName, agent) VALUES (?, ?, ?)',
-                                    [otherPhone, otherCustomerName, otherAgentName]
+                                const [existingOther] = await pool.query(
+                                    `SELECT id FROM resolved_tickets_log 
+                                     WHERE (phone = ? OR phone LIKE ?) 
+                                       AND agent = ? 
+                                       AND resolvedAt >= NOW() - INTERVAL 2 HOUR 
+                                     LIMIT 1`,
+                                    [otherPhone, `%${otherPhone.slice(-10)}%`, otherAgentName]
                                 );
+                                if (!existingOther || existingOther.length === 0) {
+                                    await pool.query(
+                                        'INSERT INTO resolved_tickets_log (phone, customerName, agent, category, resolvedAt) VALUES (?, ?, ?, ?, NOW())',
+                                        [otherPhone, otherCustomerName, otherAgentName, category]
+                                    );
+                                }
                             } catch (logErr) { }
 
                             userStates.set(otherUserId, {
@@ -3833,14 +3861,14 @@ app.post('/api/admin/tickets/create', express.json(), async (req, res) => {
 app.get('/api/admin/tickets/metrics', async (req, res) => {
     try {
         const [summary] = await pool.query(`
-            SELECT agent, COUNT(*) as count 
+            SELECT agent, COUNT(DISTINCT phone) as count 
             FROM resolved_tickets_log 
             GROUP BY agent 
             ORDER BY count DESC
         `);
 
         const [summaryToday] = await pool.query(`
-            SELECT agent, COUNT(*) as count 
+            SELECT agent, COUNT(DISTINCT phone) as count 
             FROM resolved_tickets_log 
             WHERE DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)) = DATE(DATE_SUB(NOW(), INTERVAL 5 HOUR))
             GROUP BY agent 
@@ -3851,7 +3879,7 @@ app.get('/api/admin/tickets/metrics', async (req, res) => {
             SELECT 
                 DATE_FORMAT(DATE_SUB(resolvedAt, INTERVAL 5 HOUR), '%d/%m') as day_label, 
                 agent,
-                COUNT(*) as count 
+                COUNT(DISTINCT phone) as count 
             FROM resolved_tickets_log 
             WHERE resolvedAt >= DATE_SUB(NOW(), INTERVAL 7 DAY)
             GROUP BY DATE(DATE_SUB(resolvedAt, INTERVAL 5 HOUR)), day_label, agent
@@ -11643,6 +11671,25 @@ async function baseProcessIncomingMessage(messages) {
             }
             if (!isAdminCommand) return; // Si fue una mención para reactivar el chat con cliente, ignorar para la IA.
         } else {
+            // Si el chat fue resuelto recientemente (últimas 4 horas) y el cliente no ha enviado un nuevo mensaje,
+            // un mensaje saliente del asesor (despedida, confirmación) NO debe revivir el ticket como 'waiting_human'.
+            const isRecentlyResolved = currentState === 'resolved' || 
+                (currentStateData && currentStateData.state === 'resolved') ||
+                (currentStateData && currentStateData.resolvedAt && (Date.now() - currentStateData.resolvedAt < 4 * 3600 * 1000));
+
+            if (isRecentlyResolved) {
+                console.log(`[BOT MUTE] Mensaje saliente de asesor para chat resuelto recientemente (${userId}). Manteniendo estado 'resolved'.`);
+                if (currentStateData && typeof currentStateData === 'object') {
+                    currentStateData.lastHumanInteraction = Date.now();
+                    currentStateData.state = 'resolved';
+                    userStates.set(userId, currentStateData);
+                    if (cleanPhoneJid && cleanPhoneJid !== userId) {
+                        userStates.set(cleanPhoneJid, currentStateData);
+                    }
+                }
+                return;
+            }
+
             if (currentState !== 'waiting_human') {
                 console.log(`[BOT MUTE] Detectada intervención manual para ${userId}. Silenciando bot.`);
             }
