@@ -2075,14 +2075,14 @@ app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
         let updatePayload = {};
         if (leaveSlotVirgin) {
             updatePayload = {
-                "Nombre": "libre",
+                "Nombre": "",
                 "Apellido": "",
                 "numero": "",
                 "whatsapp": "",
                 "deben": "",
                 "observaciones": ""
             };
-            console.log(`[Admin Cut Service] Dejando casilla virgen en fila ${targetRow} (Nombre='libre', teléfono y vencimiento vacíos)`);
+            console.log(`[Admin Cut Service] Dejando casilla virgen en fila ${targetRow} (Nombre, teléfono y vencimiento completamente vacíos)`);
         } else {
             updatePayload = { "observaciones": obsValue };
             console.log(`[Admin Cut Service] Marcando corte en fila ${targetRow}: "${obsValue}"`);
@@ -5066,7 +5066,7 @@ app.post('/api/admin/accounts/add', async (req, res) => {
                 "Streaming": streaming,
                 "correo": correo,
                 "contraseña": contraseña,
-                "Nombre": "libre",
+                "Nombre": "",
                 "whatsapp": "",
                 "numero": "",
                 "deben": ""
