@@ -21,6 +21,12 @@ const AGY_MODEL = 'Gemini 3.8 Flash (High)';
 const AGY_CLI_MODELS = ['gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low'];
 const GEMINI_MODEL = AGY_MODEL;
 
+let lastCliErrorDetails = null;
+
+function getLastCliErrorDetails() {
+    return lastCliErrorDetails;
+}
+
 /**
  * Invoca directamente el CLI oficial de Antigravity (agy) autenticado con la cuenta de Google
  * con rotación automática de modelos Gemini 3.8 Flash y respaldo HTTP si el binario falla.
@@ -28,6 +34,9 @@ const GEMINI_MODEL = AGY_MODEL;
 async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
     const fullPrompt = `${systemInstruction}\n\n${prompt}`;
     const agyBin = fs.existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : (fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy');
+
+    const modelErrors = [];
+    lastCliErrorDetails = null;
 
     for (const cliModel of AGY_CLI_MODELS) {
         try {
@@ -38,7 +47,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
                 '--disable-slash-commands',
                 '--dangerously-skip-permissions'
             ];
-            const { stdout } = await execFileAsync(agyBin, agyArgs, {
+            const { stdout, stderr } = await execFileAsync(agyBin, agyArgs, {
                 cwd: REPO_DIR,
                 encoding: 'utf8',
                 timeout: 95000, // 95 segundos máximo por intento de modelo para permitir failover rápido
@@ -48,10 +57,27 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
             const trimmed = (stdout || '').trim();
             if (trimmed && !trimmed.includes('RESOURCE_EXHAUSTED') && !trimmed.includes('"status":"ERROR"')) {
                 console.log(`[Antigravity CLI] ✅ Respuesta generada exitosamente con modelo ${cliModel}`);
+                lastCliErrorDetails = null;
                 return trimmed;
+            }
+            const errComb = `${trimmed} ${stderr || ''}`;
+            if (errComb.includes('RESOURCE_EXHAUSTED') || errComb.includes('429')) {
+                modelErrors.push(`${cliModel}: 🚨 Cuota / Modelo agotado (HTTP 429 RESOURCE_EXHAUSTED)`);
+            } else {
+                modelErrors.push(`${cliModel}: ⚠️ Respuesta vacía o estado ERROR (${trimmed.slice(0, 100)})`);
             }
             console.warn(`[Antigravity CLI] Modelo ${cliModel} devolvió respuesta incompleta o con error, probando siguiente...`);
         } catch (e) {
+            const rawErr = `${e.message || ''} ${e.stderr || ''} ${e.stdout || ''}`;
+            if (e.killed || e.signal === 'SIGTERM' || /timed?\s*out/i.test(rawErr)) {
+                modelErrors.push(`${cliModel}: ⏱️ Lectura desbordada / Timeout (>95s inspeccionando archivos o logs sin cerrar respuesta)`);
+            } else if (rawErr.includes('RESOURCE_EXHAUSTED') || rawErr.includes('429')) {
+                modelErrors.push(`${cliModel}: 🚨 Cuota / Modelo agotado (HTTP 429 RESOURCE_EXHAUSTED)`);
+            } else if (/auth|token|login|credential/i.test(rawErr)) {
+                modelErrors.push(`${cliModel}: 🔑 Error de autenticación / sesión OAuth en CLI`);
+            } else {
+                modelErrors.push(`${cliModel}: ❌ Fallo de ejecución (${(e.message || '').split('\n')[0].slice(0, 100)})`);
+            }
             console.warn(`[Antigravity CLI] Advertencia ejecutando binario agy con ${cliModel}:`, e.message.split('\n')[0]);
         }
     }
@@ -60,11 +86,21 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
     try {
         console.log('[Antigravity CLI] 🔄 Usando respaldo HTTP directo a Gemini Flash...');
         const httpResp = await callGemini38FlashHttp(prompt, systemInstruction);
-        if (httpResp) return httpResp;
+        if (httpResp) {
+            lastCliErrorDetails = null;
+            return httpResp;
+        }
     } catch (httpErr) {
-        console.warn('[Antigravity CLI] Falló también el respaldo HTTP de Gemini:', httpErr.message);
+        const hMsg = httpErr.message || String(httpErr);
+        if (hMsg.includes('429') || hMsg.includes('RESOURCE_EXHAUSTED') || hMsg.includes('quota')) {
+            modelErrors.push(`Respaldo HTTP Gemini API: 🚨 Cuota de API Key agotada (429)`);
+        } else {
+            modelErrors.push(`Respaldo HTTP Gemini API: ❌ ${hMsg.slice(0, 100)}`);
+        }
+        console.warn('[Antigravity CLI] Falló también el respaldo HTTP de Gemini:', hMsg);
     }
 
+    lastCliErrorDetails = modelErrors.join('\n• ');
     return null;
 }
 
@@ -548,6 +584,7 @@ module.exports = {
     extractJsonFromAgyOutput,
     executeFixAndCommit,
     applyCodeModifications,
+    getLastCliErrorDetails,
     GEMINI_MODEL: AGY_MODEL
 };
 

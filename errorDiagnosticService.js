@@ -3,7 +3,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { getAccountsByPhone, fetchRawData } = require('./apiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
-const { callGemini38Flash, callAgyCli, extractJsonFromAgyOutput, executeFixAndCommit, GEMINI_MODEL } = require('./cliAgentService');
+const { callGemini38Flash, callAgyCli, extractJsonFromAgyOutput, executeFixAndCommit, getLastCliErrorDetails, GEMINI_MODEL } = require('./cliAgentService');
 
 const ERRORS_LOG_PATH = path.join(__dirname, 'logs', 'reported_errors.json');
 const PENDING_SOLUTIONS_PATH = path.join(__dirname, 'logs', 'pending_error_solutions.json');
@@ -412,21 +412,32 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
         isPreliminary: true
     };
 
+    const buildEngineErrorResponse = (extraReason = '') => {
+        const cliErr = getLastCliErrorDetails() || extraReason || '⏱️ Lectura desbordada / Timeout (>95s) o cuota de modelo agotada';
+        return {
+            causaRaiz: `🚨 *[ESTADO DEL MOTOR ANTIGRAVITY CLI]*\n• ${cliErr}\n\n📌 *Contexto preliminar detectado:*\n${fallbackCausa}`,
+            planCodigo: `${fallbackPlan}\n\n💡 *Sugerencia:* Escribe *@continuar* para reintentar la inspección focalizada con el CLI.`,
+            commitDetallado: fallbackCommit,
+            archivosAfectados: fallbackFiles,
+            isPreliminary: true
+        };
+    };
+
     const generatePromise = async () => {
         let prompt = '';
         const effectiveImgPath = imagePath || (previousTicket && previousTicket.imagePath) || null;
         const speedRule = `
-⚡ REGLA CRÍTICA DE VELOCIDAD Y PRESUPUESTO DE HERRAMIENTAS (OBLIGATORIO):
-- Tienes un presupuesto ESTRICTO de máximo 5 llamadas a herramientas (read_file / run_command) y debes terminar en menos de 45 segundos.
-- PROHIBIDO leer /root/.pm2/logs/, node_modules/, .git/, .wwebjs_auth/ o ejecutar scripts en python/bash lentos.
-- Si usas grep, úsalo exclusivamente con grep -n puntual sobre archivos .js específicos (index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js).
-- En cuanto leas la captura (1 llamada read_file) y ubiques las líneas en el archivo .js (1 a 3 llamadas), DETENTE INMEDIATAMENTE y responde el JSON.`;
+⚡ REGLA CRÍTICA DE BÚSQUEDA EXACTA Y PRESUPUESTO DE HERRAMIENTAS (OBLIGATORIO):
+1. Haz PRIMERO una búsqueda exacta:
+   - En código: usa \`grep -n -F "frase_exacta_del_bot" /root/whatbot/index.js /root/whatbot/billingService.js /root/whatbot/totpService.js /root/whatbot/aiService.js\` y luego \`read_file\` solo en ese rango de líneas.
+   - En logs de PM2 (si necesitas ver qué pasó con el cliente en tiempo real): haz SIEMPRE búsqueda exacta en el tramo reciente con \`tail -n 30000 /root/.pm2/logs/whatbot-out.log | grep -a -i -C 6 "telefono_o_nombre_o_frase"\` (tarda 0.05s). PROHIBIDO usar \`read_file\` o \`sed\` directo sobre los 4 millones de líneas completas de whatbot-out.log sin \`tail\`.
+2. Tienes un presupuesto máximo de 6 llamadas a herramientas y debes terminar en menos de 50 segundos. En cuanto tengas la causa raíz exacta y las líneas de código, DETENTE y devuelve inmediatamente el JSON.`;
 
         if (userAdjustment && previousTicket) {
             const imgInstruction = effectiveImgPath && fs.existsSync(path.resolve(__dirname, effectiveImgPath))
                 ? `\n- PANTALLAZO DEL TICKET EN DISCO: "${path.resolve(__dirname, effectiveImgPath)}" (Lée la imagen con read_file en tu primer paso).`
                 : '';
-            const wasGenericPreliminary = previousTicket.isPreliminary || /Discrepancia detectada en/i.test(previousTicket.diagnosis || '');
+            const wasGenericPreliminary = previousTicket.isPreliminary || /Discrepancia detectada en|ESTADO DEL MOTOR ANTIGRAVITY CLI/i.test(previousTicket.diagnosis || '');
             prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería de software para el repositorio whatbot en /root/whatbot).
 ${speedRule}
 
@@ -436,7 +447,7 @@ CONTEXTO DEL REPORTE ORIGINAL:
 - Caso / Mensaje del asesor: "${previousTicket.rawMessage || previousTicket.summary || extractedInfo.summary}"
 - Cliente: ${previousTicket.clientPhone || extractedInfo.clientPhone || 'No especificado'} (${previousTicket.clientName || 'N/A'})
 - Plataforma: ${previousTicket.platform || extractedInfo.platform || 'Por determinar según reporte'}${imgInstruction}
-${!wasGenericPreliminary ? `- Diagnóstico previo: ${previousTicket.diagnosis}\n- Plan previo: ${previousTicket.plan}\n- Archivos previos: ${(previousTicket.files || []).join(', ')}` : '⚠️ NOTA: El diagnóstico previo fue preliminar. Realiza una inspección puntual del código fuente real.'}
+${!wasGenericPreliminary ? `- Diagnóstico previo: ${previousTicket.diagnosis}\n- Plan previo: ${previousTicket.plan}\n- Archivos previos: ${(previousTicket.files || []).join(', ')}` : '⚠️ NOTA: El diagnóstico previo fue preliminar. Realiza una búsqueda exacta en el código fuente real.'}
 
 INDICACIÓN / INSTRUCCIÓN DEL USUARIO:
 "${userAdjustment}"
@@ -445,8 +456,8 @@ Notas de auditoría del sistema:
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
-1. Inspecciona puntualmente los archivos reales del repositorio (/root/whatbot: index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) buscando las funciones, estados o condiciones involucradas en el reporte.
-2. PROHIBIDO devolver respuestas genéricas. Especifica exactamente qué variable, función o flujo en el código causa el comportamiento y cómo corregirlo.
+1. Haz primero una búsqueda exacta con grep -n en los archivos reales (/root/whatbot: index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) o en las últimas 30.000 líneas del log con tail + grep.
+2. Especifica exactamente qué variable, función y línea en el código causa el comportamiento y cómo corregirlo.
 3. NUNCA inventes carpetas o archivos que no existan en /root/whatbot.
 4. Devuelve exclusivamente un JSON válido con esta estructura exacta:
 {
@@ -474,9 +485,8 @@ ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES CLAVE DE INGENIERÍA:
 1. Lee el archivo de imagen en "${absoluteImgPath}" usando read_file (1 llamada).
-   - Identifica los mensajes del cliente, las respuestas del bot, el nombre/teléfono del cliente y la plataforma REAL del servicio (ej: "Claude", "ChatGPT / GPT", "Netflix", "Amazon", "Disney", etc. NUNCA "WHATSAPP").
-2. Haz un grep -n puntual sobre index.js, billingService.js, totpService.js o aiService.js del mensaje del bot que se ve en la captura y lee las líneas involucradas (máximo 2-3 llamadas).
-   ⚠️ REGLA DE ORO: NUNCA leas /root/.pm2/logs/ ni inventes archivos inexistentes.
+   - Identifica los mensajes del cliente, las respuestas exactas del bot, el nombre/teléfono del cliente y la plataforma REAL del servicio (ej: "Claude", "ChatGPT / GPT", "Netflix", "Amazon", "Disney", etc. NUNCA "WHATSAPP").
+2. Haz primero una búsqueda exacta (\`grep -n -F\`) sobre index.js, billingService.js, totpService.js o aiService.js con la frase exacta que respondió el bot en la captura, y si necesitas ver el log reciente usa \`tail -n 30000 /root/.pm2/logs/whatbot-out.log | grep -a -i -C 6 "termino"\`.
 3. Devuelve tu respuesta técnica exclusivamente en un JSON estructurado así (sin texto adicional fuera del JSON):
 {
   "clientName": string | null,
@@ -505,8 +515,8 @@ ${recentChatContext || 'Sin contexto adicional'}
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
-1. Haz un grep -n puntual e inspecciona en los archivos reales de /root/whatbot (index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) las funciones, expresiones regulares o estados de usuario relacionados con el reporte del asesor.
-2. PROHIBIDO entregar respuestas genéricas o leer /root/.pm2/logs/. Explica con precisión técnica qué condición o línea de código produce el problema reportado y detalla la solución exacta.
+1. Haz primero una búsqueda exacta con \`grep -n\` en los archivos reales de /root/whatbot (index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) y/o en las últimas 30.000 líneas del log (\`tail -n 30000 /root/.pm2/logs/whatbot-out.log | grep -a -i -C 6 ...\`).
+2. Explica con precisión técnica qué condición o línea de código produce el problema reportado y detalla la solución exacta.
 3. Devuelve un JSON estrictamente estructurado así:
 {
   "platform": "Plataforma real identificada (ej: Claude, ChatGPT, Netflix, General)",
@@ -519,7 +529,7 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
 
         try {
             console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
-            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Usa máximo 5 llamadas a herramientas (prohibido leer /root/.pm2/logs/) y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
+            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Haz primero búsqueda exacta (grep -n en .js y tail -n 30000 + grep en logs), usa máximo 6 llamadas a herramientas y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
             const parsed = extractJsonFromAgyOutput(rawOutput);
             if (parsed && (parsed.causaRaiz || parsed.planCodigo || parsed.summary || parsed.platform)) {
                 console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de Antigravity CLI:', JSON.stringify({ platform: parsed.platform, clientName: parsed.clientName, summary: parsed.summary }));
@@ -529,14 +539,14 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
             console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI:', agyErr.message);
         }
 
-        return fallbackResponse;
+        return buildEngineErrorResponse();
     };
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 240000));
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(buildEngineErrorResponse('⏱️ Timeout global alcanzado (210s): lectura desbordada de archivos/logs sin cerrar respuesta JSON')), 210000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {
-        return fallbackResponse;
+        return buildEngineErrorResponse(e.message);
     }
 }
 
