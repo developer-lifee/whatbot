@@ -12036,17 +12036,19 @@ REGLAS:
             if (isRecentlyActive && ((currentStateData && currentStateData.agent) || mode === 'advisor' || minutesSinceLastHuman < 45)) {
                 console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} (Asesor activo hace ${minutesSinceLastHuman.toFixed(1)} mins o asignado a ${currentStateData ? currentStateData.agent : 'humano'}).`);
 
-                // Si el soporte o asesores se encuentran en horario de descanso/almuerzo, avisar al cliente para no dejarlo sin respuesta
+                // Si el soporte o asesores se encuentran en horario de descanso/almuerzo o fuera de horario, avisar al cliente para no dejarlo sin respuesta
                 try {
                     const { isSupportOpen, getOfflineReplyMessage } = require('./supportScheduleService');
-                    const supportStatus = isSupportOpen();
+                    const supportStatus = await isSupportOpen();
                     const now = Date.now();
                     const lastNotice = (currentStateData && currentStateData.lastRestNoticeSent) || 0;
                     // Cooldown de 2 horas para no repetir el aviso en cada mensaje
                     if (!supportStatus.open && (now - lastNotice > 1000 * 60 * 120)) {
-                        const offlineMsg = getOfflineReplyMessage(supportStatus);
-                        await message.reply(offlineMsg);
-                        if (currentStateData) currentStateData.lastRestNoticeSent = now;
+                        const offlineMsg = await getOfflineReplyMessage(userId, userStates);
+                        if (offlineMsg) {
+                            await message.reply(offlineMsg);
+                            if (currentStateData) currentStateData.lastRestNoticeSent = now;
+                        }
                     }
                 } catch (schedErr) {
                     console.warn('[Support Schedule Notice] Error verificando horario:', schedErr.message);
