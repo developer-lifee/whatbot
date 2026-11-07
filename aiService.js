@@ -1201,8 +1201,12 @@ async function isPaymentReceipt(mediaData, chatHistory = "") {
   }
 
   try {
-    // 1. Pre-procesar la imagen con Gemini para extraer la descripción visual / OCR
+    // 1. Pre-procesar la imagen con Gemini / DeepSeek Vision para extraer la descripción visual / OCR
     const imageDescription = await describeImageWithGemini(mediaData, chatHistory);
+    if (!imageDescription || imageDescription.trim().length === 0) {
+      console.warn("[isPaymentReceipt] ⚠️ No se pudo obtener descripción visual de la imagen (motores de visión inaccesibles).");
+      return { isReceipt: false, amount: null, bank: null, destinationKey: null, destinationName: null, ocrError: true };
+    }
 
     // Guardián inmediato: Descartar si es una pantalla de inicio de sesión, 2FA, código de verificación o Claude
     const descLower = (imageDescription || "").toLowerCase();
@@ -1625,6 +1629,15 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
       }
     } catch (e) {
       console.error("Error generating media description in fallback:", e);
+    }
+
+    // Si el usuario envió una imagen pero falló su procesamiento visual en todos los modelos (Gemini y DeepSeek)
+    if (!isAudioMedia && (!mediaDescription || mediaDescription.trim().length === 0)) {
+      console.warn(`[AI Fallback Media] ⚠️ No se pudo procesar la imagen enviada por @${userId || 'cliente'}. Solicitando descripción en texto.`);
+      return {
+        replyMessage: "🤖 En este momento no pude visualizar tu imagen correctamente. ¿Podrías indicarme por texto qué mensaje o error te aparece en pantalla o qué necesitas? Con gusto te ayudo de inmediato. 😊",
+        needsEscalation: false
+      };
     }
   }
 
