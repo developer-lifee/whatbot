@@ -665,20 +665,20 @@ async function calculateDailyAccounting() {
             price = normalizeWebSaleToPlanPrice(matchingSale.amount);
           }
           paymentSource = `Pago Web ($${Number(matchingSale.amount).toLocaleString('es-CO')})`;
-        } else if (platKey === 'CLAUDE MAX') {
-          // En CLAUDE MAX (jordimemesmomazosdick@gmail.com - $200 USD), solo 1 cliente pagó los $250.000 COP completos
-          if (!claudeMaxFullPayerCounted) {
+        } else if (platKey === 'CLAUDE MAX' || platKey === 'CLAUDE MAX X5') {
+          // Sebastián Sánchez (3105721054) pagó $250.000 COP el 28 de octubre por Claude Max Scale
+          const isSebastian = clientNameLower.includes('sebastian') && clientNameLower.includes('sanchez') || phoneDigits.includes('3105721054');
+          if (isSebastian) {
             price = 250000;
-            claudeMaxFullPayerCounted = true;
-            paymentSource = '1 único pago $250k';
-          } else {
+            paymentSource = 'Pago $250k (Claude Max Scale)';
+          } else if (platKey === 'CLAUDE MAX') {
             price = 60000;
-            paymentSource = 'Tarifa anterior ($60k)';
+            paymentSource = 'Tarifa estándar ($60k)';
+          } else {
+            // Tarifa estándar anterior para Claude Max X5
+            price = 45000;
+            paymentSource = 'Tarifa anterior WhatsApp ($45k)';
           }
-        } else if (platKey === 'CLAUDE MAX X5') {
-          // Cuentas en sheeritdediagama@gmail.com sin pago de $120k en web fueron vendidas a tarifa anterior ($35k - $60k)
-          price = 45000;
-          paymentSource = 'Tarifa anterior WhatsApp';
         }
       }
 

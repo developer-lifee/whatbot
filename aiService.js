@@ -184,10 +184,11 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-flash-latest",       // Modelo oficial Flash con soporte multimodal y OCR activo
+  "gemini-3.5-flash",          // Modelo Flash 3.5 ultra-rápido, estable y multimodal
+  "gemini-3.5-flash-lite",     // Respaldo liviano de alta disponibilidad
+  "gemini-3.6-flash",          // Respaldo Flash 3.6
   "gemini-flash-lite-latest",  // Respaldo liviano
-  "gemini-2.5-flash",          // Respaldo Flash 2.5
-  "gemini-3.5-flash"           // Flash 3.5
+  "gemini-flash-latest"        // Modelo estándar Flash
 ];
 
 /**
@@ -251,27 +252,46 @@ async function callDeepSeekFallback(prompt, systemInstruction, isJson, mediaData
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (!apiKey) throw new Error("No DeepSeek API Key available for fallback");
 
+  // DeepSeek-V4.1-Flash (deepseek-flash) soporta multimodal nativo (texto e imágenes en base64)
+  const isMultimodal = Boolean(mediaData && (Array.isArray(mediaData) ? mediaData.length > 0 : mediaData.data));
+  let userContent;
+
+  if (isMultimodal) {
+    const mediaArray = Array.isArray(mediaData) ? mediaData : [mediaData];
+    userContent = [{ type: "text", text: prompt }];
+    mediaArray.forEach(m => {
+      if (m && m.data && m.mimeType) {
+        userContent.push({
+          type: "image_url",
+          image_url: { url: `data:${m.mimeType};base64,${m.data}` }
+        });
+      }
+    });
+  } else {
+    userContent = prompt;
+  }
+
   const messages = [
     { role: "system", content: systemInstruction },
-    { role: "user", content: prompt + (mediaData ? "\n[Nota: Había una imagen adjunta pero se procesa solo texto en este fallback]" : "") }
+    { role: "user", content: userContent }
   ];
 
   const payload = {
-    model: "deepseek-chat",
+    model: "deepseek-flash",
     messages: messages
   };
   if (isJson) {
     payload.response_format = { type: "json_object" };
   }
 
-  const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+  const response = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`
     },
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(15000)
+    signal: AbortSignal.timeout(20000)
   });
 
   if (!response.ok) {
@@ -503,7 +523,7 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   let lastError = null;
 
   for (const modelName of MODELS) {
-    let attempts = 3; // 3 intentos por modelo con backoff exponencial
+    let attempts = 1; // 1 intento por modelo para failover rápido sin agotar cuota por ráfagas
     let delay = 1000;
 
     for (let attempt = 1; attempt <= attempts; attempt++) {
@@ -1547,7 +1567,16 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
           'obtener un código para ver netflix', 'obtener un codigo para ver netflix',
           'crea tu propia cuenta para disfrutar de netflix', 'no forma parte del hogar',
           'actualizar hogar', 'hogar con netflix', 'hogar de netflix', 'tu tv no forma parte',
-          'hogar de disney', 'hogar con disney', 'esta tv no forma parte'
+          'hogar de disney', 'hogar con disney', 'esta tv no forma parte',
+          'sigue las instrucciones que recibirás por email', 'sigue las instrucciones que recibiras por email',
+          'enviamos un email a la persona titular', 'enviamos un correo a la persona titular',
+          'mantente en esta pantalla hasta completar'
+        ].some(kw => descLower.includes(kw));
+
+        const isHouseholdEmailSent = [
+          'sigue las instrucciones que recibirás por email', 'sigue las instrucciones que recibiras por email',
+          'enviamos un email a la persona titular', 'enviamos un correo a la persona titular',
+          'mantente en esta pantalla hasta completar'
         ].some(kw => descLower.includes(kw));
 
         if (isHouseholdScreen) {
@@ -1570,12 +1599,25 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
           if (isNetflix && !isOtherPlatform) {
             console.log("[AI Fallback Media] Detectada pantalla de Hogar / Ver temporalmente de Netflix en TV. Guiando al usuario de inmediato.");
             const phoneParam = isValidPhone ? `?tel=${customerPhone}` : '';
+
+            if (isHouseholdEmailSent) {
+              return {
+                replyMessage: `🤖 ¡Hola! Veo en tu televisor que Netflix ya envió el correo de confirmación de Hogar a la cuenta titular. 📺⚡\n\n` +
+                  `👉 *Para activar tu pantalla de inmediato:*\n\n` +
+                  `1️⃣ Ingresa directamente a nuestro portal de actualización para autorizar el televisor en 1 solo clic:\n` +
+                  `🔗 https://sheerit.co/actualizar${phoneParam}\n\n` +
+                  `2️⃣ O escribe la palabra *código* (o *"código de netflix"*) aquí en este chat y te extraeremos el enlace de confirmación al instante.\n\n` +
+                  `_Mantén encendida tu pantalla en esa misma imagen mientras confirmas el enlace._ 🚀`,
+                needsEscalation: false
+              };
+            }
+
             return {
               replyMessage: `🤖 ¡Hola! Veo en tu pantalla el aviso de Hogar / Ver temporalmente de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
                 `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
                 `1️⃣ Con el control remoto de tu TV, selecciona **"Ver temporalmente"** (o *"Actualizar Hogar"*).\n` +
                 `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
-                `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos para que sigas viendo. 🚀`,
+                `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código o enlace de confirmación para que sigas viendo. 🚀`,
               needsEscalation: false
             };
           }
