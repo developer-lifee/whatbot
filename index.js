@@ -897,10 +897,8 @@ app.get('/api/admin/system-health', async (req, res) => {
     try {
         const { getOneDriveHealth } = require('./apiService');
         const { getOneDriveTokenInfo } = require('./oneDriveAuthService');
-        const { getMemoryUsage } = require('./systemMonitorService');
         const health = getOneDriveHealth();
         const tokenInfo = getOneDriveTokenInfo();
-        const memory = getMemoryUsage();
         res.json({
             success: true,
             timestamp: new Date().toISOString(),
@@ -914,8 +912,7 @@ app.get('/api/admin/system-health', async (req, res) => {
             agyCli: {
                 installed: true,
                 path: '/usr/local/bin/agy'
-            },
-            memory
+            }
         });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -15388,11 +15385,24 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     const paymentConfirmationStates = ['awaiting_payment_renewal_confirmation', 'awaiting_payment_multi_renewal_confirmation', 'awaiting_payment_autofill_confirmation'];
     let isNumericSelectionBreakout = false;
     if (statesExpectingNumbers.includes(currentState) && !isSingleDigit && !paymentConfirmationStates.includes(currentState)) {
-        if (['comprar', 'pagar', 'renovar', 'soporte'].includes(detection.intent)) {
+        // Si el usuario ya está en awaiting_payment_method y su intent es 'pagar' (ej. dice "Ya", "Listo", "Nequi"), NO romper ni borrar su carrito
+        const isAlreadyInPaymentFlow = (currentState === 'awaiting_payment_method' && detection.intent === 'pagar');
+        if (!isAlreadyInPaymentFlow && ['comprar', 'pagar', 'renovar', 'soporte'].includes(detection.intent)) {
             isNumericSelectionBreakout = true;
             console.log(`[Flow Breakout] Rompiendo selección numérica '${currentState}' por intent de texto: ${detection.intent}`);
         }
     }
+
+    // Preservar carrito activo si el usuario sigue en intención de pago/compra para evitar que Flow Recovery lo deje vacío
+    const preservedCartData = (currentStateData && Array.isArray(currentStateData.items) && currentStateData.items.length > 0 && ['pagar', 'confirmar'].includes(detection.intent))
+        ? {
+            items: currentStateData.items,
+            selected: currentStateData.selected || currentStateData.items,
+            total: currentStateData.total,
+            isRenewal: currentStateData.isRenewal,
+            durationMonths: currentStateData.durationMonths
+        }
+        : {};
 
     if ((flowsRequiringBreakout.includes(currentState) && (isChangingTopic || isVeryFrustrated || isPivottingPlatform || isForcedMenuBreakout)) || isChurnRefusal || isChurnSwitchToPurchase || isNumericSelectionBreakout) {
         console.log(`[Flow Breakout] Rompiendo flujo '${currentState}' para @${userId}. Razón: ${isChurnRefusal ? 'Rechazo de cancelación' : (isChurnSwitchToPurchase ? 'Cambio a compra/nuevo servicio' : (isNumericSelectionBreakout ? 'Breakout selección numérica' : (isForcedMenuBreakout ? 'Fuerza de menú numérico' : (isPivottingPlatform ? 'Pivot plataforma' : (isChangingTopic ? 'Cambio de tema (' + detection.intent + ')' : 'Alta frustración')))))}`);
@@ -15548,7 +15558,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             if (detection.recoveredState) {
                 console.log(`[Flow Recovery] Recuperando estado: ${detection.recoveredState} para @${userId.replace('@c.us', '')}`);
                 const metadata = detection.metadata || {};
-                userStates.set(userId, { state: detection.recoveredState, nombre: foundName, ...metadata });
+                userStates.set(userId, { ...preservedCartData, state: detection.recoveredState, nombre: foundName, ...metadata });
 
                 if (detection.recoveredState === 'waiting_human') {
                     // Si la intención es soporte o compra con frustración, NO nos quedamos callados.
@@ -17171,7 +17181,8 @@ async function handleAwaitingPaymentMethod(message, userId, isMedia = false, sin
     }
 
     // 1. Si el usuario envió comprobante o afirma explícitamente que ya pagó/transfirió
-    const isPaymentAffirmation = /aqu[ií]\s*pagu[eé]|ya\s*pagu[eé]|ya\s*pague|\bpagu[eé]\b|ya\s*transfer[ií]|ya\s*hice\s*el\s*pago|te\s*pagu[eé]|te\s*transfer[ií]|adjunto\s*comprobante|ah[ií]\s*est[aá]\s*el\s*pago|\bcomprobante\b|\brecibo\b/i.test(textToUse);
+    const isPaymentAffirmation = /aqu[ií]\s*pagu[eé]|ya\s*pagu[eé]|ya\s*pague|\bpagu[eé]\b|ya\s*transfer[ií]|ya\s*hice\s*el\s*pago|te\s*pagu[eé]|te\s*transfer[ií]|adjunto\s*comprobante|ah[ií]\s*est[aá]\s*el\s*pago|\bcomprobante\b|\brecibo\b/i.test(textToUse) ||
+        /^(ya|listo|hecho|ok\s*listo)(\s|$)/i.test((textToUse || '').trim());
 
     if (hasMediaFlag) {
         return await handleAwaitingPaymentConfirmation(message, userId, true, singleMediaData);
@@ -17590,6 +17601,58 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
 
                         console.log(`[AUTO-VALIDATE] ✅ Llave y monto válidos. Ejecutando entrega automática...`);
 
+                        // Si el carrito items se perdió de memoria pero el OCR o el historial reciente menciona las plataformas cotizadas, reconstruirlo
+                        if (!stateData.items || stateData.items.length === 0) {
+                            try {
+                                const recentHist = await getChatHistoryText(message).catch(() => '');
+                                const sourceText = `${check.inferredPlatform || ''} ${recentHist || ''}`.toLowerCase();
+                                const recoveredItems = [];
+                                for (const p of allPlatforms) {
+                                    const pNameLower = (p.name || '').toLowerCase();
+                                    const baseWord = pNameLower.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
+                                    if (baseWord && baseWord.length >= 3 && sourceText.includes(baseWord)) {
+                                        const defaultPlan = (Array.isArray(p.plans) && p.plans.length > 0) ? p.plans[0] : { name: 'Estándar', price: p.price || 0 };
+                                        recoveredItems.push({
+                                            name: p.name,
+                                            Streaming: p.name,
+                                            platform: p,
+                                            chosenPlan: defaultPlan,
+                                            price: Number(defaultPlan.price || p.price || 0),
+                                            quantity: 1
+                                        });
+                                    }
+                                }
+                                if (recoveredItems.length > 0) {
+                                    // Filtrar combinación de items que sume el monto pagado (o todos los detectados si coinciden)
+                                    const sumAll = recoveredItems.reduce((acc, it) => acc + (it.price || 0), 0);
+                                    if (Math.abs(sumAll - totalPaidSoFar) <= 2000) {
+                                        stateData.items = recoveredItems;
+                                    } else {
+                                        const exactSingle = recoveredItems.filter(it => Math.abs((it.price || 0) - totalPaidSoFar) <= 1500);
+                                        if (exactSingle.length === 1) {
+                                            stateData.items = exactSingle;
+                                        } else {
+                                            // Buscar par de items que sumen totalPaidSoFar
+                                            for (let i = 0; i < recoveredItems.length; i++) {
+                                                for (let j = i + 1; j < recoveredItems.length; j++) {
+                                                    if (Math.abs((recoveredItems[i].price || 0) + (recoveredItems[j].price || 0) - totalPaidSoFar) <= 1500) {
+                                                        stateData.items = [recoveredItems[i], recoveredItems[j]];
+                                                        break;
+                                                    }
+                                                }
+                                                if (stateData.items && stateData.items.length > 0) break;
+                                            }
+                                        }
+                                    }
+                                    if (stateData.items && stateData.items.length > 0) {
+                                        console.log(`[AUTO-VALIDATE] 🔄 Carrito reconstruido desde contexto para ${userId}:`, stateData.items.map(i => i.name).join(', '));
+                                    }
+                                }
+                            } catch (recErr) {
+                                console.warn('[AUTO-VALIDATE] Advertencia reconstruyendo carrito:', recErr.message);
+                            }
+                        }
+
                         let hasNetflix = false;
                         if (stateData.items && Array.isArray(stateData.items)) {
                             hasNetflix = stateData.items.some(item => {
@@ -17844,14 +17907,6 @@ async function startClientWithRetries(maxRetries = 5) {
 }
 
 startClientWithRetries();
-
-// Monitor de Memoria RAM y Swap con alertas preventivas por WhatsApp
-try {
-    const { startMemoryMonitor } = require('./systemMonitorService');
-    startMemoryMonitor(() => (typeof client !== 'undefined' ? client : null));
-} catch (memErr) {
-    console.error('[Startup] Error inicializando monitor de memoria:', memErr.message);
-}
 
 // Escáner Atiende Pendientes deshabilitado de bucle periódico para evitar duplicados y respuestas tardías
 // Los mensajes entrantes se procesan en tiempo real por los eventos 'message' y 'message_create'
