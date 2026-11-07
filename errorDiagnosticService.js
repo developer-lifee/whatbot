@@ -415,19 +415,28 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
     const generatePromise = async () => {
         let prompt = '';
         const effectiveImgPath = imagePath || (previousTicket && previousTicket.imagePath) || null;
+        const speedRule = `
+⚡ REGLA CRÍTICA DE VELOCIDAD Y PRESUPUESTO DE HERRAMIENTAS (OBLIGATORIO):
+- Tienes un presupuesto ESTRICTO de máximo 5 llamadas a herramientas (read_file / run_command) y debes terminar en menos de 45 segundos.
+- PROHIBIDO leer /root/.pm2/logs/, node_modules/, .git/, .wwebjs_auth/ o ejecutar scripts en python/bash lentos.
+- Si usas grep, úsalo exclusivamente con grep -n puntual sobre archivos .js específicos (index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js).
+- En cuanto leas la captura (1 llamada read_file) y ubiques las líneas en el archivo .js (1 a 3 llamadas), DETENTE INMEDIATAMENTE y responde el JSON.`;
+
         if (userAdjustment && previousTicket) {
             const imgInstruction = effectiveImgPath && fs.existsSync(path.resolve(__dirname, effectiveImgPath))
-                ? `\n- PANTALLAZO DEL TICKET EN DISCO: "${path.resolve(__dirname, effectiveImgPath)}" (Inspecciónalo si necesitas verificar mensajes o contexto visual del reporte).`
+                ? `\n- PANTALLAZO DEL TICKET EN DISCO: "${path.resolve(__dirname, effectiveImgPath)}" (Lée la imagen con read_file en tu primer paso).`
                 : '';
-            const wasGenericPreliminary = previousTicket.isPreliminary || /Discrepancia detectada en la lógica de/i.test(previousTicket.diagnosis || '');
+            const wasGenericPreliminary = previousTicket.isPreliminary || /Discrepancia detectada en/i.test(previousTicket.diagnosis || '');
             prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería de software para el repositorio whatbot en /root/whatbot).
+${speedRule}
+
 El usuario solicitó ${wasGenericPreliminary ? 'PROFUNDIZAR Y DIAGNOSTICAR EN EL CÓDIGO REAL' : 'un AJUSTE / CAMBIO a una propuesta técnica previa'}:
 
 CONTEXTO DEL REPORTE ORIGINAL:
 - Caso / Mensaje del asesor: "${previousTicket.rawMessage || previousTicket.summary || extractedInfo.summary}"
 - Cliente: ${previousTicket.clientPhone || extractedInfo.clientPhone || 'No especificado'} (${previousTicket.clientName || 'N/A'})
 - Plataforma: ${previousTicket.platform || extractedInfo.platform || 'Por determinar según reporte'}${imgInstruction}
-${!wasGenericPreliminary ? `- Diagnóstico previo: ${previousTicket.diagnosis}\n- Plan previo: ${previousTicket.plan}\n- Archivos previos: ${(previousTicket.files || []).join(', ')}` : '⚠️ NOTA: El diagnóstico previo fue una plantilla preliminar genérica. Ignórala por completo y realiza una inspección real del código fuente.'}
+${!wasGenericPreliminary ? `- Diagnóstico previo: ${previousTicket.diagnosis}\n- Plan previo: ${previousTicket.plan}\n- Archivos previos: ${(previousTicket.files || []).join(', ')}` : '⚠️ NOTA: El diagnóstico previo fue preliminar. Realiza una inspección puntual del código fuente real.'}
 
 INDICACIÓN / INSTRUCCIÓN DEL USUARIO:
 "${userAdjustment}"
@@ -436,8 +445,8 @@ Notas de auditoría del sistema:
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
-1. Inspecciona directamente los archivos reales del repositorio (/root/whatbot: index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js, etc.) buscando las funciones, estados o condiciones involucradas en el reporte.
-2. PROHIBIDO devolver respuestas genéricas como "Discrepancia detectada en la lógica de General" o "Validar en index.js y billingService.js los filtros". Especifica exactamente qué variable, función o flujo en el código causa el comportamiento y cómo corregirlo línea por línea.
+1. Inspecciona puntualmente los archivos reales del repositorio (/root/whatbot: index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) buscando las funciones, estados o condiciones involucradas en el reporte.
+2. PROHIBIDO devolver respuestas genéricas. Especifica exactamente qué variable, función o flujo en el código causa el comportamiento y cómo corregirlo.
 3. NUNCA inventes carpetas o archivos que no existan en /root/whatbot.
 4. Devuelve exclusivamente un JSON válido con esta estructura exacta:
 {
@@ -450,6 +459,8 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
         } else if (effectiveImgPath) {
             const absoluteImgPath = path.resolve(__dirname, effectiveImgPath);
             prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería de software para el repositorio whatbot en este servidor).
+${speedRule}
+
 Un asesor reportó una incidencia técnica enviando una captura de pantalla al grupo de WhatsApp "Errors bot".
 
 EVIDENCIA PRINCIPAL (PANTALLAZO GUARDADO EN DISCO):
@@ -462,27 +473,26 @@ NOTAS DE AUDITORÍA DEL SISTEMA:
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES CLAVE DE INGENIERÍA:
-1. Inspecciona y examina directamente el archivo de imagen en "${absoluteImgPath}" usando tus herramientas de visión / lectura de archivos.
-   - Lee con absoluto detalle todo el texto del pantallazo: los mensajes del cliente, lo que pide (ej: código 2FA para GPT / ChatGPT, Claude Code, renovación, soporte, etc.), las respuestas del bot, números de teléfono o nombres.
-   - Identifica la plataforma REAL del servicio (ej: "ChatGPT / GPT", "Claude", "Netflix", "Amazon", "Disney", "Crunchyroll", etc.).
-   ⚠️ NOTA CRÍTICA: "WHATSAPP" NO ES LA PLATAFORMA DEL PROBLEMA. WhatsApp es la aplicación de chat donde el cliente escribe. NUNCA respondas que la plataforma es WHATSAPP.
-2. Inspecciona el código fuente REAL de este repositorio (/root/whatbot):
-   - Archivos existentes relevantes: totpService.js (manejo de códigos 2FA de GPT y límites de dispositivos), index.js (enrutamiento de mensajes y estados), billingService.js, aiService.js, availabilityService.js, salesRegistryService.js, etc.
-   ⚠️ REGLA DE ORO: NUNCA inventes carpetas ni nombres de archivo inexistentes como "services/excelService.js" o "controllers/whatsappController.js". Todo el código del bot está en archivos JavaScript en la raíz de /root/whatbot.
+1. Lee el archivo de imagen en "${absoluteImgPath}" usando read_file (1 llamada).
+   - Identifica los mensajes del cliente, las respuestas del bot, el nombre/teléfono del cliente y la plataforma REAL del servicio (ej: "Claude", "ChatGPT / GPT", "Netflix", "Amazon", "Disney", etc. NUNCA "WHATSAPP").
+2. Haz un grep -n puntual sobre index.js, billingService.js, totpService.js o aiService.js del mensaje del bot que se ve en la captura y lee las líneas involucradas (máximo 2-3 llamadas).
+   ⚠️ REGLA DE ORO: NUNCA leas /root/.pm2/logs/ ni inventes archivos inexistentes.
 3. Devuelve tu respuesta técnica exclusivamente en un JSON estructurado así (sin texto adicional fuera del JSON):
 {
   "clientName": string | null,
   "clientPhone": string | null,
-  "platform": string, // ej: "ChatGPT / GPT", "Claude", "Netflix", "Amazon", etc. NUNCA "WHATSAPP".
-  "problemType": string, // ej: "solicitud_codigo_2fa", "renovacion_vs_compra", "no_entrega_credenciales", etc.
-  "summary": "Resumen fiel y exacto del caso según la captura (ej: Cliente solicita código 2FA para GPT y el bot no responde)",
-  "causaRaiz": "Explicación técnica detallada de por qué ocurrió el fallo en el código del bot (mencionando funciones/estados reales)",
+  "platform": string,
+  "problemType": string,
+  "summary": "Resumen fiel y exacto del caso según la captura",
+  "causaRaiz": "Explicación técnica detallada de por qué ocurrió el fallo en el código del bot (mencionando archivo, línea y función real)",
   "planCodigo": "Pasos detallados de las modificaciones en código requeridas en los archivos reales del repositorio",
   "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios",
-  "archivosAfectados": ["totpService.js", "index.js"]
+  "archivosAfectados": ["billingService.js", "index.js"]
 }`;
         } else {
             prompt = `Actúas como Antigravity CLI (asistente senior de ingeniería para el repositorio whatbot en /root/whatbot).
+${speedRule}
+
 Un asesor reportó la siguiente incidencia en el grupo de WhatsApp "Errors bot":
 - Mensaje / Reporte exacto del asesor: "${effectiveText || extractedInfo.summary || 'Error reportado en chat'}"
 - Resumen extraído: ${extractedInfo.summary || effectiveText || 'Error reportado en chat'}
@@ -495,10 +505,9 @@ ${recentChatContext || 'Sin contexto adicional'}
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
-1. Busca e inspecciona en los archivos reales de /root/whatbot (index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) las funciones, expresiones regulares o estados de usuario (ej. userStates, awaiting_payment_confirmation, waiting_human, extractPlatformFromText, processCheckCredentials, etc.) relacionados con el reporte del asesor.
-2. PROHIBIDO entregar respuestas genéricas o plantillas vagas. Explica con precisión técnica qué condición o línea de código produce el problema reportado y detalla la solución exacta.
-3. ⚠️ NUNCA inventes archivos inexistentes como "services/excelService.js" o carpetas ficticias.
-4. Devuelve un JSON estrictamente estructurado así:
+1. Haz un grep -n puntual e inspecciona en los archivos reales de /root/whatbot (index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) las funciones, expresiones regulares o estados de usuario relacionados con el reporte del asesor.
+2. PROHIBIDO entregar respuestas genéricas o leer /root/.pm2/logs/. Explica con precisión técnica qué condición o línea de código produce el problema reportado y detalla la solución exacta.
+3. Devuelve un JSON estrictamente estructurado así:
 {
   "platform": "Plataforma real identificada (ej: Claude, ChatGPT, Netflix, General)",
   "causaRaiz": "Explicación técnica precisa de por qué ocurrió el fallo en el código o estado (mencionando funciones/estados reales)",
@@ -508,23 +517,9 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
 }`;
         }
 
-        const plat = extractedInfo.platform || 'General';
-        const problemSummary = extractedInfo.summary || effectiveText || 'Incidencia reportada';
-        const targetFiles = plat.toLowerCase().includes('claude') 
-            ? ['availabilityService.js', 'billingService.js', 'index.js']
-            : (plat.toLowerCase().includes('gpt') || plat.toLowerCase().includes('chatgpt') ? ['totpService.js', 'index.js'] : ['index.js', 'billingService.js']);
-
-        const fallbackSolution = {
-            causaRaiz: `Discrepancia detectada en la lógica de ${plat}: "${problemSummary}". Requiere validación en la asignación o enrutamiento del estado.`,
-            planCodigo: `1. Validar en ${targetFiles.join(' y ')} los filtros y condiciones asociadas a ${plat}.\n2. Ajustar el mapeo de planes o entrega de credenciales para asegurar correspondencia exacta con el servicio reportado.`,
-            commitDetallado: `fix: ajustar lógica de ${plat} para resolver discrepancia reportada\n\n- Causa: ${problemSummary}\n- Módulos afectados: ${targetFiles.join(', ')}\n- Prevención: validar consistencia en la asignación del servicio`,
-            archivosAfectados: targetFiles,
-            isPreliminary: true
-        };
-
         try {
             console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
-            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Inspecciona los archivos y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
+            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Usa máximo 5 llamadas a herramientas (prohibido leer /root/.pm2/logs/) y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
             const parsed = extractJsonFromAgyOutput(rawOutput);
             if (parsed && (parsed.causaRaiz || parsed.planCodigo || parsed.summary || parsed.platform)) {
                 console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de Antigravity CLI:', JSON.stringify({ platform: parsed.platform, clientName: parsed.clientName, summary: parsed.summary }));
@@ -534,28 +529,14 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
             console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI:', agyErr.message);
         }
 
-        return fallbackSolution;
+        return fallbackResponse;
     };
 
-    const platEarly = extractedInfo.platform || 'General';
-    const problemEarly = extractedInfo.summary || effectiveText || 'Incidencia reportada';
-    const filesEarly = platEarly.toLowerCase().includes('claude') 
-        ? ['availabilityService.js', 'billingService.js', 'index.js']
-        : (platEarly.toLowerCase().includes('gpt') || platEarly.toLowerCase().includes('chatgpt') ? ['totpService.js', 'index.js'] : ['index.js', 'billingService.js']);
-
-    const earlyFallback = {
-        causaRaiz: `Discrepancia detectada en ${platEarly}: "${problemEarly}".`,
-        planCodigo: `1. Revisar filtros y asignación en ${filesEarly.join(', ')}.\n2. Prevenir asignaciones cruzadas del servicio reportado.`,
-        commitDetallado: `fix: corregir validación para ${platEarly} en base a reporte\n\n- Causa: ${problemEarly}\n- Archivos: ${filesEarly.join(', ')}`,
-        archivosAfectados: filesEarly,
-        isPreliminary: true
-    };
-
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(earlyFallback), 180000));
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(fallbackResponse), 240000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {
-        return earlyFallback;
+        return fallbackResponse;
     }
 }
 
@@ -576,9 +557,26 @@ async function handleAdvisorErrorReport(message, client, userStates) {
     let chat = null;
     try { chat = await message.getChat(); } catch (e) {}
 
+    if (!effectiveText && client && client.pupPage && message.id) {
+        try {
+            await new Promise(r => setTimeout(r, 800));
+            const targetId = message.id._serialized || message.id.id;
+            const pupCaption = await client.pupPage.evaluate((id) => {
+                try {
+                    const m = window.Store && window.Store.Msg ? window.Store.Msg.get(id) : null;
+                    if (!m) return '';
+                    return (m.caption || m.comment || (m.type !== 'image' && m.type !== 'video' ? m.body : '') || '').trim();
+                } catch (e) { return ''; }
+            }, targetId);
+            if (pupCaption && !pupCaption.startsWith('/9j/') && !pupCaption.startsWith('iVBOR')) {
+                effectiveText = pupCaption;
+            }
+        } catch (e) {}
+    }
+
     if (!effectiveText && chat && chat.fetchMessages) {
         try {
-            await new Promise(r => setTimeout(r, 1200));
+            await new Promise(r => setTimeout(r, 800));
             const recentMsgs = await chat.fetchMessages({ limit: 6 });
             const matchingMsg = recentMsgs.find(m => m.id && (
                 m.id._serialized === (message.id && message.id._serialized) || 
@@ -1134,8 +1132,8 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             return;
         }
 
-        // Si no hay imagen en disco pero SÍ tenemos texto del asesor, asignar el texto directamente para que Antigravity CLI lo analice
-        if (!imageDiskPath && (!extractedInfo.summary || !extractedInfo.problemType)) {
+        // Si tenemos texto del asesor (como mensaje directo o pie de foto), asignarlo siempre para contexto de Antigravity CLI
+        if (effectiveText && (!extractedInfo.summary || !extractedInfo.problemType)) {
             extractedInfo.summary = effectiveText;
             const phoneMatch = effectiveText.match(/(\b57\d{10}\b|\b3\d{9}\b)/);
             if (phoneMatch) {

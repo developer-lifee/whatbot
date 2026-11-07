@@ -41,7 +41,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
             const { stdout } = await execFileAsync(agyBin, agyArgs, {
                 cwd: REPO_DIR,
                 encoding: 'utf8',
-                timeout: 180000, // 3 minutos máximo para agy
+                timeout: 95000, // 95 segundos máximo por intento de modelo para permitir failover rápido
                 maxBuffer: 20 * 1024 * 1024,
                 env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
             });

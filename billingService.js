@@ -722,7 +722,7 @@ async function checkPendingWebSaleForPhone(phone, name = '') {
     try {
         // Solo buscar ventas web pendientes de las últimas 4 horas y por coincidencia estricta de teléfono
         const [rows] = await pool.query(
-            "SELECT * FROM web_sales_pending WHERE (whatsapp LIKE ? OR whatsapp = ?) AND (createdAt >= NOW() - INTERVAL 4 HOUR OR createdAt IS NULL) ORDER BY createdAt DESC LIMIT 1",
+            "SELECT * FROM web_sales_pending WHERE (whatsapp LIKE ? OR whatsapp = ?) AND createdAt IS NOT NULL AND createdAt >= NOW() - INTERVAL 4 HOUR ORDER BY createdAt DESC LIMIT 1",
             [`%${last10}`, clean]
         );
         if (rows.length > 0) return rows[0];
@@ -797,11 +797,18 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             ? preloadedAccounts
             : await getAccountsByPhone(phoneNumber, contactName);
 
-        const requestedPlatform = extractPlatformFromText(triggerMessage);
-        const hasActiveRequestedPlatform = requestedPlatform && userAccounts && userAccounts.some(acc => {
-            const streaming = acc.Streaming || acc.streaming || "";
-            return isStreamingMatch(streaming, requestedPlatform);
-        });
+        const requestedPlatform = extractPlatformFromText(triggerMessage) || extractPlatformFromText(history);
+        const isCodeRequestMsg = /\b(codigo|código|code|pin|2fa|otp|verificacion|verificación|abrirlo)\b/i.test(triggerMessage || '');
+        const hasActiveRequestedPlatform = Boolean(
+            userAccounts && userAccounts.length > 0 && (
+                !requestedPlatform ||
+                isCodeRequestMsg ||
+                userAccounts.some(acc => {
+                    const streaming = acc.Streaming || acc.streaming || "";
+                    return isStreamingMatch(streaming, requestedPlatform);
+                })
+            )
+        );
 
         // Validar si tiene un pago en proceso de validación humana RECIENTE (máximo 4 horas)
         let isPendingValidation = false;
@@ -820,7 +827,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
             try {
                 const { pool } = require('./database');
                 const [pendingSales] = await pool.query(
-                    "SELECT * FROM web_sales_pending WHERE (whatsapp LIKE ? OR whatsapp = ?) AND (createdAt >= NOW() - INTERVAL 4 HOUR OR createdAt IS NULL) ORDER BY createdAt DESC LIMIT 1",
+                    "SELECT * FROM web_sales_pending WHERE (whatsapp LIKE ? OR whatsapp = ?) AND createdAt IS NOT NULL AND createdAt >= NOW() - INTERVAL 4 HOUR ORDER BY createdAt DESC LIMIT 1",
                     [`%${phoneNumber}%`, phoneNumber]
                 );
                 if (pendingSales && pendingSales.length > 0) {
