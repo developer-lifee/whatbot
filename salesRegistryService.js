@@ -1,6 +1,24 @@
 const { updateExcelData, fetchRawData } = require('./apiService');
 const { getAvailabilityConfig, normalizeStreamingName } = require('./availabilityService');
 
+function formatCurrency(amount) {
+    if (amount === undefined || amount === null || amount === '') return '$';
+    if (typeof amount === 'string') {
+        const cleanStr = amount.trim();
+        if (cleanStr.startsWith('$')) return cleanStr;
+        const num = parseFloat(cleanStr.replace(/[^0-9.-]+/g, ''));
+        if (!isNaN(num)) {
+            return `$${Math.round(num).toLocaleString('es-CO')}`;
+        }
+        return `$${cleanStr}`;
+    }
+    const num = Number(amount);
+    if (!isNaN(num)) {
+        return `$${Math.round(num).toLocaleString('es-CO')}`;
+    }
+    return `$${amount}`;
+}
+
 function getLevenshteinDistance(a, b) {
     if (a.length === 0) return b.length;
     if (b.length === 0) return a.length;
@@ -15,7 +33,7 @@ function getLevenshteinDistance(a, b) {
                 matrix[i][j] = Math.min(
                     matrix[i - 1][j - 1] + 1, // substitution
                     matrix[i][j - 1] + 1,     // insertion
-                    matrix[i - 1][j] + 1      // deletion
+                    matrix[i - 1][j + 1]      // deletion
                 );
             }
         }
@@ -93,11 +111,6 @@ function isSamePlatformFamily(name1, name2) {
     return false;
 }
 
-/**
- * Calcula la fecha del próximo pago sumando los meses correspondientes.
- * @param {string} subscriptionType - 'mensual', 'semestral', 'anual'
- * @returns {string} Fecha en formato DD/MM/YYYY
- */
 /**
  * Calcula la fecha del próximo pago sumando los meses correspondientes.
  * @param {string} subscriptionType - 'mensual', 'semestral', 'anual'
@@ -729,5 +742,6 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 module.exports = {
     recordNewSale,
     isSamePlatformFamily,
-    calculateNextPaymentDate
+    calculateNextPaymentDate,
+    formatCurrency
 };

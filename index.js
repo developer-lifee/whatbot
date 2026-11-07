@@ -16104,7 +16104,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         };
                         await executePaymentValidation(userId, tempState, client, userStates, null, currentStateData.matchId);
                     } else {
-                        await message.reply(`🤖 ¡Entendido! He registrado tu pago verificado de *$${currentStateData.amount.toLocaleString('es-CO')}* COP para el servicio de *${platformName}*. 🚀\n\nUn asesor validará los detalles y te entregará tus credenciales de *${platformName}* lo más pronto posible. ¡Gracias por tu compra! 😊`);
+                        const formattedAmount = (currentStateData.amount != null && !isNaN(Number(currentStateData.amount))) ? Number(currentStateData.amount).toLocaleString('es-CO') : (currentStateData.amount || '0');
+                        await message.reply(`🤖 ¡Entendido! He registrado tu pago verificado de *${formattedAmount}* COP para el servicio de *${platformName}*. 🚀\n\nUn asesor validará los detalles y te entregará tus credenciales de *${platformName}* lo más pronto posible. ¡Gracias por tu compra! 😊`);
                         userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
                         try {
                             const groupChat = await client.getChatById(GROUP_ID);
