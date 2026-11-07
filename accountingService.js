@@ -30,8 +30,8 @@ const SEED_STREAMING_COSTS = [
   { platform: 'YOUTUBE OWNER', email: '', total_cost: 0, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'CLAUDE', email: 'angirosagptplus@gmail.com', total_cost: 85000, profile_slots: 8, duration_days: 31, expiration_date: '2026-10-29' },
   { platform: 'CLAUDE X2', email: 'nigadiagama@gmail.com', total_cost: 85000, profile_slots: 5, duration_days: 31, expiration_date: '2026-11-14' },
-  { platform: 'CLAUDE MAX X5', email: 'sheeritdediagama@gmail.com', total_cost: 420000, profile_slots: 5, duration_days: 31, expiration_date: '2026-10-02' },
-  { platform: 'CLAUDE MAX', email: 'jordimemesmomazosdick@gmail.com', total_cost: 840000, profile_slots: 8, duration_days: 31, expiration_date: '2026-10-01' },
+  { platform: 'CLAUDE MAX X5', email: 'sheeritdediagama@gmail.com', total_cost: 840000, profile_slots: 5, duration_days: 31, expiration_date: '2026-10-02' },
+  { platform: 'CLAUDE MAX', email: 'jordimemesmomazosdick@gmail.com', total_cost: 420000, profile_slots: 8, duration_days: 31, expiration_date: '2026-10-01' },
   { platform: 'PLATZI COMPARTIDA', email: '', total_cost: 0, profile_slots: 5, duration_days: 30, expiration_date: null }
 ];
 
@@ -52,8 +52,8 @@ const SEED_STREAMING_PRICES = [
   { platform: 'CHATGPT PRO SCALE ($200 USD)', normal_price: 190000 },
   { platform: 'CLAUDE', normal_price: 20000 },
   { platform: 'CLAUDE X2', normal_price: 35000 },
-  { platform: 'CLAUDE MAX X5', normal_price: 120000 },
-  { platform: 'CLAUDE MAX', normal_price: 250000 },
+  { platform: 'CLAUDE MAX X5', normal_price: 190000 },
+  { platform: 'CLAUDE MAX', normal_price: 120000 },
   { platform: 'GEMINI', normal_price: 22000 },
   { platform: 'GEMINI COMPARTIDA', normal_price: 10000 },
   { platform: 'APPLE ONE', normal_price: 22000 },
@@ -803,10 +803,10 @@ async function calculateDailyAccounting() {
     // Marcar como Red Flag si la cuenta da pérdida (netBalance < 0), cuesta >= $100 USD, o tiene clientes alojados de un tier inferior
     if (netBalance < 0 || costInfo.total_cost >= 350000 || underpayingClients.length > 0) {
       let alertReason = '';
-      if (inv.platform === 'CLAUDE MAX') {
-        alertReason = `Cuenta de ${usdTier} ($${costInfo.total_cost.toLocaleString('es-CO')} COP/mes) donde solo 1 cliente pagó los $250.000 COP y tiene ${inv.total_slots - inv.occupied_slots} cupos vacíos + clientes con tarifa de $60.000.`;
-      } else if (inv.platform === 'CLAUDE MAX X5') {
-        alertReason = `Cuenta de ${usdTier} ($${costInfo.total_cost.toLocaleString('es-CO')} COP/mes) con clientes alojados pagando tarifa estándar ($20.000 - $63.000 COP) en lugar de $120.000 COP.`;
+      if (inv.platform === 'CLAUDE MAX X5') {
+        alertReason = `Cuenta de $200 USD ($${costInfo.total_cost.toLocaleString('es-CO')} COP/mes) con 5 cupos donde los clientes alojados pagan tarifa estándar ($20.000 - $60.000 COP) en lugar de $190.000 COP, generando una pérdida crítica mensual.`;
+      } else if (inv.platform === 'CLAUDE MAX') {
+        alertReason = `Cuenta de $100 USD ($${costInfo.total_cost.toLocaleString('es-CO')} COP/mes) donde 1 cliente pagó $250.000 COP pero tiene ${inv.total_slots - inv.occupied_slots} cupos vacíos + clientes con tarifa de $60.000 COP.`;
       } else if (underpayingClients.length > 0) {
         alertReason = `Tiene ${underpayingClients.length} cliente(s) que pagaron tarifa de plan inferior ($${underpayingClients[0].paid_amount.toLocaleString('es-CO')}) en cuenta de $${expectedPricePerSlot.toLocaleString('es-CO')}/cupo.`;
       } else {
