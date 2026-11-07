@@ -658,6 +658,14 @@ async function executeDirectDeepSeek(prompt, systemInstruction, isJson) {
   }
 
   const data = await response.json();
+  const usage = data.usage;
+  if (usage) {
+    const hits = usage.prompt_cache_hit_tokens || 0;
+    const miss = usage.prompt_cache_miss_tokens || 0;
+    if (hits > 0) {
+      console.log(`[DeepSeek Cache] ⚡ Cache HIT: ${hits} tokens (90% de ahorro) | Miss: ${miss} | Gen: ${usage.completion_tokens || 0}`);
+    }
+  }
   const text = data.choices?.[0]?.message?.content;
   return text || (isJson ? "{}" : "");
 }
@@ -1696,20 +1704,54 @@ Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. 
     console.error("[RAG Fallback Error]:", ragErr.message);
   }
 
-  const prompt = template
-    .replace('{{ASSISTANT_NAME}}', wisdomData?.company_info?.assistant_name || "Asistente")
-    .replace('{{COMPANY_NAME}}', wisdomData?.company_info?.name || "Sheerit Store")
-    .replace('{{WISDOM_CONTEXT}}', wisdomContext + "\n" + paymentContext + (activeIncidents ? "\n" + activeIncidents : "") + (specificAccountIncidents ? "\n" + specificAccountIncidents : "") + "\n" + supportStatusText + "\n" + warrantyNotice)
-    .replace('{{PLATFORM_CONTEXT}}', platformContext)
-    .replace('{{SUPPORT_CONTEXT}}', supportContext + (ragContext ? "\n\n" + ragContext : ""))
-    .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
-    .replace('{{CHAT_HISTORY}}', chatHistory)
-    .replace('{{MESSAGE_CONTENT}}', messageContent)
-    .replace('{{VERIFICATION_LINK}}', verificationLink)
-    .replace('{{MEDIA_STATUS}}', isMedia ? (isAudioMedia ? `[El cliente envió una NOTA DE VOZ (audio). Lo que dijo fue: "${mediaDescription}". Responde directamente a lo que dice el cliente en su audio. Queda TERMINANTEMENTE PROHIBIDO decir "veo que adjuntaste una imagen" o asumir que es una foto.]` : `[El usuario envió una imagen/archivo. Descripción visual de la imagen extraída por OCR: ${mediaDescription}]`) : "");
+  // 1. Instrucción de sistema invariante (Optimizado para DeepSeek y Gemini Prompt Caching con 90% de descuento)
+  const systemInstruction = `Eres "${wisdomData?.company_info?.assistant_name || "Asistente"}", el experto de "${wisdomData?.company_info?.name || "Sheerit Store"}".
+Tu objetivo es ser un vendedor servicial, empático y resolutivo.
+
+SABIDURÍA Y POLÍTICAS DE LA EMPRESA:
+${wisdomContext}
+${paymentContext}${activeIncidents ? "\n" + activeIncidents : ""}${supportStatusText}
+
+GUÍA DE FUNCIONAMIENTO Y PRECIOS:
+${platformContext}
+
+CONTEXTO DE SOPORTE TÉCNICO (PROBLEMAS COMUNES):
+${supportContext}${ragContext ? "\n\n" + ragContext : ""}
+
+INSTRUCCIONES DE RESPUESTA:
+1. **Brevedad Extrema (REGLA DE ORO)**: Tus respuestas deben ser MUY CORTAS y directas al grano (1 o 2 párrafos máximo). A los clientes no les gusta leer textos largos.
+2. **Personalidad**: Sé amable, usa emojis. NUNCA uses frases excesivamente positivas si hay problemas. No seas exageradamente empático ni pidas disculpas una y otra vez en el mismo párrafo.
+3. **Manejo de Fechas**: Fíjate bien en la FECHA ACTUAL DEL SISTEMA (Día, Mes, Año). No confundas meses ni calcules mal si una suscripción está vencida.
+4. **Agrupación de Mensajes**: Si el usuario envió varios mensajes seguidos como "Hola", "Me sacó", "¿Por qué?", respóndele a TODOS ellos en una sola respuesta unificada y concisa. NO copies ni pegues lo que el usuario dijo al principio de tu respuesta.
+5. **Spotify y Precios**:
+    - Las cuentas que proveemos nosotros (cuenta nueva, renovación estándar y Spotify Owner) valen **$8.000 COP**.
+    - ÚNICAMENTE si el cliente tiene o solicita 'Personal (Tu Correo)' (activación sobre su propio correo personal), vale **$10.000 COP**.
+6. **Soporte Técnico e Imágenes (REGLA OBLIGATORIA)**:
+    - Queda ESTRICTAMENTE PROHIBIDO pedir una foto o captura de pantalla si el usuario YA envió una imagen o foto. Si el usuario ya envió foto o si se niega, NUNCA se la pidas de nuevo.
+    - Si el usuario indica que su sesión se cerró, o pide sus datos de ingreso, o reporta una duda de credenciales: PROPORCIÓNALE sus credenciales activas del inventario para que vuelva a iniciar sesión. Resuelve el caso de forma inteligente. Únicamente si el cliente indica explícitamente que ya probó los datos y persisten las fallas o requiere reasignación manual, agrega la etiqueta [ESCALAR] al final de tu mensaje.
+7. **Códigos y Verificación de Hogar Netflix (REGLA OBLIGATORIA)**:
+    - Si el cliente solicita su código de verificación o envía una foto de la pantalla de "Actualizar Hogar con Netflix", "Confirmar Hogar" o "Código de acceso":
+    - Indícale de forma directa y clara ingresar a nuestro portal oficial: https://sheerit.co/actualizar (o https://sheerit.co/verificar).
+    - NUNCA inventes códigos de ejemplo, ni des enlaces rotos, ni le digas al cliente que busque en páginas externas.
+8. **Credenciales**: Si el usuario pregunta por sus datos, correo, clave o dice "no me han llegado las cuentas", recuérdale amablemente que siempre puede pedirlas poniendo el número 2 o diciéndolo directamente (ej: "regálame mis credenciales").
+9. **Catálogo y Precios**: Si el usuario pide el catálogo completo, el listado de precios, o preguntar "qué servicios tienen", NO le escribas una lista larga. Dile amablemente que puede ver todos nuestros servicios y precios actualizados en nuestra página web oficial: https://sheerit.co/ 🌐`;
+
+  // 2. Prompt dinámico del usuario (variables únicas por cliente/mensaje)
+  const userPrompt = `SERVICIOS ACTUALES DEL CLIENTE:
+${accountSummary || "Ninguno registrado actualmente."}${specificAccountIncidents ? "\n" + specificAccountIncidents : ""}${warrantyNotice ? "\n" + warrantyNotice : ""}
+
+ENLACE DE VERIFICACIÓN PERSONALIZADO:
+${verificationLink}
+
+CONTEXTO DE LA CONVERSACIÓN:
+${chatHistory || "No hay mensajes previos."}
+
+MENSAJE ACTUAL DEL CLIENTE:
+"${messageContent}"
+${isMedia ? (isAudioMedia ? `[El cliente envió una NOTA DE VOZ (audio). Lo que dijo fue: "${mediaDescription}". Responde directamente a lo que dice el cliente en su audio. Queda TERMINANTEMENTE PROHIBIDO decir "veo que adjuntaste una imagen" o asumir que es una foto.]` : `[El usuario envió una imagen/archivo. Descripción visual de la imagen extraída por OCR: ${mediaDescription}]`) : ""}`;
 
   try {
-    const response = await callDeepSeek(prompt, "Eres un asesor de ventas empático y experto. Responde de forma humana y servicial.", false);
+    const response = await callDeepSeek(userPrompt, systemInstruction, false);
     let replyText = cleanWhatsAppFormatting(response.trim());
 
     if (isValidPhone) {
@@ -1870,12 +1912,21 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
   }
 
   const mediaSection = mediaDescription ? `DESCRIPCIÓN DE LA IMAGEN ENVIADA POR EL USUARIO (OCR/VISIÓN): \n"""\n${mediaDescription}\n"""\n` : "";
-  const prompt = promptTemplate
-    .replace('{{MEDIA_DESCRIPTION}}', mediaSection)
-    .replace('{{PLATFORM_CONTEXT}}', platformContext)
-    .replace('{{ACCOUNT_SUMMARY}}', accountSummary)
-    .replace('{{CHAT_HISTORY}}', chatHistory)
-    .replace('{{MESSAGE_CONTENT}}', messageContent);
+  const dynamicUserPrompt = `INFORMACIÓN DEL CLIENTE (Servicios actuales):
+${accountSummary || "Ninguno registrado"}
+
+${mediaSection}Contexto previo de la charla:
+${chatHistory || "No hay mensajes previos"}
+
+Mensaje actual del cliente:
+"${messageContent}"`;
+
+  const intentSystemInstruction = promptTemplate
+    .replace('{{MEDIA_DESCRIPTION}}', '')
+    .replace('{{ACCOUNT_SUMMARY}}', '[Consultar sección de cliente en mensaje del usuario]')
+    .replace('{{CHAT_HISTORY}}', '[Consultar historial en mensaje del usuario]')
+    .replace('{{MESSAGE_CONTENT}}', '[Consultar mensaje actual en mensaje del usuario]')
+    .replace('{{PLATFORM_CONTEXT}}', platformContext);
 
   // --- FALLBACK BASADO EN PALABRAS CLAVE (Ante fallos de IA) ---
   const txt = (messageContent || "").toLowerCase();
@@ -1990,8 +2041,55 @@ Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VE
 
   const isCodeRequest = !isSalesQuestion && (isExplicitCodeAction || isShortCodeMsg);
 
+  // --- FAST PATH DETERMINISTA (0 Tokens / 0ms) ---
+  // Ahorro masivo de cuota y costos: resolver de inmediato intenciones inequívocas sin llamar al LLM
+  if (!mediaData) {
+    if (["1", "2", "3", "4", "5"].includes(txt)) {
+      const numMap = { "1": "comprar", "2": "credenciales", "3": "pagar", "4": "soporte", "5": "soporte" };
+      console.log(`[Fast Path Intent] ⚡ Menú numérico directo "${txt}" -> intent: ${numMap[txt]} (0 tokens gastados)`);
+      return {
+        intent: numMap[txt],
+        recoveredState: null,
+        frustrationLevel: 0,
+        userName: null,
+        isNameComplete: false,
+        detectedPlatform: null,
+        explanation: `Opción ${txt} del menú principal (Fast Path Determinista)`,
+        metadata: { fastPath: true, menuOption: txt }
+      };
+    }
+
+    if (/^(gracias|muchas gracias|vale gracias|mil gracias|ok gracias|listo gracias|chao|adios|adiós|hasta luego|ok|vale|listo)$/i.test(txt)) {
+      console.log(`[Fast Path Intent] ⚡ Agradecimiento/Cierre detectado ("${txt}") -> intent: cierre (0 tokens gastados)`);
+      return {
+        intent: 'cierre',
+        recoveredState: null,
+        frustrationLevel: 0,
+        userName: null,
+        isNameComplete: false,
+        detectedPlatform: null,
+        explanation: 'Agradecimiento o cierre de conversación (Fast Path Determinista)',
+        metadata: { fastPath: true }
+      };
+    }
+
+    if (isCodeRequest || isCredentialRequest) {
+      console.log(`[Fast Path Intent] ⚡ Solicitud explícita de código/credenciales ("${txt.slice(0, 35)}") -> intent: credenciales (0 tokens gastados)`);
+      return {
+        intent: 'credenciales',
+        recoveredState: null,
+        frustrationLevel: 0,
+        userName: null,
+        isNameComplete: false,
+        detectedPlatform: detectedKeywordPlatform || null,
+        explanation: isCodeRequest ? 'Solicitud explícita de código de acceso / 2FA (Fast Path Determinista)' : 'Solicitud explícita de credenciales (Fast Path Determinista)',
+        metadata: { is2faScreen: isCodeRequest, fastPath: true }
+      };
+    }
+  }
+
   try {
-    const jsonString = await callDeepSeek(prompt, "Eres un clasificador de intenciones experto. Responde solo con JSON.", true);
+    const jsonString = await callDeepSeek(dynamicUserPrompt, intentSystemInstruction, true);
     const parsed = JSON.parse(jsonString);
 
     if (parsed && parsed.detectedPlatform) {
