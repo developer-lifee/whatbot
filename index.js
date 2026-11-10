@@ -9791,10 +9791,13 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
             id: { _serialized: `web_request_${Date.now()}` },
             from: userJid,
             fromMe: false,
+            isWebRequest: true,
             body: `código de ${(targetAccount.Streaming || '').toUpperCase()}`,
             reply: async (text) => {
                 console.log(`[Web OTP Request Reply]: ${text}`);
-                if (client) {
+                // Solo enviar a WhatsApp si el mensaje contiene un código o enlace exitoso, nunca errores o "no encontré"
+                const isNotFoundOrError = text.includes('No encontré') || text.includes('inconveniente') || text.includes('Error') || text.includes('hubo un');
+                if (client && !isNotFoundOrError) {
                     try {
                         const { safeSend } = require('./billingService');
                         await safeSend(null, text, userJid, client);
@@ -10821,6 +10824,9 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
 
 // Eliminamos isNameIncomplete anterior para delegar a la IA
 
+// Mapa para evitar spam de notificaciones de "no encontré códigos" en ráfaga (TTL 45s)
+const recentNotFoundNotices = new Map();
+
 /**
  * Procesa el envío del código 2FA o manual para una cuenta seleccionada
  */
@@ -11052,7 +11058,18 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     };
                 } else {
                     const notFoundText = `No encontré códigos recientes en ${accountEmail} para ${streamingName}. Por favor, asegúrate de presionar 'Enviar código' en tu pantalla y vuelve a intentarlo.`;
-                    await safeReply(message, `🤖 ${notFoundText}`, userId);
+                    
+                    // Si la solicitud provino de la web, no spamear por WhatsApp (la interfaz web ya recibe el resultado estructurado)
+                    if (!message.isWebRequest) {
+                        const now = Date.now();
+                        const lastNotice = recentNotFoundNotices.get(userId) || 0;
+                        if (now - lastNotice > 45000) {
+                            recentNotFoundNotices.set(userId, now);
+                            await safeReply(message, `🤖 ${notFoundText}`, userId);
+                        } else {
+                            console.log(`[Anti-Spam 2FA] Omitiendo mensaje repetido de 'no encontré códigos' para ${userId} (cooldown activo de 45s)`);
+                        }
+                    }
                     userStates.delete(userId);
                     return {
                         success: false,
@@ -13545,6 +13562,37 @@ REGLAS:
         try {
             const { getAccountsByPhone } = require('./apiService');
             const userAccounts = await getAccountsByPhone(realPhone, foundName);
+
+            // Si el cliente está preguntando procedimentalmente CÓMO pedir el código o cómo iniciar sesión
+            const isCodeHowToQuestion = /\b(c[oó]mo\s+(hago\s+para\s+|puedo\s+|se\s+hace\s+para\s+)?(pido|pedir|solicito|solicitar|obtener|consigo|conseguir|pide|solicita)\s+(el\s+|un\s+)?c[oó]digo)\b/i.test(lowerBody) ||
+                /\b(c[oó]mo\s+(es\s+(eso\s+|lo\s+)?del\s+|funciona\s+(el\s+)?|obtengo\s+(el\s+)?|llega\s+el\s+)c[oó]digo)\b/i.test(lowerBody) ||
+                /\b(d[oó]nde\s+(pongo|ingreso|digito|meto|coloco)\s+(el\s+)?c[oó]digo)\b/i.test(lowerBody) ||
+                /\b(para\s+qu[eé]\s+es\s+el\s+c[oó]digo)\b/i.test(lowerBody) ||
+                /\b(c[oó]mo\s+(hago\s+para\s+|puedo\s+)?(inicio|iniciar)\s+sesi[oó]n)\b/i.test(lowerBody);
+
+            if (isCodeHowToQuestion) {
+                let howToMsg = `🤖 *¿Cómo ingresar a tu cuenta y pedir el código de verificación?*\n\n` +
+                    `Para acceder a tu servicio, sigue estos sencillos pasos:\n\n` +
+                    `1️⃣ *Abre la app o página web* de tu plataforma.\n` +
+                    `2️⃣ *Ingresa con tu correo asignado*:\n`;
+
+                if (userAccounts && userAccounts.length > 0) {
+                    userAccounts.forEach(acc => {
+                        const plat = (acc.Streaming || 'Servicio').toUpperCase();
+                        const mail = (acc.correo || '').trim().toLowerCase();
+                        const pin = acc['pin perfil'] || acc['Nombre'] || '';
+                        howToMsg += `   • *${plat}*: \`${mail}\`${pin ? ` (Perfil: ${pin})` : ''}\n`;
+                    });
+                } else {
+                    howToMsg += `   • Ingresa el correo electrónico que te asignamos en tu compra.\n`;
+                }
+
+                howToMsg += `\n3️⃣ Presiona *'Continuar'*, *'Iniciar sesión'* o *'Enviar código'*. En ese momento la plataforma enviará el código temporal a nuestro buzón seguro.\n` +
+                    `4️⃣ Tan pronto tu pantalla te pida el código temporal de verificación, me escribes aquí: *'código'* (o por ejemplo *'código claude'*) y te lo entregaré al instante. 📲✨`;
+
+                await message.reply(howToMsg);
+                return;
+            }
 
             if (userAccounts.length > 0) {
                 let targetAccount = null;
