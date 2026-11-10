@@ -19,7 +19,7 @@
     "daysLabel": "Todos los días",
     "enabled": true,
     "createdAt": "2026-10-29T22:36:09.101Z",
-    "lastSentAt": "2026-11-06T15:00:00.180Z"
+    "lastSentAt": "2026-11-09T15:00:00.199Z"
   },
   {
     "id": "rem_1793323443491_2kcr2",
@@ -42,7 +42,7 @@
     "daysLabel": "Todos los días",
     "enabled": true,
     "createdAt": "2026-10-30T01:24:03.491Z",
-    "lastSentAt": "2026-11-06T23:00:00.160Z",
+    "lastSentAt": "2026-11-09T23:00:00.283Z",
     "updatedAt": "2026-10-30T01:24:39.553Z"
   },
   {
@@ -66,7 +66,7 @@
     "daysLabel": "Todos los días",
     "enabled": true,
     "createdAt": "2026-10-30T01:31:17.611Z",
-    "lastSentAt": "2026-11-06T22:00:00.211Z",
+    "lastSentAt": "2026-11-09T22:00:08.436Z",
     "updatedAt": "2026-10-30T23:15:57.550Z"
   },
   {
@@ -90,6 +90,6 @@
     "daysLabel": "Todos los días",
     "enabled": true,
     "createdAt": "2026-10-30T17:35:17.440Z",
-    "lastSentAt": "2026-11-06T16:00:00.150Z"
+    "lastSentAt": "2026-11-09T16:00:00.260Z"
   }
 ]

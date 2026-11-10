@@ -628,6 +628,39 @@ async function getTodayAutoCobrosTime() {
   };
 }
 
+/**
+ * Determina si el mensaje o contexto entrante corresponde a un comprobante o intención de pago
+ * que debe eximirse del envío de la plantilla offline para dar prioridad al OCR o procesamiento de pago.
+ * @param {string|object} messageOrText - Mensaje entrante, texto o batch context
+ * @param {boolean} hasMedia - Indica si el mensaje incluye adjuntos multimedia
+ * @returns {boolean}
+ */
+function shouldSuppressOfflineForPayment(messageOrText, hasMedia = false) {
+  if (hasMedia) return true;
+  if (!messageOrText) return false;
+
+  let text = '';
+  if (typeof messageOrText === 'string') {
+    text = messageOrText;
+  } else if (typeof messageOrText === 'object') {
+    if (messageOrText.hasMedia || messageOrText.hasPaymentReceipt) return true;
+    text = messageOrText.body || messageOrText.text || messageOrText.caption || '';
+  }
+
+  const cleanText = text.trim().toLowerCase();
+  if (!cleanText) return false;
+
+  const paymentCourtesyPatterns = [
+    /^(gracias|muchas gracias|mil gracias|listo gracias|ok gracias|vale gracias|grx|grax)[\s!.]*$/i,
+    /(ya\s*(te\s*)?(pagu[eé]|hice el pago|hice la transferencia|transfer[ií]|cancel[eé]|envi[eé]))/i,
+    /(adjunto|comparto|envio|envío|mando|va|aqu[ií]\s*est[aá]|te\s*dejo)\s*(el\s*)?(pago|comprobante|soporte|recibo|transferencia)/i,
+    /\b(comprobante|soporte|recibo|voucher)\b/i,
+    /\b(nequi|daviplata|bancolombia|transfiya|pse|bre-b|bre-v)\b/i
+  ];
+
+  return paymentCourtesyPatterns.some(pattern => pattern.test(cleanText));
+}
+
 module.exports = {
   getSupportScheduleConfig,
   saveSupportScheduleConfig,
@@ -639,5 +672,6 @@ module.exports = {
   getDynamicSupportSchedule,
   getTodayAutoCobrosTime,
   getNowInBogota,
-  formatTime12h
+  formatTime12h,
+  shouldSuppressOfflineForPayment
 };

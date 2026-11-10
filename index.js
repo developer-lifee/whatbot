@@ -16541,6 +16541,16 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             const currentSt = userStates.get(userId) || {};
             const count = currentSt.waitingCount || 0;
 
+            // Prioridad a comprobantes de pago multimedia o mensajes de pago adjuntos
+            if (message.hasMedia || (currentSt && (currentSt.hasPaymentReceipt || currentSt.awaitingPayment))) {
+                const { handleIncomingPaymentReceipt } = require('./billingService');
+                if (typeof handleIncomingPaymentReceipt === 'function') {
+                    console.log(`[Waiting Human Priority] Detectado pago multimedia o comprobante para @${userId}. Derivando a OCR.`);
+                    await handleIncomingPaymentReceipt(message, userId, userStates, client, GROUP_ID);
+                    break;
+                }
+            }
+
             // Filtro para detectar mensajes casuales, citas/versículos, agradecimientos o cierres
             const msgText = (message.body || "").toLowerCase().trim();
             const isCasualOrClosing = [
