@@ -9685,6 +9685,46 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
     }
 });
 
+/**
+ * Guarda registro de auditoría de cada solicitud 2FA (Web o WhatsApp) en la base de datos
+ */
+async function recordClient2FaLog({ phone, clientName = '', platform = '', accountEmail = '', requestSource = 'web', status = 'unknown', codeOrLink = null, message = '' }) {
+    try {
+        const { pool } = require('./database');
+        await pool.query(
+            `INSERT INTO client_2fa_logs (phone, client_name, platform, account_email, request_source, status, code_or_link, message) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                phone || '',
+                clientName || '',
+                (platform || '').toUpperCase(),
+                accountEmail || '',
+                requestSource || 'web',
+                status || 'unknown',
+                codeOrLink || null,
+                (message || '').substring(0, 500)
+            ]
+        );
+    } catch (e) {
+        console.error('[2FA Log Error]:', e.message);
+    }
+}
+
+// GET /api/admin/client-2fa-logs - Historial de solicitudes de códigos en vivo para monitoreo
+app.get('/api/admin/client-2fa-logs', async (req, res) => {
+    try {
+        const { pool } = require('./database');
+        const limit = Math.min(parseInt(req.query.limit) || 100, 300);
+        const [rows] = await pool.query(
+            `SELECT * FROM client_2fa_logs ORDER BY id DESC LIMIT ?`,
+            [limit]
+        );
+        res.json({ success: true, logs: rows });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // POST Request 2FA Code from Website
 app.post('/api/client/request-2fa', express.json(), async (req, res) => {
     try {
@@ -9780,6 +9820,15 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
         const autoStatus = await checkAccountAutomationStatus(targetAccount.correo, targetAccount.Streaming);
         if (!autoStatus.isAutomated) {
             console.log(`[2FA Request REJECTED - Unautomated Account]: ${targetAccount.correo} (${targetAccount.Streaming})`);
+            await recordClient2FaLog({
+                phone: cleanPhone,
+                clientName: targetAccount.Nombre || '',
+                platform: targetAccount.Streaming || '',
+                accountEmail: targetAccount.correo || '',
+                requestSource: 'web',
+                status: 'unautomated',
+                message: 'Cuenta no automatizada (atención manual por WhatsApp)'
+            });
             return res.status(200).json({
                 success: false,
                 unautomated: true,
@@ -9813,6 +9862,15 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
         const extractionResult = await processAccountVerificationCode(mockMessage, userJid, targetAccount, isDemo ? ADMIN_DEMO_RECIPIENT_PHONE : cleanPhone, client, userStates);
 
         if (extractionResult && extractionResult.limitReached) {
+            await recordClient2FaLog({
+                phone: cleanPhone,
+                clientName: targetAccount.Nombre || '',
+                platform: targetAccount.Streaming || '',
+                accountEmail: targetAccount.correo || '',
+                requestSource: 'web',
+                status: 'limit_reached',
+                message: `Límite de 3 dispositivos alcanzado (${extractionResult.devicesUsed ?? 3}/3)`
+            });
             return res.status(429).json({
                 success: false,
                 limitReached: true,
@@ -9824,6 +9882,15 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
         }
 
         if (extractionResult && extractionResult.manualRequired) {
+            await recordClient2FaLog({
+                phone: cleanPhone,
+                clientName: targetAccount.Nombre || '',
+                platform: targetAccount.Streaming || '',
+                accountEmail: targetAccount.correo || '',
+                requestSource: 'web',
+                status: 'manual_required',
+                message: extractionResult.message || "Requiere verificación manual de asesor"
+            });
             return res.json({
                 success: true,
                 manualRequired: true,
@@ -9833,6 +9900,16 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
         }
 
         if (extractionResult && (extractionResult.code || extractionResult.link)) {
+            await recordClient2FaLog({
+                phone: cleanPhone,
+                clientName: targetAccount.Nombre || '',
+                platform: targetAccount.Streaming || '',
+                accountEmail: targetAccount.correo || '',
+                requestSource: 'web',
+                status: 'success',
+                codeOrLink: extractionResult.code || extractionResult.link || '',
+                message: extractionResult.code ? `Código encontrado: ${extractionResult.code}` : 'Enlace de acceso listo'
+            });
             return res.json({
                 success: true,
                 message: extractionResult.code ? `Código encontrado: ${extractionResult.code}` : (extractionResult.link ? 'Enlace de acceso listo' : 'Código o enlace extraído con éxito'),
@@ -9846,6 +9923,16 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
                 maxDevices: extractionResult.maxDevices || 3
             });
         }
+
+        await recordClient2FaLog({
+            phone: cleanPhone,
+            clientName: targetAccount.Nombre || '',
+            platform: targetAccount.Streaming || '',
+            accountEmail: targetAccount.correo || '',
+            requestSource: 'web',
+            status: 'not_found',
+            message: extractionResult?.message || 'No se encontraron códigos recientes en el buzón (cliente aún no presionó enviar código en su app)'
+        });
 
         res.json({
             success: extractionResult?.success || false,
