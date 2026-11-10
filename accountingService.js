@@ -247,7 +247,7 @@ async function recordAccountRenewal(data) {
     notes = '',
     registered_by = 'Asesor',
     sync_to_cash_flow = true,
-    sync_to_excel = false
+    sync_to_excel = true
   } = data;
 
   if (!platform || !account_email || !renewal_date || !expiration_date) {
@@ -319,7 +319,18 @@ async function recordAccountRenewal(data) {
     try {
       const { fetchCustomersData, writeRowToGraphDirect } = require('./apiService');
       const allCustomers = await fetchCustomersData();
-      const matching = allCustomers.filter(c => (c.correo || '').trim().toLowerCase() === cleanEmail.toLowerCase());
+      const targetPlatKey = normalizePlatformKey(cleanPlat);
+      const targetEmailNorm = cleanEmail.toLowerCase();
+
+      const matching = allCustomers.filter(c => {
+        const rowEmail = (c.correo || '').trim().toLowerCase();
+        if (rowEmail !== targetEmailNorm) return false;
+        if (cleanPlat) {
+          const rowPlatKey = normalizePlatformKey(c.Streaming || '');
+          return rowPlatKey === targetPlatKey;
+        }
+        return true;
+      });
       
       const combinedPaymentMethod = provider 
         ? `${provider.trim()} - ${payment_method ? payment_method.trim() : ''}`.trim()

@@ -4857,6 +4857,9 @@ app.post('/api/admin/accounting/renewals/save', async (req, res) => {
     try {
         const { renewalData, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (renewalData && renewalData.sync_to_excel === undefined) {
+            renewalData.sync_to_excel = true;
+        }
         const result = await accountingService.recordAccountRenewal(renewalData);
         res.json(result);
     } catch (e) {
