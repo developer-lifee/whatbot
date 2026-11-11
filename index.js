@@ -9570,6 +9570,15 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
             }
         }
 
+        recordClient2FaLog({
+            phone: cleanPhone,
+            platform: 'PORTAL',
+            accountEmail: '',
+            requestSource: 'web',
+            status: 'otp_verified',
+            message: `Cliente inició sesión en el portal de cuentas (${formattedAccounts.length} servicio(s) consultado(s))`
+        });
+
         res.json({
             success: true,
             message: 'Verificación exitosa',
@@ -9676,6 +9685,15 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
                 console.warn('[auto-session] Error buscando compras recientes en BD:', dbSalesErr.message);
             }
         }
+
+        recordClient2FaLog({
+            phone: cleanPhone,
+            platform: 'PORTAL',
+            accountEmail: '',
+            requestSource: 'web',
+            status: 'portal_access',
+            message: `Cliente ingresó al portal tras completar compra (${formattedAccounts.length} servicio(s) entregado(s))`
+        });
 
         res.json({
             success: true,
