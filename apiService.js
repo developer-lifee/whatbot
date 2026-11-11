@@ -1106,6 +1106,7 @@ module.exports = {
   fetchHistoricoData,
   procesarHistoricoArray,
   updateExcelData,
+  writeRowToGraphDirect,
   syncPendingExcelUpdates,
   getSupportKnowledge,
   getTodayInBogota,

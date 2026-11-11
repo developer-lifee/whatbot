@@ -317,16 +317,16 @@ async function recordAccountRenewal(data) {
   let excelUpdatedRows = 0;
   if (sync_to_excel) {
     try {
-      const { fetchCustomersData, writeRowToGraphDirect } = require('./apiService');
-      const allCustomers = await fetchCustomersData();
-      const targetPlatKey = normalizePlatformKey(cleanPlat);
+      const { fetchCustomersData, updateExcelData, writeRowToGraphDirect } = require('./apiService');
+      const allCustomers = await fetchCustomersData(true);
+      const targetPlatKey = typeof normalizePlatformKey === 'function' ? normalizePlatformKey(cleanPlat) : cleanPlat.toLowerCase();
       const targetEmailNorm = cleanEmail.toLowerCase();
 
       const matching = allCustomers.filter(c => {
-        const rowEmail = (c.correo || '').trim().toLowerCase();
+        const rowEmail = (c.correo || c.Correo || '').trim().toLowerCase();
         if (rowEmail !== targetEmailNorm) return false;
         if (cleanPlat) {
-          const rowPlatKey = normalizePlatformKey(c.Streaming || '');
+          const rowPlatKey = typeof normalizePlatformKey === 'function' ? normalizePlatformKey(c.Streaming || '') : (c.Streaming || '').toLowerCase();
           return rowPlatKey === targetPlatKey;
         }
         return true;
@@ -337,17 +337,19 @@ async function recordAccountRenewal(data) {
         : (payment_method ? payment_method.trim() : '');
 
       for (const row of matching) {
-        if (row.rowNumber) {
+        const targetRow = row.rowNumber || row._rowNumber;
+        if (targetRow) {
           const updates = {
             vencimiento: expiration_date
           };
           if (combinedPaymentMethod) {
             updates["Metodo de pago"] = combinedPaymentMethod;
           }
-          await writeRowToGraphDirect(row.rowNumber, updates);
+          await updateExcelData(targetRow, updates);
           excelUpdatedRows++;
         }
       }
+      console.log(`[Account Renewal] ✅ Sincronizados ${excelUpdatedRows} filas en Excel para ${cleanEmail} con nuevo vencimiento: ${expiration_date}`);
     } catch (err) {
       console.error('[Account Renewal] Error sincronizando a Excel Online:', err.message);
     }
