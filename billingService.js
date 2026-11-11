@@ -1814,6 +1814,10 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
 
         // LÓGICA DE SUSPENSIÓN (CORTAR)
         let wasSuspendedNow = false;
+        const isAlreadyHandled = [
+            'cortado', 'cancelado', 'no renovo', 'no renovó', 'retirado', 'baja', 'casilla virgen', 'libre'
+        ].some(keyword => observacion.toLowerCase().includes(keyword));
+
         const isPaymentPromise = [
             'paga el', 'pagara el', 'pagará el', 'cancela el', 'cancelará el',
             'esperar', 'acuerdo', 'promesa', 'convenio', 'hasta el', 'hablar con',
@@ -1821,7 +1825,7 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
             'quincena', 'fin de mes'
         ].some(keyword => observacion.toLowerCase().includes(keyword)) || /\b(30|31|01|02|03|04|05|15)\b/.test(observacion);
 
-        if (diffDays >= 3 && !observacion.toLowerCase().includes('cortar') && !isPaymentPromise) {
+        if (diffDays >= 3 && diffDays <= 15 && !observacion.toLowerCase().includes('cortar') && !isAlreadyHandled && !isPaymentPromise) {
             observacion = observacion ? observacion + " - cortar" : "cortar";
             if (account.rowNumber) {
                 updateExcelData(account.rowNumber, { "observaciones": observacion })
@@ -1883,7 +1887,8 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
       }
 
       const lowerObs = r.observacion ? r.observacion.toLowerCase() : '';
-      const hasCorte = lowerObs.includes('cortar') || lowerObs.includes('corte');
+      const isAlreadyResolvedObs = ['cortado', 'cancelado', 'no renovo', 'no renovó', 'retirado', 'baja', 'casilla virgen', 'libre'].some(k => lowerObs.includes(k));
+      const hasCorte = !isAlreadyResolvedObs && (lowerObs.includes('cortar') || lowerObs.includes('corte'));
       
       if (r.observacion && hasCorte) {
          // Va a revisión manual, SÓLO este servicio específico
@@ -1943,7 +1948,54 @@ async function handleAutoCobros(message, userId, userStates, pendingConfirmation
         try {
             const { pool } = require('./database');
             for (const r of allCutoffClients) {
-                const destId = r.phone + '@c.us';
+                const cleanP = String(r.phone || '').replace(/\D/g, '');
+                const last10 = cleanP.slice(-10);
+                const destId = (cleanP.length === 10 ? '57' + cleanP : cleanP) + '@c.us';
+
+                // 1. Verificar si ya fue resuelto previamente en resolved_tickets_log o userStates
+                let wasRecentlyResolved = false;
+                try {
+                    const [resolvedRows] = await pool.query(
+                        `SELECT id, resolvedAt FROM resolved_tickets_log 
+                         WHERE (phone = ? OR phone LIKE ?) 
+                         ORDER BY resolvedAt DESC LIMIT 1`,
+                        [cleanP, `%${last10}%`]
+                    );
+                    if (resolvedRows && resolvedRows.length > 0 && resolvedRows[0].resolvedAt) {
+                        const resTime = new Date(resolvedRows[0].resolvedAt).getTime();
+                        // Verificar si el cliente ha enviado algún mensaje entrante DESPUÉS de la resolución
+                        const [msgsAfter] = await pool.query(
+                            `SELECT id FROM messages 
+                             WHERE (chat_id = ? OR chat_id LIKE ?) 
+                               AND is_from_me = 0 
+                               AND timestamp > ? 
+                             LIMIT 1`,
+                            [destId, `%${last10}%`, Math.floor(resTime / 1000)]
+                        );
+                        if (!msgsAfter || msgsAfter.length === 0) {
+                            wasRecentlyResolved = true;
+                        }
+                    }
+                } catch (chkErr) {
+                    console.warn('[Auto-Billing] Advertencia verificando resolved_tickets_log:', chkErr.message);
+                }
+
+                // 2. Verificar en userStates si ya está marcado como resolved y el cliente no ha vuelto a escribir
+                if (userStates) {
+                    const st = userStates.get(destId) || userStates.get(last10 + '@c.us') || {};
+                    if (st.state === 'resolved' && st.resolvedAt) {
+                        const lastMsg = st.lastMessageTime || 0;
+                        if (lastMsg <= st.resolvedAt) {
+                            wasRecentlyResolved = true;
+                        }
+                    }
+                }
+
+                if (wasRecentlyResolved) {
+                    console.log(`[Auto-Billing] Omitiendo re-creación de ticket de corte para ${r.name} (${cleanP}) — Ya resuelto previamente por asesor y sin mensajes nuevos del cliente.`);
+                    continue;
+                }
+
                 await pool.query(
                     'INSERT IGNORE INTO chats (chat_id, customer_phone, last_message_text, last_message_time) VALUES (?, ?, ?, NOW())',
                     [destId, r.phone, `Corte de Servicio: ${r.name}`]

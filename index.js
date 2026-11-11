@@ -2754,12 +2754,13 @@ app.get('/api/admin/tickets', async (req, res) => {
 
             for (const row of excelRows) {
                 const obs = String(row.observaciones || row.Observaciones || '').toLowerCase();
-                const isExplicitCut = obs.includes('cortar') || obs.includes('corte');
+                const isAlreadyHandledObs = ['cortado', 'cancelado', 'no renovo', 'no renovó', 'retirado', 'baja', 'casilla virgen', 'libre'].some(k => obs.includes(k));
+                const isExplicitCut = !isAlreadyHandledObs && (obs.includes('cortar') || obs.includes('corte'));
 
-                // Verificar si tiene >= 3 días de mora en columna 'deben' / 'vencimiento' sin promesa de pago
+                // Verificar si tiene >= 3 días y <= 15 días de mora en columna 'deben' / 'vencimiento' sin promesa de pago
                 let isOverdueCut = false;
                 const clientDueDate = row.deben || row.Deben || row.Columna4 || row.vencimiento;
-                if (clientDueDate && getJsDateFromExcel) {
+                if (clientDueDate && getJsDateFromExcel && !isAlreadyHandledObs) {
                     const jsDate = getJsDateFromExcel(clientDueDate);
                     if (jsDate && !isNaN(jsDate.getTime())) {
                         const diffDays = Math.floor((todayBogota.getTime() - jsDate.getTime()) / (1000 * 3600 * 24));
@@ -2770,7 +2771,7 @@ app.get('/api/admin/tickets', async (req, res) => {
                             'quincena', 'fin de mes'
                         ].some(keyword => obs.includes(keyword)) || /\b(30|31|01|02|03|04|05|15)\b/.test(obs);
 
-                        if (diffDays >= 3 && !isPaymentPromise) {
+                        if (diffDays >= 3 && diffDays <= 15 && !isPaymentPromise) {
                             isOverdueCut = true;
                         }
                     }
@@ -2780,16 +2781,19 @@ app.get('/api/admin/tickets', async (req, res) => {
                     const rawPhone = String(row.numero || row.Numero || row.telefono || row.Telefono || row.celular || '').replace(/\D/g, '');
                     if (rawPhone.length >= 10) {
                         const cleanP = rawPhone.length === 10 ? '57' + rawPhone : rawPhone;
+                        const last10 = cleanP.slice(-10);
                         const destId = `${cleanP}@c.us`;
 
-                        const curState = userStates.get(destId);
+                        const curState = userStates.get(destId) || userStates.get(last10 + '@c.us') || {};
                         const curStateStr = curState ? (typeof curState === 'object' ? curState.state : curState) : null;
 
-                        // Si ya está resuelto recientemente (últimas 24h), no reabrir en bucle
+                        // Si ya está resuelto y el cliente NO ha enviado mensajes entrantes posteriores, NO reabrir
                         const resolvedAt = (curState && typeof curState === 'object') ? curState.resolvedAt : null;
-                        const isRecentlyResolved = curStateStr === 'resolved' && resolvedAt && (Date.now() - resolvedAt < 24 * 3600 * 1000);
+                        const lastMsgTime = (curState && (curState.lastMessageTime || curState.lastHumanInteraction)) || 0;
+                        const hasNewCustomerMsg = lastMsgTime && resolvedAt && (lastMsgTime > resolvedAt);
+                        const isResolved = curStateStr === 'resolved' && !hasNewCustomerMsg;
 
-                        if (!isRecentlyResolved) {
+                        if (!isResolved) {
                             const serviceName = row.Streaming || row.streaming || 'Servicio';
                             const clientName = row.Nombre || row.nombre || 'Cliente';
                             const st = (typeof curState === 'object' ? curState : {}) || {};
@@ -3644,6 +3648,35 @@ app.post('/api/admin/tickets/resolve', async (req, res) => {
                     resolvedAt: Date.now(),
                     botMuted: false
                 });
+            }
+        }
+
+        // Si el ticket resuelto corresponde a un corte o el cliente tiene filas con 'cortar' en Excel,
+        // actualizar la observación a 'cortado (agente fecha)' para evitar re-aperturas automáticas futuras
+        if (category === 'Corte / Churn' || (stateData.advisorReason && stateData.advisorReason.includes('Corte'))) {
+            try {
+                const { fetchRawData, updateExcelData, getTodayInBogota } = require('./apiService');
+                const allRows = await fetchRawData().catch(() => []);
+                const todayB = getTodayInBogota ? getTodayInBogota() : new Date();
+                const dStr = todayB.toLocaleDateString('es-CO');
+
+                const clientRowsToUpdate = allRows.filter(r => {
+                    const rP = String(r.numero || r.Numero || r.whatsapp || '').replace(/\D/g, '');
+                    const obs = String(r.observaciones || '').toLowerCase();
+                    return last10 && rP.includes(last10) && (obs.includes('cortar') || obs.includes('corte')) && !obs.includes('cortado');
+                });
+
+                for (const cr of clientRowsToUpdate) {
+                    const rowNum = cr.rowNumber || cr._rowNumber;
+                    if (rowNum) {
+                        const newObs = `cortado (${agentName} ${dStr})`;
+                        updateExcelData(rowNum, { "observaciones": newObs })
+                            .then(() => console.log(`[Tickets Resolve] Fila ${rowNum} (${cleanPhone}) actualizada en Excel a: "${newObs}"`))
+                            .catch(err => console.error(`[Tickets Resolve] Error actualizando fila ${rowNum} en Excel:`, err.message));
+                    }
+                }
+            } catch (cutSyncErr) {
+                console.warn('[Tickets Resolve] Error sincronizando corte en Excel:', cutSyncErr.message);
             }
         }
 
