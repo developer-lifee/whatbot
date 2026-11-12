@@ -1,6 +1,7 @@
 const schedule = require('node-schedule');
 const { handleAutoCobros } = require('./billingService');
 const { getUpcomingExpirationsReport, notifyProviderExpiringAccounts } = require('./adminService');
+const { shortenUrl } = require('./urlShortenerService');
 
 let automationInitialized = false;
 let cobrosJob = null;
@@ -129,7 +130,8 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
 
                     let message = `📧 *CÓDIGO DETECTADO EN GMAIL*\n\n*Asunto:* ${c.subject}\n*Código:* ${c.code || (c.link ? 'No requerido (Acceso por Enlace)' : 'No detectado en snippet')}`;
                     if (c.link) {
-                        message += `\n*Enlace de acceso:* ${c.link}`;
+                        const shortLink = await shortenUrl(c.link);
+                        message += `\n*Enlace de acceso:* ${shortLink}`;
                     }
                     message += `\n*Detalle:* ${c.snippet}...\n*Recibido hace:* ${c.time} min`;
                     await chat.sendMessage(message);

@@ -11356,6 +11356,21 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
     }
 }
 
+// Endpoint de redirección pública HTTP 302 para enlaces acortados
+app.get('/l/:code', (req, res) => {
+    try {
+        const { getTargetUrl } = require('./urlShortenerService');
+        const target = getTargetUrl(req.params.code);
+        if (target) {
+            return res.redirect(302, target);
+        }
+        return res.status(404).send('Enlace no encontrado o expirado');
+    } catch (err) {
+        console.error('[urlShortener] Error en redirección:', err.message);
+        return res.status(500).send('Error interno del servidor');
+    }
+});
+
 
 /**
  * Determina si hay algún mensaje reciente enviado por un humano (asesor) en las últimas 6 horas.
