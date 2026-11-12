@@ -8568,6 +8568,9 @@ Nunca analices el "Mensaje actual" de forma aislada. Debes deducir estrictamente
    - Si han pasado más de 2 horas (compara la hora actual del sistema vs la del historial) desde el último mensaje del "Asistente" humano, NO devuelvas "waiting_human" a menos que el usuario esté respondiendo a una pregunta muy específica que aún tenga sentido. 
    - Si el "Mensaje actual" es una queja técnica clara (intent: "soporte" o "credenciales") y han pasado más de 30 minutos desde la última intervención humana, el bot DEBE retomar la ayuda si tiene la respuesta técnica. No dejes al cliente esperando si el humano ya no está activamente en el chat.
    - Si el mensaje del humano fue solo un "gracias", "listo" o un cierre, no bloquees el bot para futuras dudas del usuario.
+6. **COHERENCIA CONTEXTUAL Y SENTIDO COMÚN (MÁXIMA COHERENCIA):**
+   - El bot debe responder con sentido estricto al contexto de la conversación. No inventes intenciones ni mezcles temas de compras, pagos o soporte si el cliente solo hace una consulta puntual o da continuidad lógica a un mensaje previo.
+   - Si el mensaje del cliente es ambiguo o no encaja en flujos comerciales/técnicos, clasifícalo como "duda_contexto" o "soporte" con explanation clara y sin forzar transiciones de estado erróneas.
 
 Salida esperada JSON:
 {
