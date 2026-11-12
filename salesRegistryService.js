@@ -392,6 +392,18 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
         // Obtener todos los datos crudos para buscar cupos o validar nombres reales en filas de Excel
         const allRows = await fetchRawData();
 
+        // VALIDACIÓN DE SEGURIDAD / DISCREPANCIA:
+        // Si el cliente tiene cuentas activas y el pago coincide exactamente con un plan individual distinto,
+        // o si se detecta ambigüedad en los ítems a procesar, transferir a validación manual.
+        if (userState.ambiguousPayment || userState.requiresManualValidation) {
+            console.warn(`[Sales Registry] ⚠️ Discrepancia o ambigüedad detectada para ${phone}. Requiere validación manual.`);
+            return [{
+                name: items.map(i => i.Streaming || (i.platform ? i.platform.name : '') || i.name).filter(Boolean).join(', ') || 'Plan no especificado',
+                status: 'manual_validation_required',
+                reason: userState.ambiguityReason || 'Discrepancia entre cuenta registrada y monto pagado'
+            }];
+        }
+
         const expandedItems = [];
         for (const item of items) {
             let pName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
