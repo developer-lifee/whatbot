@@ -427,11 +427,11 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
         let prompt = '';
         const effectiveImgPath = imagePath || (previousTicket && previousTicket.imagePath) || null;
         const speedRule = `
-⚡ REGLA CRÍTICA DE BÚSQUEDA EXACTA Y PRESUPUESTO DE HERRAMIENTAS (OBLIGATORIO):
+⚡ REGLA CRÍTICA DE BÚSQUEDA Y RAZONAMIENTO EN CÓDIGO (OBLIGATORIO):
 1. Haz PRIMERO una búsqueda exacta:
    - En código: usa \`grep -n -F "frase_exacta_del_bot" /root/whatbot/index.js /root/whatbot/billingService.js /root/whatbot/totpService.js /root/whatbot/aiService.js\` y luego \`read_file\` solo en ese rango de líneas.
    - En logs de PM2 (si necesitas ver qué pasó con el cliente en tiempo real): haz SIEMPRE búsqueda exacta en el tramo reciente con \`tail -n 30000 /root/.pm2/logs/whatbot-out.log | grep -a -i -C 6 "telefono_o_nombre_o_frase"\` (tarda 0.05s). PROHIBIDO usar \`read_file\` o \`sed\` directo sobre los 4 millones de líneas completas de whatbot-out.log sin \`tail\`.
-2. Tienes un presupuesto máximo de 6 llamadas a herramientas y debes terminar en menos de 50 segundos. En cuanto tengas la causa raíz exacta y las líneas de código, DETENTE y devuelve inmediatamente el JSON.`;
+2. Tómate el tiempo de razonamiento necesario para rastrear la lógica profunda y las líneas exactas del código fuente. En cuanto tengas la causa raíz real y las líneas de código, devuelve inmediatamente el JSON estructurado solicitado.`;
 
         if (userAdjustment && previousTicket) {
             const imgInstruction = effectiveImgPath && fs.existsSync(path.resolve(__dirname, effectiveImgPath))
@@ -529,7 +529,7 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
 
         try {
             console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
-            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Haz primero búsqueda exacta (grep -n en .js y tail -n 30000 + grep en logs), usa máximo 6 llamadas a herramientas y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
+            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Haz primero búsqueda exacta (grep -n en .js y tail -n 30000 + grep en logs), razona a fondo la causa raíz real y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
             const parsed = extractJsonFromAgyOutput(rawOutput);
             if (parsed && (parsed.causaRaiz || parsed.planCodigo || parsed.summary || parsed.platform)) {
                 console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de Antigravity CLI:', JSON.stringify({ platform: parsed.platform, clientName: parsed.clientName, summary: parsed.summary }));
@@ -542,7 +542,7 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
         return buildEngineErrorResponse();
     };
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(buildEngineErrorResponse('⏱️ Timeout global alcanzado (210s): lectura desbordada de archivos/logs sin cerrar respuesta JSON')), 210000));
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(buildEngineErrorResponse('⏱️ Timeout global alcanzado (260s): lectura desbordada de archivos/logs sin cerrar respuesta JSON')), 260000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {
@@ -1287,6 +1287,11 @@ async function handleAdvisorErrorReport(message, client, userStates) {
 
         // 8. Generar Plan de Solución CLI y Commit Detallado con Antigravity CLI (agy)
         const ticketId = `ERR-${Date.now().toString().slice(-6)}`;
+        try {
+            if (message && typeof message.react === 'function') {
+                await message.react('🔍').catch(() => {});
+            }
+        } catch (e) {}
         const cliSolution = await generateCliPlanAndCommit(extractedInfo, diagnosticNotes, null, null, fullImageDiskPath || imageDiskPath, effectiveText, recentChatContext);
 
         if (cliSolution.platform && cliSolution.platform.toUpperCase() !== 'WHATSAPP') {
