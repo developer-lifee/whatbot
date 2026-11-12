@@ -89,9 +89,57 @@ function loadAdminDocs(query = '') {
 }
 
 /**
+ * Consult real-time account renewals from MariaDB.
+ */
+async function getRenewalsContext(query = '') {
+    try {
+        const { pool } = require('./database');
+        if (!pool) return 'No hay conexión a la base de datos de renovaciones.';
+
+        const emailMatch = (query || '').match(/[\w.-]+@[\w.-]+\.\w+/);
+        let rows = [];
+
+        if (emailMatch) {
+            const targetEmail = emailMatch[0];
+            const [matched] = await pool.query(
+                `SELECT platform, account_email, provider, payment_method, amount_paid, renewal_date, expiration_date, duration_days, profile_slots, registered_by, created_at 
+                 FROM account_renewals 
+                 WHERE account_email LIKE ? OR notes LIKE ? 
+                 ORDER BY id DESC LIMIT 10`,
+                [`%${targetEmail}%`, `%${targetEmail}%`]
+            );
+            rows = matched;
+        }
+
+        if (rows.length === 0) {
+            const [recent] = await pool.query(
+                `SELECT platform, account_email, provider, payment_method, amount_paid, renewal_date, expiration_date, duration_days, profile_slots, registered_by, created_at 
+                 FROM account_renewals 
+                 ORDER BY id DESC LIMIT 30`
+            );
+            rows = recent;
+        }
+
+        if (!rows || rows.length === 0) {
+            return 'No se registran renovaciones de cuentas recientes en la base de datos.';
+        }
+
+        return rows.map(r => {
+            const dateStr = r.created_at ? new Date(r.created_at).toLocaleString('es-CO', { timeZone: 'America/Bogota' }) : (r.renewal_date || 'N/A');
+            const expStr = r.expiration_date ? new Date(r.expiration_date).toLocaleDateString('es-CO') : 'N/A';
+            const price = Number(r.amount_paid || 0).toLocaleString('es-CO');
+            return `- Cuenta: ${r.account_email} | Plataforma: ${r.platform} | Renovado por (Asesor): ${r.registered_by || 'Admin'} | Fecha y Hora de registro: ${dateStr} | Proveedor: ${r.provider || 'N/A'} | Método: ${r.payment_method || 'N/A'} | Monto Pagado: $${price} COP | Nuevo Vencimiento: ${expStr} | Cupos: ${r.profile_slots || 1}`;
+        }).join('\n');
+    } catch (e) {
+        console.warn('[Admin Assistant] Error consultando renovaciones:', e.message);
+        return 'No se pudo obtener el historial de renovaciones de MariaDB.';
+    }
+}
+
+/**
  * Gathers all real-time dynamic context for the Admin AI Assistant.
  */
-function getLiveAdminContext({ query = '', agentName = '', agentEmail = '' } = {}) {
+async function getLiveAdminContext({ query = '', agentName = '', agentEmail = '' } = {}) {
     // 1. Audit Logs
     const recentAudit = formatAuditLogsForPrompt(30);
 
@@ -110,7 +158,10 @@ function getLiveAdminContext({ query = '', agentName = '', agentEmail = '' } = {
         `- ID ${id}: Disponible = ${cfg.isAvailable}, Motivo = "${cfg.reason || 'N/A'}", Incidente = "${cfg.incident || 'Ninguno'}"`
     ).join('\n') || 'Todas las plataformas operando con stock normal.';
 
-    // 4. Admin Knowledge docs & Semantic RAG Chunks
+    // 4. Renovaciones de Cuentas Maestras
+    const renewalsSummary = await getRenewalsContext(query);
+
+    // 5. Admin Knowledge docs & Semantic RAG Chunks
     const ragKnowledge = formatChunksForPrompt(query, 4);
     const standardDocs = loadAdminDocs(query).map(d => `[${d.category}] ${d.text}`).join('\n\n');
     const adminDocs = [standardDocs, ragKnowledge].filter(Boolean).join('\n\n---\n\n');
@@ -119,6 +170,7 @@ function getLiveAdminContext({ query = '', agentName = '', agentEmail = '' } = {
         recentAudit,
         twoFaSummary,
         stockOverrides,
+        renewalsSummary,
         adminDocs
     };
 }
@@ -133,7 +185,7 @@ function getLiveAdminContext({ query = '', agentName = '', agentEmail = '' } = {
  * @param {Array} [param0.history] 
  */
 async function processAdminAssistantQuery({ query, activeTab = 'home', agentName = 'Asesor', agentEmail = '', history = [] }) {
-    const { recentAudit, twoFaSummary, stockOverrides, adminDocs } = getLiveAdminContext({ query, agentName, agentEmail });
+    const { recentAudit, twoFaSummary, stockOverrides, renewalsSummary, adminDocs } = await getLiveAdminContext({ query, agentName, agentEmail });
 
     const systemPrompt = `Eres el Asistente Ejecutivo de Inteligencia Artificial del Panel Administrativo de Sheerit.
 Tu objetivo es responder con precisión milimétrica a las consultas de los administradores y asesores de la plataforma.
@@ -145,6 +197,9 @@ ${adminDocs}
 
 --- 🔍 REGISTRO DE AUDITORÍA RECIENTE (QUIÉN HIZO QUÉ Y CUÁNDO) ---
 ${recentAudit}
+
+--- 💳 HISTORIAL DE RENOVACIONES Y SALIDAS DE CUENTAS (QUIÉN RENOVÓ, PROVEEDOR, MÉTODO, FECHA Y HORA) ---
+${renewalsSummary}
 
 --- 🔑 INVENTARIO DE CUENTAS 2FA / TOTP (CON AUTOR Y FECHA) ---
 ${twoFaSummary}
@@ -161,10 +216,14 @@ REGLAS DE RESPUESTA:
    - Consulta el registro de auditoría o el inventario de 2FA.
    - Responde con el NOMBRE DEL ASESOR, el CORREO, la FECHA y la ACCIÓN exacta.
    - Si no hay un registro explícito en la lista, indícalo con total transparencia.
-2. Si te preguntan por horarios, fechas pasadas (como 15 de julio), o nómina:
+2. Si te preguntan "¿Quién renovó X cuenta?", "¿A qué hora se renovó?", "¿Quién hizo la renovación?", o por compras/renovaciones a proveedores de cuentas:
+   - Consulta el historial de renovaciones de cuentas maestras.
+   - Responde con el NOMBRE DEL ASESOR que registró la renovación (ej: Melissa, Esteban), el CORREO DE LA CUENTA, la FECHA Y HORA EXACTA (en hora de Colombia), la PLATAFORMA, el PROVEEDOR (ej: Net, Directo, etc.), el MÉTODO DE PAGO (ej: Nequi, Bancolombia, Tarjeta) y el MONTO pagado.
+   - Si la cuenta está en el registro, sé categórico, preciso y detallado con la información exacta.
+3. Si te preguntan por horarios, fechas pasadas (como 15 de julio), o nómina:
    - Explica el cálculo con base en la tarifa estándar ($8,333/hr) o de prueba ($5,000/hr) e indica que el sistema histórico incluye contratos finalizados que estuvieron presentes.
-3. Formatea tu respuesta con Markdown enriquecido, emojis elegantes, viñetas claras y negritas.
-4. Siempre sé resolutivo, claro y profesional.`;
+4. Formatea tu respuesta con Markdown enriquecido, emojis elegantes, viñetas claras y negritas.
+5. Siempre sé resolutivo, claro y profesional.`;
 
     try {
         const { callGemini } = require('./aiService');
@@ -189,6 +248,9 @@ REGLAS DE RESPUESTA:
             }
             if (qLower.includes('precio') || qLower.includes('plan') || qLower.includes('tarifa')) {
                 buttons.push({ label: '🏷️ Ir a Precios & Planes', tab: 'pricing' });
+            }
+            if (qLower.includes('renov') || qLower.includes('proveedor') || qLower.includes('salida') || qLower.includes('gasto') || qLower.includes('conta')) {
+                buttons.push({ label: '📊 Ir a Contabilidad & Renovaciones', tab: 'accounting' });
             }
 
             return {
