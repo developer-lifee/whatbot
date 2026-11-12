@@ -10183,12 +10183,18 @@ server.listen(port, () => {
             // Si aún no está en CONNECTED, verificar si WhatsApp está descargando mensajes legítimamente
             if (state !== 'CONNECTED') {
                 let isSyncing = false;
+                if (currentWhatsappStatus === 'AUTHENTICATED' || currentWhatsappStatus === 'SYNCING') {
+                    isSyncing = true;
+                }
                 try {
-                    if (client.pupPage) {
+                    if (!isSyncing && client.pupPage) {
                         isSyncing = await client.pupPage.evaluate(() => {
                             const body = document.body ? document.body.innerText.toLowerCase() : '';
                             return body.includes('descargando') || 
                                    body.includes('sincronizando') || 
+                                   body.includes('cargando') || 
+                                   body.includes('loading') || 
+                                   body.includes('chats') || 
                                    body.includes('no cierres esta ventana') ||
                                    !!document.querySelector('progress') || 
                                    !!document.querySelector('[role="progressbar"]');
@@ -10338,41 +10344,58 @@ client.on('qr', (qr) => {
     broadcastSseEvent('status', { status: currentWhatsappStatus, qr: qr });
 });
 
-// Auto-recargador de código QR si expira en WhatsApp Web (WhatsApp Web detiene la rotación y muestra botón de recargar tras ~30s)
+// Auto-recargador de código QR si expira en WhatsApp Web (WhatsApp Web detiene la rotación y muestra botón de recargar tras ~120s)
 setInterval(async () => {
     try {
-        if (currentWhatsappStatus === 'QR_READY' && client && client.pupPage) {
-            const ageSeconds = Math.floor((Date.now() - latestQrTimestamp) / 1000);
-            if (ageSeconds >= 25) {
-                const refreshed = await client.pupPage.evaluate(() => {
-                    const refreshBtn = document.querySelector('span[data-icon="refresh"]')?.closest('button, [role="button"]') ||
-                                       document.querySelector('button[aria-label*="QR" i], button[aria-label*="qr" i], button[aria-label*="recargar" i]') ||
-                                       Array.from(document.querySelectorAll('button, div[role="button"]')).find(b => {
-                                           const t = (b.innerText || '').toLowerCase();
-                                           return t.includes('recargar') || t.includes('reload') || t.includes('volver a cargar') || t.includes('click to reload');
-                                       }) ||
-                                       document.querySelector('div[data-ref]');
-                    if (refreshBtn) {
-                        refreshBtn.click();
+        // Si el estado ya no es QR_READY (ej: AUTHENTICATED, SYNCING, CONNECTED), no tocar absolutamente nada
+        if (currentWhatsappStatus !== 'QR_READY' || !client || !client.pupPage) return;
+
+        const ageSeconds = Math.floor((Date.now() - latestQrTimestamp) / 1000);
+        // Esperar al menos 90 segundos antes de buscar botón de recarga caducado
+        if (ageSeconds >= 90) {
+            const refreshed = await client.pupPage.evaluate(() => {
+                // Si AuthStore indica que ya está emparejando, conectando o en sesión, ABORTAR
+                if (window.AuthStore && window.AuthStore.AppState) {
+                    const st = window.AuthStore.AppState.state;
+                    if (st === 'PAIRING' || st === 'CONNECTED' || st === 'RESUMING' || st === 'LOGGED_IN') {
+                        return false;
+                    }
+                }
+
+                // Si el contenedor del QR ya no está, significa que se escaneó y está cargando la interfaz
+                const qrContainer = document.querySelector('div[data-ref]');
+                if (!qrContainer) {
+                    return false;
+                }
+
+                // Buscar ÚNICAMENTE el botón explícito de recarga cuando WhatsApp oscurece el QR por inactividad
+                const refreshBtn = qrContainer.querySelector('button, [role="button"]') ||
+                                   document.querySelector('span[data-icon="refresh"]')?.closest('button, [role="button"]') ||
+                                   Array.from(document.querySelectorAll('button, div[role="button"]')).find(b => {
+                                       const t = (b.innerText || '').toLowerCase();
+                                       return t.includes('recargar') || t.includes('reload') || t.includes('volver a cargar') || t.includes('click to reload');
+                                   });
+                if (refreshBtn) {
+                    refreshBtn.click();
+                    return true;
+                }
+
+                if (window.AuthStore && window.AuthStore.AppState && window.AuthStore.AppState.state === 'UNPAIRED_IDLE') {
+                    if (window.Store && window.Store.Cmd && typeof window.Store.Cmd.refreshQR === 'function') {
+                        window.Store.Cmd.refreshQR();
                         return true;
                     }
-                    if (window.AuthStore && window.AuthStore.AppState && window.AuthStore.AppState.state === 'UNPAIRED_IDLE') {
-                        if (window.Store && window.Store.Cmd && typeof window.Store.Cmd.refreshQR === 'function') {
-                            window.Store.Cmd.refreshQR();
-                            return true;
-                        }
-                    }
-                    return false;
-                }).catch(() => false);
-
-                if (refreshed) {
-                    console.log('🔄 [QR AUTO-REFRESH] Código QR caducado detectado en WhatsApp Web. Haciendo clic automático para recargar...');
-                    latestQrTimestamp = Date.now();
                 }
+                return false;
+            }).catch(() => false);
+
+            if (refreshed) {
+                console.log('🔄 [QR AUTO-REFRESH] Código QR caducado detectado en WhatsApp Web. Haciendo clic automático para recargar...');
+                latestQrTimestamp = Date.now();
             }
         }
     } catch (_) {}
-}, 15000);
+}, 30000);
 
 // Código de vinculación (Pairing code)
 client.on('code', (code) => {
@@ -10523,11 +10546,18 @@ client.on('change_state', (state) => {
 });
 
 client.on('loading_screen', (percent, message) => {
-    console.log('CARGANDO PANTALLA', percent, message);
+    console.log(`⏳ [SINCRONIZANDO CHATS] ${percent}% - ${message || ''}`);
+    currentWhatsappStatus = 'SYNCING';
+    latestQrCode = null;
+    broadcastSseEvent('status', { status: currentWhatsappStatus, percent, message });
 });
 
 client.on('authenticated', () => {
-    console.log('AUTENTICADO');
+    console.log('✅ [AUTENTICADO] Sesión validada en WhatsApp Web. Descargando chats e historial...');
+    currentWhatsappStatus = 'AUTHENTICATED';
+    latestQrCode = null;
+    latestPairingCode = null;
+    broadcastSseEvent('status', { status: currentWhatsappStatus });
     // Iniciar verificación activa post-autenticación para no depender del timeout de 30s de WWebJS
     let checks = 0;
     const authReadyCheck = setInterval(async () => {
