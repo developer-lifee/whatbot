@@ -180,14 +180,15 @@ async function fetchDirectFromGraph() {
         try {
             graphRes = await fetch(graphEndpoint, {
                 headers: { Authorization: `Bearer ${accessToken}` },
-                signal: AbortSignal.timeout(15000)
+                signal: AbortSignal.timeout(6500)
             });
             graphJson = await graphRes.json();
             if (graphRes.ok && graphJson.values) break;
+            if ([401, 403, 500, 502, 503].includes(graphRes.status)) break;
         } catch (netErr) {
             console.warn(`[MS Graph Direct] Intento ${attempt} falló con error de red/timeout:`, netErr.message);
         }
-        if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
+        if (attempt < 2) await new Promise(r => setTimeout(r, 800));
     }
 
     if (!graphRes || !graphRes.ok || !graphJson || !graphJson.values) {
@@ -317,7 +318,9 @@ let rawDataCache = null;
 let rawDataCacheTime = 0;
 let historicoCache = null;
 let historicoCacheTime = 0;
+let excelOutageUntil = 0;
 const CACHE_DURATION = 30000; // 30 segundos
+const EXCEL_OUTAGE_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutos de circuit breaker cuando Microsoft está caído
 
 async function fetchRawData(retries = 3, delay = 2000, force = false) {
   if (typeof retries === 'boolean') {
@@ -332,18 +335,30 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
   if (rawDataCache && (now - rawDataCacheTime < CACHE_DURATION)) {
     return rawDataCache;
   }
+
+  const localCachePath = path.join(__dirname, 'excel_cache.json');
+
+  // Circuit breaker: si Microsoft Graph y Azure acaban de fallar, servir excel_cache.json al instante (<5ms)
+  if (!force && now < excelOutageUntil && fs.existsSync(localCachePath)) {
+    try {
+      const cachedData = fs.readFileSync(localCachePath, 'utf8');
+      const data = sanitizeCustomersList(JSON.parse(cachedData));
+      rawDataCache = data;
+      rawDataCacheTime = now;
+      return data;
+    } catch (e) {}
+  }
   
   if (global.activeRawDataPromise) {
     return global.activeRawDataPromise;
   }
-
-  const localCachePath = path.join(__dirname, 'excel_cache.json');
   
   global.activeRawDataPromise = (async () => {
     // 1. Intentar conexión DIRECTA a Microsoft Graph (tiempo real sin depender de Azure)
     try {
       let directData = await fetchDirectFromGraph();
       if (Array.isArray(directData) && directData.length > 0) {
+        excelOutageUntil = 0;
         directData = sanitizeCustomersList(directData);
         try {
           fs.writeFileSync(localCachePath, JSON.stringify(directData, null, 2), 'utf8');
@@ -359,14 +374,17 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
       console.warn('[API Service] Fallo lectura directa MS Graph, intentando Azure API...', graphErr.message);
     }
 
-    // 2. Si falla Graph directo, intentar Azure API con reintentos
-    for (let i = 0; i < retries; i++) {
+    // 2. Si falla Graph directo, intentar Azure API con reintentos acotados
+    const effectiveRetries = Math.min(retries, 2);
+    const effectiveDelay = Math.min(delay, 1000);
+    for (let i = 0; i < effectiveRetries; i++) {
       try {
-        const response = await fetch(AZURE_API_URL);
+        const response = await fetch(AZURE_API_URL, { signal: AbortSignal.timeout(5000) });
         if (!response.ok) throw new Error(`HTTP Error! Status: ${response.status}`);
         
         const json = await response.json();
         const data = sanitizeCustomersList(json.data || []);
+        excelOutageUntil = 0;
         
         try {
           fs.writeFileSync(localCachePath, JSON.stringify(data, null, 2), 'utf8');
@@ -380,9 +398,10 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
         return data;
         
       } catch (error) {
-        if (i === retries - 1) {
-          console.error(`[API Service] Error al obtener datos (Intento final ${i + 1}/${retries}):`, error.message);
-          console.warn('[API Service] La API de Azure no responde. Intentando fallback a excel_cache.json...');
+        if (i === effectiveRetries - 1) {
+          console.error(`[API Service] Error al obtener datos (Intento final ${i + 1}/${effectiveRetries}):`, error.message);
+          console.warn('[API Service] La API de Azure no responde. Activando circuit breaker (2 min) y fallback a excel_cache.json...');
+          excelOutageUntil = Date.now() + EXCEL_OUTAGE_COOLDOWN_MS;
           try {
             if (fs.existsSync(localCachePath)) {
               const cachedData = fs.readFileSync(localCachePath, 'utf8');
@@ -396,9 +415,9 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
           }
           throw error;
         } else {
-          console.warn(`[API Service] Advertencia al obtener datos (Intento ${i + 1}/${retries}):`, error.message);
+          console.warn(`[API Service] Advertencia al obtener datos (Intento ${i + 1}/${effectiveRetries}):`, error.message);
         }
-        await new Promise(res => setTimeout(res, delay));
+        await new Promise(res => setTimeout(res, effectiveDelay));
       }
     }
   })();
