@@ -2829,7 +2829,7 @@ app.get('/api/admin/tickets', async (req, res) => {
             'cliente', 'cliente whatsapp', 'puedo', 'pueden', 'quiero', 'quisiera', 'necesito', 'tengo',
             'como', 'cómo', 'cuando', 'cuándo', 'donde', 'dónde', 'quien', 'quién', 'cual', 'cuál',
             'para', 'por', 'favor', 'porfa', 'buenas', 'buenos', 'tardes', 'dias', 'días', 'noches',
-            'hola', 'holi', 'gracias', 'muchas', 'ayuda', 'codigo', 'código', 'disculpa', 'disculpe',
+            'hola', 'holi', 'gracias', 'muchas', 'ayuda', 'codigo', 'código', 'godigo', 'codigos', 'totp', '2fa', 'disculpa', 'disculpe',
             'una', 'un', 'el', 'la', 'los', 'las', 'mi', 'mis', 'tu', 'tus', 'su', 'sus', 'me', 'te', 'se',
             'pregunta', 'consulta', 'info', 'informacion', 'información', 'saber', 'ver', 'hacer',
             'cambiar', 'renovar', 'pagar', 'comprar', 'adquirir', 'tienes', 'tienen', 'hay', 'esta', 'está',

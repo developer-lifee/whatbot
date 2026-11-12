@@ -10,16 +10,18 @@ if (!fs.existsSync(path.join(__dirname, 'tokens'))) {
     fs.mkdirSync(path.join(__dirname, 'tokens'));
 }
 
-// Expanded patterns and keywords for 2FA/TOTP code requests, including common typos
+// Expanded patterns and keywords for 2FA/TOTP code requests, including common typos and natural language requests
 const wantsCodeKeywords = [
     'codigo', 'código', 'codig', 'godigo', 'gódigo', 'token', '2fa', 'otp', 'totp',
-    'c0digo', 'c0dig0', 'codig0', 'godig0', 'g0dig0', 'cogigo', 'cogig0'
+    'c0digo', 'c0dig0', 'codig0', 'godig0', 'g0dig0', 'cogigo', 'cogig0',
+    'cod', 'codi', 'claucode', 'claudecode', 'iniciar sesion', 'iniciar sesión',
+    'inicio de sesion', 'inicio de sesión', 'verificacion', 'verificación'
 ];
 
-const CODE_REQUEST_REGEX = /(?:c[oó0g]dig[oó0]|g[oó0]dig[oó0]|token|2fa|otp|totp)/i;
+const CODE_REQUEST_REGEX = /(?:(?:c|k|g)[oó0][d|g][ií1][g|d]?[oó0]?|token|2fa|otp|totp|verificaci[oó]n|inicio\s+de\s+sesi[oó]n|iniciar\s+sesi[oó]n)/i;
 
 // Patterns indicating that a previously provided code was rejected or failed
-const CODE_FAILURE_REGEX = /(?:no\s+funciona|no\s+me\s+sirve|codigo\s+incorrecto|código\s+incorrecto|invalido|inválido|no\s+es|error\s+de\s+codigo|error\s+de\s+código|no\s+agarra|no\s+da)/i;
+const CODE_FAILURE_REGEX = /(?:no\s+funciona|no\s+me\s+sirve|codigo\s+incorrecto|código\s+incorrecto|invalido|inválido|no\s+es|error\s+de\s+codigo|error\s+de\s+código|no\s+agarra|no\s+da|expir[oó]|venci[oó])/i;
 
 /**
  * Checks if a message text is requesting a 2FA/TOTP code.
@@ -28,8 +30,14 @@ const CODE_FAILURE_REGEX = /(?:no\s+funciona|no\s+me\s+sirve|codigo\s+incorrecto
  */
 function isCodeRequest(text) {
     if (!text) return false;
-    const cleanText = text.toLowerCase().trim();
-    return CODE_REQUEST_REGEX.test(cleanText) || wantsCodeKeywords.some(keyword => cleanText.includes(keyword));
+    const cleanText = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    const rawText = text.toLowerCase().trim();
+    return CODE_REQUEST_REGEX.test(rawText) || 
+           CODE_REQUEST_REGEX.test(cleanText) || 
+           wantsCodeKeywords.some(keyword => {
+               const cleanKeyword = keyword.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+               return rawText.includes(keyword) || cleanText.includes(cleanKeyword);
+           });
 }
 
 /**
@@ -39,7 +47,9 @@ function isCodeRequest(text) {
  */
 function isCodeFailureReport(text) {
     if (!text) return false;
-    return CODE_FAILURE_REGEX.test(text.toLowerCase().trim());
+    const rawText = text.toLowerCase().trim();
+    const cleanText = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    return CODE_FAILURE_REGEX.test(rawText) || CODE_FAILURE_REGEX.test(cleanText);
 }
 
 /**
@@ -48,14 +58,16 @@ function isCodeFailureReport(text) {
  * @returns {string|null}
  */
 function generateGPTCode(email) {
+    if (!email) return null;
     const secrets = loadSecrets();
     const secretVal = secrets[email.toLowerCase().trim()];
     if (!secretVal) return null;
 
     const secret = typeof secretVal === 'object' ? secretVal.secret : secretVal;
+    if (!secret) return null;
 
     try {
-        return authenticator.generate(secret);
+        return authenticator.generate(secret.replace(/\s/g, ''));
     } catch (error) {
         console.error(`[TOTP Service] Error generating code for ${email}:`, error.message);
         return null;
