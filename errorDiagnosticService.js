@@ -170,6 +170,91 @@ function approvePendingSolution(quotedText = '', approverPhone = '') {
 }
 
 /**
+ * Descarta o cancela una solución pendiente cuando el usuario escribe @deje asi o @cancelar
+ */
+function discardPendingSolution(quotedText = '', discarderPhone = '') {
+    try {
+        if (!fs.existsSync(PENDING_SOLUTIONS_PATH)) return null;
+        let solutions = JSON.parse(fs.readFileSync(PENDING_SOLUTIONS_PATH, 'utf8'));
+
+        let targetIndex = -1;
+        if (quotedText) {
+            const matchId = quotedText.match(/#?(ERR-[\w-]+)/i);
+            if (matchId) {
+                const searchId = matchId[1].toUpperCase();
+                targetIndex = solutions.findIndex(s => s.id && s.id.toUpperCase() === searchId);
+            }
+        }
+
+        if (targetIndex === -1) {
+            const first = solutions[0];
+            if (first && first.status === 'PENDIENTE_APROBACION') {
+                targetIndex = 0;
+            } else {
+                targetIndex = solutions.findIndex(s => s.status === 'PENDIENTE_APROBACION');
+            }
+        }
+
+        if (targetIndex !== -1) {
+            solutions[targetIndex].status = 'DESCARTADO';
+            solutions[targetIndex].discardedBy = discarderPhone;
+            solutions[targetIndex].discardedAt = new Date().toISOString();
+            fs.writeFileSync(PENDING_SOLUTIONS_PATH, JSON.stringify(solutions, null, 2), 'utf8');
+            return solutions[targetIndex];
+        }
+        return null;
+    } catch (e) {
+        console.error('[ErrorDiagnostic] Error descartando solución pendiente:', e.message);
+        return null;
+    }
+}
+
+/**
+ * Revierte el último commit realizado en el repositorio Git y sincroniza con origin main
+ */
+async function revertLastCommit(senderPhone = '') {
+    const REPO_DIR = path.resolve(__dirname);
+    try {
+        const statusBefore = execSync('git status --porcelain', { cwd: REPO_DIR, encoding: 'utf8' }).trim();
+        if (statusBefore) {
+            try { execSync('git stash push -m "Auto-stash antes de revert"', { cwd: REPO_DIR }); } catch (_) {}
+        }
+
+        const lastCommitLog = execSync('git log -1 --format="%h|%s|%an|%ad"', { cwd: REPO_DIR, encoding: 'utf8' }).trim();
+        const [lastShortHash, lastSubject] = lastCommitLog.split('|');
+
+        console.log(`[ErrorDiagnostic] ⏪ Revirtiendo commit ${lastShortHash}: "${lastSubject}"`);
+
+        execSync('git revert HEAD --no-edit', { cwd: REPO_DIR, encoding: 'utf8' });
+
+        let pushed = false;
+        try {
+            execSync('git push origin main', { cwd: REPO_DIR, encoding: 'utf8' });
+            pushed = true;
+        } catch (pushErr) {
+            console.warn('[ErrorDiagnostic] git push falló tras revert:', pushErr.message);
+        }
+
+        const newHeadHash = execSync('git rev-parse --short HEAD', { cwd: REPO_DIR, encoding: 'utf8' }).trim();
+
+        return {
+            success: true,
+            revertedHash: lastShortHash,
+            revertedSubject: lastSubject,
+            newHash: newHeadHash,
+            pushed
+        };
+    } catch (err) {
+        console.error('[ErrorDiagnostic] ❌ Error en revertLastCommit:', err.message);
+        try { execSync('git revert --abort', { cwd: REPO_DIR }); } catch (_) {}
+        return {
+            success: false,
+            error: (err.message || '').split('\n')[0]
+        };
+    }
+}
+
+/**
  * Guarda el reporte en el historial de errores
  */
 function logReportedError(data) {
@@ -687,8 +772,10 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         // 1. FLUJO DE APROBACIÓN CON @commit (o @aceptar)
         const isCommit = /^@?commit\b/i.test(textTrimmed) || /^@?acept(ar|o)\b/i.test(textTrimmed);
         const isContinue = /^@?continuar\b/i.test(textTrimmed) || /^@?revalidar\b/i.test(textTrimmed) || /^@?seguir\b/i.test(textTrimmed);
+        const isDiscard = /^@?(deje\s*as[ií]|cancelar|descartar|olvidar|rechazar)\b/i.test(textTrimmed);
+        const isRevert = /^@?(devolver\s*commit|devolver|revert(?:ir)?|deshacer|rollback)\b/i.test(textTrimmed);
         const changeMatch = textTrimmed.match(/^@?cambio[+: ]\s*(.+)/is) || textTrimmed.match(/^@?cambio\b(.*)/is);
-        const isCommand = isCommit || isContinue || Boolean(changeMatch);
+        const isCommand = isCommit || isContinue || isDiscard || isRevert || Boolean(changeMatch);
 
         // Prevenir tickets duplicados cuando un asesor envía captura y texto por separado o mensajes en ráfaga
         if (!isCommand) {
@@ -843,6 +930,88 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             }
         }
 
+        // 2. FLUJO DE DESCARTE / CANCELACIÓN CON @deje asi / @cancelar / @descartar
+        if (isDiscard) {
+            let quotedText = '';
+            if (message.hasQuotedMsg) {
+                try {
+                    const quoted = await message.getQuotedMessage();
+                    if (quoted && (quoted.body || quoted.caption)) quotedText = quoted.caption || quoted.body;
+                } catch (e) {}
+            }
+
+            let targetTicketId = null;
+            const idMatch = `${textTrimmed} ${quotedText}`.match(/#?(ERR-[\w-]+)/i);
+            if (idMatch) {
+                targetTicketId = idMatch[1].toUpperCase();
+            } else if (chat && chat.fetchMessages) {
+                try {
+                    const recents = await chat.fetchMessages({ limit: 15 });
+                    for (const m of [...recents].reverse()) {
+                        const mText = (m.body || '') + ' ' + (m.caption || '');
+                        const foundTicket = mText.match(/Ticket #?(ERR-[\w-]+)/i) || mText.match(/#?(ERR-[\w-]+)/i);
+                        if (foundTicket) {
+                            targetTicketId = foundTicket[1].toUpperCase();
+                            break;
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            const contextText = targetTicketId ? `${targetTicketId} ${textTrimmed} ${quotedText}`.trim() : `${textTrimmed} ${quotedText}`.trim();
+            const discarded = discardPendingSolution(contextText, senderPhone);
+            if (discarded) {
+                const discardMsg = `🛑 *[PROPUESTA DESCARTADA]* (Ticket #${discarded.id})\n\n` +
+                    `👤 *Acción por:* @${senderPhone}\n` +
+                    `📋 *Caso:* ${discarded.summary || 'Incidencia técnica'}\n\n` +
+                    `✨ La propuesta de solución ha sido cancelada sin realizar ninguna modificación en el código ni en el repositorio.`;
+                try { await message.reply(discardMsg); } catch (e) {
+                    if (client && client.sendMessage) await client.sendMessage(groupChatId, discardMsg).catch(() => {});
+                }
+                return;
+            } else {
+                const noTicketMsg = `ℹ️ No encontré ninguna propuesta de solución pendiente de aprobación para descartar.`;
+                try { await message.reply(noTicketMsg); } catch (e) {
+                    if (client && client.sendMessage) await client.sendMessage(groupChatId, noTicketMsg).catch(() => {});
+                }
+                return;
+            }
+        }
+
+        // 3. FLUJO DE REVERSIÓN DE COMMIT CON @devolver commit / @revert
+        if (isRevert) {
+            const waitMsg = `⏪ *[REVIRTIENDO ÚLTIMO COMMIT EN REPOSITORIO...]*\n` +
+                `Por favor espera un momento mientras se revierte el último commit y se sincroniza con GitHub...`;
+            try { await message.reply(waitMsg); } catch (e) {
+                if (client && client.sendMessage) await client.sendMessage(groupChatId, waitMsg).catch(() => {});
+            }
+
+            const revResult = await revertLastCommit(senderPhone);
+            if (revResult && revResult.success) {
+                const pushStr = revResult.pushed ? '✅ Sincronizado exitosamente con `origin/main`' : '⚠️ Revert local creado';
+                const successMsg = `⏪ *[COMMIT REVERTIDO CON ÉXITO]*\n\n` +
+                    `👤 *Revertido por:* @${senderPhone}\n` +
+                    `📦 *Commit Deshecho:* \`${revResult.revertedHash}\`\n` +
+                    `📝 *Detalle:* ${revResult.revertedSubject || 'Cambio anterior'}\n` +
+                    `🆕 *Nuevo Hash de Control:* \`${revResult.newHash}\`\n` +
+                    `🚀 *GitHub Remote:* ${pushStr}\n\n` +
+                    `⚡ *El código anterior ha sido restaurado.*\n\n` +
+                    `🔄 *Para activar la reversión en caliente ahora:* Escribe *@restart*`;
+                try { await message.reply(successMsg); } catch (e) {
+                    if (client && client.sendMessage) await client.sendMessage(groupChatId, successMsg).catch(() => {});
+                }
+                return;
+            } else {
+                const errMsg = `❌ *[ERROR AL REVERTIR COMMIT]*\n\n` +
+                    `No se pudo revertir automáticamente el último commit:\n` +
+                    `\`${revResult.error || 'Conflicto de fusión o sin commits nuevos'}\``;
+                try { await message.reply(errMsg); } catch (e) {
+                    if (client && client.sendMessage) await client.sendMessage(groupChatId, errMsg).catch(() => {});
+                }
+                return;
+            }
+        }
+
         // 2. FLUJO DE AJUSTE CON @cambio <solucion> O REVALIDACIÓN CON @continuar
         if (changeMatch || isContinue) {
             const userInstruction = isContinue 
@@ -946,7 +1115,9 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             }
             adjustedMsg += `👉 *Para implementar cambios en código y subir a GitHub:* Escribe *@commit* o *@aceptar*\n`;
             adjustedMsg += `🔄 *Para profundizar o revalidar solución:* Escribe *@continuar*\n`;
-            adjustedMsg += `✏️ *Para seguir ajustando:* Escribe *@cambio <tu ajuste>*\n\n`;
+            adjustedMsg += `✏️ *Para seguir ajustando:* Escribe *@cambio <tu ajuste>*\n`;
+            adjustedMsg += `🛑 *Para descartar:* Escribe *@deje asi*\n`;
+            adjustedMsg += `⏪ *Para deshacer último commit:* Escribe *@devolver commit*\n\n`;
             adjustedMsg += `⚠️ *Nota:* El comando *@restart* solo estará disponible una vez que apruebes con *@commit*.`;
 
             try {
@@ -1413,6 +1584,8 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         responseMsg += `\n👉 *Para implementar cambio en código y subir a GitHub:* Escribe *@commit* o *@aceptar*\n`;
         responseMsg += `🔄 *Para profundizar o revalidar solución:* Escribe *@continuar*\n`;
         responseMsg += `✏️ *Para pedir otra solución o ajuste:* Escribe *@cambio <la solución que quieres>*\n`;
+        responseMsg += `🛑 *Para descartar:* Escribe *@deje asi*\n`;
+        responseMsg += `⏪ *Para deshacer último commit:* Escribe *@devolver commit*\n`;
 
         // Responder citando el mensaje del asesor o directamente si falla el quote
         try {
@@ -1450,6 +1623,8 @@ module.exports = {
     handleAdvisorErrorReport,
     logReportedError,
     approvePendingSolution,
+    discardPendingSolution,
+    revertLastCommit,
     getLatestPendingSolution,
     updatePendingSolution
 };
