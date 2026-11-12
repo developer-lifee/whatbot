@@ -29,9 +29,9 @@ function getLastCliErrorDetails() {
 
 /**
  * Invoca directamente el CLI oficial de Antigravity (agy) autenticado con la cuenta de Google
- * con rotación automática de modelos Gemini 3.8 Flash y respaldo HTTP si el binario falla.
+ * con soporte para reanudar conversaciones existentes (--conversation) y rotación de modelos Gemini Flash.
  */
-async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
+async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.", conversationId = null) {
     const fullPrompt = `${systemInstruction}\n\n${prompt}`;
     const agyBin = fs.existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : (fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy');
 
@@ -47,16 +47,19 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
                 '--disable-slash-commands',
                 '--dangerously-skip-permissions'
             ];
+            if (conversationId) {
+                agyArgs.push('--conversation', conversationId);
+            }
             const { stdout, stderr } = await execFileAsync(agyBin, agyArgs, {
                 cwd: REPO_DIR,
                 encoding: 'utf8',
-                timeout: 55000, // 55 segundos por modelo para evitar agotar el timeout global y dar paso al respaldo HTTP rápido
+                timeout: 90000,
                 maxBuffer: 20 * 1024 * 1024,
                 env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
             });
             const trimmed = (stdout || '').trim();
             if (trimmed && !trimmed.includes('RESOURCE_EXHAUSTED') && !trimmed.includes('"status":"ERROR"')) {
-                console.log(`[Antigravity CLI] ✅ Respuesta generada exitosamente con modelo ${cliModel}`);
+                console.log(`[Antigravity CLI] ✅ Respuesta generada exitosamente con modelo ${cliModel}${conversationId ? ' (continuando conversación previa)' : ''}`);
                 lastCliErrorDetails = null;
                 return trimmed;
             }
@@ -70,7 +73,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
         } catch (e) {
             const rawErr = `${e.message || ''} ${e.stderr || ''} ${e.stdout || ''}`;
             if (e.killed || e.signal === 'SIGTERM' || /timed?\s*out/i.test(rawErr)) {
-                modelErrors.push(`${cliModel}: ⏱️ Timeout (>55s) inspeccionando archivos o logs sin cerrar respuesta`);
+                modelErrors.push(`${cliModel}: ⏱️ Timeout (>90s) procesando solicitud en CLI`);
             } else if (rawErr.includes('RESOURCE_EXHAUSTED') || rawErr.includes('429')) {
                 modelErrors.push(`${cliModel}: 🚨 Cuota / Modelo agotado (HTTP 429 RESOURCE_EXHAUSTED)`);
             } else if (/auth|token|login|credential/i.test(rawErr)) {
@@ -82,22 +85,10 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
         }
     }
 
-    // Fallback automático a API HTTP de Gemini si el binario CLI falló en todos los modelos
-    try {
-        console.log('[Antigravity CLI] 🔄 Usando respaldo HTTP directo a Gemini Flash...');
-        const httpResp = await callGemini38FlashHttp(prompt, systemInstruction);
-        if (httpResp) {
-            lastCliErrorDetails = null;
-            return httpResp;
-        }
-    } catch (httpErr) {
-        const hMsg = httpErr.message || String(httpErr);
-        if (hMsg.includes('429') || hMsg.includes('RESOURCE_EXHAUSTED') || hMsg.includes('quota')) {
-            modelErrors.push(`Respaldo HTTP Gemini API: 🚨 Cuota de API Key agotada (429)`);
-        } else {
-            modelErrors.push(`Respaldo HTTP Gemini API: ❌ ${hMsg.slice(0, 100)}`);
-        }
-        console.warn('[Antigravity CLI] Falló también el respaldo HTTP de Gemini:', hMsg);
+    // Si falló con conversationId, intentar una vez más sin conversationId por si la sesión previa caducó
+    if (conversationId) {
+        console.warn('[Antigravity CLI] Reintentando llamada CLI en sesión limpia (sin conversationId)...');
+        return callAgyCli(prompt, systemInstruction, null);
     }
 
     lastCliErrorDetails = modelErrors.join('\n• ');
@@ -133,16 +124,22 @@ function extractJsonFromAgyOutput(text) {
     }
 
     if (parsedOuter && typeof parsedOuter === 'object') {
+        const convId = parsedOuter.conversation_id || null;
         // Si es el wrapper de agy ({ conversation_id, status, response, ... })
         if (parsedOuter.response && typeof parsedOuter.response === 'string') {
             const inner = tryParseCandidate(parsedOuter.response);
-            if (inner && typeof inner === 'object') return inner;
+            if (inner && typeof inner === 'object') {
+                if (convId && !inner.conversationId) inner.conversationId = convId;
+                return inner;
+            }
         }
         if (parsedOuter.response && typeof parsedOuter.response === 'object') {
+            if (convId && !parsedOuter.response.conversationId) parsedOuter.response.conversationId = convId;
             return parsedOuter.response;
         }
         // Si parsedOuter ya contiene los campos del ticket directamente
         if (parsedOuter.causaRaiz || parsedOuter.planCodigo || parsedOuter.platform || parsedOuter.summary) {
+            if (convId && !parsedOuter.conversationId) parsedOuter.conversationId = convId;
             return parsedOuter;
         }
     }

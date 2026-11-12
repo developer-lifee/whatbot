@@ -571,7 +571,7 @@ ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 INSTRUCCIONES CLAVE DE INGENIERÍA:
 1. Lee el archivo de imagen en "${absoluteImgPath}" usando read_file (1 llamada).
    - Identifica los mensajes del cliente, las respuestas exactas del bot, el nombre/teléfono del cliente y la plataforma REAL del servicio (ej: "Claude", "ChatGPT / GPT", "Netflix", "Amazon", "Disney", etc. NUNCA "WHATSAPP").
-2. Haz primero una búsqueda exacta (\`grep -n -F\`) sobre index.js, billingService.js, totpService.js o aiService.js con la frase exacta que respondió el bot en la captura, y si necesitas ver el log reciente usa \`tail -n 30000 /root/.pm2/logs/whatbot-out.log | grep -a -i -C 6 "termino"\`.
+2. Haz búsquedas focalizadas y rápidas (con grep -n en el archivo específico del módulo, ej: billingService.js para precios, totpService.js para 2FA, availabilityService.js para stock, index.js para flujos). NO leas logs extensos (máximo tail -n 200 si necesitas verificar la última traza).
 3. Devuelve tu respuesta técnica exclusivamente en un JSON estructurado así (sin texto adicional fuera del JSON):
 {
   "clientName": string | null,
@@ -600,7 +600,7 @@ ${recentChatContext || 'Sin contexto adicional'}
 ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
-1. Haz primero una búsqueda exacta con \`grep -n\` en los archivos reales de /root/whatbot (index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) y/o en las últimas 30.000 líneas del log (\`tail -n 30000 /root/.pm2/logs/whatbot-out.log | grep -a -i -C 6 ...\`).
+1. Haz búsquedas focalizadas con \`grep -n\` directamente en el módulo especializado (ej: billingService.js/availabilityService.js si es cobro/precios, totpService.js/gmailService.js si son códigos, supportScheduleService.js si son turnos). NO descargues ni proceses logs masivos (máximo tail -n 200).
 2. Explica con precisión técnica qué condición o línea de código produce el problema reportado y detalla la solución exacta.
 3. Devuelve un JSON estrictamente estructurado así:
 {
@@ -614,7 +614,7 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
 
         try {
             console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
-            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Haz primero búsqueda exacta (grep -n en .js y tail -n 30000 + grep en logs), razona a fondo la causa raíz real y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
+            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI, asistente senior de ingeniería. Haz búsquedas focalizadas con grep -n en los módulos pertinentes, identifica la causa raíz real y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.", existingTicket ? existingTicket.conversationId : null);
             let parsed = extractJsonFromAgyOutput(rawOutput);
             if (parsed && (parsed.causaRaiz || parsed.diagnosis) && (parsed.planCodigo || parsed.plan)) {
                 console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de Antigravity CLI:', JSON.stringify({ platform: parsed.platform, clientName: parsed.clientName, summary: parsed.summary }));
@@ -1076,9 +1076,17 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             }
 
             // Generar nueva propuesta incorporando la instrucción del usuario
+            const diagnosticContext = isContinue
+                ? [
+                    `⚠️ Solicitud de revalidación del usuario: continuar y generar de inmediato el plan de código concreto y definitivo.`,
+                    `Problema a solucionar: "${pendingTicket.rawMessage || pendingTicket.summary || userInstruction}"`,
+                    `Foco: Analiza directamente la lógica en los módulos pertinentes (ej: billingService.js, availabilityService.js, etc.) sin procesar logs masivos.`
+                  ]
+                : [`⚠️ Solicitud de cambio del usuario: "${userInstruction}"`, `Diagnóstico previo: ${pendingTicket.diagnosis}`];
+
             const updatedCliSolution = await generateCliPlanAndCommit(
                 { summary: pendingTicket.summary, clientPhone: pendingTicket.clientPhone, platform: pendingTicket.platform, problemType: 'ajuste_usuario' },
-                [`⚠️ Solicitud de cambio del usuario: "${userInstruction}"`, `Diagnóstico previo: ${pendingTicket.diagnosis}`],
+                diagnosticContext,
                 userInstruction,
                 pendingTicket,
                 pendingTicket.imagePath || null,
