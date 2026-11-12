@@ -345,11 +345,26 @@ async function recordAccountRenewal(data) {
           if (combinedPaymentMethod) {
             updates["Metodo de pago"] = combinedPaymentMethod;
           }
-          await updateExcelData(targetRow, updates);
-          excelUpdatedRows++;
+          
+          let success = false;
+          let attempts = 0;
+          while (!success && attempts < 3) {
+            attempts++;
+            try {
+              await updateExcelData(targetRow, updates);
+              success = true;
+              excelUpdatedRows++;
+            } catch (rowErr) {
+              console.warn(`[Account Renewal] Reintento ${attempts}/3 para fila ${targetRow}: ${rowErr.message}`);
+              if (attempts < 3) await new Promise(r => setTimeout(r, 800));
+            }
+          }
+          
+          // Pausa preventiva de 350ms para no saturar los límites de Microsoft Graph API
+          await new Promise(r => setTimeout(r, 350));
         }
       }
-      console.log(`[Account Renewal] ✅ Sincronizados ${excelUpdatedRows} filas en Excel para ${cleanEmail} con nuevo vencimiento: ${expiration_date}`);
+      console.log(`[Account Renewal] ✅ Sincronizados ${excelUpdatedRows}/${matching.length} filas en Excel para ${cleanEmail} con nuevo vencimiento: ${expiration_date}`);
     } catch (err) {
       console.error('[Account Renewal] Error sincronizando a Excel Online:', err.message);
     }
