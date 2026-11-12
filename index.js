@@ -3172,27 +3172,100 @@ app.get('/api/admin/tickets', async (req, res) => {
     }
 });
 
+/**
+ * Encuentra todas las claves existentes en userStates asociadas a un teléfono dado,
+ * manejando variantes con o sin '+', '@c.us', '@lid', números de 10 dígitos o con prefijo de país.
+ */
+function findUserStateKeys(phone) {
+    if (!phone) return [];
+    const raw = String(phone).trim();
+    const cleanPhone = raw.replace(/@c\.us|@lid/g, '').replace(/\D/g, '');
+    const last10 = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+    const normalized57 = last10.length === 10 ? '57' + last10 : cleanPhone;
+
+    const matchedKeys = new Set();
+
+    // 1. Coincidencias directas con variantes estándar
+    const directCandidates = [
+        raw,
+        cleanPhone + '@c.us',
+        cleanPhone + '@lid',
+        normalized57 + '@c.us',
+        normalized57 + '@lid',
+        last10 + '@c.us'
+    ];
+    for (const c of directCandidates) {
+        if (userStates.has(c)) {
+            matchedKeys.add(c);
+        }
+    }
+
+    // 2. Búsqueda exhaustiva en userStates por realPhone, phone, chatJid o dígitos de la clave
+    const targetVariants = [cleanPhone, normalized57, last10].filter(v => v && v.length >= 7);
+    for (const [sKey, sVal] of userStates.entries()) {
+        if (matchedKeys.has(sKey)) continue;
+        const sClean = sKey.replace(/\D/g, '');
+        const sReal = sVal && sVal.realPhone ? String(sVal.realPhone).replace(/\D/g, '') : '';
+        const sPhone = sVal && sVal.phone ? String(sVal.phone).replace(/\D/g, '') : '';
+        const sChatJid = sVal && sVal.chatJid ? String(sVal.chatJid).replace(/\D/g, '') : '';
+
+        for (const v of targetVariants) {
+            if (
+                sClean === v ||
+                sReal === v ||
+                sPhone === v ||
+                sChatJid === v ||
+                (v.length >= 10 && (sClean.endsWith(v.slice(-10)) || sReal.endsWith(v.slice(-10)) || sPhone.endsWith(v.slice(-10))))
+            ) {
+                matchedKeys.add(sKey);
+                break;
+            }
+        }
+    }
+
+    // 3. Fallback canónico si no existía ninguna clave previa
+    if (matchedKeys.size === 0) {
+        matchedKeys.add(normalized57 ? normalized57 + '@c.us' : (cleanPhone ? cleanPhone + '@c.us' : raw));
+    }
+
+    return Array.from(matchedKeys);
+}
+
 app.post('/api/admin/tickets/claim', async (req, res) => {
     try {
         const { phone, agent, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const userId = phone.includes('@') ? phone : phone + '@c.us';
-        const currentState = userStates.get(userId);
-
-        if (!currentState) {
-            return res.status(404).json({ success: false, message: 'No active state found for this user' });
-        }
-
-        let updatedState = {};
+        const keys = findUserStateKeys(phone);
         const newMode = agent ? 'advisor' : 'bot';
-        if (typeof currentState === 'string') {
-            updatedState = { state: currentState, agent: agent, waiting_human_mode: newMode, claimedAt: agent ? Date.now() : null };
-        } else {
-            updatedState = { ...currentState, agent: agent, waiting_human_mode: newMode, claimedAt: agent ? Date.now() : null };
+        let foundAny = false;
+
+        for (const k of keys) {
+            const currentState = userStates.get(k);
+            if (currentState) {
+                foundAny = true;
+                let updatedState = {};
+                if (typeof currentState === 'string') {
+                    updatedState = { state: currentState, agent: agent || null, waiting_human_mode: newMode, claimedAt: agent ? Date.now() : null };
+                } else {
+                    updatedState = { ...currentState, agent: agent || null, waiting_human_mode: newMode, claimedAt: agent ? Date.now() : null };
+                }
+                userStates.set(k, updatedState);
+            }
         }
 
-        userStates.set(userId, updatedState);
+        if (!foundAny && agent) {
+            const primaryKey = keys[0];
+            userStates.set(primaryKey, {
+                state: 'waiting_human',
+                agent: agent,
+                waiting_human_mode: 'advisor',
+                claimedAt: Date.now(),
+                realPhone: String(phone).replace(/\D/g, '')
+            });
+        }
+
+        saveUserStates();
         res.json({ success: true, message: agent ? `Ticket asignado a ${agent}` : 'Ticket liberado' });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -3204,32 +3277,46 @@ app.post('/api/admin/tickets/update-mode', async (req, res) => {
         const { phone, mode, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const userId = phone.includes('@') ? phone : phone + '@c.us';
+        const keys = findUserStateKeys(phone);
 
         if (mode === 'bot') {
-            userStates.delete(userId);
+            for (const k of keys) {
+                userStates.delete(k);
+            }
+            saveUserStates();
             return res.json({ success: true, message: 'Modo actualizado a bot (chat liberado y bot reactivado)' });
         }
 
-        const currentState = userStates.get(userId);
-
-        if (!currentState) {
-            userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: mode, claimedAt: mode === 'advisor' ? Date.now() : null });
-            return res.json({ success: true, message: `Estado creado y modo configurado a ${mode}` });
+        let foundAny = false;
+        for (const k of keys) {
+            const currentState = userStates.get(k);
+            if (currentState) {
+                foundAny = true;
+                let updatedState = {};
+                if (typeof currentState === 'string') {
+                    updatedState = { state: currentState, waiting_human_mode: mode, claimedAt: mode === 'advisor' ? Date.now() : null };
+                } else {
+                    updatedState = { ...currentState, waiting_human_mode: mode, claimedAt: mode === 'advisor' ? Date.now() : null };
+                }
+                if (mode === 'advisor') {
+                    updatedState.lastHumanInteraction = Date.now();
+                }
+                userStates.set(k, updatedState);
+            }
         }
 
-        let updatedState = {};
-        if (typeof currentState === 'string') {
-            updatedState = { state: currentState, waiting_human_mode: mode, claimedAt: mode === 'advisor' ? Date.now() : null };
-        } else {
-            updatedState = { ...currentState, waiting_human_mode: mode, claimedAt: mode === 'advisor' ? Date.now() : null };
+        if (!foundAny) {
+            const primaryKey = keys[0];
+            userStates.set(primaryKey, {
+                state: 'waiting_human',
+                waitingCount: 0,
+                waiting_human_mode: mode,
+                claimedAt: mode === 'advisor' ? Date.now() : null,
+                realPhone: String(phone).replace(/\D/g, '')
+            });
         }
 
-        if (mode === 'advisor') {
-            updatedState.lastHumanInteraction = Date.now();
-        }
-
-        userStates.set(userId, updatedState);
+        saveUserStates();
         res.json({ success: true, message: `Modo actualizado a ${mode}` });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -3242,15 +3329,20 @@ app.post('/api/admin/tickets/update-state', async (req, res) => {
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
         if (!phone) return res.status(400).json({ success: false, message: 'Falta el teléfono' });
 
-        const userId = phone.includes('@') ? phone : phone + '@c.us';
-        const currentState = userStates.get(userId) || {};
+        const keys = findUserStateKeys(phone);
+        let updatedState = null;
 
-        let updatedState = { ...currentState };
-        if (state !== undefined) updatedState.state = state;
-        if (total !== undefined) updatedState.total = total === null ? null : parseInt(total) || 0;
-        if (saldo !== undefined) updatedState.saldo = saldo === null ? null : parseInt(saldo) || 0;
+        for (const k of keys) {
+            const currentState = userStates.get(k) || {};
+            let curr = { ...currentState };
+            if (state !== undefined) curr.state = state;
+            if (total !== undefined) curr.total = total === null ? null : parseInt(total) || 0;
+            if (saldo !== undefined) curr.saldo = saldo === null ? null : parseInt(saldo) || 0;
+            userStates.set(k, curr);
+            if (!updatedState) updatedState = curr;
+        }
 
-        userStates.set(userId, updatedState);
+        saveUserStates();
         res.json({ success: true, message: 'Estado del ticket actualizado con éxito', state: updatedState });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
@@ -3262,8 +3354,11 @@ app.post('/api/admin/tickets/release', async (req, res) => {
         const { phone, password } = req.body;
         if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-        const userId = phone.includes('@') ? phone : phone + '@c.us';
-        userStates.delete(userId);
+        const keys = findUserStateKeys(phone);
+        for (const k of keys) {
+            userStates.delete(k);
+        }
+        saveUserStates();
         res.json({ success: true, message: 'Bot reactivado y chat liberado' });
     } catch (e) {
         res.status(500).json({ error: e.message });
