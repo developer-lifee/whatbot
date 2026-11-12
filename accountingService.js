@@ -647,6 +647,7 @@ async function calculateDailyAccounting() {
       const platKey = normalizePlatformKey(c.Streaming);
       const phoneDigits = String(c.numero || c.whatsapp || '').replace(/\D/g, '').slice(-10);
       const rawEmail = (c.correo || '').toString().trim().toLowerCase();
+      const clientNameLower = `${c.Nombre || c.nombre || ''} ${c.apellido || c.Apellido || ''}`.toLowerCase();
 
       // Prioridad 1: Tomar precio individual de la fila del cliente si existe en Excel (Ingreso Mensual2)
       let rowPrice = 0;
