@@ -50,7 +50,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
             const { stdout, stderr } = await execFileAsync(agyBin, agyArgs, {
                 cwd: REPO_DIR,
                 encoding: 'utf8',
-                timeout: 210000, // 210 segundos (3.5 min) para permitir razonamiento profundo sin cortes prematuros
+                timeout: 55000, // 55 segundos por modelo para evitar agotar el timeout global y dar paso al respaldo HTTP rápido
                 maxBuffer: 20 * 1024 * 1024,
                 env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
             });
@@ -70,7 +70,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
         } catch (e) {
             const rawErr = `${e.message || ''} ${e.stderr || ''} ${e.stdout || ''}`;
             if (e.killed || e.signal === 'SIGTERM' || /timed?\s*out/i.test(rawErr)) {
-                modelErrors.push(`${cliModel}: ⏱️ Timeout (>210s) inspeccionando archivos o logs sin cerrar respuesta`);
+                modelErrors.push(`${cliModel}: ⏱️ Timeout (>55s) inspeccionando archivos o logs sin cerrar respuesta`);
             } else if (rawErr.includes('RESOURCE_EXHAUSTED') || rawErr.includes('429')) {
                 modelErrors.push(`${cliModel}: 🚨 Cuota / Modelo agotado (HTTP 429 RESOURCE_EXHAUSTED)`);
             } else if (/auth|token|login|credential/i.test(rawErr)) {

@@ -40,18 +40,18 @@ function normalizeStreamingName(name) {
         const specificPart = lower.includes('-') ? lower.split('-').slice(1).join('-') : lower;
         const withoutDecimals = specificPart.replace(/\b[0-9]+\.[0-9]+x\b/gi, '');
 
-        // 1. Claude Max x5 / Pro 5x (20x a 25x / intensivo / pesado)
-        if (/\b(x5|5x)\b/i.test(withoutDecimals) || withoutDecimals.includes('20x') || withoutDecimals.includes('25x') || withoutDecimals.includes('intensivo') || withoutDecimals.includes('pesado')) {
+        // 1. Claude Max x5 / Scale / $200 USD (sheeritdediagama@gmail.com - 5 cupos)
+        if (/(?:^|[^0-9.])(?:x\s*5|5\s*x|scale|100x)(?:$|[^0-9])/i.test(withoutDecimals) || withoutDecimals.includes('pesado')) {
             return 'claude_max_x5';
         }
 
-        // 2. Claude Max / Scale (50x a 100x)
-        if (specificPart.includes('scale') || specificPart.includes('50x') || specificPart.includes('100x') || (specificPart.includes('max') && !specificPart.includes('pro'))) {
+        // 2. Claude Max / Pro 5x / $100 USD (jordimemesmomazosdick@gmail.com - 8 cupos)
+        if (withoutDecimals.includes('max') || withoutDecimals.includes('20x') || withoutDecimals.includes('25x') || withoutDecimals.includes('50x') || withoutDecimals.includes('intensivo')) {
             return 'claude_max';
         }
 
         // 3. Claude Pro x2 (4x a 6x)
-        if (/\b(x2|2x|4x|6x)\b/i.test(withoutDecimals) || specificPart.includes('altouso')) {
+        if (/(?:^|[^0-9.])(?:x\s*2|2\s*x|4x|6x)(?:$|[^0-9])/i.test(withoutDecimals) || specificPart.includes('altouso')) {
             return 'claude_pro_x2';
         }
 

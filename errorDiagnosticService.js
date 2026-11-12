@@ -3,7 +3,7 @@ const path = require('path');
 const { execSync } = require('child_process');
 const { getAccountsByPhone, fetchRawData } = require('./apiService');
 const { checkSpreadsheetStock } = require('./availabilityService');
-const { callGemini38Flash, callAgyCli, extractJsonFromAgyOutput, executeFixAndCommit, getLastCliErrorDetails, GEMINI_MODEL } = require('./cliAgentService');
+const { callGemini38Flash, callGemini38FlashHttp, callAgyCli, extractJsonFromAgyOutput, executeFixAndCommit, getLastCliErrorDetails, GEMINI_MODEL } = require('./cliAgentService');
 
 const ERRORS_LOG_PATH = path.join(__dirname, 'logs', 'reported_errors.json');
 const PENDING_SOLUTIONS_PATH = path.join(__dirname, 'logs', 'pending_error_solutions.json');
@@ -530,13 +530,28 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
         try {
             console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
             const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI. Haz primero búsqueda exacta (grep -n en .js y tail -n 30000 + grep en logs), razona a fondo la causa raíz real y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.");
-            const parsed = extractJsonFromAgyOutput(rawOutput);
-            if (parsed && (parsed.causaRaiz || parsed.planCodigo || parsed.summary || parsed.platform)) {
+            let parsed = extractJsonFromAgyOutput(rawOutput);
+            if (parsed && (parsed.causaRaiz || parsed.diagnosis) && (parsed.planCodigo || parsed.plan)) {
                 console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de Antigravity CLI:', JSON.stringify({ platform: parsed.platform, clientName: parsed.clientName, summary: parsed.summary }));
                 return parsed;
             }
+
+            console.warn('[ErrorDiagnostic] ⚠️ agy CLI incompleto o sin plan. Activando respaldo rápido HTTP Gemini Flash...');
+            const httpResp = await callGemini38FlashHttp(prompt, "Eres Antigravity CLI, asistente senior de ingeniería. Devuelve exclusivamente el JSON solicitado con platform, causaRaiz, planCodigo, commitDetallado, archivosAfectados sin bloques markdown.");
+            const parsedHttp = extractJsonFromAgyOutput(httpResp);
+            if (parsedHttp && (parsedHttp.causaRaiz || parsedHttp.diagnosis) && (parsedHttp.planCodigo || parsedHttp.plan)) {
+                console.log('[ErrorDiagnostic] ✅ JSON de respaldo HTTP Gemini Flash generado con éxito.');
+                return parsedHttp;
+            }
         } catch (agyErr) {
-            console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI:', agyErr.message);
+            console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI/Gemini:', agyErr.message);
+            try {
+                const httpResp = await callGemini38FlashHttp(prompt, "Eres Antigravity CLI, asistente senior de ingeniería. Devuelve exclusivamente el JSON solicitado con platform, causaRaiz, planCodigo, commitDetallado, archivosAfectados.");
+                const parsedHttp = extractJsonFromAgyOutput(httpResp);
+                if (parsedHttp && (parsedHttp.causaRaiz || parsedHttp.diagnosis) && (parsedHttp.planCodigo || parsedHttp.plan)) {
+                    return parsedHttp;
+                }
+            } catch (hErr) {}
         }
 
         return buildEngineErrorResponse();

@@ -438,27 +438,6 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
         targetName = 'APPLE TV+';
     } else if (cleanName.includes('NETFLIX EXTRA') || cleanName.includes('MIEMBRO EXTRA') || (cleanName.includes('NETFLIX') && cleanName.includes('EXTRA'))) {
         targetName = 'NETFLIX EXTRA';
-    } else if (cleanName.includes('AMAZON') || cleanName.includes('PRIME')) {
-        targetName = 'PRIME VIDEO';
-    } else if (cleanName.includes('HBO PLATINO') || cleanName.includes('MAX PLATINO') || cleanName.includes('PLATINUM')) {
-        targetName = 'MAX PLATINO';
-    } else if (cleanName.includes('HBO') || cleanName.includes('MAX')) {
-        if (!cleanName.includes('CLAUDE')) targetName = 'HBOMAX';
-    } else if (cleanName.includes('DISNEY') || cleanName.includes('STAR')) {
-        targetName = 'DISNEY+ PREMIUM';
-    } else if (cleanName.includes('YOUTUBE')) {
-        targetName = 'YOUTUBE PREMIUM';
-    } else if (cleanName.includes('MICROSOFT') || cleanName.includes('OFFICE')) {
-        targetName = 'MICROSOFT 365';
-    } else if (cleanName.includes('CRUNCHY')) {
-        targetName = 'CRUNCHYROLL';
-    } else if (cleanName.includes('PLATZI')) {
-        targetName = 'PLATZI EXPERT';
-        if (cleanName.includes('PERSONAL') || cleanName.includes('TRIMESTRAL') || inputClean.includes('personal') || inputClean.includes('trimestral')) {
-            isPersonal = true;
-        } else {
-            isPersonal = false;
-        }
     } else if (cleanName.includes('CLAUDE')) {
         const { normalizeStreamingName } = require('./availabilityService');
         const normClaude = normalizeStreamingName(cleanName);
@@ -466,6 +445,12 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
         else if (normClaude === 'claude_max') targetName = 'CLAUDE MAX';
         else if (normClaude === 'claude_pro_x2') targetName = 'CLAUDE PRO X2';
         else targetName = 'CLAUDE PRO';
+    } else if (cleanName.includes('AMAZON') || cleanName.includes('PRIME')) {
+        targetName = 'PRIME VIDEO';
+    } else if (cleanName.includes('HBO PLATINO') || cleanName.includes('MAX PLATINO') || cleanName.includes('PLATINUM')) {
+        targetName = 'MAX PLATINO';
+    } else if (cleanName.includes('HBO') || cleanName.includes('MAX')) {
+        targetName = 'HBOMAX';
     }
 
     if (Array.isArray(platforms) && platforms.length > 0) {
@@ -523,26 +508,29 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
                     if (targetName === 'CLAUDE MAX X5') {
                         const planX5 = p.plans.find(pl => {
                             const n = (pl.name || '').toUpperCase();
-                            return n.includes('X5') || n.includes('5X') || n.includes('INTENSIVO') || n.includes('PESADO') || pl.id === 2304;
-                        });
+                            if (pl.id === 2304 || n.includes('SCALE') || n.includes('100X')) return true;
+                            if (n.includes('PESADO')) return true;
+                            return false;
+                        }) || p.plans.find(pl => pl.id === 2303);
                         if (planX5 && planX5.price) return planX5.price;
-                        return 130000;
+                        return 190000;
                     }
                     if (targetName === 'CLAUDE MAX') {
                         const planMax = p.plans.find(pl => {
                             const n = (pl.name || '').toUpperCase();
-                            return (n.includes('MAX') && !n.includes('X5') && !n.includes('5X') && !n.includes('INTENSIVO')) || pl.id === 2303;
+                            if (pl.id === 2303 || n.includes('20X') || n.includes('25X') || n.includes('INTENSIVO')) return true;
+                            return (n.includes('MAX') && !n.includes('SCALE') && !n.includes('1.5') && !n.includes('2.5')) || pl.id === 2304;
                         });
                         if (planMax && planMax.price) return planMax.price;
-                        return 60000;
+                        return 120000;
                     }
                     if (targetName === 'CLAUDE PRO X2') {
                         const planX2 = p.plans.find(pl => {
                             const n = (pl.name || '').toUpperCase();
-                            return n.includes('X2') || n.includes('2X') || n.includes('ALTO USO') || pl.id === 2302;
+                            return pl.id === 2302 || /(?:^|[^0-9.])(?:x\s*2|2\s*x|4x|6x)(?:$|[^0-9])/i.test(n);
                         });
                         if (planX2 && planX2.price) return planX2.price;
-                        return 30000;
+                        return 35000;
                     }
                     if (targetName === 'PLATZI EXPERT') {
                         if (isPersonal) {
@@ -559,7 +547,7 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
                     if (targetName === 'CLAUDE PRO') {
                         const planPro = p.plans.find(pl => {
                             const n = (pl.name || '').toUpperCase();
-                            return (n.includes('ESTÁNDAR') || n.includes('ESTANDAR') || (n.includes('PRO') && !n.includes('X2') && !n.includes('2X') && !n.includes('MAX'))) || pl.id === 2301;
+                            return pl.id === 2301 || (n.includes('ESTÁNDAR') || n.includes('ESTANDAR') || n.includes('1.5X') || (n.includes('PRO') && !n.includes('X2') && !n.includes('2X') && !n.includes('5X') && !n.includes('MAX')));
                         });
                         if (planPro && planPro.price) return planPro.price;
                         return 20000;
@@ -643,9 +631,9 @@ function getPlatformPriceFromExcel(accountOrStreaming, platforms = [], inputToUs
         'microsoft': 13000,
         'microsoft_compartida': 5000,
         'claude_pro': 20000,
-        'claude_pro_x2': 30000,
-        'claude_max': 60000,
-        'claude_max_x5': 130000,
+        'claude_pro_x2': 35000,
+        'claude_max': 120000,
+        'claude_max_x5': 190000,
         'claude': 20000,
         'gemini': 22000,
         'gemini_compartida': 10000,
