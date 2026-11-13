@@ -2579,7 +2579,7 @@ Realiza dos tareas:
    *REGLAS MUY IMPORTANTES PARA DETERMINAR SI UN TICKET ESTÁ TERMINADO:*
    - Si un ticket tiene state "waiting_human" (en cola de espera de asesor humano), "awaiting_payment_confirmation" (esperando validación de pago) o "waiting_admin_confirmation", y el último mensaje es del cliente pidiendo ayuda, reclamando, saludando o consultando, NUNCA lo consideres como terminado. Estos tickets requieren atención obligatoria.
    - Solo puedes marcar como terminados (probablyFinished) aquellos tickets donde el cliente dice gracias, se despide, confirma que ya quedó solucionado, o tras una resolución explícita no ha vuelto a escribir nada relevante.
-2. Genera para **CADA ticket** un resumen descriptivo en español de 3 a 5 palabras explicando el motivo real o falla técnica reportada basándote en su "lastMessage" o "summary" (ej. "Pide código de Disney", "Netflix caída de hogar", "Problema de facturación", "Pregunta por catálogo"). Si el "summary" ya contiene un motivo manual claro (como Pago o Interés), consérvalo.
+2. Genera para **CADA ticket** un resumen descriptivo en español de 3 a 5 palabras explicando el motivo real o falla técnica reportada basándote en su "lastMessage" o "summary" (ej. "Pide código de Disney", "Netflix caída de hogar", "Actualizar hogar Netflix", "Problema de facturación", "Pregunta por catálogo"). Si el cliente menciona hogar, televisión, smart tv o actualización de red en Netflix, prioriza guiar con el paso a paso de actualizar hogar. Si el "summary" ya contiene un motivo manual claro (como Pago o Interés), consérvalo.
 
 Devuelve **únicamente** un objeto JSON estructurado así (sin marcas markdown de bloque):
 {
