@@ -17,8 +17,8 @@ const util = require('util');
 const execFileAsync = util.promisify(execFile);
 
 const REPO_DIR = path.resolve(__dirname);
-const AGY_MODEL = 'Gemini 3.8 Flash (High)';
-const AGY_CLI_MODELS = ['gemini-3.8-flash-high', 'gemini-3.8-flash-medium', 'gemini-3.8-flash-low'];
+const AGY_MODEL = 'Gemini 3.8 Flash (Medium)';
+const AGY_CLI_MODELS = ['gemini-3.8-flash-medium', 'gemini-3.8-flash-low', 'gemini-3.8-flash-high'];
 const GEMINI_MODEL = AGY_MODEL;
 
 let lastCliErrorDetails = null;
@@ -53,7 +53,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
             const { stdout, stderr } = await execFileAsync(agyBin, agyArgs, {
                 cwd: REPO_DIR,
                 encoding: 'utf8',
-                timeout: 90000,
+                timeout: 65000,
                 maxBuffer: 20 * 1024 * 1024,
                 env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
             });

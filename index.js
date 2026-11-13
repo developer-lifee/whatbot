@@ -16289,7 +16289,30 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     const { isSupportOpen, getSupportScheduleConfig, getQueuePosition } = require('./supportScheduleService');
                     const supportStatus = await isSupportOpen();
 
-                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot' });
+                    const prevSt = userStates.get(userId) || {};
+                    userStates.set(userId, {
+                        ...prevSt,
+                        state: 'waiting_human',
+                        waitingCount: 0,
+                        waiting_human_mode: 'bot',
+                        nombre: foundName || prevSt.nombre,
+                        realPhone: realPhone || prevSt.realPhone,
+                        chatJid: message.from,
+                        advisorReason: (message.body || '').trim() || 'Solicitud de asesor / soporte',
+                        waitingTimestamp: Date.now(),
+                        clientWaitingSince: Date.now()
+                    });
+
+                    try {
+                        const groupChat = await client.getChatById(GROUP_ID);
+                        if (groupChat) {
+                            const { getClientDisplayInfo } = require('./billingService');
+                            const cInfo = await getClientDisplayInfo(userId, client, message, userStates.get(userId));
+                            await groupChat.sendMessage(`🚨 *Soporte Técnico / Asesor Requerido* (${cInfo.userTag})\n\nMotivo: "${(message.body || 'Solicitud de asesor').trim()}"`);
+                        }
+                    } catch (gErr) {
+                        console.error('Error notificando soporte al grupo:', gErr.message);
+                    }
 
                     if (!supportStatus.open) {
                         const { getOfflineReplyMessage } = require('./supportScheduleService');
@@ -16305,7 +16328,30 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     }
                 } else if (message.hasMedia || (mediaData && mediaData.length > 0)) {
                     await safeReply(message, `🤖 ¡Hola! He recibido la captura de pantalla del error que me enviaste. 📺\n\nYa notifiqué a nuestro equipo de soporte técnico para revisar la falla y darte solución lo antes posible. ¡Gracias por tu paciencia! 😊`, userId);
-                    userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', nombre: foundName });
+                    const prevSt = userStates.get(userId) || {};
+                    const captionReason = (message.body || '').trim() || 'Captura de pantalla de error enviada por el cliente';
+                    userStates.set(userId, {
+                        ...prevSt,
+                        state: 'waiting_human',
+                        waitingCount: 0,
+                        waiting_human_mode: 'bot',
+                        nombre: foundName || prevSt.nombre,
+                        realPhone: realPhone || prevSt.realPhone,
+                        chatJid: message.from,
+                        advisorReason: captionReason,
+                        waitingTimestamp: Date.now(),
+                        clientWaitingSince: Date.now()
+                    });
+                    try {
+                        const groupChat = await client.getChatById(GROUP_ID);
+                        if (groupChat) {
+                            const { getClientDisplayInfo } = require('./billingService');
+                            const cInfo = await getClientDisplayInfo(userId, client, message, userStates.get(userId));
+                            await groupChat.sendMessage(`🚨 *Captura de Error / Soporte Técnico* (${cInfo.userTag})\n\nEl cliente envió una imagen de falla${message.body ? `: "${message.body.trim()}"` : '.'}`);
+                        }
+                    } catch (gErr) {
+                        console.error('Error notificando captura de error al grupo:', gErr.message);
+                    }
                 } else {
                     // El usuario envió texto describiendo un problema o preguntando algo (ej: "por qué sale actualización de hogar")
                     const hasDescriptiveContent = cleanText.length > 12 || [
@@ -16847,15 +16893,18 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         }
                         const platText = analysis.detectedPlatform ? ` sobre tu servicio de *${analysis.detectedPlatform}*` : '';
                         await message.reply(`🤖 Entendido. He transferido tu caso de soporte técnico${platText} a un asesor humano junto con el detalle que nos indicaste. Un asesor te responderá por este chat lo antes posible. He silenciado mis respuestas automáticas para no interrumpir.`);
-                        userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', advisorReason: inputToUse.trim(), waitingTimestamp: Date.now() });
-                        try {
-                            const { createTicketFromChat } = require('./supportScheduleService');
-                            if (typeof createTicketFromChat === 'function') {
-                                await createTicketFromChat(userId, inputToUse.trim(), analysis.detectedPlatform || 'Soporte');
-                            }
-                        } catch (tErr) {
-                            console.error('Error registrando ticket de soporte:', tErr.message);
-                        }
+                        userStates.set(userId, {
+                            ...(stateData || {}),
+                            state: 'waiting_human',
+                            waitingCount: 0,
+                            waiting_human_mode: 'bot',
+                            nombre: foundName || (stateData && stateData.nombre),
+                            realPhone: realPhone || (stateData && stateData.realPhone),
+                            chatJid: message.from,
+                            advisorReason: inputToUse.trim(),
+                            waitingTimestamp: Date.now(),
+                            clientWaitingSince: Date.now()
+                        });
                         return;
                     }
                 }
