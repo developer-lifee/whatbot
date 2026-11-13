@@ -2119,6 +2119,92 @@ app.post('/api/admin/client/update-expiration', express.json(), async (req, res)
     }
 });
 
+// Endpoint para editar datos del cliente, contraseña o customer mail en Excel
+app.post('/api/admin/client/update-fields', express.json(), async (req, res) => {
+    try {
+        const { rowNumber, phone, streaming, fields, applyPasswordToAccount = false, originalCorreo = '', password } = req.body;
+        if (password !== 'admin123') {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        if (!fields || typeof fields !== 'object') {
+            return res.status(400).json({ success: false, message: 'Campos a actualizar requeridos' });
+        }
+
+        const { updateExcelData, fetchRawData } = require('./apiService');
+        const allRows = await fetchRawData();
+        let targetRow = parseInt(rowNumber);
+        let matchedRowObj = null;
+
+        if (targetRow && !isNaN(targetRow)) {
+            matchedRowObj = allRows.find(r => (r._rowNumber || (allRows.indexOf(r) + 2)) === targetRow) || null;
+        } else {
+            const cleanPhone = (phone || '').toString().replace(/\D/g, '');
+            matchedRowObj = allRows.find(r => {
+                const rPhone = (r.numero || r.Numero || r.whatsapp || '').toString().replace(/\D/g, '');
+                const rStreaming = (r.Streaming || r.Plataforma || '').toString().toLowerCase();
+                const matchPhone = cleanPhone && rPhone.includes(cleanPhone.slice(-10));
+                const matchStreaming = !streaming || rStreaming.includes(streaming.toLowerCase());
+                return matchPhone && matchStreaming;
+            }) || null;
+            if (matchedRowObj) {
+                targetRow = matchedRowObj._rowNumber || (allRows.indexOf(matchedRowObj) + 2);
+            }
+        }
+
+        if (!targetRow || isNaN(targetRow)) {
+            return res.status(404).json({ success: false, message: 'No se encontró la fila del cliente en Excel' });
+        }
+
+        const allowedKeys = ['Nombre', 'apellido', 'numero', 'whatsapp', 'correo', 'contraseña', 'customer mail', 'pin perfil', 'observaciones', 'operador'];
+        const updates = {};
+        for (const key of allowedKeys) {
+            if (fields[key] !== undefined) {
+                updates[key] = fields[key] === null ? '' : String(fields[key]).trim();
+            }
+        }
+        if (updates.numero !== undefined && updates.whatsapp === undefined) {
+            updates.whatsapp = updates.numero;
+        }
+
+        if (Object.keys(updates).length === 0) {
+            return res.status(400).json({ success: false, message: 'No hay campos válidos para actualizar' });
+        }
+
+        console.log(`[Admin API] Editando fila ${targetRow}:`, Object.keys(updates).join(', '));
+        const result = await updateExcelData(targetRow, updates);
+
+        let extraUpdatedRows = 0;
+        const accountEmailToMatch = (originalCorreo || updates.correo || (matchedRowObj && (matchedRowObj.correo || matchedRowObj.Correo)) || '').toString().toLowerCase().trim();
+        if (applyPasswordToAccount && updates['contraseña'] !== undefined && accountEmailToMatch) {
+            const targetStreamingNorm = (streaming || (matchedRowObj && (matchedRowObj.Streaming || matchedRowObj.Plataforma)) || '').toString().toLowerCase().trim();
+            for (const row of allRows) {
+                const rNum = row._rowNumber || (allRows.indexOf(row) + 2);
+                if (rNum === targetRow) continue;
+                const rEmail = (row.correo || row.Correo || '').toString().toLowerCase().trim();
+                const rStream = (row.Streaming || row.Plataforma || '').toString().toLowerCase().trim();
+                if (rEmail === accountEmailToMatch && (!targetStreamingNorm || rStream === targetStreamingNorm)) {
+                    await updateExcelData(rNum, { 'contraseña': updates['contraseña'] });
+                    extraUpdatedRows++;
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            message: extraUpdatedRows > 0
+                ? `Datos actualizados (contraseña aplicada también a ${extraUpdatedRows} cupo(s) de la misma cuenta).`
+                : 'Datos del cliente actualizados exitosamente.',
+            rowNumber: targetRow,
+            updates,
+            extraUpdatedRows,
+            result
+        });
+    } catch (e) {
+        console.error("[Admin API] Error actualizando datos del cliente:", e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 // Endpoint para aplicar corte de servicio y gestionar reinicio de dispositivos cuando se sacan todas las sesiones
 app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
     try {
