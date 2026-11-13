@@ -988,7 +988,23 @@ const crypto = require('crypto');
 
 app.post('/api/bold/generate-token', async (req, res) => {
     try {
-        const { platform, customer, numbers } = req.body;
+        let { platform, customer, numbers, amount, description, customerPhone, customerName, tenantSlug } = req.body;
+
+        // Soporte para Retailer OS / StoreBuilder (envía amount, description, customerPhone, customerName, tenantSlug)
+        if (!platform && amount && tenantSlug) {
+            platform = {
+                name: description || `Retailer OS: ${tenantSlug}`,
+                price: amount
+            };
+            customer = {
+                firstName: customerName || tenantSlug,
+                lastName: 'RetailerOS',
+                email: `${tenantSlug}@sheerit.co`,
+                whatsapp: customerPhone || ''
+            };
+            numbers = [String(tenantSlug)];
+        }
+
         if (!platform || !customer || !numbers) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
         }
