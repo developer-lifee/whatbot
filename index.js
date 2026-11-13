@@ -1096,6 +1096,166 @@ app.post('/api/bold/generate-token', async (req, res) => {
     }
 });
 
+// ==================== MULTITENANT RETAILER OS STORES ====================
+let retailerStoresTableReady = false;
+async function ensureRetailerStoresTable(pool) {
+    if (retailerStoresTableReady) return;
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS retailer_stores (
+            slug VARCHAR(120) PRIMARY KEY,
+            store_name VARCHAR(200) NOT NULL,
+            business_type VARCHAR(60) DEFAULT 'general',
+            owner_phone VARCHAR(40) DEFAULT '',
+            city VARCHAR(100) DEFAULT '',
+            logo_url MEDIUMTEXT,
+            accent_color VARCHAR(30) DEFAULT '#0d9488',
+            modules_json LONGTEXT,
+            products_json LONGTEXT,
+            status VARCHAR(30) DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    retailerStoresTableReady = true;
+}
+
+app.post('/api/public/stores', express.json({ limit: '5mb' }), async (req, res) => {
+    try {
+        const {
+            slug,
+            storeName,
+            businessType = 'general',
+            ownerPhone = '',
+            city = '',
+            logoUrl = '',
+            accentColor = '#0d9488',
+            modules = {},
+            products = [],
+            status = 'active',
+        } = req.body || {};
+
+        const cleanSlug = String(slug || '')
+            .toLowerCase()
+            .trim()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9-]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        if (!cleanSlug || !storeName) {
+            return res.status(400).json({ success: false, error: 'Nombre de tienda y slug son obligatorios' });
+        }
+
+        const { pool } = require('./database');
+        await ensureRetailerStoresTable(pool);
+
+        await pool.query(
+            `INSERT INTO retailer_stores (slug, store_name, business_type, owner_phone, city, logo_url, accent_color, modules_json, products_json, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE
+                store_name = VALUES(store_name),
+                business_type = VALUES(business_type),
+                owner_phone = VALUES(owner_phone),
+                city = VALUES(city),
+                logo_url = VALUES(logo_url),
+                accent_color = VALUES(accent_color),
+                modules_json = VALUES(modules_json),
+                products_json = VALUES(products_json),
+                status = VALUES(status)`,
+            [
+                cleanSlug,
+                String(storeName).trim(),
+                String(businessType),
+                String(ownerPhone).trim(),
+                String(city).trim(),
+                String(logoUrl || ''),
+                String(accentColor || '#0d9488'),
+                JSON.stringify(modules || {}),
+                JSON.stringify(Array.isArray(products) ? products : []),
+                String(status || 'active'),
+            ]
+        );
+
+        res.json({
+            success: true,
+            slug: cleanSlug,
+            url: `/tienda/${cleanSlug}`,
+        });
+    } catch (e) {
+        console.error('[Retailer Stores] Error guardando tienda:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.get('/api/public/stores/:slug', async (req, res) => {
+    try {
+        const cleanSlug = String(req.params.slug || '').toLowerCase().trim();
+        const { pool } = require('./database');
+        await ensureRetailerStoresTable(pool);
+
+        const [rows] = await pool.query('SELECT * FROM retailer_stores WHERE slug = ? LIMIT 1', [cleanSlug]);
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Tienda no encontrada' });
+        }
+        const row = rows[0];
+        let modules = {};
+        let products = [];
+        try { modules = row.modules_json ? JSON.parse(row.modules_json) : {}; } catch {}
+        try { products = row.products_json ? JSON.parse(row.products_json) : []; } catch {}
+
+        res.json({
+            success: true,
+            store: {
+                slug: row.slug,
+                storeName: row.store_name,
+                businessType: row.business_type,
+                ownerPhone: row.owner_phone,
+                city: row.city,
+                logoUrl: row.logo_url || '',
+                accentColor: row.accent_color || '#0d9488',
+                modules,
+                products,
+                status: row.status,
+                updatedAt: row.updated_at,
+            },
+        });
+    } catch (e) {
+        console.error('[Retailer Stores] Error obteniendo tienda:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.put('/api/public/stores/:slug/products', express.json({ limit: '5mb' }), async (req, res) => {
+    try {
+        const cleanSlug = String(req.params.slug || '').toLowerCase().trim();
+        const { products, logoUrl, accentColor, storeName, ownerPhone, city } = req.body || {};
+        const { pool } = require('./database');
+        await ensureRetailerStoresTable(pool);
+
+        const [rows] = await pool.query('SELECT * FROM retailer_stores WHERE slug = ? LIMIT 1', [cleanSlug]);
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Tienda no encontrada' });
+        }
+
+        const current = rows[0];
+        const nextProducts = Array.isArray(products) ? JSON.stringify(products) : current.products_json;
+        const nextLogo = logoUrl !== undefined ? String(logoUrl || '') : current.logo_url;
+        const nextColor = accentColor !== undefined ? String(accentColor || '#0d9488') : current.accent_color;
+        const nextName = storeName !== undefined ? String(storeName).trim() : current.store_name;
+        const nextPhone = ownerPhone !== undefined ? String(ownerPhone).trim() : current.owner_phone;
+        const nextCity = city !== undefined ? String(city).trim() : current.city;
+
+        await pool.query(
+            `UPDATE retailer_stores SET products_json = ?, logo_url = ?, accent_color = ?, store_name = ?, owner_phone = ?, city = ? WHERE slug = ?`,
+            [nextProducts, nextLogo, nextColor, nextName, nextPhone, nextCity, cleanSlug]
+        );
+
+        res.json({ success: true, slug: cleanSlug });
+    } catch (e) {
+        console.error('[Retailer Stores] Error actualizando catalogo:', e.message);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.post('/api/bold/webhook', async (req, res) => {
     try {
         const signatureHeader = req.headers['x-bold-signature'] || req.headers['x-signature'] || req.headers['bold-signature'] || '';
