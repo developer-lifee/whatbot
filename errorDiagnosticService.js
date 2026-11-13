@@ -614,7 +614,7 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
 
         try {
             console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
-            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI, asistente senior de ingeniería. Haz búsquedas focalizadas con grep -n en los módulos pertinentes, identifica la causa raíz real y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.", existingTicket ? existingTicket.conversationId : null);
+            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI, asistente senior de ingeniería. Haz búsquedas focalizadas con grep -n en los módulos pertinentes, identifica la causa raíz real y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.", previousTicket ? previousTicket.conversationId : null);
             let parsed = extractJsonFromAgyOutput(rawOutput);
             if (parsed && (parsed.causaRaiz || parsed.diagnosis) && (parsed.planCodigo || parsed.plan)) {
                 console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de Antigravity CLI:', JSON.stringify({ platform: parsed.platform, clientName: parsed.clientName, summary: parsed.summary }));
