@@ -17,8 +17,8 @@ const util = require('util');
 const execFileAsync = util.promisify(execFile);
 
 const REPO_DIR = path.resolve(__dirname);
-const AGY_MODEL = 'Gemini 3.8 Flash (Medium)';
-const AGY_CLI_MODELS = ['gemini-3.8-flash-medium', 'gemini-3.8-flash-low', 'gemini-3.8-flash-high'];
+const AGY_MODEL = 'Gemini 4 Hydrogen (Medium)';
+const AGY_CLI_MODELS = ['gemini-4-hydrogen-medium', 'gemini-4-hydrogen-low', 'gemini-3.8-flash-medium'];
 const GEMINI_MODEL = AGY_MODEL;
 
 let lastCliErrorDetails = null;
