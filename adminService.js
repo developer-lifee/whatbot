@@ -485,13 +485,16 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     if (amount <= 0) return { success: false, message: "Monto no válido" };
 
     let matchId = preMatchedId;
-    if (!matchId) {
+    if (!matchId && !userState.autoValidatedByKey) {
         const match = await findMatchingPayment(amount, 60);
         if (!match) return { success: false, message: "No se encontró el pago en Gmail" };
         matchId = match.id;
     }
 
-    const results = await recordNewSale(userId, userState, `Gmail Match (${matchId})`);
+    const paymentLabel = matchId
+        ? `Gmail Match (${matchId})`
+        : (userState.paymentMethod || 'Auto-OCR Llave');
+    const results = await recordNewSale(userId, userState, paymentLabel);
 
     let report = `✅ *PAGO VALIDADO AUTOMÁTICAMENTE*\n\n`;
     results.forEach(res => {

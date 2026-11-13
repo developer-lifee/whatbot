@@ -18070,14 +18070,15 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                                 ...stateData,
                                 state: 'awaiting_netflix_operator_post_payment',
                                 paymentMethod: check.bank || 'Transferencia',
-                                checkAmount: totalPaidSoFar
+                                checkAmount: totalPaidSoFar,
+                                autoValidatedByKey: true
                             });
                             return;
                         }
 
                         const validationResult = await executePaymentValidation(
                             userId,
-                            { ...stateData, total: totalPaidSoFar, paymentMethod: `Auto-OCR Llave (${check.bank || 'Transferencia'})` },
+                            { ...stateData, total: totalPaidSoFar, autoValidatedByKey: true, paymentMethod: `Auto-OCR Llave (${check.bank || 'Transferencia'})` },
                             client, userStates, null, null
                         );
 
