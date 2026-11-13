@@ -17658,10 +17658,16 @@ async function handleMainMenuSelection(message, userId, detection, isMedia = fal
             let accounts = [];
             try { accounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
+            const fallbackStart = Date.now();
             const fallback = await generateEmpatheticFallback(message.body || "", isMedia, history, singleMediaData, accounts);
+            const latestState = userStates.get(userId);
+            if (latestState && (latestState.botMuted === true || (latestState.lastHumanInteraction && latestState.lastHumanInteraction >= fallbackStart))) {
+                console.log(`[Bypass Bot Reply] Abortando respuesta fallback para ${userId}: asesor intervino durante el procesamiento.`);
+                return;
+            }
 
             if (fallback.replyMessage && !fallback.replyMessage.includes("Por favor, selecciona una opción válida")) {
-                await message.reply(fallback.replyMessage);
+                await safeReply(message, fallback.replyMessage, userId);
 
                 if (fallback.needsEscalation) {
                     const chat = await client.getChatById(GROUP_ID);
