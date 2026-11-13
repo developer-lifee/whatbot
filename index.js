@@ -16847,7 +16847,15 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         }
                         const platText = analysis.detectedPlatform ? ` sobre tu servicio de *${analysis.detectedPlatform}*` : '';
                         await message.reply(`🤖 Entendido. He transferido tu caso de soporte técnico${platText} a un asesor humano junto con el detalle que nos indicaste. Un asesor te responderá por este chat lo antes posible. He silenciado mis respuestas automáticas para no interrumpir.`);
-                        userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', advisorReason: inputToUse.trim() });
+                        userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', advisorReason: inputToUse.trim(), waitingTimestamp: Date.now() });
+                        try {
+                            const { createTicketFromChat } = require('./supportScheduleService');
+                            if (typeof createTicketFromChat === 'function') {
+                                await createTicketFromChat(userId, inputToUse.trim(), analysis.detectedPlatform || 'Soporte');
+                            }
+                        } catch (tErr) {
+                            console.error('Error registrando ticket de soporte:', tErr.message);
+                        }
                         return;
                     }
                 }

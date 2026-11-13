@@ -47,9 +47,9 @@
     "573209147831",
     "573114441301",
     "573132849034",
-    "573192312224",
-    "573337249397",
-    "573123077605"
+    "573123077605",
+    "573146006168",
+    "573106143062"
   ],
   "summaries": {
     "3116361436": "Validando pago pendiente",
@@ -61,7 +61,6 @@
     "5731781742462": "Problema acceso plataforma",
     "573024018599": "Validando pago pendiente",
     "57316272751": "Validando pago pendiente",
-    "573015301788": "Sin mensaje registrado",
     "178499595825359": "Disculpa o mensaje breve",
     "573214145124": "Solicita soporte técnico general",
     "208602786713734@lid": "Saludo inicial del cliente",
@@ -195,11 +194,11 @@
     "573118931817": "Interés no especificado",
     "573117646344": "Aviso renovación Spotify",
     "573016162351": "Solicita corte de servicio",
-    "573196933086": "Interés sin mensaje",
+    "573196933086": "Sin mensaje reciente",
     "573166568300": "Falla Netflix Hogar",
-    "573106143062": "Interés sin mensaje",
+    "573106143062": "Cliente ocupado retoma chat",
     "573214861350": "Cliente no renueva servicio",
-    "573204461171": "Servicio no funcionó esta semana",
+    "573204461171": "Corte Spotify servicio",
     "573176887875": "Interés sin especificar",
     "573206386813": "Interés en Apple One",
     "573212166120": "Interés en Spotify",
@@ -220,9 +219,9 @@
     "573196938848": "Interés sin producto especificado",
     "112712877138047": "Interés en producto Claude X2",
     "573224624490": "Pago pendiente de validar",
-    "573247911508": "Corte de Microsoft",
+    "573247911508": "Corte Microsoft servicio",
     "573209187908": "Interés en Canva",
-    "573193960961": "Validando pago pendiente",
+    "573193960961": "Pago pendiente de validación",
     "573337501837": "Cliente sin mensaje",
     "573123565479": "Validando pago",
     "573209692129": "Aviso cobro Spotify vencido",
@@ -253,7 +252,6 @@
     "156409958256838": "Confirmación cliente",
     "269285859545110:3@lid": "Sin mensaje registrado",
     "573053935371": "Sin mensaje del cliente",
-    "573192312224": "Agradece gestión de Apple One",
     "573186224080": "Validando pago pendiente",
     "573028432220": "Validando pago pendiente",
     "573235006952": "Interés sin especificar",
@@ -306,7 +304,7 @@
     "573143062681": "Validando pago pendiente",
     "573123726229": "Validando pago pendiente",
     "573136235076": "Validando pago pendiente",
-    "573028240488": "Solicita código de activación",
+    "573028240488": "Solicita código de acceso",
     "573225933813": "Validando pago pendiente",
     "573245563119": "Pago por Nequi",
     "573115335970": "Interés en Disney",
@@ -337,15 +335,15 @@
     "80093238038681@lid": "Interés Microsoft 365, pregunta demora",
     "80093238038681": "Interés Microsoft 365, pregunta demora",
     "573143412159": "Interés Apple TV",
-    "573123417083": "No puede ingresar",
+    "573123417083": "No puede ingresar app",
     "573145695477": "Validando pago pendiente",
     "573046577883": "Pago realizado días atrás",
     "573014681871": "Interés en servicio general",
-    "573146184515": "Interés sin mensaje",
+    "573146184515": "Sin mensaje reciente",
     "573236924786": "Envía comprobante de pago",
     "573147316818": "Corte Crunchy Roll por mora",
     "573125850439": "Corte HBO Platino",
-    "573027441821": "Cliente afirma ya pagó",
+    "573027441821": "Cliente confirma pago",
     "273800037982263": "Pago sin plataforma identificada",
     "573167264343": "Validando pago pendiente",
     "573183129065": "Cliente agradece atención",
@@ -353,7 +351,7 @@
     "573184828349": "Envió comprobante de pago",
     "573128010895": "Interés en Netflix",
     "573232836250": "Corte Disney y Paramount mora",
-    "573146006168": "Validando pago pendiente",
+    "573146006168": "Validando pago confirmado",
     "573108467083": "Validando pago pendiente",
     "573193394973": "Interés sin especificar",
     "573223089052": "Validando pago pendiente",
@@ -368,7 +366,7 @@
     "573008128649": "Validando pago pendiente",
     "573209311494": "Pago validado agradece",
     "573185160611": "Solicita código Disney",
-    "573004432037": "Interés sin mensaje",
+    "573004432037": "Sin mensaje reciente",
     "573022266678": "Validando pago pendiente",
     "573214581487": "Proporciona nombre completo",
     "573188498681": "Corte Disney aviso cobro",
@@ -415,20 +413,19 @@
     "573183281577": "Interés sin mensaje reciente",
     "573142265023": "Validando pago pendiente",
     "33672802090": "Validando pago pendiente",
-    "573104031114": "Corte Netflix y Spotify",
+    "573104031114": "Corte Netflix Spotify reclamo",
     "573158730937": "Envía comprobante de pago",
     "573106666714": "Validando pago pendiente",
     "573224518782": "Validando pago pendiente",
     "573126613975": "Validando pago pendiente",
     "573138209275": "Validando pago pendiente",
     "57327193840": "Validando pago pendiente",
-    "573052513668": "Corte Apple TV",
-    "573103068338": "Corte Disney inminente",
     "34611029248": "Consulta horario de atención",
     "573213665261": "Aviso de cobro vencido",
     "573337249397": "Interés CRUNCHY ROLL YouTube",
     "573123077605": "Corte Disney cambio cuenta",
-    "573027892574": "Problema mundial de servicio"
+    "573132672346": "Pagar YouTube cuenta Juliana",
+    "573503555389": "Aviso cobro Disney Netflix"
   },
   "cache": {
     "3116361436": {
@@ -470,11 +467,6 @@
       "lastMessage": "",
       "state": "awaiting_payment_confirmation",
       "summary": "💸 Validando Pago"
-    },
-    "573015301788": {
-      "lastMessage": "",
-      "state": "waiting_human",
-      "summary": ""
     },
     "178499595825359": {
       "lastMessage": "",
@@ -1571,11 +1563,6 @@
       "state": "waiting_human",
       "summary": "🛒 Interés: "
     },
-    "573192312224": {
-      "lastMessage": "Gracias",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: APPLE ONE, APPLE ONE"
-    },
     "573186224080": {
       "lastMessage": "",
       "state": "awaiting_payment_confirmation",
@@ -2446,11 +2433,6 @@
       "state": "waiting_human",
       "summary": ""
     },
-    "573108160993": {
-      "lastMessage": "Vale",
-      "state": "waiting_human",
-      "summary": ""
-    },
     "573138933905": {
       "lastMessage": "Solo estoy interesado por ahora en Paramount+, pagaré por llave de bre-v",
       "state": "waiting_human",
@@ -2581,31 +2563,6 @@
       "state": "awaiting_payment_confirmation",
       "summary": "💸 Validando Pago"
     },
-    "573052513668": {
-      "lastMessage": "",
-      "state": "waiting_human",
-      "summary": "🚨 Motivo: \"Corte de Servicio: APPLE TV (Nota: cortar), APPLE TV (Nota: cortar)\""
-    },
-    "573103068338": {
-      "lastMessage": "⚠️ *AVISO DE CORTE INMINENTE* ⚠️\n\nHola Angel , te informamos que por falta de respuesta, tus cuentas de *DISNEY* serán suspendidas el día de hoy a menos de que envíes el comprobante de pago en el tran",
-      "state": "waiting_human",
-      "summary": "🚨 Motivo: \"Corte de Servicio: DISNEY (Nota: cortar)\""
-    },
-    "573229003569": {
-      "lastMessage": "⚠️ *AVISO DE CORTE INMINENTE* ⚠️\n\nHola jesus, te informamos que por falta de respuesta, tus cuentas de *NETFLIX EXTRA* serán suspendidas el día de hoy a menos de que envíes el comprobante de pago en e",
-      "state": "waiting_human",
-      "summary": "🚨 Motivo: \"Corte de Servicio: NETFLIX EXTRA (Nota: cortar)\""
-    },
-    "573223066452": {
-      "lastMessage": "Entonces asi esta bien seria dejar el perfil que ya tengo y esta nueva",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
-    },
-    "573508586961": {
-      "lastMessage": "Ya pido codigo",
-      "state": "waiting_human",
-      "summary": "🚨 Motivo: \"Corte de Servicio: CLAUDE (Nota: cortar - Mora > 3 días / No renovó (admin 7/11/2026))\""
-    },
     "34611029248": {
       "lastMessage": "Que horario de atención tienen",
       "state": "waiting_human",
@@ -2615,16 +2572,6 @@
       "lastMessage": "🤖 *Aviso de Cobro*\nHola Duvan, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que el día de mañana se vence tu cuenta.\n\nServicio(s): CRUNCHY ROLL, YOUTUBE\n\n*Total a transf",
       "state": "waiting_human",
       "summary": "🛒 Interés: "
-    },
-    "573334315849": {
-      "lastMessage": "Si ya",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "66803921359005@lid": {
-      "lastMessage": "Vale muchas gracias",
-      "state": "waiting_human",
-      "summary": ""
     },
     "573102388564": {
       "lastMessage": "Vale quedo atento, pero igual la mensualidad inicia apenas se dé el cupo, si?",
@@ -2641,46 +2588,6 @@
       "state": "waiting_human",
       "summary": "🚨 Motivo: \"Corte de Servicio: DISNEY (Nota: cortar, se le cambio cuenta )\""
     },
-    "180531031462026@lid": {
-      "lastMessage": "Gracias",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: CRUNCHY ROLL, YOUTUBE"
-    },
-    "254317915304169@lid": {
-      "lastMessage": "Ok",
-      "state": "waiting_human",
-      "summary": "🚨 Motivo: \"Corte de Servicio: DISNEY (Nota: cortar, se le cambio cuenta )\""
-    },
-    "573027892574": {
-      "lastMessage": "si comentale al cliente que es un problema mundial y mañana esperemos se solucione con normalidad",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "249723021713571@lid": {
-      "lastMessage": "si comentale al cliente que es un problema mundial y mañana esperemos se solucione con normalidad",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "573016911636": {
-      "lastMessage": "Vale muchas gracias",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "195807760400523@lid": {
-      "lastMessage": "Vale muchas gracias",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: IPTV"
-    },
-    "93784939446356@lid": {
-      "lastMessage": "Vale quedo atento, pero igual la mensualidad inicia apenas se dé el cupo, si?",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: "
-    },
-    "32177978884252@lid": {
-      "lastMessage": "",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: "
-    },
     "573043885523": {
       "lastMessage": "Hola 😊 Lamento la molestia. Tu YouTube Premium está vigente hasta el 1 de diciembre, así que esto es una caída del proveedor y está cubierto por garantía ($0 COP).\n\n Soporte te enviará la nueva invit",
       "state": "waiting_human",
@@ -2692,34 +2599,39 @@
       "summary": "🛒 Interés: "
     },
     "573172322303": {
-      "lastMessage": "Hola 😊 Revisé tu caso: tu YouTube Premium figura activo con el correo telpizwilmer@gmail.com y vence el 30 de noviembre de 2026.\n\nSi no te aparece el premium, verifica que estés usando exactamente es",
+      "lastMessage": "Ya tengo YouTube",
       "state": "waiting_human",
       "summary": ""
     },
-    "36344046841956@lid": {
-      "lastMessage": "Ok",
+    "573213100888": {
+      "lastMessage": "Les encargo",
+      "state": "waiting_human",
+      "summary": ""
+    },
+    "60043743514736@lid": {
+      "lastMessage": "Les encargo",
+      "state": "waiting_human",
+      "summary": ""
+    },
+    "573132672346": {
+      "lastMessage": "pagar you tube yulisadiagama@gmail.com",
+      "state": "waiting_human",
+      "summary": ""
+    },
+    "573503555389": {
+      "lastMessage": "🤖 *Aviso de Cobro*\nHola sebas, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que el día 9/11/2026 se venció tu cuenta.\n\nServicio(s): DISNEY, NETFLIX\n\n*Total a transferir:",
       "state": "waiting_human",
       "summary": "🛒 Interés: "
     },
-    "65159536107634@lid": {
-      "lastMessage": "Con mi número de teléfono",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "276226593841266@lid": {
-      "lastMessage": "Hola 😊 Lamento la molestia. Tu YouTube Premium está vigente hasta el 1 de diciembre, así que esto es una caída del proveedor y está cubierto por garantía ($0 COP).\n\n Soporte te enviará la nueva invit",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "70519084871721@lid": {
-      "lastMessage": "Hola 😊 Revisé tu caso: tu YouTube Premium figura activo con el correo telpizwilmer@gmail.com y vence el 30 de noviembre de 2026.\n\nSi no te aparece el premium, verifica que estés usando exactamente es",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "49581337407716@lid": {
-      "lastMessage": "🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para renovar tu suscripción.",
+    "39346329628704@lid": {
+      "lastMessage": "🤖 *Aviso de Cobro*\nHola sebas, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que el día 9/11/2026 se venció tu cuenta.\n\nServicio(s): DISNEY, NETFLIX\n\n*Total a transferir:",
       "state": "waiting_human",
       "summary": "🛒 Interés: "
+    },
+    "243666446733487@lid": {
+      "lastMessage": "pagar you tube yulisadiagama@gmail.com",
+      "state": "waiting_human",
+      "summary": ""
     }
   }
 }
