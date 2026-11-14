@@ -553,16 +553,21 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
         });
 
         // FILTRO DE SEGURIDAD ADICIONAL: Si las cuentas encontradas pertenecen a diferentes números de teléfono en el Excel,
-        // no mezclarlas (solo quedarnos con el grupo mayoritario o más relevante para evitar fugas de cuentas ajenas).
+        // no mezclarlas (y si el contacto es de una sola palabra genérica, descartar para evitar homónimos).
         if (userAccounts.length > 1) {
           const phonesMap = new Map();
           userAccounts.forEach(acc => {
-            const rawP = (acc.numero || acc.Numero || acc.whatsapp || acc.WhatsApp || '').toString().replace(/\D/g, '');
+            const rawP = (acc.numero || acc.Numero || acc.whatsapp || acc.WhatsApp || acc.celular || acc.Celular || '').toString().replace(/\D/g, '');
             const pKey = rawP.length >= 10 ? rawP.slice(-10) : 'no_phone';
             phonesMap.set(pKey, (phonesMap.get(pKey) || []).concat(acc));
           });
 
-          if (phonesMap.size > 1 && !phonesMap.has('no_phone')) {
+          const realPhoneKeys = Array.from(phonesMap.keys()).filter(k => k !== 'no_phone');
+
+          if (contactTokens.length === 1 && realPhoneKeys.length > 1) {
+            console.warn(`[getAccountsByPhone] ⚠️ Fallback por nombre único "${contactName}" ambiguo (${realPhoneKeys.length} teléfonos distintos en Excel). Se omite para evitar homonimia.`);
+            userAccounts = [];
+          } else if (phonesMap.size > 1 && !phonesMap.has('no_phone')) {
             // Quedarse con el teléfono con más cuentas asociadas
             let bestPhone = null;
             let maxCount = 0;
@@ -1135,4 +1140,3 @@ module.exports = {
   getPricingRules,
   getOneDriveHealth
 };
-

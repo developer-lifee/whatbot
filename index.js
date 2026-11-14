@@ -14369,6 +14369,14 @@ REGLAS:
                     calculatedPrice: getPlatformPriceFromExcel(acc, platforms)
                 })) : [];
 
+                // Propagar plataforma inferida por OCR y contexto reciente del chat hacia stateData
+                if (check && check.inferredPlatform) {
+                    stateData.inferredPlatform = String(check.inferredPlatform).trim();
+                }
+                if (combinedClientText) {
+                    stateData.recentChatContext = combinedClientText;
+                }
+
                 // Determinar si es una compra nueva
                 let isNewRequested = false;
                 if (stateData.isRenewal === true || stateData.intent === 'renovar') {
