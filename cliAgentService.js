@@ -28,15 +28,58 @@ function getLastCliErrorDetails() {
 }
 
 /**
- * Invoca directamente el CLI oficial de Antigravity (agy) autenticado con la cuenta de Google
- * con soporte para reanudar conversaciones existentes (--conversation) y rotación de modelos Gemini Flash.
+ * Calcula un timeout dinámico (120s a 300s) previendo la extensión del diagnóstico,
+ * cantidad de pasos/rangos de líneas en el plan y tamaño de los archivos involucrados.
  */
-async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.", conversationId = null) {
+function computeDynamicCliTimeout(prompt = '', options = {}) {
+    if (options && typeof options.timeoutMs === 'number' && options.timeoutMs > 0) {
+        return options.timeoutMs;
+    }
+    const ticket = (options && options.ticket) || null;
+    const combinedText = `${prompt || ''} ${ticket ? `${ticket.diagnosis || ''} ${ticket.plan || ''}` : ''}`;
+
+    let timeoutMs = 120000; // Base: 120 segundos (2 min)
+
+    // 1. Por longitud del diagnóstico / prompt
+    const charLen = combinedText.length;
+    if (charLen > 1500) {
+        timeoutMs += Math.min(90000, Math.floor((charLen - 1500) / 1000) * 25000);
+    }
+
+    // 2. Por cantidad de bloques o rangos de líneas citados en el diagnóstico/plan
+    const lineRangeMatches = combinedText.match(/(?:l[ií]neas?\s*|:\s*)\d{2,6}/gi) || [];
+    const stepMatches = combinedText.match(/(?:^|\n)\s*\d+\.\s+/g) || [];
+    const complexityPoints = Math.max(lineRangeMatches.length, stepMatches.length);
+    if (complexityPoints > 1) {
+        timeoutMs += Math.min(90000, (complexityPoints - 1) * 25000);
+    }
+
+    // 3. Si involucra archivos extensos como index.js o múltiples archivos
+    const touchesLargeFile = /\bindex\.js\b/i.test(combinedText) || Boolean(options && options.isLargeFile);
+    if (touchesLargeFile) {
+        timeoutMs += 40000;
+    }
+    if (ticket && Array.isArray(ticket.files) && ticket.files.length > 1) {
+        timeoutMs += (ticket.files.length - 1) * 25000;
+    }
+
+    return Math.max(120000, Math.min(300000, timeoutMs));
+}
+
+/**
+ * Invoca directamente el CLI oficial de Antigravity (agy) autenticado con la cuenta de Google
+ * con soporte para reanudar conversaciones existentes (--conversation), timeout dinámico y rotación de modelos.
+ */
+async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.", conversationId = null, options = {}) {
     const fullPrompt = `${systemInstruction}\n\n${prompt}`;
     const agyBin = fs.existsSync('/usr/local/bin/agy') ? '/usr/local/bin/agy' : (fs.existsSync('/root/.local/bin/agy') ? '/root/.local/bin/agy' : 'agy');
+    const dynamicTimeoutMs = computeDynamicCliTimeout(fullPrompt, options);
+    const timeoutSec = Math.round(dynamicTimeoutMs / 1000);
 
     const modelErrors = [];
     lastCliErrorDetails = null;
+
+    console.log(`[Antigravity CLI] ⏱️ Ejecutando CLI con timeout dinámico de ${timeoutSec}s${conversationId ? ` (conversación: ${conversationId})` : ''}...`);
 
     for (const cliModel of AGY_CLI_MODELS) {
         try {
@@ -53,13 +96,13 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
             const { stdout, stderr } = await execFileAsync(agyBin, agyArgs, {
                 cwd: REPO_DIR,
                 encoding: 'utf8',
-                timeout: 65000,
+                timeout: dynamicTimeoutMs,
                 maxBuffer: 20 * 1024 * 1024,
                 env: { ...process.env, PATH: `/usr/local/bin:/root/.local/bin:${process.env.PATH}` }
             });
             const trimmed = (stdout || '').trim();
             if (trimmed && !trimmed.includes('RESOURCE_EXHAUSTED') && !trimmed.includes('"status":"ERROR"')) {
-                console.log(`[Antigravity CLI] ✅ Respuesta generada exitosamente con modelo ${cliModel}${conversationId ? ' (continuando conversación previa)' : ''}`);
+                console.log(`[Antigravity CLI] ✅ Respuesta generada exitosamente con modelo ${cliModel} (timeout asignado: ${timeoutSec}s)${conversationId ? ' [conversación continua]' : ''}`);
                 lastCliErrorDetails = null;
                 return trimmed;
             }
@@ -73,7 +116,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
         } catch (e) {
             const rawErr = `${e.message || ''} ${e.stderr || ''} ${e.stdout || ''}`;
             if (e.killed || e.signal === 'SIGTERM' || /timed?\s*out/i.test(rawErr)) {
-                modelErrors.push(`${cliModel}: ⏱️ Timeout (>90s) procesando solicitud en CLI`);
+                modelErrors.push(`${cliModel}: ⏱️ Timeout (>${timeoutSec}s) procesando solicitud en CLI`);
             } else if (rawErr.includes('RESOURCE_EXHAUSTED') || rawErr.includes('429')) {
                 modelErrors.push(`${cliModel}: 🚨 Cuota / Modelo agotado (HTTP 429 RESOURCE_EXHAUSTED)`);
             } else if (/auth|token|login|credential/i.test(rawErr)) {
@@ -88,7 +131,7 @@ async function callAgyCli(prompt, systemInstruction = "Eres Antigravity CLI, asi
     // Si falló con conversationId, intentar una vez más sin conversationId por si la sesión previa caducó
     if (conversationId) {
         console.warn('[Antigravity CLI] Reintentando llamada CLI en sesión limpia (sin conversationId)...');
-        return callAgyCli(prompt, systemInstruction, null);
+        return callAgyCli(prompt, systemInstruction, null, options);
     }
 
     lastCliErrorDetails = modelErrors.join('\n• ');
@@ -358,22 +401,34 @@ Indica en formato JSON el bloque (o bloques) de búsqueda y reemplazo EXACTO. Ca
   ]
 }`;
             try {
+                const backupPath = `${fullPath}.bak`;
+                fs.writeFileSync(backupPath, originalCode, 'utf8');
+
                 let parsedSnippet = null;
-                // 1. Intentar con Gemini HTTP directo primero por velocidad (<5s) al tener ya el contexto en memoria
                 try {
-                    const snippetRaw = await callGemini38FlashHttp(snippetPrompt, "Responde ÚNICAMENTE con JSON válido con 'buscar'/'reemplazarPor' o 'cambios'.");
+                    const snippetRaw = await callAgyCli(
+                        snippetPrompt,
+                        "Eres Antigravity CLI. Ya tienes los fragmentos exactos del archivo arriba; NO abras ni leas archivos adicionales salvo que necesites editar directamente. Devuelve ÚNICAMENTE el JSON con 'buscar'/'reemplazarPor' o 'cambios' sin explicaciones.",
+                        ticket.conversationId || null,
+                        { ticket, isLargeFile: true }
+                    );
                     parsedSnippet = extractJsonFromAgyOutput(snippetRaw);
-                } catch (gemErr) {
-                    console.warn('[Antigravity CLI] Falló Gemini HTTP rápido para snippet, probando agy CLI:', gemErr.message);
+                } catch (agyErr) {
+                    console.warn('[Antigravity CLI] Error ejecutando agy para snippet:', agyErr.message);
                 }
 
-                // 2. Fallback a Antigravity CLI (agy) indicando no abrir herramientas de lectura
-                if (!parsedSnippet || (!parsedSnippet.buscar && !Array.isArray(parsedSnippet.cambios))) {
+                // Si el propio CLI (agy) aplicó directamente la edición sobre el archivo en disco durante su ejecución, validarla
+                const currentDiskCode = fs.readFileSync(fullPath, 'utf8');
+                if (currentDiskCode !== originalCode) {
                     try {
-                        const snippetRaw = await callAgyCli(snippetPrompt, "Eres Antigravity CLI. NO uses herramientas para leer archivos porque el fragmento ya está en el prompt. Devuelve ÚNICAMENTE el JSON con 'buscar' y 'reemplazarPor' (o 'cambios') sin explicaciones.");
-                        parsedSnippet = extractJsonFromAgyOutput(snippetRaw);
-                    } catch (agyErr) {
-                        console.warn('[Antigravity CLI] Falló agy para snippet:', agyErr.message);
+                        execSync(`node -c "${fullPath}"`, { cwd: REPO_DIR });
+                        if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
+                        modifiedFiles.push(relFile);
+                        console.log(`[Antigravity CLI] ✅ Edición directa realizada por agy CLI y validada con éxito en ${relFile}`);
+                        continue;
+                    } catch (directSynErr) {
+                        console.warn(`[Antigravity CLI] ⚠️ Edición directa en disco tuvo error sintáctico, restaurando backup para evaluar JSON:`, directSynErr.message);
+                        fs.copyFileSync(backupPath, fullPath);
                     }
                 }
 
@@ -416,23 +471,24 @@ Indica en formato JSON el bloque (o bloques) de búsqueda y reemplazo EXACTO. Ca
                     }
 
                     if (appliedCount > 0) {
-                        const backupPath = `${fullPath}.bak`;
-                        fs.writeFileSync(backupPath, originalCode, 'utf8');
                         fs.writeFileSync(fullPath, workingContent, 'utf8');
                         try {
                             execSync(`node -c "${fullPath}"`, { cwd: REPO_DIR });
-                            fs.unlinkSync(backupPath);
+                            if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
                             modifiedFiles.push(relFile);
                             console.log(`[Antigravity CLI] ✅ ${appliedCount} bloque(s) reemplazado(s) y validado(s) con éxito en ${relFile}`);
                             continue;
                         } catch (synErr) {
                             console.error(`[Antigravity CLI] ❌ Error sintáctico tras reemplazo en ${relFile}. Revertiendo:`, synErr.message);
                             fs.copyFileSync(backupPath, fullPath);
-                            fs.unlinkSync(backupPath);
+                            if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
                         }
                     } else {
+                        if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
                         console.warn(`[Antigravity CLI] ⚠️ Ningún bloque 'buscar' coincidió de forma idéntica en ${relFile}.`);
                     }
+                } else {
+                    if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
                 }
             } catch (snErr) {
                 console.warn('[Antigravity CLI] No se pudo aplicar bloque en archivo grande:', snErr.message);
@@ -440,7 +496,7 @@ Indica en formato JSON el bloque (o bloques) de búsqueda y reemplazo EXACTO. Ca
             continue;
         }
 
-        // Archivos de tamaño estándar: reescribir con validación estricta
+        // Archivos de tamaño estándar: reescribir o editar exclusivamente con Antigravity CLI (agy)
         const editPrompt = `Actúas como un ingeniero de software senior para el repositorio whatbot.
 Se debe implementar la siguiente solución técnica aprobada en el archivo "${relFile}":
 PLAN:
@@ -454,40 +510,56 @@ ${originalCode}
 \`\`\`
 
 REGLAS CRÍTICAS:
-1. Devuelve el código JavaScript COMPLETO del archivo con la corrección aplicada.
+1. Devuelve el código JavaScript COMPLETO del archivo con la corrección aplicada (sin usar herramientas para leer otros archivos).
 2. Mantén intacta toda la funcionalidad, imports y lógica que no requiera cambio.
 3. El código debe ser 100% sintácticamente válido para Node.js.
 4. Responde ÚNICAMENTE con el bloque \`\`\`javascript ... \`\`\` sin explicaciones previas ni posteriores.`;
 
+        const backupPath = `${fullPath}.bak`;
+        fs.writeFileSync(backupPath, originalCode, 'utf8');
+
         let updatedCode = null;
         try {
-            const resp = await callAgyCli(editPrompt, "Eres Antigravity CLI. Devuelve únicamente el bloque de código javascript.");
+            const resp = await callAgyCli(
+                editPrompt,
+                "Eres Antigravity CLI. Devuelve únicamente el bloque de código javascript completo.",
+                ticket.conversationId || null,
+                { ticket }
+            );
             updatedCode = extractCodeFromResponse(resp);
         } catch (e) {
-            console.warn('[Antigravity CLI] Falló generación con agy, intentando Gemini:', e.message);
+            console.error('[Antigravity CLI] Falló generación con agy CLI:', e.message);
+        }
+
+        // Si agy CLI editó directamente el archivo en disco durante su ejecución
+        const diskAfter = fs.readFileSync(fullPath, 'utf8');
+        if (diskAfter !== originalCode) {
             try {
-                const resp = await callGemini38FlashHttp(editPrompt);
-                updatedCode = extractCodeFromResponse(resp);
-            } catch (gErr) {
-                console.error('[Antigravity CLI] Fallaron agy y Gemini para generar código:', gErr.message);
+                execSync(`node -c "${fullPath}"`, { cwd: REPO_DIR });
+                if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
+                modifiedFiles.push(relFile);
+                console.log(`[Antigravity CLI] ✅ Archivo ${relFile} editado directamente por agy CLI y validado sintácticamente.`);
+                continue;
+            } catch (synErr) {
+                fs.copyFileSync(backupPath, fullPath);
             }
         }
 
         if (updatedCode && updatedCode.length > 50 && updatedCode !== originalCode) {
-            const backupPath = `${fullPath}.bak`;
-            fs.writeFileSync(backupPath, originalCode, 'utf8');
             fs.writeFileSync(fullPath, updatedCode, 'utf8');
 
             try {
                 execSync(`node -c "${fullPath}"`, { cwd: REPO_DIR });
-                fs.unlinkSync(backupPath);
+                if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
                 modifiedFiles.push(relFile);
                 console.log(`[Antigravity CLI] ✅ Archivo ${relFile} modificado y validado sintácticamente.`);
             } catch (syntaxErr) {
                 console.error(`[Antigravity CLI] ❌ Error de sintaxis en ${relFile}. Revertiendo:`, syntaxErr.message);
                 fs.copyFileSync(backupPath, fullPath);
-                fs.unlinkSync(backupPath);
+                if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
             }
+        } else {
+            if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
         }
     }
 

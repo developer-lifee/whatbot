@@ -614,35 +614,25 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
 
         try {
             console.log('[ErrorDiagnostic] 🚀 Invocando Antigravity CLI (agy) para análisis de ingeniería...');
-            const rawOutput = await callAgyCli(prompt, "Eres Antigravity CLI, asistente senior de ingeniería. Haz búsquedas focalizadas con grep -n en los módulos pertinentes, identifica la causa raíz real y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.", previousTicket ? previousTicket.conversationId : null);
+            const rawOutput = await callAgyCli(
+                prompt,
+                "Eres Antigravity CLI, asistente senior de ingeniería. Haz búsquedas focalizadas con grep -n en los módulos pertinentes, identifica la causa raíz real y devuelve exclusivamente el JSON solicitado sin bloques markdown ni texto extra.",
+                previousTicket ? previousTicket.conversationId : null,
+                { ticket: previousTicket, isLargeFile: true }
+            );
             let parsed = extractJsonFromAgyOutput(rawOutput);
             if (parsed && (parsed.causaRaiz || parsed.diagnosis) && (parsed.planCodigo || parsed.plan)) {
                 console.log('[ErrorDiagnostic] ✅ JSON parseado exitosamente de Antigravity CLI:', JSON.stringify({ platform: parsed.platform, clientName: parsed.clientName, summary: parsed.summary }));
                 return parsed;
             }
-
-            console.warn('[ErrorDiagnostic] ⚠️ agy CLI incompleto o sin plan. Activando respaldo rápido HTTP Gemini Flash...');
-            const httpResp = await callGemini38FlashHttp(prompt, "Eres Antigravity CLI, asistente senior de ingeniería. Devuelve exclusivamente el JSON solicitado con platform, causaRaiz, planCodigo, commitDetallado, archivosAfectados sin bloques markdown.");
-            const parsedHttp = extractJsonFromAgyOutput(httpResp);
-            if (parsedHttp && (parsedHttp.causaRaiz || parsedHttp.diagnosis) && (parsedHttp.planCodigo || parsedHttp.plan)) {
-                console.log('[ErrorDiagnostic] ✅ JSON de respaldo HTTP Gemini Flash generado con éxito.');
-                return parsedHttp;
-            }
         } catch (agyErr) {
-            console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI/Gemini:', agyErr.message);
-            try {
-                const httpResp = await callGemini38FlashHttp(prompt, "Eres Antigravity CLI, asistente senior de ingeniería. Devuelve exclusivamente el JSON solicitado con platform, causaRaiz, planCodigo, commitDetallado, archivosAfectados.");
-                const parsedHttp = extractJsonFromAgyOutput(httpResp);
-                if (parsedHttp && (parsedHttp.causaRaiz || parsedHttp.diagnosis) && (parsedHttp.planCodigo || parsedHttp.plan)) {
-                    return parsedHttp;
-                }
-            } catch (hErr) {}
+            console.warn('[ErrorDiagnostic] Error invocando Antigravity CLI:', agyErr.message);
         }
 
         return buildEngineErrorResponse();
     };
 
-    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(buildEngineErrorResponse('⏱️ Timeout global alcanzado (260s): lectura desbordada de archivos/logs sin cerrar respuesta JSON')), 260000));
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(buildEngineErrorResponse('⏱️ Timeout global alcanzado (330s): lectura desbordada de archivos/logs sin cerrar respuesta JSON')), 330000));
     try {
         return await Promise.race([generatePromise(), timeoutPromise]);
     } catch (e) {
@@ -1111,6 +1101,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 plan: updatedCliSolution.planCodigo,
                 commitMessage: updatedCliSolution.commitDetallado,
                 files: targetFiles,
+                conversationId: updatedCliSolution.conversationId || pendingTicket.conversationId || null,
                 isPreliminary: false
             });
 
@@ -1553,6 +1544,7 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             plan: cliSolution.planCodigo,
             commitMessage: cliSolution.commitDetallado,
             files: cliSolution.archivosAfectados,
+            conversationId: cliSolution.conversationId || null,
             isPreliminary: Boolean(cliSolution.isPreliminary),
             status: 'PENDIENTE_APROBACION',
             createdAt: new Date().toISOString()
