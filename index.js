@@ -8946,7 +8946,7 @@ Salida esperada JSON:
 
 En "explanation", escribe una breve explicación en español del contenido de la imagen (OCR, textos principales, errores detectados, códigos) o del mensaje del usuario.
 Si el mensaje actual es una imagen o el texto menciona un pago, revisa si es un comprobante. Si lo es, pon intent: "pagar".
-Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VERIFICACIÓN (2FA, código de 6 dígitos enviado al correo o app autenticadora) o si el usuario reporta que el código recibido no funcionó / fue incorrecto, pon intent: "soporte" con metadata.is2faScreen = true (para que el bot intente fallback de lectura por correo o transfiera de inmediato al asesor con contexto claro).`;
+Si la imagen muestra una PANTALLA DE INICIO DE SESIÓN pidiendo un CÓDIGO DE VERIFICACIÓN (2FA, código de 6 dígitos enviado al correo o app autenticadora) o confirmación de inicio de sesión por enlace (ej. Crunchyroll), o si el usuario reporta que el código/enlace recibido no funcionó / fue incorrecto, pon intent: "soporte" con metadata.is2faScreen = true (para que el bot intente fallback de lectura por correo o transfiera de inmediato al asesor con contexto claro).`;
 
 const DEFAULT_CREDENTIALS_PROMPT = `Eres un agente humano y empático de servicio al cliente de "Sheerit".
 Un cliente nos ha pedido revisar sus credenciales de streaming.
@@ -8968,7 +8968,7 @@ INSTRUCCIONES:
 1. Muestra SIEMPRE el Correo, la Clave y el Perfil/PIN para CADA cuenta de la lista. NUNCA resumas u omitas esta información.
 2. **PROHIBIDO INVENTAR / ALUCINAR**: Transcribe EXACTAMENTE el Correo y la Clave proporcionados en la lista de arriba. Queda estrictamente prohibido inventar correos ficticios (como sheeritstorecol@gmail.com u otros) o contraseñas (como Sheerit2025* u otras) que no estén tal cual en la lista. Si el dato dice "N/A" o está vacío, indícalo tal cual y pídele al usuario esperar a que el asesor lo asigne.
 3. **PROHIBIDO SIMULAR ENTREGAS SIN ASIGNACIÓN**: NUNCA generes respuestas afirmando que el pago ya fue validado y que en un momento se le enviará la cuenta, a menos que las credenciales ya aparezcan efectivamente en la lista de arriba.
-4. **IMPORTANTE (Cuentas Familiares/Extras)**: Si en los datos dice que la clave es "(Acceso por invitación/perfil propio)", explica amablemente al usuario que para ese servicio (ej. YouTube, Microsoft, Netflix Extra) no se usa una clave compartida, sino que él accede con su propio correo o mediante una invitación que le llegará.
+4. **IMPORTANTE (Cuentas Familiares/Extras/Enlaces de Acceso)**: Si en los datos dice que la clave es "(Acceso por invitación/perfil propio)" o para la plataforma se entrega un enlace de confirmación/inicio de sesión (ej. Crunchyroll), explica amablemente al usuario que debe hacer clic en el enlace entregado para confirmar que ha sido él quien intentó iniciar sesión, o que para ese servicio no se usa una clave compartida sino acceso por invitación/correo propio.
 5. Si la cuenta está vencida, mantén el aviso de que la clave está oculta por seguridad.
 6. Si la lista está vacía, no des por sentado que no tiene servicios si acaba de reportar su pago u operador; infórmale con tacto que su activación está siendo procesada en el sistema o transfiérelo a soporte técnico.
 6. Al final de tu mensaje, incluye el emoji 🤖 para indicar que eres un asistente automatizado.

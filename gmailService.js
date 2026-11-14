@@ -582,7 +582,7 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
             }
 
             // Extraer el mejor enlace (sin logos ni imágenes de Claude/Streaming)
-            const link = extractBestLink(decodedHtml || decodedText);
+            const link = extractBestLink(decodedHtml || decodedText, decodedSubject);
 
             codesFound.push({
                 id: fullMsg.data.id,
@@ -630,74 +630,149 @@ function getMessageBody(payload) {
     return parts.text || parts.html || "";
 }
 
-function extractBestLink(bodyText) {
+function extractBestLink(bodyText, contextHint = '') {
     if (!bodyText) return null;
     const decoded = bodyText.replace(/&amp;/g, '&');
 
-    // 1. Search specifically for <a ... href="..."> tags to get exact hyperlink targets
-    const hrefRegex = /<a\s+[^>]*href=["']([^"']+)["']/gi;
-    const hrefMatches = [];
+    const decodeBasicHtmlEntities = (str) => {
+        if (!str) return '';
+        return str
+            .replace(/&nbsp;/gi, ' ')
+            .replace(/&aacute;/gi, 'á')
+            .replace(/&eacute;/gi, 'é')
+            .replace(/&iacute;/gi, 'í')
+            .replace(/&oacute;/gi, 'ó')
+            .replace(/&uacute;/gi, 'ú')
+            .replace(/&ntilde;/gi, 'ñ')
+            .replace(/&iquest;/gi, '¿')
+            .replace(/&#39;|&apos;/gi, "'")
+            .replace(/&quot;/gi, '"')
+            .replace(/&amp;/gi, '&')
+            .replace(/\s+/g, ' ')
+            .trim();
+    };
+
+    // 1. Search specifically for <a ... href="...">...</a> tags to get exact hyperlink targets + visible text/attributes
+    const anchorRegex = /<a\s+([^>]*?)href=["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi;
+    const anchorCandidates = [];
     let m;
-    while ((m = hrefRegex.exec(decoded)) !== null) {
-        if (m[1] && /^https?:\/\//i.test(m[1])) {
-            hrefMatches.push(m[1]);
+    while ((m = anchorRegex.exec(decoded)) !== null) {
+        const url = m[2];
+        if (!url || !/^https?:\/\//i.test(url)) continue;
+
+        const attrs = `${m[1] || ''} ${m[3] || ''}`;
+        const innerHtml = m[4] || '';
+
+        // Extract visible text removing inner HTML tags (<span>, <img>, <b>, etc.)
+        const strippedText = decodeBasicHtmlEntities(innerHtml.replace(/<[^>]+>/g, ' '));
+
+        // Also inspect alt / title attributes on the anchor or inner elements (e.g. <img>)
+        const attrTexts = [];
+        const altTitleRegex = /(?:alt|title)=["']([^"']+)["']/gi;
+        let attrMatch;
+        const combinedForAttrs = `${attrs} ${innerHtml}`;
+        while ((attrMatch = altTitleRegex.exec(combinedForAttrs)) !== null) {
+            if (attrMatch[1]) {
+                attrTexts.push(decodeBasicHtmlEntities(attrMatch[1]));
+            }
         }
+
+        const combinedText = [strippedText, ...attrTexts].filter(Boolean).join(' ').trim();
+        const isImageOnly = !strippedText && /<img\b/i.test(innerHtml);
+
+        anchorCandidates.push({
+            url,
+            text: combinedText,
+            visibleText: strippedText,
+            isImageOnly
+        });
     }
 
-    // 2. Fallback to general URL pattern
+    // 2. Fallback to general URL pattern if no <a> tags were found
     const allRegex = /https?:\/\/(?:www\.)?(?:[a-zA-Z0-9-]+\.)*(?:netflix\.com|disneyplus\.com|starplus\.com|max\.com|hbomax\.com|primevideo\.com|amazon\.com|auth\.max\.com|claude\.ai|anthropic\.com|mail\.anthropic\.com|crunchyroll\.com|paramountplus\.com|vix\.com|spotify\.com|canva\.com|plex\.tv)[^\s<>"']+/gi;
-    const allMatches = decoded.match(allRegex) || [];
+    const allMatches = (decoded.match(allRegex) || []).map(url => ({
+        url,
+        text: '',
+        visibleText: '',
+        isImageOnly: false
+    }));
 
-    const candidates = hrefMatches.length > 0 ? hrefMatches : allMatches;
+    const candidates = anchorCandidates.length > 0 ? anchorCandidates : allMatches;
     if (candidates.length === 0) return null;
 
-    // Filter out images, logos, static assets, and generic help/footer links
-    const filteredMatches = candidates.filter(url => {
+    // Filter out images, logos, static assets, social networks, legal/help/unsubscribe and negative action links
+    const negativeLinkTextPattern = /no\s+fui\s+yo|no\s+he\s+sido\s+yo|wasn'?t\s+me|not\s+me|didn'?t\s+recognize|no\s+reconozco|reset\s+password|restablecer\s+contrase[ñn]a|cambiar\s+contrase[ñn]a|unsubscribe|darse\s+de\s+baja|cancelar\s+suscripci[oó]n|t[eé]rminos|terms\s+of|privacidad|privacy\s+policy|pol[ií]tica\s+de\s+privacidad|centro\s+de\s+ayuda|help\s+center/i;
+
+    const filteredMatches = candidates.filter(({ url, text }) => {
         const lower = url.toLowerCase();
+        const lowerText = (text || '').toLowerCase();
+
         if (/\.(png|jpg|jpeg|gif|svg|webp|ico)(?:\?|$)/.test(lower)) return false;
         if (lower.includes('/images/') || lower.includes('/logos/') || lower.includes('/assets/')) return false;
         if (lower.includes('lkid=url_logo') || lower.includes('lkid=url_email') || lower.includes('lkid=url_src') || lower.includes('lkid=url_help') || lower.includes('lkid=url_terms') || lower.includes('lkid=url_privacy')) return false;
         if (lower.includes('help.netflix.com') || lower.includes('termsofuse') || lower.includes('privacypolicy') || lower.includes('corpinfo')) return false;
+        if (/(?:facebook|twitter|x|instagram|tiktok|youtube|linkedin|discord)\.(?:com|gg)\b/.test(lower)) return false;
+        if (lower.includes('unsubscribe') || lower.includes('optout') || lower.includes('opt-out') || lower.includes('reset-password') || lower.includes('reset_password')) return false;
+
+        if (lowerText && negativeLinkTextPattern.test(lowerText)) return false;
+
         return true;
     });
 
     if (filteredMatches.length === 0) {
-        const nonLogo = candidates.find(u => !u.toLowerCase().includes('lkid=url_logo'));
-        return nonLogo || candidates[0];
+        const nonLogo = candidates.find(c => !c.url.toLowerCase().includes('lkid=url_logo'));
+        return (nonLogo || candidates[0]).url;
     }
 
     // PRIORITY 1A: Direct Netflix Household / Location / Travel action links
-    const hogarLocationMatch = filteredMatches.find(url => {
+    const hogarLocationMatch = filteredMatches.find(({ url }) => {
         const lower = url.toLowerCase();
         return lower.includes('update-primary-location') || 
                lower.includes('update_household') || 
                lower.includes('update-household') ||
                lower.includes('travel/verify');
     });
-    if (hogarLocationMatch) return hogarLocationMatch;
+    if (hogarLocationMatch) return hogarLocationMatch.url;
 
     // PRIORITY 1B: Generic nftoken links
-    const hogarTokenMatch = filteredMatches.find(url => {
+    const hogarTokenMatch = filteredMatches.find(({ url }) => {
         const lower = url.toLowerCase();
         return (lower.includes('nftoken=') || lower.includes('manageaccountaccess')) && !lower.includes('lkid=url_logo');
     });
-    if (hogarTokenMatch) return hogarTokenMatch;
+    if (hogarTokenMatch) return hogarTokenMatch.url;
 
-    // PRIORITY 2: Magic links, verification tokens
-    const priorityMatch = filteredMatches.find(url => {
+    // PRIORITY 2: Magic links, verification tokens in URL
+    const priorityMatch = filteredMatches.find(({ url }) => {
         const lower = url.toLowerCase();
         return (lower.includes('magic-link') || lower.includes('verify') || lower.includes('token=') || lower.includes('code=')) && 
                !lower.includes('/browse') && !lower.includes('/login');
     });
-    if (priorityMatch) return priorityMatch;
+    if (priorityMatch) return priorityMatch.url;
 
-    // Filter out plain /browse or /login links if better ones exist
-    const nonGenericMatch = filteredMatches.find(url => {
+    // PRIORITY 3: Login / confirmation action buttons by visible link text (crucial for opaque tracking links like SendGrid / Crunchyroll)
+    const confirmActionRegex = /confirm|confirmar|s[ií],?\s*fui\s*yo|yes,?\s*(it\s*was\s*me|that\s*was\s*me)|ha\s*sido|iniciar\s*sesi[oó]n|log\s*in|sign\s*in|verify|autorizar|approve/i;
+    const isConfirmationContext = !contextHint || /crunchy|confirm|inici|sesi[oó]n|login|sign\s*in|verific|autoriz|access|acceso|security|seguridad|attempt/i.test(contextHint);
+    if (isConfirmationContext) {
+        const textActionMatch = filteredMatches.find(({ text }) => {
+            return text && confirmActionRegex.test(text);
+        });
+        if (textActionMatch) return textActionMatch.url;
+    }
+
+    // Filter out plain /browse or /login links and image-only links if better ones exist
+    const nonGenericMatch = filteredMatches.find(({ url, isImageOnly }) => {
+        const lower = url.toLowerCase();
+        return !isImageOnly && !lower.endsWith('/browse') && !lower.includes('/browse?') && !lower.endsWith('/login') && !lower.includes('/login?');
+    });
+
+    if (nonGenericMatch) return nonGenericMatch.url;
+
+    const nonBrowseOrLogin = filteredMatches.find(({ url }) => {
         const lower = url.toLowerCase();
         return !lower.endsWith('/browse') && !lower.includes('/browse?') && !lower.endsWith('/login') && !lower.includes('/login?');
     });
 
-    return nonGenericMatch || filteredMatches[0];
+    return (nonBrowseOrLogin || filteredMatches[0]).url;
 }
 
 function cleanHtml(html) {
@@ -805,7 +880,7 @@ async function getEmailsFromInbox(email, maxResults = 15) {
                 }
             }
 
-            const link = extractBestLink(decodedHtml || decodedText);
+            const link = extractBestLink(decodedHtml || decodedText, decodedSubj);
 
             emailsList.push({
                 id: msg.id,
