@@ -47,10 +47,10 @@
     "573132849034",
     "573123077605",
     "573132882944",
-    "573027892574",
     "573107981477",
     "573028240488",
-    "573146006168"
+    "573146006168",
+    "573106143062"
   ],
   "summaries": {
     "3116361436": "Validando pago pendiente",
@@ -179,13 +179,13 @@
     "573002174214": "Interés no especificado",
     "573133408553": "Confirma ceder cupo",
     "573138047519": "Validando pago del cliente",
-    "573502487347": "Validando pago pendiente",
+    "573502487347": "Pago pendiente de validar",
     "573132235951": "Consulta de interés comercial",
     "573219507467": "Consulta de interés comercial",
     "125735318618135": "Solicitud de asistencia técnica",
     "573181742462": "Consulta de interés comercial",
     "573507422823": "Interés: agradece atención",
-    "573229154158": "Validando pago pendiente",
+    "573229154158": "Pago pendiente de validar",
     "246539796635701@lid": "Solicitud de asistencia técnica",
     "246539796635701": "En espera de asesor",
     "573142723007": "Validando pago pendiente",
@@ -196,11 +196,10 @@
     "573016162351": "Solicita corte de servicio",
     "573196933086": "Interés sin mensaje reciente",
     "573166568300": "Falla Netflix Hogar",
-    "573106143062": "Interés tras estar ocupado",
+    "573106143062": "Interés sin mensaje reciente",
     "573214861350": "Cliente no renueva servicio",
-    "573204461171": "Servicio no funcionó esta semana",
     "573176887875": "Interés sin especificar",
-    "573206386813": "Interés en Apple One",
+    "573206386813": "Validando pago reciente",
     "573212166120": "Interés en Spotify",
     "573209482572": "Muestra interés en producto",
     "573209738382": "Valida pago realizado",
@@ -221,7 +220,7 @@
     "573224624490": "Pago pendiente de validar",
     "573247911508": "Corte de servicio Microsoft",
     "573209187908": "Interés en Canva",
-    "573193960961": "Validando pago pendiente",
+    "573193960961": "Pago pendiente de validar",
     "573337501837": "Cliente sin mensaje",
     "573123565479": "Validando pago",
     "573209692129": "Aviso cobro Spotify vencido",
@@ -231,7 +230,7 @@
     "573213188131": "Validando pago",
     "5300694298765@lid": "Cliente en espera de asesor",
     "5300694298765": "Cliente en espera de asesor",
-    "573237327084": "Validando pago pendiente",
+    "573237327084": "Pago pendiente de validar",
     "573143616950": "Interés sin mensaje",
     "573217018751": "Pago realizado, validar servicio",
     "573143412200": "Validando pago",
@@ -307,7 +306,7 @@
     "573245563119": "Pago por Nequi",
     "573115335970": "Interés en Disney",
     "243357225889907": "Confirma pedido listo",
-    "573203714596": "Consulta otras plataformas disponibles",
+    "573203714596": "Consulta otras plataformas",
     "215637490188527": "Agradece atención recibida",
     "573162733503": "Validando pago pendiente",
     "573105151802": "Validando pago pendiente",
@@ -315,7 +314,7 @@
     "573053119990": "Validando pago de servicio",
     "573228569971": "Saludo inicial del cliente",
     "573015583151": "Consulta todos sus servicios",
-    "573123842943": "Validando pago pendiente",
+    "573123842943": "Pago pendiente de validar",
     "573015211634": "Corte Amazon por falta pago",
     "573150991304": "Interés en Spotify",
     "573242536239": "Corte Netflix inminente",
@@ -324,7 +323,7 @@
     "6562743590927@lid": "Pago Netflix ya realizado",
     "6562743590927": "Pago Netflix ya realizado",
     "573114789373": "Cliente agradece y se despide",
-    "573122764192": "Validando pago pendiente",
+    "573122764192": "Pago pendiente de validar",
     "573337308910": "Comparte comprobante de pago",
     "573053493769": "Validando pago pendiente",
     "573052810562": "Validación de pago pendiente",
@@ -332,15 +331,15 @@
     "80093238038681@lid": "Interés Microsoft 365, pregunta demora",
     "80093238038681": "Interés Microsoft 365, pregunta demora",
     "573143412159": "Interés Apple TV",
-    "573123417083": "No puede acceder al servicio",
+    "573123417083": "No puede ingresar o pagar",
     "573145695477": "Validando pago pendiente",
-    "573046577883": "Pago realizado hace días",
+    "573046577883": "Pago realizado sin validar",
     "573014681871": "Interés en servicio general",
     "573146184515": "Interés sin mensaje reciente",
     "573236924786": "Envía comprobante de pago",
     "573147316818": "Corte Crunchy Roll por mora",
     "573125850439": "Corte HBO Platino",
-    "573027441821": "Cliente afirma ya pagó",
+    "573027441821": "Ya pagó, validar pago",
     "273800037982263": "Pago sin plataforma identificada",
     "573167264343": "Validando pago pendiente",
     "573183129065": "Cliente agradece atención",
@@ -348,10 +347,10 @@
     "573184828349": "Envió comprobante de pago",
     "573128010895": "Interés en Netflix",
     "573232836250": "Corte Disney y Paramount mora",
-    "573146006168": "Validando pago confirmado",
+    "573146006168": "Pago pendiente de validar",
     "573108467083": "Validando pago pendiente",
     "573193394973": "Interés sin especificar",
-    "573223089052": "Validando pago pendiente",
+    "573223089052": "Pago pendiente de validar",
     "34643351367": "Pago dos meses Neki",
     "573053223045": "Aviso corte Apple One",
     "573183837521": "Validando pago pendiente",
@@ -363,7 +362,7 @@
     "573008128649": "Validando pago pendiente",
     "573209311494": "Pago validado agradece",
     "573185160611": "Solicita código Disney",
-    "573004432037": "Interés sin mensaje reciente",
+    "573004432037": "Consulta sin mensaje reciente",
     "573022266678": "Validando pago pendiente",
     "573214581487": "Proporciona nombre completo",
     "573188498681": "Corte Disney aviso cobro",
@@ -399,10 +398,9 @@
     "573132849034": "Agradece atención recibida",
     "573192396152": "Validando pago pendiente",
     "573026059519": "Validando pago pendiente",
-    "573104715129": "Validando pago pendiente",
     "573183281577": "Interés sin mensaje reciente",
-    "573142265023": "Validando pago pendiente",
-    "33672802090": "Validando pago pendiente",
+    "573142265023": "Interés sin detalle",
+    "33672802090": "Interés sin detalle",
     "573104031114": "Corte Netflix y Spotify",
     "573158730937": "Envía comprobante de pago",
     "573224518782": "Validando pago pendiente",
@@ -416,7 +414,7 @@
     "573167622639": "Interés sin especificar",
     "573113344042": "Corte GPT Microsoft mora",
     "573132882944": "Agradecimiento cliente, caso cerrado",
-    "573118614413": "Validando pago pendiente",
+    "573118614413": "Interés sin detalle",
     "573017434860": "Validando pago pendiente",
     "573222380638": "Validando pago pendiente",
     "573128292253": "Validando pago pendiente",
@@ -425,13 +423,14 @@
     "573118913728": "Validando pago pendiente",
     "573126710384": "Validando pago pendiente",
     "573116717831": "Validando pago pendiente",
-    "573176499385": "Validando pago pendiente",
+    "573176499385": "Interés sin detalle",
     "573027892574": "Saldo a favor por servicio",
-    "573132672346": "Pagar YouTube Yulisadiagama",
     "573188656111": "Interés Claude Pro Max",
     "573107981477": "Confirmación simple recibida",
-    "573236128398": "Pregunta precio del servicio",
-    "573026730168": "Validar interés Crunchyroll"
+    "573222486977": "Corte por mora plataformas",
+    "230974818406506": "Contacto sin mensaje claro",
+    "230974818406506@lid": "Contacto sin mensaje claro",
+    "573128471598": "Consulta pago por Nequi"
   },
   "cache": {
     "3116361436": {
@@ -1249,11 +1248,6 @@
       "state": "waiting_human",
       "summary": "🛒 Interés: "
     },
-    "573204461171": {
-      "lastMessage": "Esta semana tampoco funcionó",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
-    },
     "573176887875": {
       "lastMessage": "",
       "state": "waiting_human",
@@ -1261,8 +1255,8 @@
     },
     "573206386813": {
       "lastMessage": "",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: APPLE ONE"
+      "state": "awaiting_payment_confirmation",
+      "summary": "💸 Validando Pago"
     },
     "573212166120": {
       "lastMessage": "",
@@ -1604,11 +1598,6 @@
       "state": "waiting_human",
       "summary": "🛒 Interés: "
     },
-    "573057082122": {
-      "lastMessage": "🤖 *Aviso de Cobro*\nHola Erika , esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que el día 12/10/2026 se venció tu cuenta.\n\nServicio(s): HBO (Nota del asesor: Renovación Da",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: "
-    },
     "573143163422": {
       "lastMessage": "?",
       "state": "waiting_human",
@@ -1775,9 +1764,9 @@
       "summary": "💸 Validando Pago"
     },
     "573203714596": {
-      "lastMessage": "Que otras plataformas ofrecen ?",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
     },
     "573245563119": {
       "lastMessage": "Hola buenos  días para pagar con nequi",
@@ -2399,20 +2388,15 @@
       "state": "awaiting_payment_confirmation",
       "summary": "💸 Validando Pago"
     },
-    "573104715129": {
-      "lastMessage": "",
-      "state": "waiting_human",
-      "summary": ""
-    },
     "573183281577": {
       "lastMessage": "",
       "state": "waiting_admin_confirmation",
       "summary": "🛒 Interés: "
     },
     "573142265023": {
-      "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "lastMessage": "Hola no voy renovar por qué no puede ver el Madrid vs Barcelona",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
     },
     "33672802090": {
       "lastMessage": "",
@@ -2524,11 +2508,6 @@
       "state": "waiting_human",
       "summary": ""
     },
-    "573215232155": {
-      "lastMessage": "🤖 Hemos recibido tu comprobante. Un asesor validará el pago en un momento para renovar tu suscripción.",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: "
-    },
     "573172322303": {
       "lastMessage": "Ya tengo YouTube",
       "state": "waiting_human",
@@ -2576,13 +2555,13 @@
     },
     "573118614413": {
       "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
     },
     "573005906719": {
-      "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "lastMessage": "De Amazon ni gracias",
+      "state": "waiting_human",
+      "summary": "🚨 Motivo: \"Corte de Servicio: AMAZON (Nota: cortar)\""
     },
     "573214747625": {
       "lastMessage": "chao",
@@ -2636,18 +2615,18 @@
     },
     "573176499385": {
       "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
     },
     "573103220208": {
       "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
     },
     "573143188771": {
       "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
     },
     "573227101825": {
       "lastMessage": "",
@@ -2656,28 +2635,23 @@
     },
     "573006372018": {
       "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
     },
     "573024007294": {
       "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
     },
     "573183934470": {
-      "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "lastMessage": "Hola buenas noches, no voy a renovar. Pero si me interesa la cuenta que es con mi correo. La otra semana les escribo para comprarla. \n\nMuchas gracias por el buen servicio, me ha gustado mucho.",
+      "state": "waiting_human",
+      "summary": "🚨 Motivo: \"Corte de Servicio: NETFLIX (Nota: cortar)\""
     },
     "573202143556": {
-      "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
-    },
-    "573219310380": {
-      "lastMessage": "",
-      "state": "awaiting_payment_confirmation",
-      "summary": "💸 Validando Pago"
+      "lastMessage": "PS me interesaría Pero si es con mi correo",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
     },
     "573054601214": {
       "lastMessage": "",
@@ -2719,16 +2693,6 @@
       "state": "waiting_human",
       "summary": ""
     },
-    "573007102409": {
-      "lastMessage": "🤖 *Aviso de Cobro*\nHola Jose, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que el día 10/11/2026 se venció tu cuenta.\n\nServicio(s): CRUNCHY ROLL\n\n*Total a transferir:* $",
-      "state": "waiting_human",
-      "summary": "🚨 Motivo: \"Corte de Servicio: CRUNCHY ROLL (Nota: Renovación Dashboard - 10/12/2026 - cortar)\""
-    },
-    "573106131636": {
-      "lastMessage": "🤖 *Aviso de Cobro*\nHola andres, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que el día 10/11/2026 se venció tu cuenta.\n\nServicio(s): GPT\n\n*Total a transferir:* $20.000 ",
-      "state": "waiting_human",
-      "summary": "🚨 Motivo: \"Corte de Servicio: GPT (Nota: cortar)\""
-    },
     "573006450822": {
       "lastMessage": "🤖 *Aviso de Cobro*\nHola jenny, esperamos te encuentres muy bien.\nTe escribimos de Sheerit para recordarte que el día 10/11/2026 se venció tu cuenta.\n\nServicio(s): NETFLIX\n\n*Total a transferir:* $13.0",
       "state": "waiting_human",
@@ -2756,11 +2720,6 @@
     },
     "573132776615": {
       "lastMessage": "",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "573132672346": {
-      "lastMessage": "pagar you tube yulisadiagama@gmail.com",
       "state": "waiting_human",
       "summary": ""
     },
@@ -2794,42 +2753,122 @@
       "state": "waiting_human",
       "summary": ""
     },
-    "573236128398": {
-      "lastMessage": "Cuánto es??",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: "
-    },
-    "152991600513213@lid": {
-      "lastMessage": "Valeee",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "573026730168": {
-      "lastMessage": "Puedes validar por favor",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: Crunchyroll"
-    },
     "573008415970": {
       "lastMessage": "netflix",
       "state": "waiting_human",
       "summary": ""
     },
-    "53850618744889@lid": {
-      "lastMessage": "Puedes validar por favor",
-      "state": "waiting_human",
-      "summary": "🛒 Interés: Crunchyroll"
-    },
-    "123037978464432@lid": {
-      "lastMessage": "netflix",
-      "state": "waiting_human",
-      "summary": ""
-    },
-    "573188394677": {
+    "573164964472": {
       "lastMessage": "",
       "state": "waiting_human",
       "summary": ""
     },
-    "8985642041366@lid": {
+    "179985335750691@lid": {
+      "lastMessage": "PS me interesaría Pero si es con mi correo",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "114903310418122@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "204298726166710@lid": {
+      "lastMessage": "De Amazon ni gracias",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "13430429851652@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "58746596282479@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "573222486977": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🚨 Motivo: \"Corte de Servicio: AMAZON, DISNEY, HBO (Mora >= 3 días)\""
+    },
+    "230974818406506": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": ""
+    },
+    "230974818406506@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": ""
+    },
+    "573007102409": {
+      "lastMessage": "Dale no hay problemas",
+      "state": "waiting_human",
+      "summary": "🚨 Motivo: \"Corte de Servicio: CRUNCHY ROLL (Nota: Renovación Dashboard - 10/12/2026 - cortar)\""
+    },
+    "92414895214748@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "128900927606808@lid": {
+      "lastMessage": "Hola no voy renovar por qué no puede ver el Madrid vs Barcelona",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "177738631635055@lid": {
+      "lastMessage": "Hola \nMe quedo solo con la de hbo",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "112519637127374@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "32242403438842@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "117003549458472@lid": {
+      "lastMessage": "Hola buenas noches, no voy a renovar. Pero si me interesa la cuenta que es con mi correo. La otra semana les escribo para comprarla. \n\nMuchas gracias por el buen servicio, me ha gustado mucho.",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "97920976195698@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "129149784076414@lid": {
+      "lastMessage": "",
+      "state": "waiting_human",
+      "summary": "🛒 Interés: "
+    },
+    "178593481101470@lid": {
+      "lastMessage": "Dale no hay problemas",
+      "state": "waiting_human",
+      "summary": "🚨 Motivo: \"Corte de Servicio: CRUNCHY ROLL (Nota: Renovación Dashboard - 10/12/2026 - cortar)\""
+    },
+    "120147499073642@lid": {
+      "lastMessage": "Reglas las cuentas y contraseñas",
+      "state": "waiting_human",
+      "summary": "🚨 Motivo: \"Corte de Servicio: AMAZON, DISNEY, HBO (Mora >= 3 días)\""
+    },
+    "269651015635144@lid": {
+      "lastMessage": "3",
+      "state": "waiting_human",
+      "summary": ""
+    },
+    "573204461171": {
+      "lastMessage": "3",
+      "state": "waiting_human",
+      "summary": ""
+    },
+    "84241706676348@lid": {
       "lastMessage": "",
       "state": "waiting_human",
       "summary": ""

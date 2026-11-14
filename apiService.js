@@ -331,8 +331,9 @@ async function fetchRawData(retries = 3, delay = 2000, force = false) {
   if (force) {
     rawDataCache = null;
     rawDataCacheTime = 0;
+    excelOutageUntil = 0;
   }
-  if (rawDataCache && (now - rawDataCacheTime < CACHE_DURATION)) {
+  if (!force && rawDataCache && (now - rawDataCacheTime < CACHE_DURATION)) {
     return rawDataCache;
   }
 
