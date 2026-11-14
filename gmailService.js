@@ -64,7 +64,7 @@ async function checkNewPayments() {
     const processedIds = loadProcessedEmails();
 
     try {
-        // Buscamos correos con el asunto específico de Bre-B
+        // Busamos correos con el asunto específico de Bre-B
         const res = await gmail.users.messages.list({
             userId: 'me',
             q: 'subject:"Detalle de tu venta por Bre-B"',
@@ -497,6 +497,14 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
             // Detectar si es un correo proveniente de Claude / Anthropic
             const isClaudeMail = /claude|anthropic/i.test(decodedSubject) || /claude|anthropic/i.test(decodedFrom) || /claude|anthropic/i.test(superCleanBody);
 
+            // Omitir correos de Netflix que correspondan únicamente a restablecimiento/cambio de contraseña
+            const netflixCombinedContext = `${decodedSubject} ${decodedSnippet} ${superCleanBody}`;
+            const isNetflixPasswordReset = /restablecer\s+tu\s+contrase[ñn]a|cambiar\s+tu\s+contrase[ñn]a|password\s+reset|complete\s+your\s+password/i.test(netflixCombinedContext);
+            const hasNetflixHouseholdOrTempAccess = /hogar|household|acceso\s+temporal|c[oó]digo\s+de\s+acceso|travel|update-primary-location/i.test(netflixCombinedContext);
+            if (isNetflixMail && isNetflixPasswordReset && !hasNetflixHouseholdOrTempAccess) {
+                continue;
+            }
+
             // Si el correo es específicamente de actualización de hogar de Netflix, es por ENLACE, no por código de 4 dígitos
             const isNetflixHouseholdUpdate = /actualizar.*hogar|update-primary-location|c[oó]mo actualizar|confirmar.*hogar|update.*household/i.test(decodedSubject) ||
                 /actualizar.*hogar|update-primary-location|c[oó]mo actualizar tu hogar/i.test(superCleanBody);
@@ -713,6 +721,7 @@ function extractBestLink(bodyText, contextHint = '') {
         if (lower.includes('help.netflix.com') || lower.includes('termsofuse') || lower.includes('privacypolicy') || lower.includes('corpinfo')) return false;
         if (/(?:facebook|twitter|x|instagram|tiktok|youtube|linkedin|discord)\.(?:com|gg)\b/.test(lower)) return false;
         if (lower.includes('unsubscribe') || lower.includes('optout') || lower.includes('opt-out') || lower.includes('reset-password') || lower.includes('reset_password')) return false;
+        if (lower.includes('/password') || lower.includes('lkid=url_password') || lower.includes('password-reset') || lower.includes('forgot-password')) return false;
 
         if (lowerText && negativeLinkTextPattern.test(lowerText)) return false;
 
@@ -720,8 +729,7 @@ function extractBestLink(bodyText, contextHint = '') {
     });
 
     if (filteredMatches.length === 0) {
-        const nonLogo = candidates.find(c => !c.url.toLowerCase().includes('lkid=url_logo'));
-        return (nonLogo || candidates[0]).url;
+        return null;
     }
 
     // PRIORITY 1A: Direct Netflix Household / Location / Travel action links
@@ -737,7 +745,10 @@ function extractBestLink(bodyText, contextHint = '') {
     // PRIORITY 1B: Generic nftoken links
     const hogarTokenMatch = filteredMatches.find(({ url }) => {
         const lower = url.toLowerCase();
-        return (lower.includes('nftoken=') || lower.includes('manageaccountaccess')) && !lower.includes('lkid=url_logo');
+        return (lower.includes('nftoken=') || lower.includes('manageaccountaccess')) &&
+               !lower.includes('lkid=url_logo') &&
+               !lower.includes('/password') &&
+               !lower.includes('lkid=url_password');
     });
     if (hogarTokenMatch) return hogarTokenMatch.url;
 

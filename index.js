@@ -714,17 +714,33 @@ app.post('/api/netflix/verify', async (req, res) => {
                     break;
                 }
 
-                // 3. Fallback a cualquier código o enlace de Netflix
-                const netflixMail = recentCodes.find(item =>
-                    (item.subject || "").toLowerCase().includes('netflix') ||
-                    (item.snippet || "").toLowerCase().includes('netflix')
-                );
+                // 3. Fallback a cualquier código o enlace válido de Netflix (excluyendo enlaces de cambio de contraseña)
+                const isPasswordUrl = (url) => {
+                    if (!url) return false;
+                    const lowerUrl = String(url).toLowerCase();
+                    return lowerUrl.includes('/password') || lowerUrl.includes('lkid=url_password') || lowerUrl.includes('password-reset') || lowerUrl.includes('forgot-password') || lowerUrl.includes('reset-password') || lowerUrl.includes('reset_password');
+                };
+                const isValidNetflixFallbackLink = (url) => {
+                    if (!url || isPasswordUrl(url)) return false;
+                    const lowerUrl = String(url).toLowerCase();
+                    return lowerUrl.includes('update-primary-location') || lowerUrl.includes('update_household') || lowerUrl.includes('update-household') || lowerUrl.includes('travel/verify') || lowerUrl.includes('manageaccountaccess') || lowerUrl.includes('nftoken=') || lowerUrl.includes('verify');
+                };
+                const netflixMail = recentCodes.find(item => {
+                    const isNetflixItem = (item.subject || "").toLowerCase().includes('netflix') ||
+                        (item.snippet || "").toLowerCase().includes('netflix');
+                    if (!isNetflixItem) return false;
+                    const hasFourDigitCode = item.code && /^\d{4}$/.test(String(item.code).trim());
+                    const hasValidLink = isValidNetflixFallbackLink(item.link);
+                    return hasFourDigitCode || hasValidLink;
+                });
 
-                if (netflixMail && (netflixMail.code || netflixMail.link)) {
-                    code = netflixMail.code;
-                    link = netflixMail.link;
-                    console.log(`[NETFLIX API] Found Netflix code/link for ${netflixAcct.correo}: Code=${code}, Link=${link}`);
-                    break;
+                if (netflixMail) {
+                    code = (netflixMail.code && /^\d{4}$/.test(String(netflixMail.code).trim())) ? netflixMail.code : null;
+                    link = isValidNetflixFallbackLink(netflixMail.link) ? netflixMail.link : null;
+                    if (code || link) {
+                        console.log(`[NETFLIX API] Found Netflix code/link for ${netflixAcct.correo}: Code=${code}, Link=${link}`);
+                        break;
+                    }
                 }
 
                 if (attempt < 3) {
@@ -11453,6 +11469,21 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 const isClaude = nameLower.includes('claude');
                 const searchFilter = isClaude ? '(claude OR anthropic)' : '';
                 let codes = await findRecentCodes(accountEmail, 10, searchFilter, streamingName);
+
+                if (codes && codes.length > 0 && nameLower.includes('netflix')) {
+                    const isNetflixPasswordLink = (url) => {
+                        if (!url) return false;
+                        const lowerUrl = String(url).toLowerCase();
+                        return lowerUrl.includes('/password') || lowerUrl.includes('lkid=url_password') || lowerUrl.includes('password-reset') || lowerUrl.includes('forgot-password') || lowerUrl.includes('reset-password') || lowerUrl.includes('reset_password');
+                    };
+                    codes = codes.map(c => ({
+                        ...c,
+                        link: isNetflixPasswordLink(c.link) ? null : c.link
+                    })).filter(c => {
+                        const hasFourDigitPin = c.code && /^\d{4}$/.test(String(c.code).trim());
+                        return Boolean(c.link) || Boolean(hasFourDigitPin);
+                    });
+                }
 
                 // Filtrar falsos códigos estáticos de dirección postal de Anthropic (90375, 94104, 548) y priorizar enlaces mágicos o códigos OTP reales de 6 dígitos
                 if (codes && codes.length > 0 && isClaude) {
