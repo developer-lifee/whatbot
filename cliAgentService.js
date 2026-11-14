@@ -171,8 +171,8 @@ function getGeminiApiKeys() {
 async function callGemini38FlashHttp(prompt, systemInstruction = "Eres Antigravity CLI, asistente senior de ingeniería de software.") {
     const keys = getGeminiApiKeys();
     
-    // Modelos disponibles en orden de preferencia
-    const modelsToTry = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-flash-latest'];
+    // Modelos disponibles en el endpoint v1beta en orden de velocidad/disponibilidad
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
     let lastError = null;
 
     if (keys.length > 0) {
@@ -197,7 +197,7 @@ async function callGemini38FlashHttp(prompt, systemInstruction = "Eres Antigravi
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload),
-                        signal: AbortSignal.timeout(35000)
+                        signal: AbortSignal.timeout(45000)
                     });
 
                     const data = await response.json();
@@ -278,29 +278,61 @@ async function applyCodeModifications(ticket) {
             const searchTerms = Array.from(new Set([...cleanTerms, ...rawWords]));
 
             const lines = originalCode.split('\n');
-            let bestLineIdx = -1;
-            let bestScore = 0;
 
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                let score = 0;
-                for (const term of searchTerms) {
-                    if (line.includes(term)) score += 3;
-                    else if (line.toLowerCase().includes(term.toLowerCase())) score += 1;
+            // 1. Extraer rangos de líneas explícitos citados en el plan/diagnóstico (ej. "líneas 12489-12506", "línea 12498", "index.js:12453-12477")
+            const explicitRanges = [];
+            const rangeRegex = /(?:l[ií]neas?\s*|:\s*)(\d{2,6})(?:\s*[-–a]\s*(\d{2,6}))?/gi;
+            let rm;
+            while ((rm = rangeRegex.exec(textToSearch)) !== null) {
+                const sLine = parseInt(rm[1], 10);
+                const eLine = rm[2] ? parseInt(rm[2], 10) : sLine;
+                if (sLine >= 1 && sLine <= lines.length) {
+                    const startIdx = Math.max(0, Math.min(sLine, eLine) - 15);
+                    const endIdx = Math.min(lines.length, Math.max(sLine, eLine) + 20);
+                    explicitRanges.push([startIdx, endIdx]);
                 }
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestLineIdx = i;
+            }
+
+            // Fusionar rangos solapados
+            explicitRanges.sort((a, b) => a[0] - b[0]);
+            const mergedRanges = [];
+            for (const rng of explicitRanges) {
+                if (!mergedRanges.length || rng[0] > mergedRanges[mergedRanges.length - 1][1]) {
+                    mergedRanges.push([...rng]);
+                } else {
+                    mergedRanges[mergedRanges.length - 1][1] = Math.max(mergedRanges[mergedRanges.length - 1][1], rng[1]);
                 }
             }
 
             let contextSnippet = "";
-            if (bestLineIdx >= 0) {
-                const start = Math.max(0, bestLineIdx - 40);
-                const end = Math.min(lines.length, bestLineIdx + 60);
-                contextSnippet = lines.slice(start, end).join('\n');
+            if (mergedRanges.length > 0) {
+                contextSnippet = mergedRanges.slice(0, 4).map(([s, e]) => {
+                    return `// --- FRAGMENTO (${relFile} líneas ${s + 1}-${e}) ---\n` + lines.slice(s, e).join('\n');
+                }).join('\n\n');
             } else {
-                contextSnippet = lines.slice(0, 100).join('\n');
+                let bestLineIdx = -1;
+                let bestScore = 0;
+
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    let score = 0;
+                    for (const term of searchTerms) {
+                        if (line.includes(term)) score += 3;
+                        else if (line.toLowerCase().includes(term.toLowerCase())) score += 1;
+                    }
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestLineIdx = i;
+                    }
+                }
+
+                if (bestLineIdx >= 0) {
+                    const start = Math.max(0, bestLineIdx - 40);
+                    const end = Math.min(lines.length, bestLineIdx + 60);
+                    contextSnippet = lines.slice(start, end).join('\n');
+                } else {
+                    contextSnippet = lines.slice(0, 100).join('\n');
+                }
             }
 
             const snippetPrompt = `Debes modificar el archivo grande "${relFile}" en el proyecto whatbot.
@@ -309,61 +341,89 @@ ${ticket.plan}
 DIAGNÓSTICO:
 ${ticket.diagnosis || ''}
 
-AQUÍ TIENES EL FRAGMENTO REAL DEL ARCHIVO "${relFile}" DONDE DEBE APLICARSE LA MODIFICACIÓN:
+AQUÍ TIENES LOS FRAGMENTOS REALES DEL ARCHIVO "${relFile}" DONDE DEBE APLICARSE LA MODIFICACIÓN (NO leas archivos del disco, usa este código exacto):
 \`\`\`javascript
 ${contextSnippet}
 \`\`\`
 
-Indica en formato JSON un bloque de búsqueda y reemplazo EXACTO. El bloque "buscar" DEBE existir idéntico (carácter por carácter) dentro del fragmento mostrado arriba:
+Indica en formato JSON el bloque (o bloques) de búsqueda y reemplazo EXACTO. Cada bloque "buscar" DEBE existir idéntico (carácter por carácter) dentro del código mostrado arriba (sin incluir los comentarios "// --- FRAGMENTO... ---"):
 {
-  "buscar": "código existente exacto dentro del fragmento (de 3 a 10 líneas)",
-  "reemplazarPor": "nuevo código de reemplazo con la solución implementada"
+  "buscar": "código existente exacto dentro del fragmento (de 3 a 12 líneas)",
+  "reemplazarPor": "nuevo código de reemplazo con la solución implementada",
+  "cambios": [
+    {
+      "buscar": "código existente exacto 1",
+      "reemplazarPor": "nuevo código 1"
+    }
+  ]
 }`;
             try {
                 let parsedSnippet = null;
-                // 1. Intentar con Antigravity CLI (agy)
+                // 1. Intentar con Gemini HTTP directo primero por velocidad (<5s) al tener ya el contexto en memoria
                 try {
-                    const snippetRaw = await callAgyCli(snippetPrompt, "Eres Antigravity CLI. Devuelve ÚNICAMENTE el JSON con 'buscar' y 'reemplazarPor' sin explicaciones ni texto adicional.");
+                    const snippetRaw = await callGemini38FlashHttp(snippetPrompt, "Responde ÚNICAMENTE con JSON válido con 'buscar'/'reemplazarPor' o 'cambios'.");
                     parsedSnippet = extractJsonFromAgyOutput(snippetRaw);
-                } catch (agyErr) {
-                    console.warn('[Antigravity CLI] Falló agy para snippet:', agyErr.message);
+                } catch (gemErr) {
+                    console.warn('[Antigravity CLI] Falló Gemini HTTP rápido para snippet, probando agy CLI:', gemErr.message);
                 }
 
-                // 2. Si no hubo parsedSnippet, intentar con Gemini HTTP
-                if (!parsedSnippet || !parsedSnippet.buscar || !parsedSnippet.reemplazarPor) {
+                // 2. Fallback a Antigravity CLI (agy) indicando no abrir herramientas de lectura
+                if (!parsedSnippet || (!parsedSnippet.buscar && !Array.isArray(parsedSnippet.cambios))) {
                     try {
-                        const snippetRaw = await callGemini38FlashHttp(snippetPrompt, "Responde únicamente con JSON con 'buscar' y 'reemplazarPor'.");
+                        const snippetRaw = await callAgyCli(snippetPrompt, "Eres Antigravity CLI. NO uses herramientas para leer archivos porque el fragmento ya está en el prompt. Devuelve ÚNICAMENTE el JSON con 'buscar' y 'reemplazarPor' (o 'cambios') sin explicaciones.");
                         parsedSnippet = extractJsonFromAgyOutput(snippetRaw);
-                    } catch (gemErr) {
-                        console.warn('[Antigravity CLI] Falló Gemini HTTP para snippet:', gemErr.message);
+                    } catch (agyErr) {
+                        console.warn('[Antigravity CLI] Falló agy para snippet:', agyErr.message);
                     }
                 }
 
-                if (parsedSnippet && parsedSnippet.buscar && parsedSnippet.reemplazarPor) {
-                    let searchTarget = parsedSnippet.buscar;
-                    let replaceTarget = parsedSnippet.reemplazarPor;
-                    let canApply = originalCode.includes(searchTarget);
+                const editBlocks = [];
+                if (parsedSnippet) {
+                    if (Array.isArray(parsedSnippet.cambios) && parsedSnippet.cambios.length > 0) {
+                        for (const c of parsedSnippet.cambios) {
+                            if (c && c.buscar && c.reemplazarPor) editBlocks.push(c);
+                        }
+                    }
+                    if (editBlocks.length === 0 && parsedSnippet.buscar && parsedSnippet.reemplazarPor) {
+                        editBlocks.push({ buscar: parsedSnippet.buscar, reemplazarPor: parsedSnippet.reemplazarPor });
+                    }
+                }
 
-                    if (!canApply) {
-                        const normOriginal = originalCode.replace(/\r\n/g, '\n');
-                        const normSearch = searchTarget.replace(/\r\n/g, '\n');
-                        if (normOriginal.includes(normSearch)) {
-                            searchTarget = normSearch;
-                            replaceTarget = replaceTarget.replace(/\r\n/g, '\n');
-                            canApply = true;
+                if (editBlocks.length > 0) {
+                    let workingContent = originalCode;
+                    let appliedCount = 0;
+
+                    for (const blk of editBlocks) {
+                        let searchTarget = blk.buscar;
+                        let replaceTarget = blk.reemplazarPor;
+                        let canApply = workingContent.includes(searchTarget);
+
+                        if (!canApply) {
+                            const normOriginal = workingContent.replace(/\r\n/g, '\n');
+                            const normSearch = searchTarget.replace(/\r\n/g, '\n');
+                            if (normOriginal.includes(normSearch)) {
+                                workingContent = normOriginal;
+                                searchTarget = normSearch;
+                                replaceTarget = replaceTarget.replace(/\r\n/g, '\n');
+                                canApply = true;
+                            }
+                        }
+
+                        if (canApply && searchTarget !== replaceTarget) {
+                            workingContent = workingContent.replace(searchTarget, replaceTarget);
+                            appliedCount++;
                         }
                     }
 
-                    if (canApply) {
+                    if (appliedCount > 0) {
                         const backupPath = `${fullPath}.bak`;
                         fs.writeFileSync(backupPath, originalCode, 'utf8');
-                        const newContent = originalCode.replace(searchTarget, replaceTarget);
-                        fs.writeFileSync(fullPath, newContent, 'utf8');
+                        fs.writeFileSync(fullPath, workingContent, 'utf8');
                         try {
                             execSync(`node -c "${fullPath}"`, { cwd: REPO_DIR });
                             fs.unlinkSync(backupPath);
                             modifiedFiles.push(relFile);
-                            console.log(`[Antigravity CLI] ✅ Bloque reemplazado y validado con éxito en ${relFile}`);
+                            console.log(`[Antigravity CLI] ✅ ${appliedCount} bloque(s) reemplazado(s) y validado(s) con éxito en ${relFile}`);
                             continue;
                         } catch (synErr) {
                             console.error(`[Antigravity CLI] ❌ Error sintáctico tras reemplazo en ${relFile}. Revertiendo:`, synErr.message);
@@ -371,7 +431,7 @@ Indica en formato JSON un bloque de búsqueda y reemplazo EXACTO. El bloque "bus
                             fs.unlinkSync(backupPath);
                         }
                     } else {
-                        console.warn(`[Antigravity CLI] ⚠️ El bloque 'buscar' no coincidió de forma idéntica en ${relFile}.`);
+                        console.warn(`[Antigravity CLI] ⚠️ Ningún bloque 'buscar' coincidió de forma idéntica en ${relFile}.`);
                     }
                 }
             } catch (snErr) {
@@ -478,9 +538,9 @@ async function executeFixAndCommit(ticket) {
             };
         }
 
-        // 2. Preparar stage de Git
-        execSync('git add -A', { cwd: REPO_DIR });
-        const statusAfter = execSync('git status --porcelain', { cwd: REPO_DIR, encoding: 'utf8' }).trim();
+        // 2. Preparar stage de Git (únicamente de los archivos de código modificados para no arrastrar cachés JSON de runtime)
+        execFileSync('git', ['add', '--', ...codeFilesModified], { cwd: REPO_DIR });
+        const statusAfter = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: REPO_DIR, encoding: 'utf8' }).trim();
 
         let commitHash = null;
         let pushed = false;
@@ -489,7 +549,7 @@ async function executeFixAndCommit(ticket) {
             const tempCommitMsgPath = path.join(REPO_DIR, '.git', 'COMMIT_EDITMSG_AGENT');
             fs.writeFileSync(tempCommitMsgPath, commitMessage, 'utf8');
             try {
-                execFileSync('git', ['commit', '-F', tempCommitMsgPath], { cwd: REPO_DIR, encoding: 'utf8' });
+                execFileSync('git', ['commit', '-F', tempCommitMsgPath, '--', ...codeFilesModified], { cwd: REPO_DIR, encoding: 'utf8' });
             } finally {
                 if (fs.existsSync(tempCommitMsgPath)) {
                     try { fs.unlinkSync(tempCommitMsgPath); } catch (_) {}

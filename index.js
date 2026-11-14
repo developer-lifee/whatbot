@@ -12495,7 +12495,7 @@ REGLAS:
             const { detectInitialIntent } = require('./aiService');
             const quickHist = await getChatHistoryText(message, 5);
             const quickDetection = await detectInitialIntent(message.body || '', quickHist, null, []);
-            const solvableByBot = ['credenciales', 'codigo', 'soporte', 'pagar', 'renovar'];
+            const solvableByBot = ['credenciales', 'codigo', 'pagar', 'renovar'];
             if (quickDetection && solvableByBot.includes(quickDetection.intent)) {
                 isBotSolvable = true;
                 console.log(`[BOT MUTE BYPASS] IA detectó intención resoluble '${quickDetection.intent}' para @${userId}. Permitiendo respuesta del bot aunque haya asesor activo.`);
@@ -16163,13 +16163,18 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             if (detection.recoveredState) {
                 console.log(`[Flow Recovery] Recuperando estado: ${detection.recoveredState} para @${userId.replace('@c.us', '')}`);
                 const metadata = detection.metadata || {};
-                userStates.set(userId, { ...preservedCartData, state: detection.recoveredState, nombre: foundName, ...metadata });
+                const prevAdvisorMeta = (currentStateData && typeof currentStateData === 'object') ? {
+                    ...(currentStateData.waiting_human_mode ? { waiting_human_mode: currentStateData.waiting_human_mode } : {}),
+                    ...(currentStateData.lastHumanInteraction ? { lastHumanInteraction: currentStateData.lastHumanInteraction } : {}),
+                    ...(currentStateData.agent ? { agent: currentStateData.agent } : {})
+                } : {};
+                userStates.set(userId, { ...preservedCartData, ...prevAdvisorMeta, state: detection.recoveredState, nombre: foundName, ...metadata });
 
                 if (detection.recoveredState === 'waiting_human') {
-                    // Si la intención es soporte o compra con frustración, NO nos quedamos callados.
-                    // Esto evita que el bot ignore fallas reales si un humano habló hace días.
+                    // Si la intención es soporte o compra con frustración y NO hay asesor humano activo reciente, NO nos quedamos callados.
+                    // Esto evita que el bot ignore fallas reales si un humano habló hace días, pero respeta si un asesor atiende ahora mismo.
                     const isCritical = ['soporte', 'comprar', 'pagar'].includes(detection.intent);
-                    if (isCritical && (detection.frustrationLevel >= 4)) {
+                    if (isCritical && (detection.frustrationLevel >= 4) && !hasRecentHuman) {
                         console.log(`[Flow Recovery] 🚨 Detectada intención crítica (${detection.intent}) con frustración (${detection.frustrationLevel}). Rompiendo silencio para @${userId}.`);
                     } else {
                         console.log(`[Flow Recovery] 🤫 Silenciando bot para @${userId.replace('@c.us', '')} por intervención humana detectada en historial.`);
@@ -16646,6 +16651,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             }
                             return;
                         }
+                    }
+
+                    if (hasRecentHuman || (currentStateData && currentStateData.state === 'waiting_human' && currentStateData.waiting_human_mode === 'advisor')) {
+                        console.log(`[Support Direct Answer] 🤫 Asesor humano activo para @${userId}. Omitiendo prompt genérico de soporte para no interrumpir.`);
+                        return;
                     }
 
                     await safeReply(message, `🤖 ¡Hola! Entiendo que tienes un inconveniente con tu cuenta. Para poder ayudarte a resolverlo de inmediato, por favor **cuéntame qué plataforma es y qué te aparece en pantalla, o envíame una foto del error**. 📲`, userId);
