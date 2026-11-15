@@ -38,6 +38,88 @@ function writeLog(filePath, text) {
     }
 }
 
+function parseReceiptDateISO(check) {
+    if (!check) return null;
+    if (check.receiptDate && /^\d{4}-\d{2}-\d{2}$/.test(String(check.receiptDate).trim())) {
+        return String(check.receiptDate).trim();
+    }
+    const details = String(check.extractedDetails || '');
+    const isoMatch = details.match(/\b(20\d{2})-(0?[1-9]|1[0-2])-(0?[1-9]|[12]\d|3[01])\b/);
+    if (isoMatch) {
+        return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    }
+    const months = {
+        enero: '01', ene: '01', febrero: '02', feb: '02', marzo: '03', mar: '03',
+        abril: '04', abr: '04', mayo: '05', may: '05', junio: '06', jun: '06',
+        julio: '07', jul: '07', agosto: '08', ago: '08', septiembre: '09', sep: '09', set: '09',
+        octubre: '10', oct: '10', noviembre: '11', nov: '11', diciembre: '12', dic: '12'
+    };
+    const esMatch = details.toLowerCase().match(/(\d{1,2})\s+de\s+([a-záéíóú]+)(?:\s+de)?\s+(20\d{2})/i);
+    if (esMatch && months[esMatch[2]]) {
+        return `${esMatch[3]}-${months[esMatch[2]]}-${esMatch[1].padStart(2, '0')}`;
+    }
+    const slashMatch = details.match(/\b(0?[1-9]|[12]\d|3[01])[\/-](0?[1-9]|1[0-2])[\/-](20\d{2})\b/);
+    if (slashMatch) {
+        return `${slashMatch[3]}-${slashMatch[2].padStart(2, '0')}-${slashMatch[1].padStart(2, '0')}`;
+    }
+    return null;
+}
+
+function extractReceiptReference(check) {
+    if (!check) return null;
+    if (check.transactionReference && String(check.transactionReference).trim()) {
+        return String(check.transactionReference).trim().toUpperCase();
+    }
+    const details = String(check.extractedDetails || '');
+    const refMatch = details.match(/(?:referencia|ref|comprobante|autorizaci[oó]n|codigo)\s*[:#]?\s*([A-Z0-9_-]{5,})/i);
+    return refMatch ? refMatch[1].trim().toUpperCase() : null;
+}
+
+async function validatePaymentReceiptFreshnessAndRef(check, userId) {
+    const MAX_RECEIPT_AGE_DAYS = 3;
+    const receiptDateISO = parseReceiptDateISO(check);
+    const ref = extractReceiptReference(check);
+
+    if (receiptDateISO) {
+        const nowBogota = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Bogota' }));
+        const todayStart = new Date(nowBogota.getFullYear(), nowBogota.getMonth(), nowBogota.getDate());
+        const [y, m, d] = receiptDateISO.split('-').map(Number);
+        const receiptDay = new Date(y, m - 1, d);
+        const diffDays = Math.floor((todayStart.getTime() - receiptDay.getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays > MAX_RECEIPT_AGE_DAYS) {
+            console.log(`[PAYMENT VALIDATION] ❌ Comprobante antiguo rechazado para @${userId}: fecha=${receiptDateISO} (${diffDays} días de antigüedad)`);
+            return { valid: false, reason: 'expired_date', receiptDateISO, diffDays, ref };
+        }
+    }
+
+    if (ref) {
+        try {
+            const { pool } = require('./database');
+            await pool.query(`CREATE TABLE IF NOT EXISTS used_payment_references (id INT AUTO_INCREMENT PRIMARY KEY, ref_code VARCHAR(100) NOT NULL UNIQUE, user_id VARCHAR(100), amount DECIMAL(12,2), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+            const [rows] = await pool.query('SELECT user_id, created_at FROM used_payment_references WHERE ref_code = ? LIMIT 1', [ref]);
+            if (rows && rows.length > 0) {
+                console.log(`[PAYMENT VALIDATION] ❌ Referencia duplicada rechazada para @${userId}: ref=${ref}`);
+                return { valid: false, reason: 'duplicate_ref', receiptDateISO, ref };
+            }
+        } catch (dbErr) {
+            console.warn('[PAYMENT VALIDATION] Error consultando used_payment_references:', dbErr.message);
+        }
+    }
+
+    return { valid: true, receiptDateISO, ref };
+}
+
+async function markPaymentReferenceUsed(ref, userId, amount) {
+    if (!ref) return;
+    try {
+        const { pool } = require('./database');
+        await pool.query(`CREATE TABLE IF NOT EXISTS used_payment_references (id INT AUTO_INCREMENT PRIMARY KEY, ref_code VARCHAR(100) NOT NULL UNIQUE, user_id VARCHAR(100), amount DECIMAL(12,2), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
+        await pool.query('INSERT IGNORE INTO used_payment_references (ref_code, user_id, amount) VALUES (?, ?, ?)', [ref, String(userId || ''), Number(amount || 0)]);
+    } catch (dbErr) {
+        console.warn('[PAYMENT VALIDATION] Error guardando used_payment_references:', dbErr.message);
+    }
+}
+
 console.log = function (...args) {
     const now = new Date();
     const timestamp = `[${now.toLocaleString('es-CO')}]`;
@@ -14310,6 +14392,14 @@ REGLAS:
             console.log(`[PAYMENT INTERCEPTOR DEBUG] Result check: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, platform=${check.inferredPlatform}`);
 
             if (check.isReceipt) {
+                const receiptCheck = await validatePaymentReceiptFreshnessAndRef(check, userId);
+                if (!receiptCheck.valid) {
+                    const rejectText = receiptCheck.reason === 'duplicate_ref'
+                        ? `🤖 Revisé tu comprobante y la referencia *${receiptCheck.ref}* ya fue utilizada anteriormente en nuestro sistema. Por favor envía un comprobante de un pago nuevo para procesar tu solicitud. 😊`
+                        : `🤖 Revisé tu comprobante y detecté que tiene fecha del *${receiptCheck.receiptDateISO}* (hace ${receiptCheck.diffDays} días). Para renovaciones o compras actuales solo podemos aceptar comprobantes recientes. Por favor envía el comprobante del pago actual. 😊`;
+                    await message.reply(rejectText);
+                    return;
+                }
                 console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);
 
                 const cleanPhoneDigits = realPhone ? String(realPhone).replace(/\D/g, '') : '';
@@ -18186,6 +18276,16 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                 console.log(`[AUTO-VALIDATE] OCR result: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, destinationKey=${check.destinationKey}, destinationName=${check.destinationName}`);
 
                 if (check.isReceipt) {
+                    const receiptCheck = await validatePaymentReceiptFreshnessAndRef(check, userId);
+                    if (!receiptCheck.valid) {
+                        const rejectText = receiptCheck.reason === 'duplicate_ref'
+                            ? `🤖 Revisé tu comprobante y la referencia *${receiptCheck.ref}* ya fue utilizada anteriormente en nuestro sistema. Por favor envía un comprobante de un pago nuevo para procesar tu solicitud. 😊`
+                            : `🤖 Revisé tu comprobante y detecté que tiene fecha del *${receiptCheck.receiptDateISO}* (hace ${receiptCheck.diffDays} días). Para renovaciones o compras actuales solo podemos aceptar comprobantes recientes. Por favor envía el comprobante del pago actual. 😊`;
+                        await message.reply(rejectText);
+                        userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation' });
+                        return;
+                    }
+
                     const rawKey = normalizeKey(check.destinationKey);
                     const rawName = (check.destinationName || '').toUpperCase();
 
@@ -18320,6 +18420,7 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         }
 
                         console.log(`[AUTO-VALIDATE] ✅ Llave y monto válidos. Ejecutando entrega automática...`);
+                        await markPaymentReferenceUsed(receiptCheck.ref, userId, check.amount);
 
                         // Si el carrito items se perdió de memoria pero el OCR o el historial reciente menciona las plataformas cotizadas, reconstruirlo
                         if (!stateData.items || stateData.items.length === 0) {
