@@ -868,15 +868,29 @@ app.post('/api/netflix/verify', async (req, res) => {
             }
         }
 
+        let shortLink = null;
+        if (link) {
+            try {
+                const { shortenUrl } = require('./urlShortenerService');
+                shortLink = await shortenUrl(link);
+            } catch (shortErr) {
+                shortLink = link;
+            }
+        }
+        const isTempAccessLink = link && String(link).toLowerCase().includes('travel/verify');
+
         res.json({
             success: true,
             message: link
-                ? `¡Enlace de Hogar encontrado! Haz clic en el botón rojo de abajo para autorizar este dispositivo en tu televisor.`
+                ? (isTempAccessLink
+                    ? `¡Enlace de Código Temporal encontrado! Haz clic en el botón rojo de abajo para abrir Netflix y ver tu código de 4 dígitos.`
+                    : `¡Enlace de Hogar encontrado! Haz clic en el botón rojo de abajo para autorizar este dispositivo en tu televisor.`)
                 : `¡Código generado con éxito! Ingresa el código mostrado a continuación en tu pantalla de Netflix.`,
             account: netflixAcct.correo,
             accounts: formattedAccountsList,
             code,
-            link
+            link,
+            shortLink
         });
     } catch (e) {
         console.error("[NETFLIX API Error]:", e);
@@ -11654,13 +11668,34 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                             : (accountEmail ? `https://sheerit.co/verificar?email=${encodeURIComponent(accountEmail)}` : `https://sheerit.co/verificar`);
 
                         const isFourDigitPin = latest.code && /^\d{4}$/.test(latest.code.toString().trim());
+                        const lowerNetflixLink = latest.link ? String(latest.link).toLowerCase() : '';
+                        const isTravelVerify = lowerNetflixLink.includes('travel/verify');
+                        const isHouseholdAction = lowerNetflixLink.includes('update-primary-location') || lowerNetflixLink.includes('update_household') || lowerNetflixLink.includes('update-household') || lowerNetflixLink.includes('nftoken=');
 
-                        response = `🤖 *${isFourDigitPin ? 'Código y Enlace' : 'Enlace de acceso'} de NETFLIX (${accountEmail || 'Tu cuenta'}) Encontrado* 🚀\n\n`;
+                        let shortNetflixLink = null;
+                        if (latest.link && (isTravelVerify || isHouseholdAction)) {
+                            try {
+                                const { shortenUrl } = require('./urlShortenerService');
+                                shortNetflixLink = await shortenUrl(latest.link);
+                            } catch (e) {
+                                shortNetflixLink = latest.link;
+                            }
+                        }
+
+                        response = `🤖 *${isFourDigitPin ? 'Código y Enlace' : (isTravelVerify ? 'Código Temporal' : 'Enlace de Hogar')} de NETFLIX (${accountEmail || 'Tu cuenta'}) Encontrado* 🚀\n\n`;
                         if (isFourDigitPin) {
                             response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                         }
-                        response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 ${validVerificationLink}\n\n`;
-                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
+                        if (isTravelVerify && shortNetflixLink) {
+                            response += `🔑 *Haz clic aquí para ver tu código temporal de 4 dígitos en Netflix:*\n👉 ${shortNetflixLink}\n\n`;
+                            response += `🌐 *O ábrelo desde el botón en nuestro portal:*\n👉 ${validVerificationLink}\n\n`;
+                        } else if (shortNetflixLink) {
+                            response += `🔗 *Ingresa a este enlace para confirmar el Hogar e IP en tu TV/celular:*\n👉 ${validVerificationLink}\n\n`;
+                            response += `⚡ *Enlace directo de autorización rápida:*\n👉 ${shortNetflixLink}\n\n`;
+                        } else {
+                            response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 ${validVerificationLink}\n\n`;
+                        }
+                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence en 15 minutos._`;
 
                     } else if (isCodeOnlyPlatform || (!latest.link && latest.code)) {
                         // 3. ENTREGA EXCLUSIVA DE CÓDIGO (DISNEY, MAX, PRIME, ETC.)

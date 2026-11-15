@@ -479,9 +479,11 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
             const decodedHtml = decodeQuotedPrintable(parts.html || "");
             const decodedSnippet = decodeQuotedPrintable(snippet);
 
-            // Eliminar URLs completas para evitar extraer números/IDs dentro de enlaces (como el 000000 de Disney+)
+            // Eliminar URLs completas y UUIDs (ej. messageGuid partido en varias líneas) para evitar extraer números/IDs falsos dentro de enlaces
             const textToSearchForCode = decodedSnippet + ' ' + decodedText;
-            const bodyWithoutUrls = textToSearchForCode.replace(/https?:\/\/[^\s<>"`']+/gi, ' ');
+            const bodyWithoutUrls = textToSearchForCode
+                .replace(/https?:\/\/[^\s<>"`']+/gi, ' ')
+                .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, ' ');
 
             // Eliminar bloques <style> enteros
             const noStyleBody = bodyWithoutUrls.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
@@ -505,9 +507,9 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
                 continue;
             }
 
-            // Si el correo es específicamente de actualización de hogar de Netflix, es por ENLACE, no por código de 4 dígitos
-            const isNetflixHouseholdUpdate = /actualizar.*hogar|update-primary-location|c[oó]mo actualizar|confirmar.*hogar|update.*household/i.test(decodedSubject) ||
-                /actualizar.*hogar|update-primary-location|c[oó]mo actualizar tu hogar/i.test(superCleanBody);
+            // Si el correo es específicamente de actualización de hogar o código de acceso temporal de Netflix, es por ENLACE (botón 'Sí, la envié yo' u 'Obtener código'), no viene código de 4 dígitos en el cuerpo
+            const isNetflixHouseholdUpdate = /actualizar.*hogar|update-primary-location|c[oó]mo actualizar|confirmar.*hogar|update.*household|acceso\s+temporal|temporary\s+access|travel\/verify/i.test(decodedSubject) ||
+                /actualizar.*hogar|update-primary-location|c[oó]mo actualizar tu hogar|travel\/verify|obtener\s+c[oó]digo/i.test(superCleanBody);
 
             if (!isNetflixHouseholdUpdate) {
                 if (isNetflixMail) {
