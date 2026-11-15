@@ -440,7 +440,7 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
     const gmail = google.gmail({ version: 'v1', auth });
 
     try {
-        const listParams = { userId: 'me', maxResults: 5 };
+        const listParams = { userId: 'me', maxResults: 10 };
         if (searchQuery) listParams.q = searchQuery;
 
         const res = await gmail.users.messages.list(listParams);
@@ -719,7 +719,7 @@ function extractBestLink(bodyText, contextHint = '') {
         if (lower.includes('/images/') || lower.includes('/logos/') || lower.includes('/assets/')) return false;
         if (lower.includes('lkid=url_logo') || lower.includes('lkid=url_email') || lower.includes('lkid=url_src') || lower.includes('lkid=url_help') || lower.includes('lkid=url_terms') || lower.includes('lkid=url_privacy')) return false;
         if (lower.includes('help.netflix.com') || lower.includes('termsofuse') || lower.includes('privacypolicy') || lower.includes('corpinfo')) return false;
-        if (/(?:facebook|twitter|x|instagram|tiktok|youtube|linkedin|discord)\.(?:com|gg)\b/.test(lower)) return false;
+        if (/(?:^|\/\/|\.)(?:facebook|twitter|x|instagram|tiktok|youtube|linkedin|discord)\.(?:com|gg)\b/.test(lower)) return false;
         if (lower.includes('unsubscribe') || lower.includes('optout') || lower.includes('opt-out') || lower.includes('reset-password') || lower.includes('reset_password')) return false;
         if (lower.includes('/password') || lower.includes('lkid=url_password') || lower.includes('password-reset') || lower.includes('forgot-password')) return false;
 

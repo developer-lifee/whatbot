@@ -752,10 +752,13 @@ app.post('/api/netflix/verify', async (req, res) => {
             // Intentar hasta 4 veces con pausa de 2s para dar tiempo a que Netflix entregue el email
             for (let attempt = 0; attempt < 4; attempt++) {
                 console.log(`[NETFLIX API] Checking recent codes for ${netflixAcct.correo} (Attempt ${attempt + 1})...`);
-                // Tolerancia de 45 minutos para enlaces de Hogar / códigos
-                const recentCodes = await findRecentCodes(netflixAcct.correo, 45, 'netflix');
+                // Tolerancia de 45 minutos para enlaces de Hogar / códigos (ordenados del más reciente al más antiguo)
+                const rawRecentCodes = await findRecentCodes(netflixAcct.correo, 45, 'netflix');
+                const recentCodes = Array.isArray(rawRecentCodes)
+                    ? [...rawRecentCodes].sort((a, b) => (a.time ?? 999) - (b.time ?? 999))
+                    : [];
                 
-                // 1. Buscar enlace prioritario de actualización de hogar
+                // 1. Buscar enlace prioritario de actualización de hogar o código temporal de viaje
                 const updateMail = recentCodes.find(item => item.link && (
                     item.link.includes('update-primary-location') ||
                     item.link.includes('update_household') ||
@@ -811,9 +814,10 @@ app.post('/api/netflix/verify', async (req, res) => {
                     const isNetflixItem = (item.subject || "").toLowerCase().includes('netflix') ||
                         (item.snippet || "").toLowerCase().includes('netflix');
                     if (!isNetflixItem) return false;
-                    const hasFourDigitCode = item.code && /^\d{4}$/.test(String(item.code).trim());
                     const hasValidLink = isValidNetflixFallbackLink(item.link);
-                    return hasFourDigitCode || hasValidLink;
+                    // Para códigos de 4 dígitos sin enlace, exigir que sean recientes (<= 15 min) para no repetir el mismo código viejo
+                    const hasRecentFourDigitCode = item.code && /^\d{4}$/.test(String(item.code).trim()) && (item.time === undefined || item.time <= 15);
+                    return hasValidLink || hasRecentFourDigitCode;
                 });
 
                 if (netflixMail) {
@@ -11053,7 +11057,7 @@ client.on('message_create', async (msg) => {
     const groupJid = (msg.to && msg.to.includes('@g.us')) ? msg.to : ((msg.from && msg.from.includes('@g.us')) ? msg.from : null);
     if (msg.fromMe) {
         const effectiveMsgText = (msg.caption || (msg._data && msg._data.caption) || msg.body || '').trim();
-        const lowerBody = effectiveMsgText.toLowerCase();
+        const lowerBody = effectiveMsgText.toLowerCase().replace(/^[*_~`\s]+|[*_~`\s]+$/g, '');
         if (lowerBody === '@restart' || lowerBody === '!restart' || lowerBody === '@reiniciar' || lowerBody === '!reiniciar' || lowerBody.startsWith('@bot restart') || lowerBody.startsWith('@bot reiniciar')) {
             const { exec } = require('child_process');
             console.log('[RESTART fromMe] Reiniciando PM2 por comando propio...');
@@ -11620,6 +11624,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     const isCodeOnlyPlatform = !isLinkOnlyPlatform && (nameLower.includes('disney') || nameLower.includes('star') || (nameLower.includes('max') && !nameLower.includes('claude')) || nameLower.includes('hbo') || nameLower.includes('prime') || nameLower.includes('amazon') || nameLower.includes('paramount') || nameLower.includes('vix') || nameLower.includes('youtube'));
 
                     let response = '';
+                    let validVerificationLink = null;
 
                     if (isLinkOnlyPlatform) {
                         // 1. ENTREGA DE ENLACE MÁGICO (CLAUDE, CANVA, ETC.)
@@ -11635,18 +11640,8 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         }
                         response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
 
-                    } else if (isCodeOnlyPlatform || (!latest.link && latest.code)) {
-                        // 2. ENTREGA EXCLUSIVA DE CÓDIGO (DISNEY, MAX, PRIME, ETC.)
-                        response = `🤖 *Código de ${streamingName} Encontrado* 🚀\n\n`;
-                        if (latest.code) {
-                            response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
-                        } else {
-                            response += `📝 ${latest.snippet}\n\n`;
-                        }
-                        response += `⏰ Recibido hace ${latest.time} min.\n\n_Úsalo en tu pantalla o aplicación para iniciar sesión._`;
-
                     } else if (nameLower.includes('netflix')) {
-                        // 3. NETFLIX (CÓDIGO DE 4 DÍGITOS + ENLACE DE HOGAR SHEERIT)
+                        // 2. NETFLIX (CÓDIGO DE 4 DÍGITOS + ENLACE DE HOGAR SHEERIT)
                         let cleanPhone = realPhone ? String(realPhone).replace(/\D/g, '') : '';
                         if (!cleanPhone || cleanPhone.length > 13 || cleanPhone.length < 10) {
                             if (targetAccount && (targetAccount.numero || targetAccount.Numero || targetAccount.telefono || targetAccount.Telefono || targetAccount.celular)) {
@@ -11654,7 +11649,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                             }
                         }
                         const emailParam = accountEmail ? `&email=${encodeURIComponent(accountEmail)}` : '';
-                        const validVerificationLink = (cleanPhone && cleanPhone.length >= 10 && cleanPhone.length <= 13) 
+                        validVerificationLink = (cleanPhone && cleanPhone.length >= 10 && cleanPhone.length <= 13) 
                             ? `https://sheerit.co/verificar?tel=${cleanPhone}${emailParam}` 
                             : (accountEmail ? `https://sheerit.co/verificar?email=${encodeURIComponent(accountEmail)}` : `https://sheerit.co/verificar`);
 
@@ -11666,6 +11661,16 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         }
                         response += `🔗 *Ingresa a este enlace para confirmar el acceso e IP de tu hogar en tu TV/celular:*\n👉 ${validVerificationLink}\n\n`;
                         response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este enlace vence pronto._`;
+
+                    } else if (isCodeOnlyPlatform || (!latest.link && latest.code)) {
+                        // 3. ENTREGA EXCLUSIVA DE CÓDIGO (DISNEY, MAX, PRIME, ETC.)
+                        response = `🤖 *Código de ${streamingName} Encontrado* 🚀\n\n`;
+                        if (latest.code) {
+                            response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
+                        } else {
+                            response += `📝 ${latest.snippet}\n\n`;
+                        }
+                        response += `⏰ Recibido hace ${latest.time} min.\n\n_Úsalo en tu pantalla o aplicación para iniciar sesión._`;
 
                     } else {
                         // 4. CASO GENERAL RESTANTE
@@ -17630,7 +17635,7 @@ client.on('message', async (message) => {
                 ADMIN_GROUP_IDS.push(message.from);
             }
 
-            const b = (message.caption || (message._data && message._data.caption) || message.body || '').toLowerCase().trim();
+            const b = (message.caption || (message._data && message._data.caption) || message.body || '').toLowerCase().replace(/^[*_~`\s]+|[*_~`\s]+$/g, '').trim();
             const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot') || b === '@restart' || b === '!restart' || b === '@reiniciar' || b.startsWith('@bot restart') || b.startsWith('@bot reiniciar');
 
             if (isBotCommand) {

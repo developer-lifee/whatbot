@@ -759,12 +759,13 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 ? message.from 
                 : (chat ? chat.id._serialized : message.from));
 
-        // 1. FLUJO DE APROBACIÓN CON @commit (o @aceptar)
-        const isCommit = /^@?commit\b/i.test(textTrimmed) || /^@?acept(ar|o)\b/i.test(textTrimmed);
-        const isContinue = /^@?continuar\b/i.test(textTrimmed) || /^@?revalidar\b/i.test(textTrimmed) || /^@?seguir\b/i.test(textTrimmed);
-        const isDiscard = /^@?(deje\s*as[ií]|cancelar|descartar|olvidar|rechazar)\b/i.test(textTrimmed);
-        const isRevert = /^@?(devolver\s*commit|devolver|revert(?:ir)?|deshacer|rollback)\b/i.test(textTrimmed);
-        const changeMatch = textTrimmed.match(/^@?cambio[+: ]\s*(.+)/is) || textTrimmed.match(/^@?cambio\b(.*)/is);
+        // 1. FLUJO DE APROBACIÓN CON @commit (o @aceptar) - limpiando caracteres de formato WhatsApp (*, _, ~, `)
+        const cleanCommandText = textTrimmed.replace(/^[*_~`\s]+|[*_~`\s]+$/g, '').trim();
+        const isCommit = /^@?commit\b/i.test(cleanCommandText) || /^@?acept(ar|o)\b/i.test(cleanCommandText);
+        const isContinue = /^@?continuar\b/i.test(cleanCommandText) || /^@?revalidar\b/i.test(cleanCommandText) || /^@?seguir\b/i.test(cleanCommandText);
+        const isDiscard = /^@?(deje\s*as[ií]|cancelar|descartar|olvidar|rechazar)\b/i.test(cleanCommandText);
+        const isRevert = /^@?(devolver\s*commit|devolver|revert(?:ir)?|deshacer|rollback)\b/i.test(cleanCommandText);
+        const changeMatch = cleanCommandText.match(/^@?cambio[*_~`]*[+: ]\s*(.+)/is) || cleanCommandText.match(/^@?cambio\b[*_~`]*(.*)/is);
         const isCommand = isCommit || isContinue || isDiscard || isRevert || Boolean(changeMatch);
 
         // Prevenir tickets duplicados cuando un asesor envía captura y texto por separado o mensajes en ráfaga
