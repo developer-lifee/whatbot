@@ -16710,9 +16710,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 // Si no es un caso de 2FA/código con imagen, revisamos si pide código/enlace por texto antes de tratarlo como soporte o pago
                 const wasAwaitingDetails = currentStateData && currentStateData.state === 'awaiting_support_details';
                 const cleanText = (message.body || "").toLowerCase().trim();
-                const isCodeTextRequest = ['código', 'codigo', 'solicité', 'solicite', 'pedí', 'pedi', 'enlace', 'link', 'token', '2fa', 'claude'].some(kw => cleanText.includes(kw));
+                const isIssueOrActivationReport = ['desactivado', 'desactivada', 'no está activado', 'no esta activado', 'suspendido', 'suspendida', 'vencido', 'vencida', 'error', 'no funciona', 'caído', 'caido'].some(kw => cleanText.includes(kw));
+                const isCodeTextRequest = !isIssueOrActivationReport && ['código', 'codigo', 'solicité', 'solicite', 'pedí', 'pedi', 'enlace', 'link', 'token', '2fa', 'iniciar sesión', 'iniciar sesion'].some(kw => cleanText.includes(kw));
                 if (isCodeTextRequest && userAccounts && userAccounts.length > 0) {
-                    const targetAccount = userAccounts.find(acc => platform && (acc.servicio || '').toLowerCase().includes(platform.toLowerCase())) || userAccounts[0];
+                    const textPlatformHint = ['claude', 'apple', 'netflix', 'chatgpt', 'gpt', 'disney', 'amazon', 'prime', 'hbo', 'max', 'spotify', 'canva', 'youtube', 'paramount', 'crunchyroll'].find(p => cleanText.includes(p));
+                    const effectivePlatform = (platform || textPlatformHint || '').toLowerCase().trim();
+                    const matchingAccounts = effectivePlatform
+                        ? userAccounts.filter(acc => {
+                            const accStream = (acc.Streaming || acc.servicio || '').toLowerCase();
+                            if (effectivePlatform.includes('gpt')) return accStream.includes('gpt');
+                            if (effectivePlatform.includes('amazon') || effectivePlatform.includes('prime')) return accStream.includes('amazon') || accStream.includes('prime');
+                            if ((effectivePlatform.includes('hbo') || effectivePlatform.includes('max')) && !effectivePlatform.includes('claude')) return (accStream.includes('hbo') || accStream.includes('max')) && !accStream.includes('claude');
+                            return accStream.includes(effectivePlatform) || (accStream && effectivePlatform.includes(accStream));
+                        })
+                        : [];
+                    const targetAccount = matchingAccounts.length === 1
+                        ? matchingAccounts[0]
+                        : (!effectivePlatform && userAccounts.length === 1 ? userAccounts[0] : null);
                     if (targetAccount) {
                         userStates.delete(userId);
                         await processAccountVerificationCode(message, userId, targetAccount, realPhone, client, userStates);
