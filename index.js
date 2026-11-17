@@ -18572,14 +18572,23 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         console.log(`[AUTO-VALIDATE] No se pudo leer la llave destino en el comprobante. Flujo manual.`);
                     }
 
-                } else if (check.amount === null && !check.isReceipt) {
+                } else {
                     if (check.ocrError) {
                         console.warn(`[AUTO-VALIDATE] Error técnico de OCR en IA (${check.errorDetails || 'Error desconocido'}). Pasando a flujo de revisión manual de asesores.`);
                     } else {
-                        console.log(`[AUTO-VALIDATE] Comprobante no auto-validado por OCR. Pasando a flujo de revisión manual de asesores.`);
+                        const detailsLower = String(check.extractedDetails || '').toLowerCase();
+                        const isPreTransfer = Boolean(check.isPreTransfer) || detailsLower.includes('previa') || detailsLower.includes('transferir plata') || detailsLower.includes('sin confirmar') || detailsLower.includes('no es comprobante final');
+                        console.log(`[AUTO-VALIDATE] ❌ Imagen rechazada (no es comprobante final). isCodeScreen=${!!check.isCodeScreen}, isPreTransfer=${isPreTransfer}, details="${check.extractedDetails || ''}"`);
+                        if (check.isCodeScreen) {
+                            await message.reply("🤖 La imagen que enviaste corresponde a una pantalla de inicio de sesión o código de verificación, no a un comprobante de pago. Por favor envíanos la captura del comprobante de transferencia realizada para continuar. 😊");
+                        } else if (isPreTransfer) {
+                            await message.reply("🤖 La captura que enviaste corresponde a la pantalla previa a realizar la transferencia (aún aparece el botón *Transferir plata* sin confirmar). Por favor completa la transferencia y envíanos el comprobante final del pago realizado para validar tu suscripción. 😊");
+                        } else {
+                            await message.reply("🤖 La imagen que enviaste no corresponde a un comprobante de transferencia finalizada. Por favor asegúrate de completar el pago y envíanos la captura del comprobante final para poder validarlo. 😊");
+                        }
+                        userStates.set(userId, { ...stateData, state: 'awaiting_payment_confirmation' });
+                        return;
                     }
-                    // No rechazar tajantemente al cliente con "no pude identificar esta imagen...".
-                    // Caer fluidamente al fallback manual para alertar a los asesores en GROUP_ID y confirmar al cliente.
                 }
             } catch (autoErr) {
                 console.error(`[AUTO-VALIDATE] Error durante validación automática:`, autoErr.message);
