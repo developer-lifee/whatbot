@@ -14661,15 +14661,17 @@ REGLAS:
                     }
                 }
 
+                const validCodeAccounts = userAccounts.filter(acc => (acc.Streaming || "").trim() && (acc.correo || "").trim());
+
                 // 2. Si no hay coincidencia directa (y no se especificó plataforma ajena), pero solo tiene 1 cuenta, usar esa
-                if (!targetAccount && userAccounts.length === 1) {
-                    targetAccount = userAccounts[0];
+                if (!targetAccount && validCodeAccounts.length === 1) {
+                    targetAccount = validCodeAccounts[0];
                 }
 
                 // 3. Si tiene varias, presentar opciones para evitar errores o falsos supuestos
-                if (!targetAccount && userAccounts.length > 1) {
+                if (!targetAccount && validCodeAccounts.length > 1) {
                     let msg = `🤖 Veo que tienes registradas múltiples cuentas activas. ¿De cuál de ellas necesitas el código de verificación?\n\n`;
-                    userAccounts.forEach((acc, idx) => {
+                    validCodeAccounts.forEach((acc, idx) => {
                         const platName = (acc.Streaming || "").toUpperCase();
                         const email = (acc.correo || "").trim().toLowerCase();
                         const profile = acc['pin perfil'] || acc['Nombre'] || "";
@@ -14682,7 +14684,7 @@ REGLAS:
 
                     userStates.set(userId, {
                         state: 'awaiting_code_account_selection',
-                        candidates: userAccounts,
+                        candidates: validCodeAccounts,
                         timestamp: Date.now(),
                         nombre: foundName
                     });
@@ -16538,6 +16540,12 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 userStates.delete(cleanKey);
                 userStates.delete(`${cleanKey}@c.us`);
             }
+        }
+        if (typeof cleanPhoneJid !== 'undefined' && cleanPhoneJid) {
+            userStates.delete(cleanPhoneJid);
+        }
+        if (typeof realPhone !== 'undefined' && realPhone) {
+            userStates.delete(realPhone);
         }
     }
 
