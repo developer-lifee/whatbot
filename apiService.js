@@ -619,6 +619,9 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
       }
     }
 
+    // Filtrar filas huérfanas o vacías sin plataforma asignada (ej. fila con nombre/teléfono pero Streaming vacío)
+    userAccounts = userAccounts.filter(acc => String(acc.Streaming || '').trim().length > 0);
+
     return userAccounts;
   } catch (error) {
     console.error("[API Service] Error buscando cuentas por número:", error);
