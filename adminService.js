@@ -534,8 +534,11 @@ async function executePaymentValidation(userId, userState, client, userStates, a
 
     let report = `✅ *PAGO VALIDADO AUTOMÁTICAMENTE*\n\n`;
     results.forEach(res => {
-        report += `- *${res.name}*: ${res.status === 'success' ? 'Asignada ✅' : 'Manual ⚠️'}\n`;
+        report += `- *${res.name || 'Sin plataforma'}*: ${res.status === 'success' ? 'Asignada ✅' : 'Manual ⚠️'}\n`;
     });
+    if (userState.isRenewal && !anySuccess) {
+        report += `\n⚠️ *ATENCIÓN:* Excel NO fue actualizado automáticamente para esta renovación. Por favor actualiza la fecha en Excel manualmente.`;
+    }
     console.log(`[Payment Auto-Validate] ✅ Registro en Excel completado para ${userId}`);
 
     const targetJid = userState.chatJid || userId;
@@ -544,11 +547,12 @@ async function executePaymentValidation(userId, userState, client, userStates, a
         await adminMessage.reply(report);
     } else {
         try {
-            const renewalItems = results.filter(res => res.type === 'renewal' || res.isRenewal || userState.isRenewal);
-            const newSaleItems = results.filter(res => !(res.type === 'renewal' || res.isRenewal || userState.isRenewal));
+            const isRenewalSuccess = (res) => res.status === 'success' && (res.type === 'renewal' || res.isRenewal || userState.isRenewal);
+            const renewalItems = results.filter(isRenewalSuccess);
+            const newSaleItems = results.filter(res => !isRenewalSuccess(res));
 
             if (renewalItems.length > 0 && newSaleItems.length === 0) {
-                const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
+                const renewalPlats = renewalItems.map(item => (item.name || '').toUpperCase()).filter(Boolean).join(', ') || 'tu servicio';
                 const venc = renewalItems[0].vencimiento ? formatVencimientoDate(renewalItems[0].vencimiento) : "";
                 const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
                 let renewalMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\nPuedes seguir disfrutando de tu servicio con tus mismas credenciales y perfil habitual. ¡Muchas gracias por tu fidelidad! 😊🎬`;
@@ -592,7 +596,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                 credentialsMsg += profileTip;
 
                 if (manualItems.length > 0) {
-                    const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                    const manualPlats = manualItems.map(item => (item.name || '').toUpperCase()).filter(Boolean).join(', ') || 'tu servicio';
                     const expectation = getDynamicSupportExpectationMessage();
                     credentialsMsg += `\n\n⚠️ *Nota:* Tu servicio de *${manualPlats}* requiere activación manual o invitación familiar. ${expectation}`;
                     // Notificar al grupo de administración de la parte manual
@@ -619,7 +623,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
 
                         const otherManuals = newManualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
                         if (otherManuals.length > 0) {
-                            const otherPlats = otherManuals.map(item => item.name.toUpperCase()).join(', ');
+                            const otherPlats = otherManuals.map(item => (item.name || '').toUpperCase()).filter(Boolean).join(', ') || 'tu servicio';
                             const expectation = getDynamicSupportExpectationMessage();
                             await client.sendMessage(targetJid, `⚠️ *Nota:* Tus otros servicios (*${otherPlats}*) requieren activación manual por parte de un asesor. ${expectation}`);
                         }
@@ -634,8 +638,26 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     return { success: true };
                 }
             } else {
+                if (userState.isRenewal && renewalItems.length === 0) {
+                    const expectation = getDynamicSupportExpectationMessage();
+                    const manualRenewalMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n` +
+                        `Un asesor completará la actualización de tu renovación manualmente en breve. ${expectation}`;
+                    await client.sendMessage(targetJid, manualRenewalMsg);
+                    try {
+                        const groupChat = await client.getChatById(GROUP_ID);
+                        if (groupChat) {
+                            await groupChat.sendMessage(`⚠️ *RENOVACIÓN MANUAL REQUERIDA (EXCEL NO ACTUALIZADO)* (@${userId.replace('@c.us', '').replace('@lid', '')})\n` +
+                                `Monto: $${amount}\n` +
+                                `No se pudo actualizar automáticamente la fila en Excel. Por favor, renueva la fecha manualmente.`);
+                        }
+                    } catch (e) { }
+                    userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                    await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
+                    return { success: true };
+                }
+
                 const newManualItems = manualItems.filter(item => item.type !== 'renewal');
-                const renewalItems = results.filter(item => item.type === 'renewal' || item.status === 'success');
+                const successfulRenewals = results.filter(item => item.status === 'success' && item.type === 'renewal');
 
                 if (newManualItems.length > 0) {
                     const hasAppleOne = newManualItems.some(item => (item.name || "").toLowerCase().includes('apple one'));
@@ -670,7 +692,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
 
                         const otherManuals = newManualItems.filter(item => !(item.name || "").toLowerCase().includes('apple one'));
                         if (otherManuals.length > 0) {
-                            const otherPlats = otherManuals.map(item => formatCleanPlatformTitle(item.name)).join(', ');
+                            const otherPlats = otherManuals.map(item => formatCleanPlatformTitle(item.name)).filter(Boolean).join(', ') || 'tu servicio';
                             const expectation = getDynamicSupportExpectationMessage();
                             await client.sendMessage(targetJid, `⚠️ *Nota:* Tus otros servicios (*${otherPlats}*) requieren de una activación personalizada. ${expectation}`);
                         }
@@ -700,7 +722,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                             }
                             return str;
                         };
-                        const platformsStr = newManualItems.map(item => formatCleanPlatformTitle(item.name)).join(', ');
+                        const platformsStr = newManualItems.map(item => formatCleanPlatformTitle(item.name)).filter(Boolean).join(', ') || 'tu servicio';
                         const expectation = getDynamicSupportExpectationMessage();
                         manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
                             `${expectation}`;
@@ -721,9 +743,9 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     }
                     await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                     return { success: true };
-                } else if (renewalItems.length > 0) {
-                    const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
-                    const venc = renewalItems[0].vencimiento || "";
+                } else if (successfulRenewals.length > 0) {
+                    const renewalPlats = successfulRenewals.map(item => (item.name || '').toUpperCase()).filter(Boolean).join(', ') || 'tu servicio';
+                    const venc = successfulRenewals[0].vencimiento ? formatVencimientoDate(successfulRenewals[0].vencimiento) : "";
                     const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
                     const successMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\n¡Gracias por renovar con Sheerit! 😊`;
                     await client.sendMessage(targetJid, successMsg);
@@ -1255,19 +1277,24 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
         let report = `✅ *PAGO PROCESADO*\nCliente: ${(activeStateData && activeStateData.nombre) || displayPhone}\n\n`;
         results.forEach(res => {
             if (res.status === 'success') {
-                report += `- *${res.name}*: Fila ${res.rowNumber} ✅\n`;
+                report += `- *${res.name || 'Servicio'}*: Fila ${res.rowNumber} ✅\n`;
             } else {
-                report += `- *${res.name}*: MANUAL ⚠️\n`;
+                report += `- *${res.name || 'Sin plataforma'}*: MANUAL ⚠️\n`;
             }
         });
-        await message.reply(report);
 
         const manualItems = results.filter(res => res.status !== 'success');
-        const renewalItems = results.filter(res => res.type === 'renewal' || res.isRenewal || (activeStateData && activeStateData.isRenewal));
-        const newSaleItems = results.filter(res => !(res.type === 'renewal' || res.isRenewal || (activeStateData && activeStateData.isRenewal)));
+        const isRenewalSuccess = (res) => res.status === 'success' && (res.type === 'renewal' || res.isRenewal || (activeStateData && activeStateData.isRenewal));
+        const renewalItems = results.filter(isRenewalSuccess);
+        const newSaleItems = results.filter(res => !isRenewalSuccess(res));
+
+        if (activeStateData && activeStateData.isRenewal && renewalItems.length === 0) {
+            report += `\n⚠️ *ATENCIÓN:* Excel NO fue actualizado automáticamente para esta renovación. Por favor actualiza la fecha en Excel manualmente.`;
+        }
+        await message.reply(report);
 
         if (renewalItems.length > 0 && newSaleItems.length === 0) {
-            const renewalPlats = renewalItems.map(item => item.name.toUpperCase()).join(', ');
+            const renewalPlats = renewalItems.map(item => (item.name || '').toUpperCase()).filter(Boolean).join(', ') || 'tu servicio';
             const venc = renewalItems[0].vencimiento ? formatVencimientoDate(renewalItems[0].vencimiento) : "";
             const vencLine = venc ? `\n📅 *Nueva fecha de vencimiento:* ${venc}` : "";
             const renewalMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\nPuedes seguir disfrutando de tu servicio con tus mismas credenciales y perfil habitual. ¡Muchas gracias por tu fidelidad! 😊🎬`;
@@ -1310,13 +1337,13 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             credentialsMsg += profileTip;
 
             if (manualItems.length > 0) {
-                const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                const manualPlats = manualItems.map(item => (item.name || '').toUpperCase()).filter(Boolean).join(', ') || 'tu servicio';
                 credentialsMsg += `\n\n⚠️ *Nota:* Para tu servicio de *${manualPlats}*, estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊`;
             }
 
             await client.sendMessage(userId, credentialsMsg);
 
-            const appleOneItem = manualItems.find(item => item.name.toLowerCase().includes('apple one'));
+            const appleOneItem = manualItems.find(item => (item.name || '').toLowerCase().includes('apple one'));
             if (appleOneItem) {
                 const appleMsg = `🤖 Para poder enviarte la invitación familiar de *Apple One*, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
                     `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
@@ -1325,31 +1352,37 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
             } else {
                 userStates.set(userId, { state: 'main_menu', nombre: (activeStateData && activeStateData.nombre) || "Cliente", lastPaymentValidated: Date.now() });
             }
+        } else if (activeStateData && activeStateData.isRenewal && renewalItems.length === 0) {
+            const expectation = getDynamicSupportExpectationMessage();
+            await client.sendMessage(userId, `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nUn asesor completará la actualización de tu renovación manualmente en breve. ${expectation}`);
+            userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: userId, nombre: (activeStateData && activeStateData.nombre) || "Cliente", lastPaymentValidated: Date.now() });
         } else {
             // No credentials delivered (all manual or failed)
-            const appleOneItem = manualItems.find(item => item.name.toLowerCase().includes('apple one'));
+            const appleOneItem = manualItems.find(item => (item.name || '').toLowerCase().includes('apple one'));
             if (appleOneItem) {
                 const appleMsg = `🤖 ¡Tu pago de *Apple One* ha sido verificado con éxito! 🎉\n\n` +
                     `Para poder enviarte la invitación familiar, por favor envíame el *correo electrónico de tu Apple ID* (el que usas en tu iPhone/iPad/iCloud).\n\n` +
                     `*(Ejemplo: miusuario@icloud.com o miusuario@gmail.com)*`;
                 await client.sendMessage(userId, appleMsg);
 
-                const otherFailed = manualItems.filter(item => !item.name.toLowerCase().includes('apple one'));
+                const otherFailed = manualItems.filter(item => !(item.name || '').toLowerCase().includes('apple one'));
                 if (otherFailed.length > 0) {
-                    const manualPlats = otherFailed.map(item => item.name.toUpperCase()).join(', ');
+                    const manualPlats = otherFailed.map(item => (item.name || '').toUpperCase()).filter(Boolean).join(', ') || 'tu servicio';
                     await client.sendMessage(userId, `🤖 Para tus otros servicios (*${manualPlats}*), estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊`);
                 }
 
                 userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: userId, nombre: (activeStateData && activeStateData.nombre) || "Cliente", lastPaymentValidated: Date.now() });
             } else {
-                const manualPlats = manualItems.map(item => item.name.toUpperCase()).join(', ');
+                const manualPlats = manualItems.map(item => (item.name || '').toUpperCase()).filter(Boolean).join(', ') || 'tu servicio';
                 await client.sendMessage(userId, `🤖 ¡Tu pago ha sido verificado! 🎉\n\nSin embargo, para tu servicio de *${manualPlats}* estamos preparando una cuenta nueva para ti. *Por favor danos unos 20 minutos*. 😊`);
                 userStates.set(userId, { state: 'main_menu', nombre: (activeStateData && activeStateData.nombre) || "Cliente", lastPaymentValidated: Date.now() });
             }
         }
 
         // Limpiar estado
-        userStates.set(userId, { state: 'main_menu', nombre: (activeStateData && activeStateData.nombre) || "Cliente" });
+        if (!(activeStateData && activeStateData.isRenewal && renewalItems.length === 0 && !hasAnyCredentials)) {
+            userStates.set(userId, { state: 'main_menu', nombre: (activeStateData && activeStateData.nombre) || "Cliente" });
+        }
     } catch (error) {
         console.error("[Admin Service] Error en confirmación manual:", error.message);
         await message.reply(`❌ Error al registrar: ${error.message}`);

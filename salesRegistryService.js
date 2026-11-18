@@ -424,11 +424,13 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
         const results = [];
         for (const item of expandedItems) {
             const planName = (item.chosenPlan ? item.chosenPlan.name : (item.plan ? (item.plan.name || item.plan) : "")) || "";
-            let platformName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "");
+            let platformName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toString().trim();
             
             // Si hay un plan específico (como Platino, Extra, Claude X2/X5, Apple One/TV, etc.), lo concatenamos para la búsqueda exacta en Excel
-            if (planName) {
+            if (planName && platformName) {
                 platformName = `${platformName} ${planName}`;
+            } else if (planName && !platformName) {
+                platformName = planName.toString().trim();
             }
             const lowerName = platformName.toLowerCase();
 
@@ -584,7 +586,35 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
                 // PASO 1: Búsqueda estricta por TELÉFONO (Prioridad Absoluta)
                 let existingAccount = null;
-                if (userPhoneLast10 && userPhoneLast10.length >= 7) {
+                if (!platformName && userState.isRenewal && userPhoneLast10 && userPhoneLast10.length >= 7) {
+                    const clientPhoneRows = allRows.filter(r => {
+                        const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
+                        const whatsappDigits = (r.whatsapp || "").toString().replace(/\D/g, '');
+                        return (rowPhone && rowPhone.includes(userPhoneLast10)) || (whatsappDigits && whatsappDigits.includes(userPhoneLast10));
+                    });
+
+                    if (clientPhoneRows.length === 1) {
+                        existingAccount = clientPhoneRows[0];
+                    } else if (clientPhoneRows.length > 1) {
+                        try {
+                            const { getJsDateFromExcel } = require('./apiService');
+                            const expiringRows = clientPhoneRows.filter(r => {
+                                const rawExp = r.deben || r.Columna4 || r.vencimiento;
+                                const parsedExp = getJsDateFromExcel ? getJsDateFromExcel(rawExp) : parseExcelDate(rawExp);
+                                if (!parsedExp || isNaN(parsedExp.getTime())) return false;
+                                const daysUntilExpire = (parsedExp.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+                                return daysUntilExpire <= 5;
+                            });
+                            if (expiringRows.length === 1) {
+                                existingAccount = expiringRows[0];
+                            }
+                        } catch (expErr) { }
+                    }
+
+                    if (existingAccount) {
+                        platformName = (existingAccount.Streaming || existingAccount.Plataforma || "").toString().trim();
+                    }
+                } else if (userPhoneLast10 && userPhoneLast10.length >= 7) {
                     existingAccount = allRows.find(r => {
                         if (!isSamePlatformFamily(r.Streaming, platformName)) return false;
                         const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
@@ -602,7 +632,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 // 1. La fila NO debe tener un teléfono registrado de otra persona (si tiene >= 10 dígitos y no es del cliente, se descarta).
                 // 2. Nombres de 1 sola palabra NUNCA usan Levenshtein (en español Cristian != Cristina, Daniel != Daniela, Carlos != Carla, etc.). Deben coincidir exactamente.
                 // 3. Nombres de 2+ palabras pueden permitir coincidencia si coinciden primer nombre y apellido.
-                if (!existingAccount) {
+                if (!existingAccount && platformName) {
                     const normalizeName = (s) => (s || "").toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, ' ').trim();
                     const cleanName = normalizeName(userState.nombre);
                     const cleanPush = normalizeName(userState.pushname);
@@ -769,6 +799,16 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     vencimiento: nextPaymentDate,
                     "customer mail": matchedRow["customer mail"] || matchedRow["Customer Mail"] || "",
                     customerMail: matchedRow["customer mail"] || matchedRow["Customer Mail"] || ""
+                });
+                continue;
+            }
+
+            if (!platformName || !platformName.trim()) {
+                console.warn(`[Sales Registry] ⚠️ Ítem sin plataforma identificable para ${phone}. Evitando venta nueva y pasando a validación manual.`);
+                results.push({
+                    name: userState.isRenewal ? 'Renovación pendiente' : 'Plataforma no especificada',
+                    status: 'manual_validation_required',
+                    reason: 'No se pudo identificar la plataforma o fila para renovar automáticamente'
                 });
                 continue;
             }
