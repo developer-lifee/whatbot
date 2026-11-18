@@ -891,7 +891,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
                         console.error('[Billing Service] Error notificando al grupo sobre credenciales pendientes:', groupErr.message);
                     }
                 } else {
-                    await safeSend(null, `🤖 Veo que actualmente no tienes una suscripción activa de *${requestedPlatform}* con nosotros.\n\n¿Te gustaría adquirir un plan? Escribe *1* para ver nuestro catálogo y comprar. 🛒\n\nSi crees que esto es un error, no te preocupes, en un momento un asesor humano revisará este chat para ayudarte. 🧑‍💻`, userId, client);
+                    await safeSend(null, `🤖 Veo que actualmente no tienes una suscripción activa de *${requestedPlatform}* con nosotros.\n\n¿Te gustaría adquirir un plan? Escribe *1* para ver nuestro catálogo y comprar. 🛒\n\nSi crees que esto es un error, no te preocupes, en un momento un asesor humano revisará este chat para ayudarte. 🧑💻`, userId, client);
                 }
                 // Activar modo humano para que el asesor pueda revisar el error si el cliente responde
                 if (userStates) {
@@ -1301,7 +1301,7 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             .find(m => isValidCustomerEmail(m)) || "";
 
         const { getCustomBillingRulesByPhone, findMatchingCustomRule } = require('./customBillingService');
-        const customRules = await getCustomBillingRulesByPhone(realPhone || userId);
+        const customRules = await getCustomBillingRulesByPhone(phoneNumber || userId);
 
         accountsToProcess.forEach((acc, index) => {
             const vencimientoRaw = acc.deben || acc.vencimiento;
