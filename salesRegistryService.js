@@ -503,12 +503,64 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     const { resetDeviceUsage } = require('./deviceLimitService');
                     resetDeviceUsage(phone, excelRow.correo || excelRow.Correo || realStreamingName, excelRow.Nombre || excelRow.nombre || null);
                 } catch (resetErr) { }
+
+                const directRenewalEmail = excelRow.correo || excelRow.Correo || "";
+                const itemsCount = Math.max(1, (userState.items || []).length);
+                let directRenewalPrice = Number(item.price || (item.chosenPlan && item.chosenPlan.price) || (item.platform && item.platform.price) || excelRow.precio || 0);
+                if (!directRenewalPrice && Number(userState.total) > 0) {
+                    directRenewalPrice = Math.round(Number(userState.total) / itemsCount);
+                }
+                if (!directRenewalPrice) {
+                    try {
+                        const { getPlatformPriceFromExcel } = require('./billingService');
+                        const { getPlatformKnowledge } = require('./aiService');
+                        const plats = await getPlatformKnowledge().catch(() => []);
+                        directRenewalPrice = getPlatformPriceFromExcel(excelRow, plats) * itemMonths;
+                    } catch (pErr) { }
+                }
+
+                if (paymentMethod !== 'Bold Pagos' && !String(paymentMethod).toLowerCase().includes('bold') && directRenewalPrice > 0) {
+                    try {
+                        const { addCashFlowEntry } = require('./accountingService');
+                        await addCashFlowEntry('income', realStreamingName, directRenewalPrice, `Renovación confirmada (${paymentMethod}): ${name}`, new Date(), true);
+                    } catch (cashErr) {
+                        console.warn("[Sales Registry] Error registrando renovación directa en flujo de caja:", cashErr.message);
+                    }
+                }
+
+                try {
+                    const { logValidatedPayment } = require('./paymentLogService');
+                    await logValidatedPayment({
+                        phone,
+                        user_id: userId,
+                        client_name: name,
+                        payment_type: 'renewal',
+                        platform: realStreamingName,
+                        account_email: directRenewalEmail,
+                        excel_row: targetRow,
+                        amount: directRenewalPrice,
+                        duration_months: itemMonths,
+                        payment_method: paymentMethod,
+                        bank: userState.ocrBank || null,
+                        destination_key: userState.ocrDestinationKey || null,
+                        destination_name: userState.ocrDestinationName || null,
+                        transaction_reference: userState.ocrReference || null,
+                        receipt_date: userState.ocrReceiptDate || null,
+                        gmail_match_id: userState.gmailMatchId || null,
+                        new_expiration: nextPaymentDate,
+                        auto_validated_by_key: !!userState.autoValidatedByKey,
+                        details: userState.ocrExtractedDetails || null
+                    });
+                } catch (logErr) {
+                    console.warn("[Sales Registry] Error registrando renovación directa en validated_payments_log:", logErr.message);
+                }
+
                 results.push({ 
                     name: realStreamingName, 
                     status: 'success', 
                     rowNumber: targetRow, 
                     type: 'renewal',
-                    correo: excelRow.correo || excelRow.Correo || "",
+                    correo: directRenewalEmail,
                     contraseña: excelRow.contraseña || excelRow.Contraseña || excelRow.password || "",
                     pin: excelRow["pin perfil"] || excelRow.pin || "",
                     vencimiento: nextPaymentDate,
@@ -651,7 +703,19 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 await updateExcelData(finalRow, updates);
                 const renewalEmail = matchedRow.correo || matchedRow.Correo || "";
                 const renewalPlatName = matchedRow.Streaming || platformName;
-                const renewalPrice = parseFloat(matchedRow.precio || (item.platform ? item.platform.price : 0) || userState.total || 0);
+                const renewalItemsCount = Math.max(1, (userState.items || []).length);
+                let renewalPrice = Number(item.price || (item.chosenPlan && item.chosenPlan.price) || (item.platform && item.platform.price) || matchedRow.precio || 0);
+                if (!renewalPrice && Number(userState.total) > 0) {
+                    renewalPrice = Math.round(Number(userState.total) / renewalItemsCount);
+                }
+                if (!renewalPrice) {
+                    try {
+                        const { getPlatformPriceFromExcel } = require('./billingService');
+                        const { getPlatformKnowledge } = require('./aiService');
+                        const plats = await getPlatformKnowledge().catch(() => []);
+                        renewalPrice = getPlatformPriceFromExcel(matchedRow, plats) * itemMonths;
+                    } catch (pErr) { }
+                }
 
                 try {
                     const { resetDeviceUsage } = require('./deviceLimitService');
@@ -795,7 +859,19 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
                 // Registrar ingreso automático en Flujo de Caja Real si es pago por transferencia / Nequi / Bre-B / Admin
                 const salePlatName = slot.rowData.Streaming || platformName;
-                const saleItemPrice = parseFloat(slot.rowData.precio || (item.platform ? item.platform.price : 0) || userState.total || 0);
+                const saleItemsCount = Math.max(1, (userState.items || []).length);
+                let saleItemPrice = Number(item.price || (item.chosenPlan && item.chosenPlan.price) || (item.platform && item.platform.price) || slot.rowData.precio || 0);
+                if (!saleItemPrice && Number(userState.total) > 0) {
+                    saleItemPrice = Math.round(Number(userState.total) / saleItemsCount);
+                }
+                if (!saleItemPrice) {
+                    try {
+                        const { getPlatformPriceFromExcel } = require('./billingService');
+                        const { getPlatformKnowledge } = require('./aiService');
+                        const plats = await getPlatformKnowledge().catch(() => []);
+                        saleItemPrice = getPlatformPriceFromExcel(slot.rowData, plats) * itemMonths;
+                    } catch (pErr) { }
+                }
                 if (paymentMethod !== 'Bold Pagos' && !String(paymentMethod).toLowerCase().includes('bold')) {
                     try {
                         const { addCashFlowEntry } = require('./accountingService');

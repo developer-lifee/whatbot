@@ -494,7 +494,43 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     const paymentLabel = matchId
         ? `Gmail Match (${matchId})`
         : (userState.paymentMethod || 'Auto-OCR Llave');
-    const results = await recordNewSale(userId, userState, paymentLabel);
+    const enrichedState = { ...userState, gmailMatchId: userState.gmailMatchId || matchId || null };
+    const results = await recordNewSale(userId, enrichedState, paymentLabel);
+
+    // Respaldo: si ningún ítem quedó registrado en Excel automáticamente (ej. activación manual / sin stock),
+    // registrar igual el pago validado en validated_payments_log para que aparezca en Contabilidad y BD.
+    const anySuccess = Array.isArray(results) && results.some(r => r && r.status === 'success');
+    if (!anySuccess && amount > 0) {
+        try {
+            const { logValidatedPayment } = require('./paymentLogService');
+            const platSummary = (results && results.length > 0)
+                ? results.map(r => r.name).filter(Boolean).join(', ')
+                : (userState.platform || 'SERVICIO (ACTIVACIÓN MANUAL)');
+            await logValidatedPayment({
+                phone: userState.realPhone || userId,
+                user_id: userId,
+                client_name: userState.nombre || null,
+                payment_type: userState.isRenewal ? 'renewal' : 'new_sale',
+                platform: platSummary,
+                account_email: null,
+                excel_row: null,
+                amount: amount,
+                duration_months: userState.durationMonths || 1,
+                payment_method: paymentLabel,
+                bank: userState.ocrBank || null,
+                destination_key: userState.ocrDestinationKey || null,
+                destination_name: userState.ocrDestinationName || null,
+                transaction_reference: userState.ocrReference || null,
+                receipt_date: userState.ocrReceiptDate || null,
+                gmail_match_id: enrichedState.gmailMatchId,
+                new_expiration: null,
+                auto_validated_by_key: !!userState.autoValidatedByKey,
+                details: userState.ocrExtractedDetails || 'Validado (pendiente activación manual / sin cupo automático)'
+            });
+        } catch (logErr) {
+            console.warn('[Payment Auto-Validate] Error en respaldo de validated_payments_log:', logErr.message);
+        }
+    }
 
     let report = `✅ *PAGO VALIDADO AUTOMÁTICAMENTE*\n\n`;
     results.forEach(res => {
