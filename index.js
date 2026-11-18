@@ -54,7 +54,7 @@ function parseReceiptDateISO(check) {
         julio: '07', jul: '07', agosto: '08', ago: '08', septiembre: '09', sep: '09', set: '09',
         octubre: '10', oct: '10', noviembre: '11', nov: '11', diciembre: '12', dic: '12'
     };
-    const esMatch = details.toLowerCase().match(/(\d{1,2})\s+de\s+([a-záéíóú]+)(?:\s+de)?\s+(20\d{2})/i);
+    const esMatch = details.toLowerCase().match(/(\d{1,2})\s+(?:de\s+)?([a-záéíóú]+)(?:\s+(?:de\s+)?)?(20\d{2})/i);
     if (esMatch && months[esMatch[2]]) {
         return `${esMatch[3]}-${months[esMatch[2]]}-${esMatch[1].padStart(2, '0')}`;
     }
@@ -15525,6 +15525,7 @@ REGLAS:
                                 );
 
                                 if (validationResult.success) {
+                                    await markPaymentReferenceUsed(receiptCheck.ref, userId, check.amount);
                                     // Notificar al grupo administrativo del éxito automático
                                     try {
                                         const groupChat = await client.getChatById(GROUP_ID);

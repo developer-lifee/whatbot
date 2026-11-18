@@ -1102,42 +1102,7 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
             }
         }
 
-        // 1.4 DETECCIÓN MIXTA: 1 Renovación + 1 Compra Nueva (ej. Caso Julian Rodríguez: Amazon + Netflix = $22.000)
-        if (userAccounts.length === 1 && platforms && platforms.length > 0) {
-            const singleAcc = userAccounts[0];
-            const singlePrice = getPlatformPriceFromExcel(singleAcc, platforms);
-            if (paidAmount > singlePrice * 1.3) {
-                // Probar qué plataforma del catálogo complementa este pago
-                for (const plat of platforms) {
-                    const candidatePrices = [];
-                    if (plat.price) candidatePrices.push({ name: plat.name, price: plat.price, plan: null });
-                    if (Array.isArray(plat.plans)) {
-                        plat.plans.forEach(plan => {
-                            if (plan.price) candidatePrices.push({ name: `${plat.name} - ${plan.name}`, price: plan.price, plan });
-                        });
-                    }
-
-                    for (const cand of candidatePrices) {
-                        const expectedCombo = (singlePrice + cand.price) - 1000;
-                        const expectedRegular = singlePrice + cand.price;
-                        if (Math.abs(paidAmount - expectedCombo) <= 1000 || Math.abs(paidAmount - expectedRegular) <= 1000) {
-                            console.log(`[Duration Adjuster] 🎯 Detección mixta: Renovación de ${singleAcc.Streaming} + Compra nueva de ${cand.name} por $${paidAmount}.`);
-                            stateData.items = [
-                                { ...singleAcc, isRenewal: true },
-                                { Streaming: cand.name, platform: plat, chosenPlan: cand.plan, price: cand.price, isRenewal: false }
-                            ];
-                            stateData.durationMonths = 1;
-                            stateData.total = paidAmount;
-                            stateData.isRenewal = false;
-                            stateData.leftoverAmount = 0;
-                            return;
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta por M meses
+        // 2. Probar si paidAmount coincide con la renovación de 1 sola cuenta por M meses (evaluar ANTES de combos mixtos para evitar falsos combos en pagos multimensuales)
         // ¡REGLA DE SEGURIDAD ESTRICTA!: Si el cliente tiene múltiples cuentas activas (>= 2) que están venciendo en la misma fecha o ciclo,
         // NUNCA debemos asignar arbitrariamente el pago completo a meses adelantados de 1 sola cuenta ignorando las demás!
         const hasMultipleExpiring = userAccounts.filter(acc => {
@@ -1174,6 +1139,41 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
                         stateData.isRenewal = true;
                         stateData.leftoverAmount = 0;
                         return;
+                    }
+                }
+            }
+        }
+
+        // 1.4 DETECCIÓN MIXTA: 1 Renovación + 1 Compra Nueva (ej. Caso Julian Rodríguez: Amazon + Netflix = $22.000)
+        if (userAccounts.length === 1 && platforms && platforms.length > 0) {
+            const singleAcc = userAccounts[0];
+            const singlePrice = getPlatformPriceFromExcel(singleAcc, platforms);
+            if (paidAmount > singlePrice * 1.3) {
+                // Probar qué plataforma del catálogo complementa este pago
+                for (const plat of platforms) {
+                    const candidatePrices = [];
+                    if (plat.price) candidatePrices.push({ name: plat.name, price: plat.price, plan: null });
+                    if (Array.isArray(plat.plans)) {
+                        plat.plans.forEach(plan => {
+                            if (plan.price) candidatePrices.push({ name: `${plat.name} - ${plan.name}`, price: plan.price, plan });
+                        });
+                    }
+
+                    for (const cand of candidatePrices) {
+                        const expectedCombo = (singlePrice + cand.price) - 1000;
+                        const expectedRegular = singlePrice + cand.price;
+                        if (Math.abs(paidAmount - expectedCombo) <= 1000 || Math.abs(paidAmount - expectedRegular) <= 1000) {
+                            console.log(`[Duration Adjuster] 🎯 Detección mixta: Renovación de ${singleAcc.Streaming} + Compra nueva de ${cand.name} por $${paidAmount}.`);
+                            stateData.items = [
+                                { ...singleAcc, isRenewal: true },
+                                { Streaming: cand.name, platform: plat, chosenPlan: cand.plan, price: cand.price, isRenewal: false }
+                            ];
+                            stateData.durationMonths = 1;
+                            stateData.total = paidAmount;
+                            stateData.isRenewal = false;
+                            stateData.leftoverAmount = 0;
+                            return;
+                        }
                     }
                 }
             }

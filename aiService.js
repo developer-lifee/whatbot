@@ -1245,18 +1245,22 @@ DESCRIPCIÓN DE LA IMAGEN DE PAGO:
 Debes responder en formato JSON:
 {
   "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco con una transferencia exitosa.
+  "isPreTransfer": boolean, // true si es una pantalla PREVIA a confirmar la transferencia (ej: "¿Cuánto vas a transferir?", botón "Transferir plata", resumen antes de enviar) y NO un comprobante final.
   "amount": number | null, // El valor numérico de la transferencia. Si es en COP, pon el entero (ej: 33000). Si es en USD o dólares (ej: $4.88 USD), pon 4.88 (con decimales).
   "currency": string | null, // "COP" si es en pesos colombianos, "USD" si es en dólares, etc.
   "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, Bold, etc.)
   "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
   "destinationKey": string | null, // Número exacto de la llave, cuenta, CVU, referencia de compra (ej: LNK_NZ1FCLVDYI), o destino al que se envió el dinero.
   "destinationName": string | null, // Nombre del destinatario/negocio si aparece en lugar de la llave. Ej: "SHEERIT ESTEBAN AVILA", "sheerit".
+  "receiptDate": string | null, // Fecha de la transacción en formato estricto YYYY-MM-DD (ej: "2026-11-17"). null si no es legible.
+  "transactionReference": string | null, // Número o código de referencia/comprobante/autorización (ej: "M27463286"). null si no aparece.
   "extractedDetails": string | null, // Detalles extra como ID de transacción o fecha/hora.
   "inferredPlatform": string | null // ¿Qué plataforma está pagando según el historial? Extrae la plataforma exacta discutida en el historial (ej: "HBO", "Netflix", "Disney", "Microsoft 365"). null si no es evidente.
 }
 
 Reglas:
 - Solo marca isReceipt: true si indica una confirmación de envío/transferencia exitosa (ej: "Payment Completed", "Pago exitoso", "Transferencia realizada").
+- REGLA CRÍTICA (PANTALLAS PREVIAS A TRANSFERIR): Si la captura muestra una pantalla previa antes de ejecutar el envío (ej: "¿Cuánto vas a transferir?", botón "Transferir plata", "Verifica los datos antes de enviar", "Confirmar envío" sin mensaje de "Pago realizado" / "Transferencia exitosa"), DEBES marcar "isReceipt": false, "isPreTransfer": true y "confidence": 0.
 - REGLA DE MONEDA (DÓLARES / USD): Si el comprobante indica un pago en dólares o tarjeta internacional (ej: "$4.88 USD", "USD", pasarela Bold con orden en USD):
   - Pon "currency": "USD"
   - Pon "amount": el valor numérico en dólares (ej: 4.88). Queda ESTRICTAMENTE PROHIBIDO redondear 4.88 USD a 4 o 5 pesos colombianos (COP).
@@ -1321,16 +1325,22 @@ Reglas:
       console.log(`[PAYMENT INTERCEPTOR] 💵 Pago en USD detectado ($${rawAmount} USD). Convertido a ~$${finalAmount} COP.`);
     }
 
-    const isVal = result.isReceipt === true && ((result.confidence && result.confidence >= 0.5) || (finalAmount && finalAmount > 0));
+    const isPreTransfer = result.isPreTransfer === true || (
+      detailsLower.includes('transferir plata') && !detailsLower.includes('pago realizado') && !detailsLower.includes('transferencia exitosa')
+    );
+    const isVal = !isPreTransfer && result.isReceipt === true && ((result.confidence && result.confidence >= 0.5) || (finalAmount && finalAmount > 0));
 
     return {
       isReceipt: !!isVal,
+      isPreTransfer: !!isPreTransfer,
       amount: finalAmount,
       rawAmount: rawAmount,
       currency: currency,
       bank: result.bank,
       destinationKey: result.destinationKey || null,
       destinationName: result.destinationName || null,
+      receiptDate: result.receiptDate || null,
+      transactionReference: result.transactionReference || null,
       extractedDetails: result.extractedDetails || null,
       inferredPlatform: inferred
     };
