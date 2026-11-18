@@ -17551,7 +17551,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 } catch (e) { }
             }
 
-            if (activeMatchId || st.autoValidatedByKey) {
+            if (activeMatchId) {
                 await message.reply("🤖 ¡Excelente! He validado tu comprobante y registrado tu información de operador. Estoy generando tus credenciales, dame un momento... ⏳");
                 const methodLabel = activeMatchId
                     ? `Gmail Match (${st.paymentMethod || 'Bre-B'})`
@@ -18791,114 +18791,127 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                             return;
                         }
 
-                        console.log(`[AUTO-VALIDATE] ✅ Llave y monto válidos. Ejecutando entrega automática...`);
-                        await markPaymentReferenceUsed(receiptCheck.ref, userId, check.amount);
+                        // Seguridad estricta: exigir confirmación real en Gmail (Gmail Match) antes de auto-aprobar
+                        let gmailMatch = null;
+                        try {
+                            const { findMatchingPayment } = require('./gmailService');
+                            gmailMatch = await findMatchingPayment(totalPaidSoFar, 60, userId);
+                        } catch (gmErr) {
+                            console.warn('[AUTO-VALIDATE] Error consultando Gmail Match:', gmErr.message);
+                        }
 
-                        // Si el carrito items se perdió de memoria pero el OCR o el historial reciente menciona las plataformas cotizadas, reconstruirlo
-                        if (!stateData.items || stateData.items.length === 0) {
-                            try {
-                                const recentHist = await getChatHistoryText(message).catch(() => '');
-                                const sourceText = `${check.inferredPlatform || ''} ${recentHist || ''}`.toLowerCase();
-                                const recoveredItems = [];
-                                for (const p of allPlatforms) {
-                                    const pNameLower = (p.name || '').toLowerCase();
-                                    const baseWord = pNameLower.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
-                                    if (baseWord && baseWord.length >= 3 && sourceText.includes(baseWord)) {
-                                        const defaultPlan = (Array.isArray(p.plans) && p.plans.length > 0) ? p.plans[0] : { name: 'Estándar', price: p.price || 0 };
-                                        recoveredItems.push({
-                                            name: p.name,
-                                            Streaming: p.name,
-                                            platform: p,
-                                            chosenPlan: defaultPlan,
-                                            price: Number(defaultPlan.price || p.price || 0),
-                                            quantity: 1
-                                        });
-                                    }
-                                }
-                                if (recoveredItems.length > 0) {
-                                    // Filtrar combinación de items que sume el monto pagado (o todos los detectados si coinciden)
-                                    const sumAll = recoveredItems.reduce((acc, it) => acc + (it.price || 0), 0);
-                                    if (Math.abs(sumAll - totalPaidSoFar) <= 2000) {
-                                        stateData.items = recoveredItems;
-                                    } else {
-                                        const exactSingle = recoveredItems.filter(it => Math.abs((it.price || 0) - totalPaidSoFar) <= 1500);
-                                        if (exactSingle.length === 1) {
-                                            stateData.items = exactSingle;
-                                        } else {
-                                            // Buscar par de items que sumen totalPaidSoFar
-                                            for (let i = 0; i < recoveredItems.length; i++) {
-                                                for (let j = i + 1; j < recoveredItems.length; j++) {
-                                                    if (Math.abs((recoveredItems[i].price || 0) + (recoveredItems[j].price || 0) - totalPaidSoFar) <= 1500) {
-                                                        stateData.items = [recoveredItems[i], recoveredItems[j]];
-                                                        break;
-                                                    }
-                                                }
-                                                if (stateData.items && stateData.items.length > 0) break;
-                                            }
+                        if (!gmailMatch || !gmailMatch.id) {
+                            console.log(`[AUTO-VALIDATE] ⚠️ Comprobante con llave/QR detectado por OCR ($${totalPaidSoFar}), pero SIN confirmación en Gmail. Pasando a revisión manual de asesores.`);
+                        } else {
+                            console.log(`[AUTO-VALIDATE] ✅ Llave, monto y Gmail Match válidos (ID: ${gmailMatch.id}). Ejecutando entrega automática...`);
+                            await markPaymentReferenceUsed(receiptCheck.ref, userId, check.amount);
+
+                            // Si el carrito items se perdió de memoria pero el OCR o el historial reciente menciona las plataformas cotizadas, reconstruirlo
+                            if (!stateData.items || stateData.items.length === 0) {
+                                try {
+                                    const recentHist = await getChatHistoryText(message).catch(() => '');
+                                    const sourceText = `${check.inferredPlatform || ''} ${recentHist || ''}`.toLowerCase();
+                                    const recoveredItems = [];
+                                    for (const p of allPlatforms) {
+                                        const pNameLower = (p.name || '').toLowerCase();
+                                        const baseWord = pNameLower.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
+                                        if (baseWord && baseWord.length >= 3 && sourceText.includes(baseWord)) {
+                                            const defaultPlan = (Array.isArray(p.plans) && p.plans.length > 0) ? p.plans[0] : { name: 'Estándar', price: p.price || 0 };
+                                            recoveredItems.push({
+                                                name: p.name,
+                                                Streaming: p.name,
+                                                platform: p,
+                                                chosenPlan: defaultPlan,
+                                                price: Number(defaultPlan.price || p.price || 0),
+                                                quantity: 1
+                                            });
                                         }
                                     }
-                                    if (stateData.items && stateData.items.length > 0) {
-                                        console.log(`[AUTO-VALIDATE] 🔄 Carrito reconstruido desde contexto para ${userId}:`, stateData.items.map(i => i.name).join(', '));
+                                    if (recoveredItems.length > 0) {
+                                        // Filtrar combinación de items que sume el monto pagado (o todos los detectados si coinciden)
+                                        const sumAll = recoveredItems.reduce((acc, it) => acc + (it.price || 0), 0);
+                                        if (Math.abs(sumAll - totalPaidSoFar) <= 2000) {
+                                            stateData.items = recoveredItems;
+                                        } else {
+                                            const exactSingle = recoveredItems.filter(it => Math.abs((it.price || 0) - totalPaidSoFar) <= 1500);
+                                            if (exactSingle.length === 1) {
+                                                stateData.items = exactSingle;
+                                            } else {
+                                                // Buscar par de items que sumen totalPaidSoFar
+                                                for (let i = 0; i < recoveredItems.length; i++) {
+                                                    for (let j = i + 1; j < recoveredItems.length; j++) {
+                                                        if (Math.abs((recoveredItems[i].price || 0) + (recoveredItems[j].price || 0) - totalPaidSoFar) <= 1500) {
+                                                            stateData.items = [recoveredItems[i], recoveredItems[j]];
+                                                            break;
+                                                        }
+                                                    }
+                                                    if (stateData.items && stateData.items.length > 0) break;
+                                                }
+                                            }
+                                        }
+                                        if (stateData.items && stateData.items.length > 0) {
+                                            console.log(`[AUTO-VALIDATE] 🔄 Carrito reconstruido desde contexto para ${userId}:`, stateData.items.map(i => i.name).join(', '));
+                                        }
                                     }
+                                } catch (recErr) {
+                                    console.warn('[AUTO-VALIDATE] Advertencia reconstruyendo carrito:', recErr.message);
                                 }
-                            } catch (recErr) {
-                                console.warn('[AUTO-VALIDATE] Advertencia reconstruyendo carrito:', recErr.message);
                             }
-                        }
 
-                        let hasNetflix = false;
-                        if (stateData.items && Array.isArray(stateData.items)) {
-                            hasNetflix = stateData.items.some(item => {
-                                const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
-                                return name.includes('netflix') && !name.includes('extra');
-                            });
-                        }
+                            let hasNetflix = false;
+                            if (stateData.items && Array.isArray(stateData.items)) {
+                                hasNetflix = stateData.items.some(item => {
+                                    const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                                    return name.includes('netflix') && !name.includes('extra');
+                                });
+                            }
 
-                        if (hasNetflix && !stateData.isRenewal) {
-                            await message.reply("🤖 ¡Gracias! He verificado tu pago ✅\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
-                            userStates.set(userId, {
-                                ...stateData,
-                                state: 'awaiting_netflix_operator_post_payment',
-                                paymentMethod: check.bank || 'Transferencia',
-                                checkAmount: totalPaidSoFar,
-                                autoValidatedByKey: true,
-                                ocrBank: check.bank || null,
-                                ocrDestinationKey: check.destinationKey || null,
-                                ocrDestinationName: check.destinationName || null,
-                                ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
-                                ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
-                                ocrExtractedDetails: check.extractedDetails || null
-                            });
-                            return;
-                        }
+                            if (hasNetflix && !stateData.isRenewal) {
+                                await message.reply("🤖 ¡Gracias! He verificado tu pago ✅\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
+                                userStates.set(userId, {
+                                    ...stateData,
+                                    state: 'awaiting_netflix_operator_post_payment',
+                                    paymentMethod: check.bank || 'Transferencia',
+                                    checkAmount: totalPaidSoFar,
+                                    gmailMatchId: gmailMatch.id,
+                                    ocrBank: check.bank || null,
+                                    ocrDestinationKey: check.destinationKey || null,
+                                    ocrDestinationName: check.destinationName || null,
+                                    ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
+                                    ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
+                                    ocrExtractedDetails: check.extractedDetails || null
+                                });
+                                return;
+                            }
 
-                        const validationResult = await executePaymentValidation(
-                            userId,
-                            {
-                                ...stateData,
-                                total: totalPaidSoFar,
-                                autoValidatedByKey: true,
-                                paymentMethod: `Auto-OCR Llave (${check.bank || 'Transferencia'})`,
-                                ocrBank: check.bank || null,
-                                ocrDestinationKey: check.destinationKey || null,
-                                ocrDestinationName: check.destinationName || null,
-                                ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
-                                ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
-                                ocrExtractedDetails: check.extractedDetails || null
-                            },
-                            client, userStates, null, null
-                        );
+                            const validationResult = await executePaymentValidation(
+                                userId,
+                                {
+                                    ...stateData,
+                                    total: totalPaidSoFar,
+                                    paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})`,
+                                    gmailMatchId: gmailMatch.id,
+                                    ocrBank: check.bank || null,
+                                    ocrDestinationKey: check.destinationKey || null,
+                                    ocrDestinationName: check.destinationName || null,
+                                    ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
+                                    ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
+                                    ocrExtractedDetails: check.extractedDetails || null
+                                },
+                                client, userStates, null, gmailMatch.id
+                            );
 
-                        if (validationResult.success) {
-                            try {
-                                const groupChat = await client.getChatById(GROUP_ID);
-                                if (groupChat) {
-                                    const { getClientDisplayInfo } = require('./billingService');
-                                    const clientInfo = await getClientDisplayInfo(userId, client, message, stateData);
-                                    await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO por LLAVE* (${clientInfo.userTag})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Desconocido'}\nLlave destino: ${check.destinationKey}\n\nEl bot ya entregó el servicio automáticamente.`);
-                                }
-                            } catch (e) { }
-                            return;
+                            if (validationResult.success) {
+                                try {
+                                    const groupChat = await client.getChatById(GROUP_ID);
+                                    if (groupChat) {
+                                        const { getClientDisplayInfo } = require('./billingService');
+                                        const clientInfo = await getClientDisplayInfo(userId, client, message, stateData);
+                                        await groupChat.sendMessage(`✅ *PAGO AUTO-VALIDADO (Gmail Match)* (${clientInfo.userTag})\nMonto: $${check.amount}\nBanco: ${check.bank || 'Desconocido'}\nLlave destino: ${check.destinationKey}\nID Gmail: ${gmailMatch.id}\n\nEl bot ya entregó el servicio automáticamente.`);
+                                    }
+                                } catch (e) { }
+                                return;
+                            }
                         }
                     }
 
