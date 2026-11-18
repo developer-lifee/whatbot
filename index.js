@@ -2303,6 +2303,14 @@ app.get('/api/admin/client-history', async (req, res) => {
             console.warn("[client-history] Error querying validated_payments_log:", vpErr.message);
         }
 
+        let customBillingRules = [];
+        try {
+            const { getCustomBillingRulesByPhone } = require('./customBillingService');
+            customBillingRules = await getCustomBillingRulesByPhone(targetTail);
+        } catch (cbErr) {
+            console.warn("[client-history] Error querying custom_billing_rules:", cbErr.message);
+        }
+
         res.json({
             fullname: customer.fullname || '',
             phone: customer.phone || cleanPhone,
@@ -2311,10 +2319,47 @@ app.get('/api/admin/client-history', async (req, res) => {
             subscriptions: subRows,
             purchases: saleRows,
             excelHistory: excelHistory,
-            validatedPayments: validatedPayments
+            validatedPayments: validatedPayments,
+            customBillingRules: customBillingRules
         });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// GET Custom Billing Rules
+app.get('/api/admin/custom-billing', async (req, res) => {
+    try {
+        const { phone } = req.query;
+        const { getAllCustomBillingRules, getCustomBillingRulesByPhone } = require('./customBillingService');
+        const rules = phone ? await getCustomBillingRulesByPhone(phone) : await getAllCustomBillingRules();
+        res.json({ success: true, rules });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Save Custom Billing Rule
+app.post('/api/admin/custom-billing/save', express.json(), async (req, res) => {
+    try {
+        const { saveCustomBillingRule } = require('./customBillingService');
+        const rules = await saveCustomBillingRule(req.body || {});
+        res.json({ success: true, rules });
+    } catch (e) {
+        res.status(400).json({ success: false, message: e.message });
+    }
+});
+
+// POST Delete Custom Billing Rule
+app.post('/api/admin/custom-billing/delete', express.json(), async (req, res) => {
+    try {
+        const { id } = req.body || {};
+        if (!id) return res.status(400).json({ success: false, message: 'Falta ID de acuerdo.' });
+        const { deleteCustomBillingRule } = require('./customBillingService');
+        await deleteCustomBillingRule(id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
     }
 });
 

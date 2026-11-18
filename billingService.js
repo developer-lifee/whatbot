@@ -1300,6 +1300,9 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             .map(a => (a['customer mail'] || a['Customer Mail'] || "").toString().trim())
             .find(m => isValidCustomerEmail(m)) || "";
 
+        const { getCustomBillingRulesByPhone, findMatchingCustomRule } = require('./customBillingService');
+        const customRules = await getCustomBillingRulesByPhone(realPhone || userId);
+
         accountsToProcess.forEach((acc, index) => {
             const vencimientoRaw = acc.deben || acc.vencimiento;
             const vencimientoDate = getJsDateFromExcel(vencimientoRaw);
@@ -1321,8 +1324,13 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
                 }
             }
 
-            const price = getPlatformPriceFromExcel(acc, platforms, inputToUse);
-            if (price === 0) hasZeroPrice = true;
+            const matchedRule = findMatchingCustomRule(customRules, acc.Streaming || '');
+            const isManualAgreement = matchedRule && (matchedRule.mode === 'manual_only' || matchedRule.mode === 'owner_settlement');
+            let price = getPlatformPriceFromExcel(acc, platforms, inputToUse);
+            if (matchedRule && matchedRule.mode === 'custom_price' && Number(matchedRule.custom_amount) > 0) {
+                price = Number(matchedRule.custom_amount);
+            }
+            if (!isManualAgreement && price === 0) hasZeroPrice = true;
             
             const profile = acc['pin perfil'] || acc['Nombre'] || "";
             const profileStr = profile ? ` (Perfil: ${profile})` : "";
@@ -1365,7 +1373,9 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
 
             response += `📺 *${displayStreaming}*${emailStr}\n`;
             response += `📅 Vence: ${dateStr} (${status})\n`;
-            if (durationMonths > 1) {
+            if (isManualAgreement) {
+                response += `⚖️ Valor: *Acuerdo especial / Liquidación manual con asesor*\n\n`;
+            } else if (durationMonths > 1) {
                 const multiPrice = price * durationMonths;
                 response += `💵 Valor: $${price}/mes x ${durationMonths} meses = *$${multiPrice}*\n\n`;
                 total += multiPrice;
@@ -1376,6 +1386,12 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
                 itemsForRenewal.push({ ...acc, price, platform: { name: (acc.Streaming || 'Servicio') } });
             }
         });
+
+        // Si todas las cuentas del cliente tienen acuerdo manual, enviar mensaje claro sin fallback de error
+        if (itemsForRenewal.length === 0 && accountsToProcess.length > 0 && !hasZeroPrice) {
+            await safeSend(message, "🤖 Tus servicios cuentan con un *acuerdo especial / liquidación personalizada*. Un asesor humano revisará tu corte y te enviará el detalle exacto manualmente. 😊", userId);
+            return;
+        }
 
         // FALLBACK: Si algún precio es cero o el total es cero, no enviar resumen automático
         if (hasZeroPrice || total === 0) {
@@ -1522,8 +1538,16 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
     let totalSum = 0;
     let targetAccounts = [];
     let billedServicesList = [];
+    let manualBlockedAccounts = [];
 
     try {
+      const {
+        getCustomBillingRulesByPhone,
+        findMatchingCustomRule,
+        calculateOwnerAccountSummary
+      } = require('./customBillingService');
+      const customRules = await getCustomBillingRulesByPhone(r.phone);
+
       const userAccounts = await getAccountsByPhone(r.phone);
       if (userAccounts && userAccounts.length > 0) {
         // Match only services that are specifically due in this notice (from r.services)
@@ -1547,17 +1571,57 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
             return isDueNow && matchesNoticeService;
         });
 
-        targetAccounts = expiredOrExpiring;
+        for (const acc of expiredOrExpiring) {
+            const rule = findMatchingCustomRule(customRules, acc.Streaming || '');
+            if (rule && (rule.mode === 'manual_only' || rule.mode === 'owner_settlement')) {
+                manualBlockedAccounts.push({ acc, rule });
+            } else {
+                targetAccounts.push({ acc, rule });
+            }
+        }
 
-        targetAccounts.forEach(acc => {
+        if (manualBlockedAccounts.length > 0) {
+            try {
+                const adminLines = [];
+                for (const item of manualBlockedAccounts) {
+                    let ownerInfo = '';
+                    if (item.rule.mode === 'owner_settlement') {
+                        const accMail = item.rule.account_email || item.acc.correo || '';
+                        const summary = await calculateOwnerAccountSummary(accMail, String(r.phone || '').slice(-10));
+                        if (summary) {
+                            ownerInfo = `\n   📊 Cuenta *${accMail}*: ${summary.ownerSlots} cupo(s) propietario, ${summary.otherOccupiedCount} otro(s) cliente(s) (${summary.otherClients.join(', ') || 'ninguno'})`;
+                        }
+                    }
+                    adminLines.push(`• *${item.acc.Streaming}* (${item.rule.mode === 'owner_settlement' ? 'Propietario / Liquidación' : 'Cobro Manual'})${item.rule.notes ? ` — _${item.rule.notes}_` : ''}${ownerInfo}`);
+                }
+                const adminNotice =
+                    `⚖️ *COBRO ESPECIAL OMITIDO (ACUERDO MANUAL)*\n` +
+                    `👤 Cliente: *${r.name}* (${r.phone})\n` +
+                    `${adminLines.join('\n')}\n\n` +
+                    `ℹ️ El bot NO envió cobro automático al cliente. Gestionar liquidación manualmente.`;
+                await client.sendMessage('120363102144405222@g.us', adminNotice).catch(() => {});
+            } catch (notifyErr) {
+                console.warn('[Billing Auto] Error notificando acuerdo manual al grupo:', notifyErr.message);
+            }
+        }
+
+        if (manualBlockedAccounts.length > 0 && targetAccounts.length === 0) {
+            console.log(`[Billing Auto] ⚖️ Cobro automático omitido para ${r.name} (${r.phone}) por acuerdo especial.`);
+            continue;
+        }
+
+        targetAccounts.forEach(({ acc, rule }) => {
           const streaming = (acc.Streaming || "").toUpperCase();
           if (streaming) billedServicesList.push(streaming);
-          const price = getPlatformPriceFromExcel(acc, platforms);
+          let price = getPlatformPriceFromExcel(acc, platforms);
+          if (rule && rule.mode === 'custom_price' && Number(rule.custom_amount) > 0) {
+              price = Number(rule.custom_amount);
+          }
           totalSum += price;
         });
 
         // Apply combo discount in automatic charging notice ONLY if accounts share the same expiration cycle
-        const imminentRenewals = targetAccounts.filter(acc => {
+        const imminentRenewals = targetAccounts.filter(({ acc }) => {
             const expDate = getJsDateFromExcel(acc.deben || acc.vencimiento);
             if (!expDate) return false;
             const diffDays = Math.floor((expDate - today) / (1000 * 60 * 60 * 24));
