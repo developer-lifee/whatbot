@@ -1582,9 +1582,11 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
 
         if (manualBlockedAccounts.length > 0) {
             try {
+                const { pool } = require('./database');
                 const adminLines = [];
                 for (const item of manualBlockedAccounts) {
                     let ownerInfo = '';
+                    const amountLabel = item.rule.custom_amount ? ` | Valor liquidación: $${Math.round(Number(item.rule.custom_amount)).toLocaleString('es-CO')}` : '';
                     if (item.rule.mode === 'owner_settlement') {
                         const accMail = item.rule.account_email || item.acc.correo || '';
                         const summary = await calculateOwnerAccountSummary(accMail, String(r.phone || '').slice(-10));
@@ -1592,13 +1594,35 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
                             ownerInfo = `\n   📊 Cuenta *${accMail}*: ${summary.ownerSlots} cupo(s) propietario, ${summary.otherOccupiedCount} otro(s) cliente(s) (${summary.otherClients.join(', ') || 'ninguno'})`;
                         }
                     }
-                    adminLines.push(`• *${item.acc.Streaming}* (${item.rule.mode === 'owner_settlement' ? 'Propietario / Liquidación' : 'Cobro Manual'})${item.rule.notes ? ` — _${item.rule.notes}_` : ''}${ownerInfo}`);
+                    adminLines.push(`• *${item.acc.Streaming}* (${item.rule.mode === 'owner_settlement' ? 'Propietario / Liquidación' : 'Cobro Manual'}${amountLabel})${item.rule.notes ? ` — _${item.rule.notes}_` : ''}${ownerInfo}`);
+
+                    // Crear recordatorio en Labores (heavy_tickets) si no existe uno pendiente reciente para este cliente/plataforma
+                    try {
+                        const taskTitle = `⚖️ Liquidación/Cobro Manual: ${r.name} (${item.acc.Streaming})`;
+                        const [existingTasks] = await pool.query(
+                            `SELECT id FROM heavy_tickets WHERE status = 'pending' AND title LIKE ? AND created_at >= DATE_SUB(NOW(), INTERVAL 15 DAY) LIMIT 1`,
+                            [`%${r.name}%${item.acc.Streaming}%`]
+                        );
+                        if (!existingTasks || existingTasks.length === 0) {
+                            const taskDesc =
+                                `Cliente: ${r.name} (+${r.phone})\n` +
+                                `Servicio: ${item.acc.Streaming} (${item.rule.account_email || item.acc.correo || 'N/A'})\n` +
+                                `Modo: ${item.rule.mode === 'owner_settlement' ? 'Propietario / Liquidación' : 'Cobro Manual'}${amountLabel}\n` +
+                                `Notas: ${item.rule.notes || 'Gestionar pago/cobro manualmente sin bot.'}`;
+                            await pool.query(
+                                `INSERT INTO heavy_tickets (title, description, priority, status, assigned_agent) VALUES (?, ?, 'high', 'pending', 'Esteban')`,
+                                [taskTitle.slice(0, 250), taskDesc]
+                            );
+                        }
+                    } catch (taskErr) {
+                        console.warn('[Billing Auto] Error creando labor de cobro manual:', taskErr.message);
+                    }
                 }
                 const adminNotice =
-                    `⚖️ *COBRO ESPECIAL OMITIDO (ACUERDO MANUAL)*\n` +
+                    `⚖️ *RECORDATORIO DE LIQUIDACIÓN / COBRO MANUAL*\n` +
                     `👤 Cliente: *${r.name}* (${r.phone})\n` +
                     `${adminLines.join('\n')}\n\n` +
-                    `ℹ️ El bot NO envió cobro automático al cliente. Gestionar liquidación manualmente.`;
+                    `📌 Se creó tarea en *Labores* y el bot NO envió cobro automático al cliente.`;
                 await client.sendMessage('120363102144405222@g.us', adminNotice).catch(() => {});
             } catch (notifyErr) {
                 console.warn('[Billing Auto] Error notificando acuerdo manual al grupo:', notifyErr.message);

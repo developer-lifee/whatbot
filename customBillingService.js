@@ -89,7 +89,7 @@ async function saveCustomBillingRule(data) {
   const mode = ['custom_price', 'manual_only', 'owner_settlement'].includes(data.mode)
     ? data.mode
     : 'custom_price';
-  const customAmount = mode === 'custom_price' && data.custom_amount !== undefined && data.custom_amount !== null && data.custom_amount !== ''
+  const customAmount = (mode === 'custom_price' || mode === 'owner_settlement') && data.custom_amount !== undefined && data.custom_amount !== null && data.custom_amount !== ''
     ? Number(data.custom_amount)
     : null;
 
