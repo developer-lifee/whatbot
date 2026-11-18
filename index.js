@@ -12940,7 +12940,7 @@ REGLAS:
                         const curState = (typeof currentStateData === 'object') ? currentStateData : {};
                         userStates.set(userId, { ...curState, state: 'awaiting_payment_confirmation' });
                         if (cleanPhoneJid) userStates.set(cleanPhoneJid, { ...curState, state: 'awaiting_payment_confirmation' });
-                        await handleAwaitingPaymentConfirmation(message, userId, true, singleMediaObj);
+                        await handleAwaitingPaymentConfirmation(message, userId, true, singleMediaObj, check);
                         return;
                     }
                 }
@@ -18559,7 +18559,7 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
     }
 }
 
-async function handleAwaitingPaymentConfirmation(message, userId, isMedia = false, singleMediaData = null) {
+async function handleAwaitingPaymentConfirmation(message, userId, isMedia = false, singleMediaData = null, precomputedCheck = null) {
     const body = (message.body || '').toLowerCase().trim();
 
     // --- EVITAR DUPLICADO SI SE ACABA DE VALIDAR EL PAGO ---
@@ -18668,7 +18668,9 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                 const ALL_VALID_KEYS = [...AUTO_KEYS, ...MANUAL_KEYS];
                 const normalizeKey = (k) => (k || '').replace(/[\s\-\.]/g, '');
 
-                const check = await isPaymentReceipt(singleMediaData, `El usuario está en estado de confirmación de pago. Carrito: ${JSON.stringify(stateData.items || [])}. Total esperado: $${stateData.total || 'desconocido'}`);
+                const check = (precomputedCheck && precomputedCheck.isReceipt)
+                    ? precomputedCheck
+                    : await isPaymentReceipt(singleMediaData, `El usuario está en estado de confirmación de pago. Carrito: ${JSON.stringify(stateData.items || [])}. Total esperado: ${stateData.total || 'desconocido'}`);
                 console.log(`[AUTO-VALIDATE] OCR result: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, destinationKey=${check.destinationKey}, destinationName=${check.destinationName}`);
 
                 if (check.isReceipt) {
@@ -18768,12 +18770,61 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                     }
 
                     if (isAutoValidate) {
+                        if (!check.amount || Number(check.amount) <= 0) {
+                            console.warn(`[AUTO-VALIDATE] ⚠️ Comprobante válido sin monto legible (amount=${check.amount}). Escalando a revisión manual para ${userId}.`);
+                            try {
+                                const groupChat = await client.getChatById(GROUP_ID);
+                                if (groupChat) {
+                                    let contact;
+                                    try { contact = await message.getContact(); } catch (e) { contact = { number: userId.replace(/\D/g, '') }; }
+                                    const realPhone = (contact && contact.number) ? contact.number : userId.replace(/\D/g, '');
+                                    const renewalEmails = (stateData.items || []).map(i => i.correo || i.Correo || i.email).filter(Boolean);
+                                    const emailLine = renewalEmails.length > 0 ? `📧 *Cuenta:* \`${renewalEmails.join(', ')}\`\n` : '';
+                                    const manualMsg = `📸 *COMPROBANTE SIN MONTO LEGIBLE - REVISIÓN MANUAL* (@${realPhone})\n` +
+                                        `Banco: ${check.bank || 'Desconocido'}\n` +
+                                        `Llave/Destino: ${check.destinationKey || check.destinationName || 'No detectado'}\n` +
+                                        `${emailLine}\n` +
+                                        `⚠️ El OCR no pudo leer el monto exacto. Para aprobar: *@bot confirmar ${realPhone}*`;
+                                    let mediaToForward = null;
+                                    if (singleMediaData && singleMediaData.data) {
+                                        const { MessageMedia } = require('whatsapp-web.js');
+                                        const mime = singleMediaData.mimeType || singleMediaData.mimetype || 'image/jpeg';
+                                        mediaToForward = new MessageMedia(mime, singleMediaData.data);
+                                    } else if (message.hasMedia) {
+                                        const downloaded = await downloadMediaWithRetry(message);
+                                        if (downloaded && downloaded.data) {
+                                            const { MessageMedia } = require('whatsapp-web.js');
+                                            mediaToForward = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                                        }
+                                    }
+                                    if (mediaToForward) {
+                                        try {
+                                            await groupChat.sendMessage(mediaToForward, { caption: manualMsg });
+                                        } catch (captionErr) {
+                                            await groupChat.sendMessage(manualMsg);
+                                            await groupChat.sendMessage(mediaToForward);
+                                        }
+                                    } else {
+                                        await groupChat.sendMessage(manualMsg);
+                                    }
+                                }
+                            } catch (e) { }
+                            if (stateData.isRenewal) {
+                                await message.reply("🤖 ¡Gracias! He recibido tu comprobante y lo he enviado a nuestro equipo para validación. En breve un asesor confirmará tu pago y renovará tu suscripción. 😊");
+                            } else {
+                                await message.reply("🤖 ¡Gracias! He recibido tu comprobante y lo he enviado a nuestro equipo para validación. En breve un asesor confirmará tu pago y te entregará tus accesos. 😊");
+                            }
+                            userStates.set(userId, { ...stateData, state: 'waiting_admin_confirmation' });
+                            await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
+                            return;
+                        }
+
                         // ✅ Llave Bre-V correcta o QR del negocio: validar monto y proceder
                         const { adjustDurationToMatchAmount } = require('./billingService');
                         await adjustDurationToMatchAmount(stateData, check.amount, userId);
 
                         const expectedTotal = Math.max(0, (stateData.total || 0) - (stateData.saldo || 0));
-                        const currentAmount = check.amount || 0;
+                        const currentAmount = Number(check.amount);
                         const previousPaid = (stateData.checkAmount && stateData.checkAmount !== currentAmount) ? stateData.checkAmount : 0;
                         const totalPaidSoFar = previousPaid + currentAmount;
 
