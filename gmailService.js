@@ -48,7 +48,7 @@ function saveProcessedEmail(id) {
     if (!processed.includes(id)) {
         processed.push(id);
         // Mantener solo los últimos 100 para no inflar el archivo
-        if (processed.length > 100) processed.shift();
+        if (processed.length > 500) processed.shift();
         fs.writeFileSync(PROCESSED_EMAILS_PATH, JSON.stringify(processed));
     }
 }
@@ -133,7 +133,7 @@ function parseAmount(rawValue) {
     return parseInt(clean, 10) || 0;
 }
 
-async function findMatchingPaymentInAccount(email, query, targetAmount, toleranceMinutes, isBancolombia = false) {
+async function findMatchingPaymentInAccount(email, query, targetAmount, toleranceMinutes, isBancolombia = false, receiptMeta = null) {
     const auth = await getAuthorizedGmailClient(email);
     if (!auth) return null;
 
@@ -175,6 +175,9 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
             const subjectHeader = fullMsg.data.payload.headers.find(h => h.name.toLowerCase() === 'subject');
             const subject = subjectHeader ? subjectHeader.value : 'Sin asunto';
 
+            const expectedRef = receiptMeta && receiptMeta.reference ? String(receiptMeta.reference).trim().toUpperCase() : null;
+            const expectedDateISO = receiptMeta && receiptMeta.receiptDateISO ? String(receiptMeta.receiptDateISO).trim() : null;
+
             if (isBancolombia) {
                 const isTransfer = /transferencia|recibida|abono|movimiento|alerta|notificaci|pago|ingreso|dep[oó]sito|recepci|transacci/i.test(body) ||
                                    /transferencia|recibida|abono|movimiento|alerta|notificaci|pago|ingreso|dep[oó]sito|recepci|transacci/i.test(subject);
@@ -190,6 +193,10 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
                     const cleanValue = parseAmount(rawValue);
 
                     if (cleanValue === targetAmount) {
+                        const emailDateISO = new Date(internalDate - 5 * 3600 * 1000).toISOString().slice(0, 10);
+                        if (expectedDateISO && emailDateISO !== expectedDateISO) {
+                            continue;
+                        }
                         console.log(`[GMAIL MATCH BANCOLOMBIA] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
                         saveProcessedEmail(msg.id);
                         return {
@@ -214,7 +221,31 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
                     const cleanValue = parseAmount(rawValue);
 
                     if (cleanValue === targetAmount) {
-                        console.log(`[GMAIL MATCH BRE-B] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
+                        const refMatch = body.match(/Referencia:\s*([A-Z0-9_-]{4,})/i);
+                        const txMatch = body.match(/N[úu]mero de transacci[óo]n:\s*([A-Z0-9_-]{8,})/i);
+                        const dateMatch = body.match(/Fecha:\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+                        const payerMatch = body.match(/Pagador:\s*([^\n<]+?)(?:\s+Banco:|$)/i);
+
+                        const emailRef = refMatch ? refMatch[1].trim().toUpperCase() : null;
+                        const emailTxId = txMatch ? txMatch[1].trim().toUpperCase() : null;
+                        const emailDateISO = dateMatch
+                            ? `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`
+                            : new Date(internalDate - 5 * 3600 * 1000).toISOString().slice(0, 10);
+
+                        // Validar fecha del comprobante contra fecha real del correo
+                        if (expectedDateISO && emailDateISO !== expectedDateISO) {
+                            continue;
+                        }
+                        // Validar identificador único (Referencia o Tx ID) cuando ambos estén presentes
+                        if (expectedRef && (emailRef || emailTxId)) {
+                            const refMatches = (emailRef && (emailRef === expectedRef || emailRef.includes(expectedRef) || expectedRef.includes(emailRef))) ||
+                                               (emailTxId && (emailTxId === expectedRef || emailTxId.includes(expectedRef) || expectedRef.includes(emailTxId)));
+                            if (!refMatches) {
+                                continue;
+                            }
+                        }
+
+                        console.log(`[GMAIL MATCH BRE-B] ✅ ¡MATCH EXACTO! ID: ${msg.id}, Ref: ${emailRef || emailTxId || 'N/A'}, Fecha: ${emailDateISO}`);
                         saveProcessedEmail(msg.id);
                         return {
                             id: msg.id,
@@ -222,7 +253,9 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
                             date: internalDate,
                             diffMinutes: Math.round(diffMinutes),
                             subject: subject,
-                            bank: "Bre-B"
+                            bank: "Bre-B",
+                            reference: emailRef || emailTxId || null,
+                            payer: payerMatch ? payerMatch[1].trim() : null
                         };
                     }
                 }
@@ -328,8 +361,8 @@ async function findMatchingBoldPayment(email, targetAmount, toleranceMinutes, ph
  * @param {string} phone 
  * @returns {Promise<Object|null>}
  */
-async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = null) {
-    console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min para @${phone || 'todos'}...`);
+async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = null, receiptMeta = null) {
+    console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min para @${phone || 'todos'} (ref=${receiptMeta?.reference || 'N/A'}, fecha=${receiptMeta?.receiptDateISO || 'N/A'})...`);
 
     // 1. Buscar en Jordi (Bre-B)
     const matchJordi = await findMatchingPaymentInAccount(
@@ -337,7 +370,8 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = 
         'subject:"Detalle de tu venta por Bre-B" newer_than:1d',
         targetAmount,
         toleranceMinutes,
-        false
+        false,
+        receiptMeta
     );
     if (matchJordi) return matchJordi;
 
@@ -347,7 +381,8 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = 
         'subject:("Alertas y Notificaciones" OR "Transferencia recibida" OR "Le informamos" OR "Bancolombia te informa" OR "Bancolombia" OR "Lulo Bank te informa" OR "Abono" OR "Movimiento" OR "Notificación") newer_than:1d',
         targetAmount,
         toleranceMinutes,
-        true
+        true,
+        receiptMeta
     );
     if (matchEsteban) return matchEsteban;
 

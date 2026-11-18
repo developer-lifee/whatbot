@@ -18791,11 +18791,15 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                             return;
                         }
 
-                        // Seguridad estricta: exigir confirmación real en Gmail (Gmail Match) antes de auto-aprobar
+                        // Seguridad estricta: exigir confirmación real en Gmail (Gmail Match por monto, fecha y referencia única)
                         let gmailMatch = null;
                         try {
                             const { findMatchingPayment } = require('./gmailService');
-                            gmailMatch = await findMatchingPayment(totalPaidSoFar, 60, userId);
+                            gmailMatch = await findMatchingPayment(totalPaidSoFar, 60, userId, {
+                                reference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
+                                receiptDateISO: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
+                                bank: check.bank || null
+                            });
                         } catch (gmErr) {
                             console.warn('[AUTO-VALIDATE] Error consultando Gmail Match:', gmErr.message);
                         }
