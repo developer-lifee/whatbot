@@ -7323,6 +7323,18 @@ app.post('/api/whatsapp/restart', express.json(), async (req, res) => {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         `);
+        for (const colDef of [
+            'password_hash VARCHAR(255) NULL',
+            'phone VARCHAR(30) NULL',
+            'reset_code VARCHAR(255) NULL',
+            'reset_code_expires DATETIME NULL'
+        ]) {
+            try {
+                await pool.query(`ALTER TABLE agents ADD COLUMN ${colDef}`);
+            } catch (colErr) {
+                // La columna ya existe
+            }
+        }
         await pool.query(`
             INSERT INTO agents (username, fullname, email, role) VALUES 
             ('estebanavila182', 'Esteban', 'estebanavila182@outlook.com', 'admin'),
@@ -7656,10 +7668,230 @@ app.get('/api/admin/agent-role', async (req, res) => {
 app.get('/api/admin/agents', async (req, res) => {
     try {
         const { pool } = require('./database');
-        const [rows] = await pool.query('SELECT id, username, fullname, email, role, status, exclude_from_payroll FROM agents ORDER BY fullname ASC');
+        const [rows] = await pool.query(
+            'SELECT id, username, fullname, email, phone, role, status, exclude_from_payroll, (password_hash IS NOT NULL AND password_hash != "") AS has_password FROM agents ORDER BY fullname ASC'
+        );
         res.json({ success: true, agents: rows });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Admin / Agent Login
+app.post('/api/admin/login', express.json(), async (req, res) => {
+    try {
+        const { email, password } = req.body || {};
+        const cleanEmail = String(email || '').trim().toLowerCase();
+        const cleanPass = String(password || '').trim();
+
+        if (!cleanEmail || !cleanPass) {
+            return res.status(400).json({ success: false, message: 'Correo y contraseña obligatorios.' });
+        }
+
+        const { pool } = require('./database');
+        const { verifyAgentPassword, signSessionToken } = require('./authService');
+
+        const [rows] = await pool.query(
+            'SELECT id, username, fullname, email, phone, role, status, password_hash FROM agents WHERE LOWER(email) = ? LIMIT 1',
+            [cleanEmail]
+        );
+
+        const agent = rows && rows.length > 0 ? rows[0] : null;
+        if (!agent) {
+            return res.status(401).json({ success: false, message: 'El correo ingresado no corresponde a un asesor autorizado.' });
+        }
+
+        if (agent.status === 'inactive') {
+            return res.status(403).json({ success: false, message: 'Este contrato se encuentra terminado/inactivo. Contacta al administrador.' });
+        }
+
+        const check = await verifyAgentPassword(cleanPass, agent.password_hash);
+        if (!check.valid) {
+            return res.status(401).json({ success: false, message: 'Contraseña incorrecta.' });
+        }
+
+        const token = signSessionToken({
+            id: agent.id,
+            email: agent.email,
+            fullname: agent.fullname,
+            role: agent.role
+        });
+
+        res.json({
+            success: true,
+            token,
+            needsPasswordSetup: check.needsPasswordSetup,
+            agent: {
+                id: agent.id,
+                email: agent.email,
+                fullname: agent.fullname,
+                role: agent.role,
+                phone: agent.phone || null
+            }
+        });
+    } catch (e) {
+        console.error('❌ Error en /api/admin/login:', e.message);
+        res.status(500).json({ success: false, message: 'Error interno al verificar credenciales.' });
+    }
+});
+
+// GET Verify Admin / Agent Session Token
+app.get('/api/admin/verify-session', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : String(req.query.token || '').trim();
+        const { verifySessionToken } = require('./authService');
+        const payload = verifySessionToken(token);
+        if (!payload) {
+            return res.status(401).json({ success: false, message: 'Sesión inválida o expirada.' });
+        }
+
+        const { pool } = require('./database');
+        const [rows] = await pool.query(
+            'SELECT id, fullname, email, role, status FROM agents WHERE id = ? LIMIT 1',
+            [payload.id]
+        );
+        const agent = rows && rows.length > 0 ? rows[0] : null;
+        if (!agent || agent.status === 'inactive') {
+            return res.status(403).json({ success: false, message: 'Usuario inactivo o no encontrado.' });
+        }
+
+        res.json({ success: true, agent });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+// POST Request Password Reset Code (WhatsApp OTP)
+app.post('/api/admin/forgot-password', express.json(), async (req, res) => {
+    try {
+        const cleanEmail = String((req.body && req.body.email) || '').trim().toLowerCase();
+        if (!cleanEmail) {
+            return res.status(400).json({ success: false, message: 'Ingresa tu correo electrónico autorizado.' });
+        }
+
+        const { pool } = require('./database');
+        const [rows] = await pool.query(
+            'SELECT id, fullname, email, phone, role, status FROM agents WHERE LOWER(email) = ? LIMIT 1',
+            [cleanEmail]
+        );
+        const agent = rows && rows.length > 0 ? rows[0] : null;
+
+        if (!agent) {
+            return res.status(404).json({ success: false, message: 'No encontramos un asesor registrado con ese correo.' });
+        }
+        if (agent.status === 'inactive') {
+            return res.status(403).json({ success: false, message: 'Esta cuenta está inactiva. Contacta al administrador.' });
+        }
+
+        const {
+            RESET_CODE_TTL_MINUTES,
+            generateResetCode,
+            sendRecoveryCodeViaWhatsApp
+        } = require('./authService');
+
+        const { code, codeHash } = generateResetCode();
+        await pool.query(
+            'UPDATE agents SET reset_code = ?, reset_code_expires = DATE_ADD(NOW(), INTERVAL ? MINUTE) WHERE id = ?',
+            [codeHash, RESET_CODE_TTL_MINUTES, agent.id]
+        );
+
+        const delivery = await sendRecoveryCodeViaWhatsApp(client, agent, code, GROUP_ID);
+        res.json({
+            success: true,
+            deliveryChannel: delivery.deliveryChannel,
+            maskedTarget: delivery.maskedTarget,
+            message: `Enviamos un código de 6 dígitos a tu ${delivery.maskedTarget}.`
+        });
+    } catch (e) {
+        console.error('❌ Error en /api/admin/forgot-password:', e.message);
+        res.status(500).json({ success: false, message: e.message || 'No se pudo enviar el código de recuperación.' });
+    }
+});
+
+// POST Reset Password with OTP Code
+app.post('/api/admin/reset-password', express.json(), async (req, res) => {
+    try {
+        const { email, code, newPassword } = req.body || {};
+        const cleanEmail = String(email || '').trim().toLowerCase();
+        const cleanCode = String(code || '').trim();
+        const cleanNewPass = String(newPassword || '').trim();
+
+        if (!cleanEmail || !cleanCode || !cleanNewPass) {
+            return res.status(400).json({ success: false, message: 'Completa correo, código y nueva contraseña.' });
+        }
+        if (cleanNewPass.length < 6) {
+            return res.status(400).json({ success: false, message: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+        }
+
+        const { pool } = require('./database');
+        const { hashResetCode, hashPassword } = require('./authService');
+
+        const [rows] = await pool.query(
+            'SELECT id, reset_code, reset_code_expires, status FROM agents WHERE LOWER(email) = ? LIMIT 1',
+            [cleanEmail]
+        );
+        const agent = rows && rows.length > 0 ? rows[0] : null;
+        if (!agent || agent.status === 'inactive') {
+            return res.status(404).json({ success: false, message: 'Asesor no encontrado o inactivo.' });
+        }
+
+        const expectedHash = hashResetCode(cleanCode);
+        if (!agent.reset_code || agent.reset_code !== expectedHash) {
+            return res.status(400).json({ success: false, message: 'El código ingresado es incorrecto.' });
+        }
+
+        if (!agent.reset_code_expires || new Date(agent.reset_code_expires).getTime() < Date.now()) {
+            return res.status(400).json({ success: false, message: 'El código ha expirado. Solicita uno nuevo.' });
+        }
+
+        const newHash = await hashPassword(cleanNewPass);
+        await pool.query(
+            'UPDATE agents SET password_hash = ?, reset_code = NULL, reset_code_expires = NULL WHERE id = ?',
+            [newHash, agent.id]
+        );
+
+        res.json({ success: true, message: 'Contraseña actualizada correctamente. Ya puedes iniciar sesión.' });
+    } catch (e) {
+        console.error('❌ Error en /api/admin/reset-password:', e.message);
+        res.status(500).json({ success: false, message: 'Error al restablecer la contraseña.' });
+    }
+});
+
+// POST Change Password (Authenticated Agent / Admin)
+app.post('/api/admin/change-password', express.json(), async (req, res) => {
+    try {
+        const { email, currentPassword, newPassword } = req.body || {};
+        const cleanEmail = String(email || '').trim().toLowerCase();
+        const cleanCurrent = String(currentPassword || '').trim();
+        const cleanNew = String(newPassword || '').trim();
+
+        if (!cleanEmail || !cleanCurrent || !cleanNew) {
+            return res.status(400).json({ success: false, message: 'Todos los campos son obligatorios.' });
+        }
+        if (cleanNew.length < 6) {
+            return res.status(400).json({ success: false, message: 'La nueva contraseña debe tener al menos 6 caracteres.' });
+        }
+
+        const { pool } = require('./database');
+        const { verifyAgentPassword, hashPassword } = require('./authService');
+        const [rows] = await pool.query('SELECT id, password_hash, status FROM agents WHERE LOWER(email) = ? LIMIT 1', [cleanEmail]);
+        const agent = rows && rows.length > 0 ? rows[0] : null;
+        if (!agent || agent.status === 'inactive') {
+            return res.status(404).json({ success: false, message: 'Asesor no encontrado o inactivo.' });
+        }
+
+        const check = await verifyAgentPassword(cleanCurrent, agent.password_hash);
+        if (!check.valid) {
+            return res.status(401).json({ success: false, message: 'La contraseña actual es incorrecta.' });
+        }
+
+        const newHash = await hashPassword(cleanNew);
+        await pool.query('UPDATE agents SET password_hash = ? WHERE id = ?', [newHash, agent.id]);
+        res.json({ success: true, message: 'Contraseña actualizada exitosamente.' });
+    } catch (e) {
+        console.error('❌ Error en /api/admin/change-password:', e.message);
+        res.status(500).json({ success: false, message: 'Error al cambiar contraseña.' });
     }
 });
 
@@ -8422,13 +8654,14 @@ app.post('/api/admin/agents/role', express.json(), async (req, res) => {
 // POST Create or Update Employee / Agent
 app.post('/api/admin/agents/save', express.json(), async (req, res) => {
     try {
-        const { id, fullname, email, password, role, status, exclude_from_payroll } = req.body;
+        const { id, fullname, email, phone, password, role, status, exclude_from_payroll } = req.body;
         if (!fullname || !email) {
             return res.status(400).json({ success: false, message: 'Nombre completo y correo son obligatorios.' });
         }
 
         const { pool } = require('./database');
         const cleanEmail = email.trim().toLowerCase();
+        const cleanPhone = phone ? String(phone).replace(/\D/g, '') : null;
         const cleanRole = role || 'agent';
         const cleanStatus = status || 'active';
         const excludeVal = exclude_from_payroll ? 1 : 0;
@@ -8447,6 +8680,11 @@ app.post('/api/admin/agents/save', express.json(), async (req, res) => {
         if (id) {
             let updateQuery = 'UPDATE agents SET fullname = ?, email = ?, role = ?, status = ?, exclude_from_payroll = ?';
             let params = [fullname.trim(), cleanEmail, cleanRole, cleanStatus, excludeVal];
+
+            if (phone !== undefined) {
+                updateQuery += ', phone = ?';
+                params.push(cleanPhone);
+            }
 
             if (password && password.trim().length > 0) {
                 const hashed = await safeHashPassword(password.trim());
@@ -8475,8 +8713,8 @@ app.post('/api/admin/agents/save', express.json(), async (req, res) => {
             }
 
             const [result] = await pool.query(
-                'INSERT INTO agents (username, fullname, email, role, status, password_hash, exclude_from_payroll) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [username, fullname.trim(), cleanEmail, cleanRole, cleanStatus, hashedPassword, excludeVal]
+                'INSERT INTO agents (username, fullname, email, phone, role, status, password_hash, exclude_from_payroll) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                [username, fullname.trim(), cleanEmail, cleanPhone, cleanRole, cleanStatus, hashedPassword, excludeVal]
             );
 
             return res.json({
