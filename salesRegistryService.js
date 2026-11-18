@@ -499,6 +499,10 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "observaciones": `Renovación Dashboard - ${new Date().toLocaleDateString()}`
                 };
                 await updateExcelData(targetRow, updates);
+                try {
+                    const { resetDeviceUsage } = require('./deviceLimitService');
+                    resetDeviceUsage(phone, excelRow.correo || excelRow.Correo || realStreamingName, excelRow.Nombre || excelRow.nombre || null);
+                } catch (resetErr) { }
                 results.push({ 
                     name: realStreamingName, 
                     status: 'success', 
@@ -608,10 +612,30 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 }
 
                 if (existingAccount) {
-                    finalRow = existingAccount._rowNumber || allRows.indexOf(existingAccount) + 2;
-                    matchedRow = existingAccount;
-                    isAutoRenewal = true;
-                    console.log(`[Sales Registry] Auto-detección: El cliente ya tiene ${platformName} (vencida/por vencer). Procesando como RENOVACIÓN en fila ${finalRow}`);
+                    // Evitar fusionar una compra adicional como renovación si la cuenta existente aún tiene >10 días de vigencia
+                    // y no se solicitó explícitamente una renovación.
+                    let shouldTreatAsNewSlot = false;
+                    if (!userState.isRenewal) {
+                        try {
+                            const { getJsDateFromExcel } = require('./apiService');
+                            const rawExp = existingAccount.deben || existingAccount.Columna4 || existingAccount.vencimiento;
+                            const parsedExp = getJsDateFromExcel ? getJsDateFromExcel(rawExp) : parseExcelDate(rawExp);
+                            if (parsedExp && !isNaN(parsedExp.getTime())) {
+                                const daysUntilExpire = (parsedExp.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+                                if (daysUntilExpire > 10) {
+                                    shouldTreatAsNewSlot = true;
+                                    console.log(`[Sales Registry] Cuenta existente de ${platformName} aún tiene ${Math.round(daysUntilExpire)} días vigentes. Tratando nueva compra como cupo adicional.`);
+                                }
+                            }
+                        } catch (expErr) { }
+                    }
+
+                    if (!shouldTreatAsNewSlot) {
+                        finalRow = existingAccount._rowNumber || allRows.indexOf(existingAccount) + 2;
+                        matchedRow = existingAccount;
+                        isAutoRenewal = true;
+                        console.log(`[Sales Registry] Auto-detección: El cliente ya tiene ${platformName} (vencida/por vencer). Procesando como RENOVACIÓN en fila ${finalRow}`);
+                    }
                 }
             }
 
@@ -628,6 +652,11 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const renewalEmail = matchedRow.correo || matchedRow.Correo || "";
                 const renewalPlatName = matchedRow.Streaming || platformName;
                 const renewalPrice = parseFloat(matchedRow.precio || (item.platform ? item.platform.price : 0) || userState.total || 0);
+
+                try {
+                    const { resetDeviceUsage } = require('./deviceLimitService');
+                    resetDeviceUsage(phone, renewalEmail || renewalPlatName, matchedRow.Nombre || matchedRow.nombre || null);
+                } catch (resetErr) { }
 
                 if (paymentMethod !== 'Bold Pagos' && !String(paymentMethod).toLowerCase().includes('bold') && renewalPrice > 0) {
                     try {

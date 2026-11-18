@@ -10334,7 +10334,15 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
             const vencFormatted = jsDate ? jsDate.toISOString().split('T')[0] : (rawVenc || "");
 
             const isAi = isAiLimitedPlatform(acc.Streaming || acc.platform);
-            const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, 3, rawPerfil || pin) : null;
+            const accEmailNorm = (acc.correo || '').trim().toLowerCase();
+            const accPlatNorm = (acc.Streaming || acc.platform || '').trim().toLowerCase();
+            const cuposCount = isAi ? Math.max(1, userAccounts.filter(u => {
+                const uEmail = (u.correo || '').trim().toLowerCase();
+                if (accEmailNorm && uEmail) return uEmail === accEmailNorm;
+                return (u.Streaming || u.platform || '').trim().toLowerCase() === accPlatNorm;
+            }).length) : 1;
+            const maxAllowed = 3 * cuposCount;
+            const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, maxAllowed, rawPerfil || pin) : null;
             const autoStatus = await checkAccountAutomationStatus(acc.correo, acc.Streaming);
 
             return {
@@ -10450,7 +10458,15 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
             const vencFormatted = jsDate ? jsDate.toISOString().split('T')[0] : (rawVenc || "");
 
             const isAi = isAiLimitedPlatform(acc.Streaming || acc.platform);
-            const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, 3, rawPerfil || pin) : null;
+            const accEmailNorm = (acc.correo || '').trim().toLowerCase();
+            const accPlatNorm = (acc.Streaming || acc.platform || '').trim().toLowerCase();
+            const cuposCount = isAi ? Math.max(1, userAccounts.filter(u => {
+                const uEmail = (u.correo || '').trim().toLowerCase();
+                if (accEmailNorm && uEmail) return uEmail === accEmailNorm;
+                return (u.Streaming || u.platform || '').trim().toLowerCase() === accPlatNorm;
+            }).length) : 1;
+            const maxAllowed = 3 * cuposCount;
+            const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, maxAllowed, rawPerfil || pin) : null;
             const autoStatus = await checkAccountAutomationStatus(acc.correo, acc.Streaming);
 
             return {
