@@ -2295,6 +2295,14 @@ app.get('/api/admin/client-history', async (req, res) => {
             console.error("[client-history] Error querying excel_historical_records from DB:", dbHistErr.message);
         }
 
+        let validatedPayments = [];
+        try {
+            const { getClientValidatedPayments } = require('./paymentLogService');
+            validatedPayments = await getClientValidatedPayments(targetTail);
+        } catch (vpErr) {
+            console.warn("[client-history] Error querying validated_payments_log:", vpErr.message);
+        }
+
         res.json({
             fullname: customer.fullname || '',
             phone: customer.phone || cleanPhone,
@@ -2302,10 +2310,24 @@ app.get('/api/admin/client-history', async (req, res) => {
             notes: customer.notes || '',
             subscriptions: subRows,
             purchases: saleRows,
-            excelHistory: excelHistory
+            excelHistory: excelHistory,
+            validatedPayments: validatedPayments
         });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// GET Validated Payments & Renewals Log (Auto-OCR, Llave Bre-V, Gmail Match, Admin, Bold)
+app.get('/api/admin/payments/validated', async (req, res) => {
+    try {
+        const { type = 'all', source = 'all', search = '', limit = '200' } = req.query;
+        const { getValidatedPayments } = require('./paymentLogService');
+        const data = await getValidatedPayments({ type, source, search, limit });
+        res.json({ success: true, ...data });
+    } catch (e) {
+        console.error('❌ Error en /api/admin/payments/validated:', e.message);
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
@@ -15517,7 +15539,19 @@ REGLAS:
                                 // Ejecutar validación automática directa si todo coincide perfectamente
                                 const validationResult = await executePaymentValidation(
                                     userId,
-                                    { ...stateData, total: check.amount, leftoverAmount: leftoverAmount, paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})` },
+                                    {
+                                        ...stateData,
+                                        total: check.amount,
+                                        leftoverAmount: leftoverAmount,
+                                        paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})`,
+                                        ocrBank: check.bank || null,
+                                        ocrDestinationKey: check.destinationKey || null,
+                                        ocrDestinationName: check.destinationName || null,
+                                        ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
+                                        ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
+                                        ocrExtractedDetails: check.extractedDetails || null,
+                                        gmailMatchId: match.id || null
+                                    },
                                     client,
                                     userStates,
                                     null,
@@ -18782,14 +18816,31 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                                 state: 'awaiting_netflix_operator_post_payment',
                                 paymentMethod: check.bank || 'Transferencia',
                                 checkAmount: totalPaidSoFar,
-                                autoValidatedByKey: true
+                                autoValidatedByKey: true,
+                                ocrBank: check.bank || null,
+                                ocrDestinationKey: check.destinationKey || null,
+                                ocrDestinationName: check.destinationName || null,
+                                ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
+                                ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
+                                ocrExtractedDetails: check.extractedDetails || null
                             });
                             return;
                         }
 
                         const validationResult = await executePaymentValidation(
                             userId,
-                            { ...stateData, total: totalPaidSoFar, autoValidatedByKey: true, paymentMethod: `Auto-OCR Llave (${check.bank || 'Transferencia'})` },
+                            {
+                                ...stateData,
+                                total: totalPaidSoFar,
+                                autoValidatedByKey: true,
+                                paymentMethod: `Auto-OCR Llave (${check.bank || 'Transferencia'})`,
+                                ocrBank: check.bank || null,
+                                ocrDestinationKey: check.destinationKey || null,
+                                ocrDestinationName: check.destinationName || null,
+                                ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
+                                ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
+                                ocrExtractedDetails: check.extractedDetails || null
+                            },
                             client, userStates, null, null
                         );
 

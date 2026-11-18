@@ -625,12 +625,52 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "observaciones": `Renovación Auto - ${new Date().toLocaleDateString()}`
                 };
                 await updateExcelData(finalRow, updates);
+                const renewalEmail = matchedRow.correo || matchedRow.Correo || "";
+                const renewalPlatName = matchedRow.Streaming || platformName;
+                const renewalPrice = parseFloat(matchedRow.precio || (item.platform ? item.platform.price : 0) || userState.total || 0);
+
+                if (paymentMethod !== 'Bold Pagos' && !String(paymentMethod).toLowerCase().includes('bold') && renewalPrice > 0) {
+                    try {
+                        const { addCashFlowEntry } = require('./accountingService');
+                        await addCashFlowEntry('income', renewalPlatName, renewalPrice, `Renovación confirmada (${paymentMethod}): ${name}`, new Date(), true);
+                    } catch (cashErr) {
+                        console.warn("[Sales Registry] Error registrando renovación en flujo de caja:", cashErr.message);
+                    }
+                }
+
+                try {
+                    const { logValidatedPayment } = require('./paymentLogService');
+                    await logValidatedPayment({
+                        phone,
+                        user_id: userId,
+                        client_name: name,
+                        payment_type: 'renewal',
+                        platform: renewalPlatName,
+                        account_email: renewalEmail,
+                        excel_row: finalRow,
+                        amount: renewalPrice,
+                        duration_months: itemMonths,
+                        payment_method: paymentMethod,
+                        bank: userState.ocrBank || null,
+                        destination_key: userState.ocrDestinationKey || null,
+                        destination_name: userState.ocrDestinationName || null,
+                        transaction_reference: userState.ocrReference || null,
+                        receipt_date: userState.ocrReceiptDate || null,
+                        gmail_match_id: userState.gmailMatchId || null,
+                        new_expiration: nextPaymentDate,
+                        auto_validated_by_key: !!userState.autoValidatedByKey,
+                        details: userState.ocrExtractedDetails || null
+                    });
+                } catch (logErr) {
+                    console.warn("[Sales Registry] Error registrando renovación en validated_payments_log:", logErr.message);
+                }
+
                 results.push({ 
-                    name: matchedRow.Streaming || platformName, 
+                    name: renewalPlatName, 
                     status: 'success', 
                     rowNumber: finalRow, 
                     type: 'renewal',
-                    correo: matchedRow.correo || matchedRow.Correo || "",
+                    correo: renewalEmail,
                     contraseña: matchedRow.contraseña || matchedRow.Contraseña || matchedRow.password || "",
                     pin: matchedRow["pin perfil"] || matchedRow.pin || "",
                     vencimiento: nextPaymentDate,
@@ -725,18 +765,45 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 });
 
                 // Registrar ingreso automático en Flujo de Caja Real si es pago por transferencia / Nequi / Bre-B / Admin
+                const salePlatName = slot.rowData.Streaming || platformName;
+                const saleItemPrice = parseFloat(slot.rowData.precio || (item.platform ? item.platform.price : 0) || userState.total || 0);
                 if (paymentMethod !== 'Bold Pagos' && !String(paymentMethod).toLowerCase().includes('bold')) {
                     try {
                         const { addCashFlowEntry } = require('./accountingService');
-                        const platName = slot.rowData.Streaming || platformName;
-                        const itemPrice = parseFloat(slot.rowData.precio || (item.platform ? item.platform.price : 0) || userState.total || 0);
-                        if (itemPrice > 0) {
-                            await addCashFlowEntry('income', platName, itemPrice, `Venta confirmada (${paymentMethod}): ${name}`, new Date(), true);
-                            console.log(`[Sales Registry] 💵 Ingreso de $${itemPrice} registrado en cash_flow_entries para ${platName}`);
+                        if (saleItemPrice > 0) {
+                            await addCashFlowEntry('income', salePlatName, saleItemPrice, `Venta confirmada (${paymentMethod}): ${name}`, new Date(), true);
+                            console.log(`[Sales Registry] 💵 Ingreso de $${saleItemPrice} registrado en cash_flow_entries para ${salePlatName}`);
                         }
                     } catch (cashErr) {
                         console.warn("[Sales Registry] Error registrando flujo de caja:", cashErr.message);
                     }
+                }
+
+                try {
+                    const { logValidatedPayment } = require('./paymentLogService');
+                    await logValidatedPayment({
+                        phone,
+                        user_id: userId,
+                        client_name: name,
+                        payment_type: 'new_sale',
+                        platform: salePlatName,
+                        account_email: slot.rowData.correo || slot.rowData.Correo || "",
+                        excel_row: slot.index,
+                        amount: saleItemPrice,
+                        duration_months: itemMonths,
+                        payment_method: paymentMethod,
+                        bank: userState.ocrBank || null,
+                        destination_key: userState.ocrDestinationKey || null,
+                        destination_name: userState.ocrDestinationName || null,
+                        transaction_reference: userState.ocrReference || null,
+                        receipt_date: userState.ocrReceiptDate || null,
+                        gmail_match_id: userState.gmailMatchId || null,
+                        new_expiration: nextPaymentDate,
+                        auto_validated_by_key: !!userState.autoValidatedByKey,
+                        details: userState.ocrExtractedDetails || null
+                    });
+                } catch (logErr) {
+                    console.warn("[Sales Registry] Error registrando venta en validated_payments_log:", logErr.message);
                 }
             } else {
                 console.log(`[Sales Registry] NO se encontró cupo disponible para ${platformName}.`);
