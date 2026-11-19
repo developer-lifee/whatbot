@@ -1601,9 +1601,16 @@ async function approveBoldOrder(orderId) {
                         return str;
                     };
                     const platformsStr = newManualItems.map(item => formatCleanPlatformTitle(item.name)).join(', ');
+                    const hasOutOfStock = newManualItems.some(item => item.status === 'out_of_stock' || item.status === 'no_slots_found');
+                    const allOutOfStock = newManualItems.every(item => item.status === 'out_of_stock' || item.status === 'no_slots_found');
                     const expectation = getDynamicSupportExpectationMessage();
-                    manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
-                        `${expectation}`;
+                    if (allOutOfStock) {
+                        manualMsg += `En este momento estamos aprovisionando un nuevo cupo para tu servicio de *${platformsStr}* para entregarte tus credenciales.\n\n` +
+                            `${expectation}`;
+                    } else {
+                        manualMsg += `Noté que tu servicio de *${platformsStr}* requiere de una activación personalizada, invitación de plan familiar o asignación manual.\n\n` +
+                            `${expectation}`;
+                    }
                     await client.sendMessage(phoneId, manualMsg);
 
                     try {
@@ -1611,16 +1618,17 @@ async function approveBoldOrder(orderId) {
                         if (groupChat) {
                             let ticketTag = "";
                             try {
+                                const ticketPrefix = hasOutOfStock ? 'Stock Agotado' : 'Activación Manual';
                                 await pool.query(
                                     'INSERT INTO chats (chat_id, customer_phone, last_message_text, updated_at) VALUES (?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE updated_at = NOW()',
-                                    [phoneId, phoneId.replace(/\D/g, ''), `Activación Manual Bold: ${platformsStr}`]
+                                    [phoneId, phoneId.replace(/\D/g, ''), `${ticketPrefix} Bold: ${platformsStr}`]
                                 );
                                 const [tRes] = await pool.query(
                                     'INSERT INTO tickets (chat_id, title, description, status, priority) VALUES (?, ?, ?, ?, ?)',
                                     [
                                         phoneId,
-                                        `Activación Manual: ${platformsStr}`,
-                                        `Pago Web Bold de $${customerData.amount || ''} para ${platformsStr}`,
+                                        `${ticketPrefix}: ${platformsStr}`,
+                                        `Pago Web Bold de ${customerData.amount || ''} para ${platformsStr}`,
                                         'open',
                                         'high'
                                     ]
@@ -1628,10 +1636,14 @@ async function approveBoldOrder(orderId) {
                                 if (tRes && tRes.insertId) ticketTag = ` (#TK-${tRes.insertId})`;
                             } catch (tErr) { }
 
-                            await groupChat.sendMessage(`🚨 *ACTIVACIÓN MANUAL REQUERIDA*${ticketTag} (@${phoneId.replace('@c.us', '')})\n` +
+                            const alertHeader = hasOutOfStock ? '🚨 *STOCK AGOTADO - REPONER CUENTA*' : '🚨 *ACTIVACIÓN MANUAL REQUERIDA*';
+                            const alertFooter = hasOutOfStock
+                                ? `No hay cupos libres en Excel para *${platformsStr}*. Por favor, repón una cuenta en Excel y envía las credenciales al cliente.`
+                                : `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`;
+                            await groupChat.sendMessage(`${alertHeader}${ticketTag} (@${phoneId.replace('@c.us', '')})\n` +
                                 `Servicios: ${platformsStr}\n` +
-                                `Monto: $${customerData.amount || ''}\n` +
-                                `Por favor, un asesor debe enviarle la invitación o acceso manualmente.`);
+                                `Monto: ${customerData.amount || ''}\n` +
+                                `${alertFooter}`);
                         }
                     } catch (e) { }
 

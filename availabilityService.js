@@ -51,7 +51,7 @@ function normalizeStreamingName(name) {
         }
 
         // 3. Claude Pro x2 (4x a 6x)
-        if (/(?:^|[^0-9.])(?:x\s*2|2\s*x|4x|6x)(?:$|[^0-9])/i.test(withoutDecimals) || specificPart.includes('altouso')) {
+        if (/(?:^|[^0-9.])(?:x\s*2|2\s*x|4x|6x)(?:$|[^0-9])/i.test(withoutDecimals) || specificPart.includes('altouso') || specificPart.includes('alto uso')) {
             return 'claude_pro_x2';
         }
 

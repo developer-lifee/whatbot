@@ -818,8 +818,13 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             const { getPlatformAvailability } = require('./availabilityService');
             const availability = await getPlatformAvailability(platformName);
             if (!availability.immediate) {
-                console.log(`[Sales Registry] ${platformName} no tiene entrega inmediata (${availability.reason}). Saltando registro automático.`);
-                results.push({ name: platformName, status: 'manual_invitation_required' });
+                if (availability.available === false) {
+                    console.log(`[Sales Registry] ${platformName} sin stock disponible (${availability.reason}). Saltando registro automático.`);
+                    results.push({ name: platformName, status: 'out_of_stock', reason: availability.reason });
+                } else {
+                    console.log(`[Sales Registry] ${platformName} no tiene entrega inmediata (${availability.reason}). Saltando registro automático.`);
+                    results.push({ name: platformName, status: 'manual_invitation_required', reason: availability.reason });
+                }
                 continue;
             }
 
