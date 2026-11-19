@@ -1129,8 +1129,9 @@ app.post('/api/bold/generate-token', async (req, res) => {
         const secretKey = process.env.BOLD_SECRET_KEY;
         if (!apiKey) throw new Error("Llave BOLD_IDENTITY_KEY no configurada en .env");
 
+        const tsPart = Date.now().toString(36).toUpperCase();
         const random = Math.floor(1000 + Math.random() * 9000);
-        const orderId = `inv${random}`;
+        const orderId = `inv${tsPart}${random}`;
         const amountNum = Math.round(Number(String(platform.price).replace(/\D/g, '')));
         const currency = 'COP';
 
