@@ -494,8 +494,36 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     const paymentLabel = matchId
         ? `Gmail Match (${matchId})`
         : (userState.paymentMethod || 'Auto-OCR Llave');
-    const enrichedState = { ...userState, gmailMatchId: userState.gmailMatchId || matchId || null };
-    const results = await recordNewSale(userId, enrichedState, paymentLabel);
+    let enrichedState = { ...userState, gmailMatchId: userState.gmailMatchId || matchId || null };
+    let results = await recordNewSale(userId, enrichedState, paymentLabel);
+
+    // Respaldo de renovación: si results quedó vacío pero el cliente tiene cuenta activa coincidente en Excel, ejecutar como renovación
+    if ((!Array.isArray(results) || results.length === 0) && amount > 0) {
+        try {
+            const { getAccountsByPhone } = require('./apiService');
+            const activeAccounts = await getAccountsByPhone(enrichedState.realPhone || userId);
+            if (Array.isArray(activeAccounts) && activeAccounts.length > 0) {
+                const hintText = `${enrichedState.platform || ''} ${enrichedState.ocrExtractedDetails || ''}`.toLowerCase();
+                let matchedAccounts = activeAccounts.filter(acc => {
+                    const stName = (acc.Streaming || '').toLowerCase().trim();
+                    if (!stName) return false;
+                    const baseWord = stName.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
+                    return baseWord.length >= 3 && hintText.includes(baseWord);
+                });
+                if (matchedAccounts.length === 0 && activeAccounts.length === 1) {
+                    matchedAccounts = activeAccounts;
+                }
+                if (matchedAccounts.length > 0) {
+                    console.log(`[Payment Auto-Validate] 🔄 Results vacío; recuperando renovación desde Excel para ${userId}: ${matchedAccounts.map(a => a.Streaming).join(', ')}`);
+                    userState.isRenewal = true;
+                    enrichedState = { ...enrichedState, isRenewal: true, items: matchedAccounts };
+                    results = await recordNewSale(userId, enrichedState, paymentLabel);
+                }
+            }
+        } catch (renFallbackErr) {
+            console.warn('[Payment Auto-Validate] Error en respaldo de renovación desde Excel:', renFallbackErr.message);
+        }
+    }
 
     // Respaldo: si ningún ítem quedó registrado en Excel automáticamente (ej. activación manual / sin stock),
     // registrar igual el pago validado en validated_payments_log para que aparezca en Contabilidad y BD.

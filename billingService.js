@@ -1684,7 +1684,7 @@ async function sendBulkCharges(client, records, requesterId = null, userStates =
                 state: 'awaiting_payment_confirmation',
                 total: totalSum || 0,
                 isRenewal: true,
-                items: targetAccounts || [],
+                items: (targetAccounts || []).map(t => (t && t.acc) ? t.acc : t),
                 timestamp: Date.now(),
                 realPhone: r.phone
             };

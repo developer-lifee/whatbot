@@ -12642,12 +12642,21 @@ async function baseProcessIncomingMessage(messages) {
         'awaiting_churn_reason'
     ];
 
-    // Limpiar estados interactivos/pago obsoletos (> 4 horas sin actividad)
+    const getInteractiveStateTTL = (st) => {
+        if (!st) return 4;
+        if (st.state === 'awaiting_payment_confirmation' && (st.isRenewal || Number(st.total) > 0 || message.hasMedia)) {
+            return 48;
+        }
+        return 4;
+    };
+
+    // Limpiar estados interactivos/pago obsoletos (> 4 horas, o > 48 horas si es cobro/renovación)
     for (const candState of [stateByUserId, stateByPhone, stateByRawPhone]) {
         if (candState && interactiveActiveStates.includes(candState.state)) {
             const lastTime = candState.timestamp || candState.lastMessageTime || 0;
             const ageHours = lastTime ? (Date.now() - lastTime) / (1000 * 3600) : 999;
-            if (ageHours > 4) {
+            const maxTtl = getInteractiveStateTTL(candState);
+            if (ageHours > maxTtl) {
                 console.log(`[Auto-Expire Synced] Limpiado estado interactivo/pago antiguo (${candState.state}, ${ageHours.toFixed(1)}h) para @${userId} / @${cleanPhoneJid}.`);
                 userStates.delete(userId);
                 if (cleanPhoneJid) userStates.delete(cleanPhoneJid);
@@ -12660,7 +12669,7 @@ async function baseProcessIncomingMessage(messages) {
         if (!s || !interactiveActiveStates.includes(s.state)) return false;
         const lastTime = s.timestamp || s.lastMessageTime || 0;
         const ageHours = lastTime ? (Date.now() - lastTime) / (1000 * 3600) : 999;
-        return ageHours <= 4;
+        return ageHours <= getInteractiveStateTTL(s);
     });
 
     if (activeInteractiveState) {
@@ -12936,10 +12945,38 @@ REGLAS:
                     const singleMediaObj = { data: media.data, mimeType: cleanMime };
                     const check = await isPaymentReceipt(singleMediaObj, hist);
                     if (check && check.isReceipt) {
-                        console.log(`[Payment Receipt Universal Bypass] 💳 Comprobante de pago detectado para @${userId} ($${check.amount || 'N/A'}). Saltando bloqueo de asesor humano.`);
-                        const curState = (typeof currentStateData === 'object') ? currentStateData : {};
-                        userStates.set(userId, { ...curState, state: 'awaiting_payment_confirmation' });
-                        if (cleanPhoneJid) userStates.set(cleanPhoneJid, { ...curState, state: 'awaiting_payment_confirmation' });
+                        console.log(`[Payment Receipt Universal Bypass] 💳 Comprobante de pago detectado para @${userId} (${check.amount || 'N/A'}). Saltando bloqueo de asesor humano.`);
+                        const curState = (currentStateData && typeof currentStateData === 'object') ? { ...currentStateData } : {};
+                        if (!curState.items || curState.items.length === 0 || !curState.isRenewal) {
+                            try {
+                                const { getAccountsByPhone } = require('./apiService');
+                                const lookupPhone = curState.realPhone || realPhone || cleanPhoneJid || userId;
+                                const activeAccounts = await getAccountsByPhone(lookupPhone);
+                                if (Array.isArray(activeAccounts) && activeAccounts.length > 0) {
+                                    const inferred = (check.inferredPlatform || '').toLowerCase().trim();
+                                    const histLower = (hist || '').toLowerCase();
+                                    const matchedRenewalAccounts = activeAccounts.filter(acc => {
+                                        const stName = (acc.Streaming || '').toLowerCase().trim();
+                                        if (!stName) return false;
+                                        if (inferred && (stName.includes(inferred) || inferred.includes(stName))) return true;
+                                        const baseWord = stName.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
+                                        return baseWord.length >= 3 && histLower.includes(baseWord);
+                                    });
+                                    if (matchedRenewalAccounts.length > 0) {
+                                        curState.isRenewal = true;
+                                        curState.items = matchedRenewalAccounts;
+                                        curState.total = Number(check.amount) || curState.total || 0;
+                                        curState.realPhone = curState.realPhone || realPhone || String(lookupPhone).replace(/\D/g, '');
+                                        console.log(`[Payment Receipt Universal Bypass] 🔄 Contexto de renovación reconstruido desde Excel para @${userId}: ${matchedRenewalAccounts.map(a => a.Streaming).join(', ')}`);
+                                    }
+                                }
+                            } catch (accErr) {
+                                console.warn('[Payment Receipt Universal Bypass] Error reconstruyendo renovación desde Excel:', accErr.message);
+                            }
+                        }
+                        const nextState = { ...curState, state: 'awaiting_payment_confirmation', timestamp: Date.now() };
+                        userStates.set(userId, nextState);
+                        if (cleanPhoneJid) userStates.set(cleanPhoneJid, nextState);
                         await handleAwaitingPaymentConfirmation(message, userId, true, singleMediaObj, check);
                         return;
                     }
@@ -18884,6 +18921,33 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         } else {
                             console.log(`[AUTO-VALIDATE] ✅ Llave, monto y Gmail Match válidos (ID: ${gmailMatch.id}). Ejecutando entrega automática...`);
                             await markPaymentReferenceUsed(receiptCheck.ref, userId, check.amount);
+
+                            // Si el carrito items se perdió de memoria, intentar primero reconstruir renovación desde cuentas activas en Excel
+                            if (!stateData.items || stateData.items.length === 0) {
+                                try {
+                                    const { getAccountsByPhone } = require('./apiService');
+                                    const activeAccounts = await getAccountsByPhone(stateData.realPhone || userId);
+                                    const recentHistForRenewal = await getChatHistoryText(message).catch(() => '');
+                                    const inferredPlat = (check.inferredPlatform || '').toLowerCase().trim();
+                                    const renewalSource = `${inferredPlat} ${recentHistForRenewal || ''}`.toLowerCase();
+                                    if (Array.isArray(activeAccounts) && activeAccounts.length > 0) {
+                                        const matchedActive = activeAccounts.filter(acc => {
+                                            const stName = (acc.Streaming || '').toLowerCase().trim();
+                                            if (!stName) return false;
+                                            if (inferredPlat && (stName.includes(inferredPlat) || inferredPlat.includes(stName))) return true;
+                                            const baseWord = stName.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
+                                            return baseWord.length >= 3 && renewalSource.includes(baseWord);
+                                        });
+                                        if (matchedActive.length > 0) {
+                                            stateData.isRenewal = true;
+                                            stateData.items = matchedActive;
+                                            console.log(`[AUTO-VALIDATE] 🔄 Renovación reconstruida desde Excel para ${userId}: ${matchedActive.map(a => a.Streaming).join(', ')}`);
+                                        }
+                                    }
+                                } catch (renRecErr) {
+                                    console.warn('[AUTO-VALIDATE] Advertencia reconstruyendo renovación desde Excel:', renRecErr.message);
+                                }
+                            }
 
                             // Si el carrito items se perdió de memoria pero el OCR o el historial reciente menciona las plataformas cotizadas, reconstruirlo
                             if (!stateData.items || stateData.items.length === 0) {
