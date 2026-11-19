@@ -1223,9 +1223,20 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
             return;
         }
 
+        const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+        const hasPendingReceiptValidation = (
+            (currentState.state === 'waiting_admin_confirmation' || currentState.state === 'awaiting_payment_confirmation') &&
+            currentState.timestamp &&
+            (Date.now() - currentState.timestamp < FOUR_HOURS_MS)
+        );
+
         const userAccounts = await getAccountsByPhone(phoneNumber, contactName);
 
         if (userAccounts.length === 0) {
+            if (hasPendingReceiptValidation) {
+                await safeSend(message, "🤖 Tu comprobante de pago ya fue recibido y está en proceso de validación para entregarte tus accesos lo antes posible. ¡Gracias por tu paciencia! 😊", userId);
+                return;
+            }
             await safeSend(message, "🤖 No encontré servicios activos vinculados a este número para renovar. Si deseas comprar algo nuevo, escribe *1*.", userId);
             return;
         }
@@ -1267,6 +1278,20 @@ async function processCheckPrices(message, userId, userStates, inputToUse = "", 
                 accountsToProcess = filtered;
             } else {
                 const platNames = matchedKeywords.map(k => k.toUpperCase()).join(', ');
+                if (hasPendingReceiptValidation) {
+                    await safeSend(message, `🤖 Tu comprobante de pago para la compra nueva de *${platNames}* ya fue recibido y está en proceso de validación. En breve recibirás tus credenciales por aquí. ¡Gracias por tu paciencia! 😊`, userId);
+                    return;
+                }
+                const matchedPlatform = platforms.find(p => {
+                    const pName = (p.name || '').toLowerCase();
+                    return matchedKeywords.some(k => pName.includes(k) || (k === 'prime' && pName.includes('prime')) || (k === 'amazon' && pName.includes('prime')));
+                });
+                if (matchedPlatform) {
+                    const priceVal = matchedPlatform.price || (Array.isArray(matchedPlatform.plans) && matchedPlatform.plans[0] ? matchedPlatform.plans[0].price : 0);
+                    const priceTxt = priceVal ? ` por *$${Number(priceVal).toLocaleString('es-CO')} COP*` : '';
+                    await safeSend(message, `🤖 Veo que aún no tienes una cuenta activa de *${matchedPlatform.name}* registrada para renovar. Si deseas adquirirla como *compra nueva*${priceTxt}, escribe *1* o indícanos el nombre del servicio (ej: *"quiero comprar ${matchedPlatform.name}"*) y te procesamos tu pedido de inmediato. 😊`, userId);
+                    return;
+                }
                 await safeSend(message, `🤖 No encontré una cuenta activa de *${platNames}* registrada a tu nombre para renovar. Si deseas adquirir este servicio como una compra nueva, por favor escribe *1* o indícanos y con gusto te colaboramos. 😊`, userId);
                 return;
             }

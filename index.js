@@ -12952,24 +12952,35 @@ REGLAS:
                             try {
                                 const { getAccountsByPhone } = require('./apiService');
                                 const lookupPhone = curState.realPhone || realPhone || cleanPhoneJid || userId;
-                                const activeAccounts = await getAccountsByPhone(lookupPhone);
+                                const inferred = (check.inferredPlatform || '').toLowerCase().trim();
+                                const inferredBase = inferred.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
+                                const histLower = (hist || '').toLowerCase();
+                                const isNewPurchaseIntent = /\b(nueva|nuevo|comprar|compra|adquirir|que\s+vale|cu[aá]nto\s+(vale|cuesta)|precio)\b/i.test(histLower) && !/\b(renovar|renovaci[oó]n)\b/i.test(histLower);
+                                const activeAccounts = !isNewPurchaseIntent ? await getAccountsByPhone(lookupPhone) : [];
+                                let matchedRenewalAccounts = [];
                                 if (Array.isArray(activeAccounts) && activeAccounts.length > 0) {
-                                    const inferred = (check.inferredPlatform || '').toLowerCase().trim();
-                                    const histLower = (hist || '').toLowerCase();
-                                    const matchedRenewalAccounts = activeAccounts.filter(acc => {
+                                    matchedRenewalAccounts = activeAccounts.filter(acc => {
                                         const stName = (acc.Streaming || '').toLowerCase().trim();
                                         if (!stName) return false;
-                                        if (inferred && (stName.includes(inferred) || inferred.includes(stName))) return true;
+                                        if (inferred) {
+                                            return stName.includes(inferred) || inferred.includes(stName) || (inferredBase.length >= 3 && stName.includes(inferredBase));
+                                        }
                                         const baseWord = stName.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
                                         return baseWord.length >= 3 && histLower.includes(baseWord);
                                     });
-                                    if (matchedRenewalAccounts.length > 0) {
-                                        curState.isRenewal = true;
-                                        curState.items = matchedRenewalAccounts;
-                                        curState.total = Number(check.amount) || curState.total || 0;
-                                        curState.realPhone = curState.realPhone || realPhone || String(lookupPhone).replace(/\D/g, '');
-                                        console.log(`[Payment Receipt Universal Bypass] 🔄 Contexto de renovación reconstruido desde Excel para @${userId}: ${matchedRenewalAccounts.map(a => a.Streaming).join(', ')}`);
-                                    }
+                                }
+                                if (matchedRenewalAccounts.length > 0) {
+                                    curState.isRenewal = true;
+                                    curState.items = matchedRenewalAccounts;
+                                    curState.total = Number(check.amount) || curState.total || 0;
+                                    curState.realPhone = curState.realPhone || realPhone || String(lookupPhone).replace(/\D/g, '');
+                                    console.log(`[Payment Receipt Universal Bypass] 🔄 Contexto de renovación reconstruido desde Excel para @${userId}: ${matchedRenewalAccounts.map(a => a.Streaming).join(', ')}`);
+                                } else if (check.inferredPlatform && (!curState.items || curState.items.length === 0)) {
+                                    curState.isRenewal = false;
+                                    curState.items = [{ name: check.inferredPlatform, platform: { name: check.inferredPlatform }, quantity: 1 }];
+                                    curState.total = Number(check.amount) || curState.total || 0;
+                                    curState.realPhone = curState.realPhone || realPhone || String(lookupPhone).replace(/\D/g, '');
+                                    console.log(`[Payment Receipt Universal Bypass] 🛒 Contexto de compra nueva reconstruido desde OCR para @${userId}: ${check.inferredPlatform}`);
                                 }
                             } catch (accErr) {
                                 console.warn('[Payment Receipt Universal Bypass] Error reconstruyendo renovación desde Excel:', accErr.message);
