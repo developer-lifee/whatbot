@@ -18712,6 +18712,7 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                 console.log(`[AUTO-VALIDATE] OCR result: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, destinationKey=${check.destinationKey}, destinationName=${check.destinationName}`);
 
                 if (check.isReceipt) {
+                    if (stateData) stateData._lastOcrCheck = check;
                     const receiptCheck = await validatePaymentReceiptFreshnessAndRef(check, userId);
                     if (!receiptCheck.valid) {
                         const rejectText = receiptCheck.reason === 'duplicate_ref'
@@ -19100,7 +19101,38 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                     confirmOptions += ` o *@bot confirmar ${clientInfo.secondaryId}*`;
                 }
 
-                await chat.sendMessage(`🚨 ${type} recibido de ${clientInfo.userTag}. Por favor revisar.\n\nPara validar: ${confirmOptions} o *si me llegó ${clientInfo.primaryId}*`);
+                const ocrCheck = stateData && stateData._lastOcrCheck ? stateData._lastOcrCheck : null;
+                const ocrLines = ocrCheck ? (
+                    `\n💰 *Monto OCR:* ${ocrCheck.amount || '?'}` +
+                    `\n🏦 *Banco:* ${ocrCheck.bank || 'Desconocido'}` +
+                    (ocrCheck.destinationKey || ocrCheck.destinationName ? `\n🔑 *Destino:* ${ocrCheck.destinationKey || ocrCheck.destinationName}` : '') +
+                    (ocrCheck.transactionReference ? `\n🧾 *Ref:* ${ocrCheck.transactionReference}` : '')
+                ) : '';
+                const fallbackMsg = `🚨 ${type} recibido de ${clientInfo.userTag}. Por favor revisar.${ocrLines}\n\nPara validar: ${confirmOptions} o *si me llegó ${clientInfo.primaryId}*`;
+
+                let mediaToForward = null;
+                if (singleMediaData && singleMediaData.data) {
+                    const { MessageMedia } = require('whatsapp-web.js');
+                    const mime = singleMediaData.mimeType || singleMediaData.mimetype || 'image/jpeg';
+                    mediaToForward = new MessageMedia(mime, singleMediaData.data);
+                } else if (message.hasMedia) {
+                    const downloaded = await downloadMediaWithRetry(message);
+                    if (downloaded && downloaded.data) {
+                        const { MessageMedia } = require('whatsapp-web.js');
+                        mediaToForward = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                    }
+                }
+
+                if (mediaToForward) {
+                    try {
+                        await chat.sendMessage(mediaToForward, { caption: fallbackMsg });
+                    } catch (captionErr) {
+                        await chat.sendMessage(fallbackMsg);
+                        await chat.sendMessage(mediaToForward);
+                    }
+                } else {
+                    await chat.sendMessage(fallbackMsg);
+                }
             }
         } catch (error) {
             console.error('Error enviando notificación al grupo:', error);

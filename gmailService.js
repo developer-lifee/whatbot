@@ -177,14 +177,16 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
 
             const expectedRef = receiptMeta && receiptMeta.reference ? String(receiptMeta.reference).trim().toUpperCase() : null;
             const expectedDateISO = receiptMeta && receiptMeta.receiptDateISO ? String(receiptMeta.receiptDateISO).trim() : null;
+            const expectedBank = receiptMeta && receiptMeta.bank ? String(receiptMeta.bank).trim().toLowerCase() : '';
+            const isDaviPlataOrLongQrRef = expectedBank.includes('daviplata') || (expectedRef && /^\d{20,}$/.test(expectedRef));
 
             if (isBancolombia) {
-                const isTransfer = /transferencia|recibida|abono|movimiento|alerta|notificaci|pago|ingreso|dep[oó]sito|recepci|transacci/i.test(body) ||
-                                   /transferencia|recibida|abono|movimiento|alerta|notificaci|pago|ingreso|dep[oó]sito|recepci|transacci/i.test(subject);
+                const isTransfer = /transferencia|recibida|abono|movimiento|alerta|notificaci|pago|ingreso|dep[oó]sito|recepci|transacci|compra|venta|redeban|daviplata|sheerit/i.test(body) ||
+                                   /transferencia|recibida|abono|movimiento|alerta|notificaci|pago|ingreso|dep[oó]sito|recepci|transacci|compra|venta|redeban|daviplata|sheerit/i.test(subject);
                 if (!isTransfer) continue;
 
-                // Expresión regular ampliada para capturar montos en múltiples formatos de Bancolombia
-                const amountRegex = /(?:por\s+valor\s+de|por|monto|valor|de|por\s+\$|valor\s+de\s+\$|transacción\s+por|transaccion\s+por|abono\s+de)(?:\s+de)?\s*\$?\s*([0-9]{1,3}(?:[\.,][0-9]{3})*(?:[\.,][0-9]{2})?)\b/i;
+                // Expresión regular ampliada para capturar montos en múltiples formatos (Bancolombia, DaviPlata, Redeban)
+                const amountRegex = /(?:por\s+valor\s+de|por|monto|valor|de|por\s+\$|valor\s+de\s+\$|transacción\s+por|transaccion\s+por|abono\s+de|compra\s+por|venta\s+por)(?:\s+de)?\s*\$?\s*([0-9]{1,3}(?:[\.,][0-9]{3})*(?:[\.,][0-9]{2})?)\b/i;
                 const textToSearch = subject + ' ' + body;
                 const amountMatches = textToSearch.match(amountRegex);
 
@@ -197,7 +199,8 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
                         if (expectedDateISO && emailDateISO !== expectedDateISO) {
                             continue;
                         }
-                        console.log(`[GMAIL MATCH BANCOLOMBIA] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
+                        const matchedBank = isBancolombia === 'daviplata' ? 'DaviPlata/Redeban' : 'Bancolombia';
+                        console.log(`[GMAIL MATCH ${matchedBank.toUpperCase()}] ✅ ¡MATCH ENCONTRADO! ID: ${msg.id}`);
                         saveProcessedEmail(msg.id);
                         return {
                             id: msg.id,
@@ -205,7 +208,7 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
                             date: internalDate,
                             diffMinutes: Math.round(diffMinutes),
                             subject: subject,
-                            bank: "Bancolombia"
+                            bank: matchedBank
                         };
                     }
                 }
@@ -236,8 +239,9 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
                         if (expectedDateISO && emailDateISO !== expectedDateISO) {
                             continue;
                         }
-                        // Validar identificador único (Referencia o Tx ID) cuando ambos estén presentes
-                        if (expectedRef && (emailRef || emailTxId)) {
+                        // Validar identificador único (Referencia o Tx ID) cuando ambos estén presentes,
+                        // flexibilizando cuando el origen es DaviPlata o el QR trae un código numérico largo (>= 20 dígitos)
+                        if (expectedRef && (emailRef || emailTxId) && !isDaviPlataOrLongQrRef) {
                             const refMatches = (emailRef && (emailRef === expectedRef || emailRef.includes(expectedRef) || expectedRef.includes(emailRef))) ||
                                                (emailTxId && (emailTxId === expectedRef || emailTxId.includes(expectedRef) || expectedRef.includes(emailTxId)));
                             if (!refMatches) {
@@ -355,7 +359,7 @@ async function findMatchingBoldPayment(email, targetAmount, toleranceMinutes, ph
 }
 
 /**
- * Busca un pago específico por monto en los correos recientes de Gmail (Bre-B y Bancolombia).
+ * Busca un pago específico por monto en los correos recientes de Gmail (Bre-B, DaviPlata/Redeban, Bancolombia y Bold).
  * @param {number} targetAmount 
  * @param {number} toleranceMinutes 
  * @param {string} phone 
@@ -364,10 +368,13 @@ async function findMatchingBoldPayment(email, targetAmount, toleranceMinutes, ph
 async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = null, receiptMeta = null) {
     console.log(`[GMAIL MATCH] Buscando pago de $${targetAmount} en los últimos ${toleranceMinutes} min para @${phone || 'todos'} (ref=${receiptMeta?.reference || 'N/A'}, fecha=${receiptMeta?.receiptDateISO || 'N/A'})...`);
 
+    const brebQuery = 'subject:"Detalle de tu venta por Bre-B" newer_than:1d';
+    const daviplataQrQuery = '(DaviPlata OR Redeban OR "Sheerit Esteban Avila" OR "Compra realizada") newer_than:1d';
+
     // 1. Buscar en Jordi (Bre-B)
     const matchJordi = await findMatchingPaymentInAccount(
         PAYMENT_EMAIL,
-        'subject:"Detalle de tu venta por Bre-B" newer_than:1d',
+        brebQuery,
         targetAmount,
         toleranceMinutes,
         false,
@@ -375,7 +382,18 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = 
     );
     if (matchJordi) return matchJordi;
 
-    // 2. Buscar en Esteban (Bancolombia) con query de búsqueda ampliada
+    // 2. Buscar en Esteban (Bre-B)
+    const matchEstebanBreb = await findMatchingPaymentInAccount(
+        'estebanavila6324@gmail.com',
+        brebQuery,
+        targetAmount,
+        toleranceMinutes,
+        false,
+        receiptMeta
+    );
+    if (matchEstebanBreb) return matchEstebanBreb;
+
+    // 3. Buscar en Esteban (Bancolombia / Lulo Bank) con query de búsqueda ampliada
     const matchEsteban = await findMatchingPaymentInAccount(
         'estebanavila6324@gmail.com',
         'subject:("Alertas y Notificaciones" OR "Transferencia recibida" OR "Le informamos" OR "Bancolombia te informa" OR "Bancolombia" OR "Lulo Bank te informa" OR "Abono" OR "Movimiento" OR "Notificación") newer_than:1d',
@@ -386,7 +404,28 @@ async function findMatchingPayment(targetAmount, toleranceMinutes = 30, phone = 
     );
     if (matchEsteban) return matchEsteban;
 
-    // 3. Buscar en Esteban (Bold)
+    // 4. Buscar comprobantes QR de DaviPlata/Redeban/Sheerit en ambas cuentas
+    const matchJordiQr = await findMatchingPaymentInAccount(
+        PAYMENT_EMAIL,
+        daviplataQrQuery,
+        targetAmount,
+        toleranceMinutes,
+        'daviplata',
+        receiptMeta
+    );
+    if (matchJordiQr) return matchJordiQr;
+
+    const matchEstebanQr = await findMatchingPaymentInAccount(
+        'estebanavila6324@gmail.com',
+        daviplataQrQuery,
+        targetAmount,
+        toleranceMinutes,
+        'daviplata',
+        receiptMeta
+    );
+    if (matchEstebanQr) return matchEstebanQr;
+
+    // 5. Buscar en Esteban (Bold)
     const matchBold = await findMatchingBoldPayment(
         'estebanavila6324@gmail.com',
         targetAmount,
