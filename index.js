@@ -18932,10 +18932,17 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         let gmailMatch = null;
                         try {
                             const { findMatchingPayment } = require('./gmailService');
+                            const payerFromDetailsMatch = String(check.extractedDetails || '').match(/remitente\s+([^,\n]+)/i);
+                            const payerName = (check && check.payerName) ||
+                                (payerFromDetailsMatch ? payerFromDetailsMatch[1].trim() : null) ||
+                                (stateData && (stateData.clientName || stateData.name)) ||
+                                (message && message._data && message._data.notifyName) ||
+                                null;
                             gmailMatch = await findMatchingPayment(totalPaidSoFar, 60, userId, {
                                 reference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
                                 receiptDateISO: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
-                                bank: check.bank || null
+                                bank: check.bank || null,
+                                payerName
                             });
                         } catch (gmErr) {
                             console.warn('[AUTO-VALIDATE] Error consultando Gmail Match:', gmErr.message);
