@@ -18655,6 +18655,30 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
         if (wasModified) return;
     }
 
+    if ((message.hasMedia || isMedia || (precomputedCheck && precomputedCheck.isReceipt)) && stateData.isRenewal && Array.isArray(stateData.items) && stateData.items.length > 1 && body) {
+        const inferredPlat = ((precomputedCheck && precomputedCheck.inferredPlatform) || '').toLowerCase().trim();
+        const isPartialRenewalCaption = /\b(solo|únicamente|unicamente|no\s+voy\s+a\s+seguir|no\s+sigo|no\s+renovar|sin\s+)\b/i.test(body);
+        if (isPartialRenewalCaption) {
+            const filtered = stateData.items.filter(item => {
+                const itemName = (item.Streaming || item.name || (item.platform && item.platform.name) || '').toLowerCase().trim();
+                if (!itemName) return false;
+                const baseWord = itemName.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
+                if (inferredPlat && (itemName.includes(inferredPlat) || inferredPlat.includes(itemName) || (baseWord.length >= 3 && inferredPlat.includes(baseWord)))) {
+                    return true;
+                }
+                return baseWord.length >= 3 && body.includes(baseWord) && !new RegExp(`(no\\s+voy\\s+a\\s+seguir|no\\s+sigo|no\\s+renovar|sin)\\s+(con\\s+)?${baseWord}`, 'i').test(body);
+            });
+            if (filtered.length > 0 && filtered.length < stateData.items.length) {
+                stateData.items = filtered;
+                if (precomputedCheck && Number(precomputedCheck.amount) > 0) {
+                    stateData.total = Number(precomputedCheck.amount);
+                }
+                userStates.set(userId, stateData);
+                console.log(`[Awaiting Payment Confirmation] 🔄 Renovación parcial ajustada por caption con comprobante para @${userId}: ${filtered.map(i => i.Streaming || i.name || i.platform?.name).join(', ')}`);
+            }
+        }
+    }
+
     const lastValidated = stateData.lastPaymentValidated || 0;
     const timeSinceValidation = Date.now() - lastValidated;
 
@@ -18688,19 +18712,23 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
     }
 
     // 3. Breakout si el usuario escribe el nombre de una plataforma (ej: "Crunchyroll", "Netflix", "Disney+") o pide comprar otro servicio
-    const { getPlatforms } = require('./salesService');
-    const allPlatforms = await getPlatforms();
-    const platMatch = allPlatforms.find(p => {
-        const cleanP = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const cleanMsg = body.replace(/[^a-z0-9]/g, '');
-        return cleanMsg === cleanP || (cleanP.length >= 4 && cleanMsg.includes(cleanP));
-    });
-    if (platMatch) {
-        console.log(`[Awaiting Payment Confirmation] Breakout por selección de plataforma '${platMatch.name}' para @${userId}`);
-        userStates.delete(userId);
-        userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: stateData.nombre });
-        await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
-        return;
+    // NUNCA hacer breakout si el mensaje trae media/comprobante o está en flujo de renovación
+    const isRenewalOrExclusion = stateData.isRenewal || /\b(renovar|renovaci[oó]n|no\s+voy\s+a\s+seguir|no\s+sigo|solo\s+voy\s+a)\b/i.test(body);
+    if (!message.hasMedia && !isMedia && !(precomputedCheck && precomputedCheck.isReceipt) && !isRenewalOrExclusion) {
+        const { getPlatforms } = require('./salesService');
+        const allPlatforms = await getPlatforms();
+        const platMatch = allPlatforms.find(p => {
+            const cleanP = p.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+            const cleanMsg = body.replace(/[^a-z0-9]/g, '');
+            return cleanMsg === cleanP || (cleanP.length >= 4 && cleanMsg.includes(cleanP));
+        });
+        if (platMatch) {
+            console.log(`[Awaiting Payment Confirmation] Breakout por selección de plataforma '${platMatch.name}' para @${userId}`);
+            userStates.delete(userId);
+            userStates.set(userId, { state: 'awaiting_purchase_platforms', nombre: stateData.nombre });
+            await handleSubscriptionInterest(message, userId, userStates, client, GROUP_ID);
+            return;
+        }
     }
 
     // Check if user is trying to switch payment method

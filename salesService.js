@@ -122,7 +122,7 @@ async function checkNetflixExtraStock() {
         // Criterio: Filas que digan "EXTRA" y no tengan número ni Nombre ni customer mail
         const availableExtra = data.filter(d => {
             const isExtra = (d.Streaming || "").toLowerCase().includes('extra');
-            const hasNoCustomer = !d.numero && !d.Nombre && (!d["customer mail"] || d["customer mail"].trim() === "" || d["customer mail"] === " ");
+            const hasNoCustomer = !d.numero && !d.Nombre && (!d["customer mail"] || d["customer mail"].trim() === "" || d["customer mail"] === " ");
             return isExtra && hasNoCustomer;
         });
         return availableExtra.length > 0;
@@ -310,6 +310,14 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   });
 
   // Verificar disponibilidad general antes de armar la respuesta
+  // Si el cliente expresa intención de renovación o ya viene en flujo de renovación, no bloquear por falta de cupos de compras nuevas
+  const existingUserState = userStates.get(userId);
+  const lowerMensaje = (mensaje || '').toLowerCase();
+  const isRenewalIntent = Boolean(
+    (existingUserState && typeof existingUserState === 'object' && existingUserState.isRenewal) ||
+    /\b(renovar|renovaci[oó]n|renuevo|seguir\s+con|continuar\s+con)\b/i.test(lowerMensaje)
+  );
+
   const { getPlatformAvailability } = require('./availabilityService');
   let availableItems = [];
   let unavailableItems = [];
@@ -318,11 +326,11 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   for (const s of selectedItems) {
     const planName = s.chosenPlan ? `${s.platform.name} ${s.chosenPlan.name}` : s.platform.name;
     const avail = await getPlatformAvailability(planName);
-    if (avail.available === false) {
+    if (avail.available === false && !isRenewalIntent) {
       unavailableItems.push({ item: s, reason: avail.reason || 'Sin disponibilidad en este momento' });
     } else {
       availableItems.push(s);
-      if (!avail.immediate) {
+      if (!avail.immediate && !isRenewalIntent) {
         nonImmediatePlats.push(s.platform.name);
       }
     }
