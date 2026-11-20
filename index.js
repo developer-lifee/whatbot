@@ -12647,6 +12647,7 @@ async function baseProcessIncomingMessage(messages) {
         'selecting_subscription_type',
         'awaiting_payment_method',
         'awaiting_payment_confirmation',
+        'awaiting_netflix_operator_post_payment',
         'awaiting_payment_renewal_confirmation',
         'awaiting_payment_multi_renewal_confirmation',
         'awaiting_payment_multi_renewal_selection',
@@ -15622,14 +15623,20 @@ REGLAS:
                                 if (hasNetflix && !stateData.isRenewal) {
                                     await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
 
-                                    userStates.set(userId, {
+                                    const nextNetflixState = {
                                         ...stateData,
                                         state: 'awaiting_netflix_operator_post_payment',
                                         paymentMethod: check.bank || 'Transferencia',
                                         checkAmount: check.amount,
                                         gmailMatchId: match.id,
-                                        leftoverAmount: leftoverAmount
-                                    });
+                                        leftoverAmount: leftoverAmount,
+                                        timestamp: Date.now()
+                                    };
+                                    userStates.set(userId, nextNetflixState);
+                                    if (stateData.realPhone) {
+                                        userStates.set(stateData.realPhone, nextNetflixState);
+                                        userStates.set(`${stateData.realPhone}@c.us`, nextNetflixState);
+                                    }
 
                                     return;
                                 }
