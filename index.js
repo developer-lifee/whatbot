@@ -16150,7 +16150,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'codigo de 6', 'codigo de 4', '6-digit', 'authenticating', '2fa', 'authenticator', 'autenticación',
             'google authenticator', 'no forma parte', 'hogar con netflix', 'tu tv no forma parte',
             'actualizar hogar', 'actualización de hogar', 'actualizacion de hogar', 'hogar de netflix',
-            'confirmar tu hogar', 'confirma tu hogar', 'hogar',
+            'confirmar tu hogar', 'confirma tu hogar', 'hogar', 'esta es mi cuenta',
             'enviamos a tu email', 'ingresa el código', 'ingresa el codigo', 'código vence en 15', 'codigo vence en 15',
             'solicita el reenvio', 'solicita el reenvío', 'ver temporalmente', 'si estás de viaje', 'si estas de viaje',
             'fuera de casa', 'entendimos mal', 'obtener un código para ver netflix temporalmente',
@@ -16182,7 +16182,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 'estoy de viaje', 'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte', 'ver temporalmente',
                 'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'código para ver netflix temporalmente',
                 'obtén un código para ver contenido', 'de manera temporal', 'en este dispositivo de manera temporal',
-                'enviar email', 'red wifi de tu hogar',
+                'enviar email', 'red wifi de tu hogar', 'esta es mi cuenta',
                 'crea tu propia cuenta para disfrutar de netflix'
             ].some(kw => fullOcrContext.includes(kw));
 
@@ -16219,13 +16219,13 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
                 if (targetPlatform === 'netflix') {
                     console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones/hogar de Netflix/TV en @${userId}. Guiando al usuario.`);
-                    const phoneDigits = userId.replace(/\D/g, '');
+                    const phoneDigits = (phoneNumber || userId).replace(/\D/g, '');
                     const phoneParam = phoneDigits && phoneDigits.length >= 10 && phoneDigits.length <= 13 ? `?tel=${phoneDigits}` : '';
                     await message.reply(`🤖 ¡Hola! Veo la pantalla de confirmación de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
                         `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
-                        `1️⃣ Con el control remoto de tu TV, selecciona el botón **"Ver temporalmente"** (o *"Actualizar Hogar con Netflix"*).\n` +
+                        `1️⃣ Con el control remoto de tu TV, selecciona el botón **"Esta es mi Cuenta"**, **"Ver temporalmente"** (o *"Actualizar Hogar con Netflix"*).\n` +
                         `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
-                        `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos para que sigas viendo sin problema. 🚀`);
+                        `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos o enlace de confirmación para que sigas viendo sin problema. 🚀`);
                     return;
                 }
             }
@@ -16345,6 +16345,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     if (detection && detection.intent === 'soporte' && mediaData && mediaData.length > 0 && !isCodeRequestFromImage && !detection.isCodeScreen) {
         const explanationLower = (detection.explanation || "").toLowerCase();
         const bodyLower = inputToUse.toLowerCase();
+        const isHouseholdRestriction = [
+            'tu tv no forma parte', 'no forma parte del hogar', 'hogar con netflix', 'actualizar hogar',
+            'actualización de hogar', 'actualizacion de hogar', 'esta es mi cuenta', 'ver temporalmente', 'estoy fuera de casa'
+        ].some(k => bodyLower.includes(k) || explanationLower.includes(k));
         const errorKeywords = [
             'no me deja', 'no funciona', 'se cayó', 'se cayo', 'cuenta suspendida', 'suspendida',
             'pantalla de error', 'contraseña incorrecta', 'clave incorrecta', 'error al reproducir',
@@ -16353,7 +16357,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         ];
         const hasErrorText = errorKeywords.some(k => bodyLower.includes(k) || explanationLower.includes(k));
 
-        if (hasErrorText) {
+        if (hasErrorText && !isHouseholdRestriction) {
             const { isSamePlatformFamily } = require('./salesRegistryService');
             const { getTodayInBogota, getJsDateFromExcel } = require('./apiService');
 
