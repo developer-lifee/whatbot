@@ -13276,8 +13276,14 @@ REGLAS:
                 ];
                 const isExplicitCodeAction = codeActionKeywords.some(kw => txt.includes(kw));
                 const isShortCodeMsg = txt.split(/\s+/).length <= 4 && (txt.includes('codigo') || txt.includes('código') || txt.includes('2fa') || txt.includes('verificacion') || txt.includes('verificación') || txt.includes('claucode') || txt.includes('claudecode') || /\bcode\b/i.test(txt));
+                const isCodeFollowUpPhrase = /^(ya\s*(lo\s*)?(envi[eé]|ped[ií]|solicit[eé]|mand[eé])|ya|listo|no\s*(me\s*)?llega|no\s+lo\s+tengo|a[uú]n\s+no|todav[ií]a\s+no)[\s?!.]*$/i.test(txt.trim()) || (txt.split(/\s+/).length <= 6 && (txt.includes('ya lo envie') || txt.includes('ya lo envié') || txt.includes('ya lo pedi') || txt.includes('ya lo pedí') || txt.includes('no lo tengo') || txt.includes('no me llega')));
+                let isContextualCodeFollowUp = false;
+                if (!isExplicitCodeAction && !isShortCodeMsg && !isSalesQuestion && isCodeFollowUpPhrase) {
+                    const recentHist = (await getChatHistoryText(message).catch(() => '')).toLowerCase();
+                    isContextualCodeFollowUp = ['código', 'codigo', 'continuar con correo', 'claucode', 'claude.ai', 'enviar código', 'enviar codigo', '2fa'].some(kw => recentHist.includes(kw));
+                }
 
-                const isCodeRequest = !isSalesQuestion && (isExplicitCodeAction || isShortCodeMsg);
+                const isCodeRequest = !isSalesQuestion && (isExplicitCodeAction || isShortCodeMsg || isContextualCodeFollowUp);
                 const isCredentialsRequest = (detection && detection.intent === 'credenciales') || cleanInput === '2' || txt.includes('credenciales') || txt.includes('datos de acceso') || txt.includes('mis datos');
 
                 if (isCredentialsRequest) {
@@ -14637,7 +14643,14 @@ REGLAS:
     const hasPaymentWord = lowerBody.includes('qr') || lowerBody.includes('barras') || lowerBody.includes('pago') || lowerBody.includes('comprobante') || lowerBody.includes('recibo') || lowerBody.includes('abono') || lowerBody.includes('transferencia');
     const isPaymentOrReceipt = (isRecentPaymentState && hasPaymentWord) || (!message.hasMedia ? false : hasPaymentWord);
     const hasExplicitCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) || /\b(c[oó]dig[oó]+|code)\b/i.test(lowerBody) || /clau(de)?\s*code/i.test(lowerBody);
-    const hasCodeKeyword = hasExplicitCodeKeyword && !isPaymentOrReceipt;
+    let hasCodeKeyword = hasExplicitCodeKeyword && !isPaymentOrReceipt;
+    const isCodeFollowUpMsg = /^(ya\s*(lo\s*)?(envi[eé]|ped[ií]|solicit[eé]|mand[eé])|ya|listo|no\s*(me\s*)?llega|no\s+lo\s+tengo|a[uú]n\s+no|todav[ií]a\s+no)[\s?!.]*$/i.test(lowerBody.trim()) || (lowerBody.split(/\s+/).length <= 6 && (lowerBody.includes('ya lo envie') || lowerBody.includes('ya lo envié') || lowerBody.includes('ya lo pedi') || lowerBody.includes('ya lo pedí') || lowerBody.includes('no lo tengo') || lowerBody.includes('no me llega')));
+    if (!hasCodeKeyword && !isPaymentOrReceipt && isCodeFollowUpMsg) {
+        const recentHist = (await getChatHistoryText(message).catch(() => '')).toLowerCase();
+        if (['código', 'codigo', 'continuar con correo', 'claucode', 'claude.ai', 'enviar código', 'enviar codigo', '2fa'].some(kw => recentHist.includes(kw))) {
+            hasCodeKeyword = true;
+        }
+    }
     const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
     const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw) || /\b(c[oó]dig[oó]+|code)\b/i.test(lowerBody) || /clau(de)?\s*code/i.test(lowerBody)) && !isPaymentOrReceipt;
 
