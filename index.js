@@ -15886,6 +15886,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
                         adminMsg += `Valida el pago y confirma usando:\n*confirmar ${displayTarget}*`;
 
+                        let textSentToGroup = false;
                         try {
                             let mediaToForward = null;
                             const mediaMsg = (typeof messages !== 'undefined' && Array.isArray(messages))
@@ -15907,16 +15908,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             if (mediaToForward) {
                                 try {
                                     await groupChat.sendMessage(mediaToForward, { caption: adminMsg });
+                                    textSentToGroup = true;
                                 } catch (captionErr) {
                                     await groupChat.sendMessage(adminMsg);
-                                    await groupChat.sendMessage(mediaToForward);
+                                    textSentToGroup = true;
+                                    await groupChat.sendMessage(mediaToForward).catch(e => {
+                                        console.warn("No se pudo adjuntar imagen del comprobante al grupo (texto ya enviado):", e.message);
+                                    });
                                 }
                             } else {
                                 await groupChat.sendMessage(adminMsg);
+                                textSentToGroup = true;
                             }
                         } catch (mediaSendErr) {
                             console.warn("No se pudo adjuntar imagen del comprobante al grupo:", mediaSendErr.message);
-                            await groupChat.sendMessage(adminMsg);
+                            if (!textSentToGroup) {
+                                await groupChat.sendMessage(adminMsg);
+                            }
                         }
                     }
 
