@@ -17295,15 +17295,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         waitingTimestamp: Date.now(),
                         clientWaitingSince: Date.now()
                     });
-                    try {
-                        const groupChat = await client.getChatById(GROUP_ID);
-                        if (groupChat) {
-                            const { getClientDisplayInfo } = require('./billingService');
-                            const cInfo = await getClientDisplayInfo(userId, client, message, userStates.get(userId));
-                            await groupChat.sendMessage(`🚨 *Captura de Error / Soporte Técnico* (${cInfo.userTag})\n\nEl cliente envió una imagen de falla${message.body ? `: "${message.body.trim()}"` : '.'}`);
+                    const alreadyNotifiedRecently = (
+                        (prevSt.lastGroupSupportAlertAt && (Date.now() - prevSt.lastGroupSupportAlertAt) < 15 * 60 * 1000) ||
+                        (prevSt.state === 'waiting_human' && prevSt.waitingTimestamp && (Date.now() - prevSt.waitingTimestamp) < 15 * 60 * 1000)
+                    );
+                    if (!alreadyNotifiedRecently) {
+                        try {
+                            const groupChat = await client.getChatById(GROUP_ID);
+                            if (groupChat) {
+                                const { getClientDisplayInfo } = require('./billingService');
+                                const cInfo = await getClientDisplayInfo(userId, client, message, userStates.get(userId));
+                                await groupChat.sendMessage(`🚨 *Captura de Error / Soporte Técnico* (${cInfo.userTag})\n\nEl cliente envió una imagen de falla${message.body ? `: "${message.body.trim()}"` : '.'}`);
+                                const curSt = userStates.get(userId) || {};
+                                userStates.set(userId, { ...curSt, lastGroupSupportAlertAt: Date.now() });
+                            }
+                        } catch (gErr) {
+                            console.error('Error notificando captura de error al grupo:', gErr.message);
                         }
-                    } catch (gErr) {
-                        console.error('Error notificando captura de error al grupo:', gErr.message);
                     }
                 } else {
                     // El usuario envió texto describiendo un problema o preguntando algo (ej: "por qué sale actualización de hogar")
