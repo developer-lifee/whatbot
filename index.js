@@ -530,6 +530,35 @@ const {
 
 // Crear servidor Express
 const app = express();
+app.disable('x-powered-by');
+app.set('trust proxy', 1);
+const { securityHeadersMiddleware, createRateLimiter } = require('./securityMiddleware');
+app.use(securityHeadersMiddleware);
+
+const loginRateLimiter = createRateLimiter({
+    name: 'admin-login',
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 6,
+    message: 'Demasiados intentos de inicio de sesión fallidos.'
+});
+const forgotPasswordRateLimiter = createRateLimiter({
+    name: 'admin-forgot-password',
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 3,
+    message: 'Demasiadas solicitudes de código de recuperación.'
+});
+const resetPasswordRateLimiter = createRateLimiter({
+    name: 'admin-reset-password',
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 5,
+    message: 'Demasiados intentos de verificación de código.'
+});
+const changePasswordRateLimiter = createRateLimiter({
+    name: 'admin-change-password',
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 5,
+    message: 'Demasiados intentos de cambio de contraseña.'
+});
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -7758,7 +7787,7 @@ app.get('/api/admin/agents', async (req, res) => {
 });
 
 // POST Admin / Agent Login
-app.post('/api/admin/login', express.json(), async (req, res) => {
+app.post('/api/admin/login', loginRateLimiter, express.json(), async (req, res) => {
     try {
         const { email, password } = req.body || {};
         const cleanEmail = String(email || '').trim().toLowerCase();
@@ -7778,7 +7807,7 @@ app.post('/api/admin/login', express.json(), async (req, res) => {
 
         const agent = rows && rows.length > 0 ? rows[0] : null;
         if (!agent) {
-            return res.status(401).json({ success: false, message: 'El correo ingresado no corresponde a un asesor autorizado.' });
+            return res.status(401).json({ success: false, message: 'Correo o contraseña incorrectos.' });
         }
 
         if (agent.status === 'inactive') {
@@ -7787,8 +7816,10 @@ app.post('/api/admin/login', express.json(), async (req, res) => {
 
         const check = await verifyAgentPassword(cleanPass, agent.password_hash);
         if (!check.valid) {
-            return res.status(401).json({ success: false, message: 'Contraseña incorrecta.' });
+            return res.status(401).json({ success: false, message: 'Correo o contraseña incorrectos.' });
         }
+
+        if (typeof req.resetRateLimit === 'function') req.resetRateLimit();
 
         const token = signSessionToken({
             id: agent.id,
@@ -7843,7 +7874,7 @@ app.get('/api/admin/verify-session', async (req, res) => {
 });
 
 // POST Request Password Reset Code (WhatsApp OTP)
-app.post('/api/admin/forgot-password', express.json(), async (req, res) => {
+app.post('/api/admin/forgot-password', forgotPasswordRateLimiter, express.json(), async (req, res) => {
     try {
         const cleanEmail = String((req.body && req.body.email) || '').trim().toLowerCase();
         if (!cleanEmail) {
@@ -7890,7 +7921,7 @@ app.post('/api/admin/forgot-password', express.json(), async (req, res) => {
 });
 
 // POST Reset Password with OTP Code
-app.post('/api/admin/reset-password', express.json(), async (req, res) => {
+app.post('/api/admin/reset-password', resetPasswordRateLimiter, express.json(), async (req, res) => {
     try {
         const { email, code, newPassword } = req.body || {};
         const cleanEmail = String(email || '').trim().toLowerCase();
@@ -7930,6 +7961,7 @@ app.post('/api/admin/reset-password', express.json(), async (req, res) => {
             'UPDATE agents SET password_hash = ?, reset_code = NULL, reset_code_expires = NULL WHERE id = ?',
             [newHash, agent.id]
         );
+        if (typeof req.resetRateLimit === 'function') req.resetRateLimit();
 
         res.json({ success: true, message: 'Contraseña actualizada correctamente. Ya puedes iniciar sesión.' });
     } catch (e) {
@@ -7939,7 +7971,7 @@ app.post('/api/admin/reset-password', express.json(), async (req, res) => {
 });
 
 // POST Change Password (Authenticated Agent / Admin)
-app.post('/api/admin/change-password', express.json(), async (req, res) => {
+app.post('/api/admin/change-password', changePasswordRateLimiter, express.json(), async (req, res) => {
     try {
         const { email, currentPassword, newPassword } = req.body || {};
         const cleanEmail = String(email || '').trim().toLowerCase();
@@ -7968,6 +8000,7 @@ app.post('/api/admin/change-password', express.json(), async (req, res) => {
 
         const newHash = await hashPassword(cleanNew);
         await pool.query('UPDATE agents SET password_hash = ? WHERE id = ?', [newHash, agent.id]);
+        if (typeof req.resetRateLimit === 'function') req.resetRateLimit();
         res.json({ success: true, message: 'Contraseña actualizada exitosamente.' });
     } catch (e) {
         console.error('❌ Error en /api/admin/change-password:', e.message);
