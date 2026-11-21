@@ -16093,8 +16093,29 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
         const isIncorrectPassword = [
             'incorrecta', 'incorrecto', 'no son correctos', 'contraseña incorrecta', 'clave incorrecta', 'credenciales incorrectas',
-            'datos de acceso', 'datos anteriores', 'clave antigua', 'contraseña antigua', 'no me permite el ingreso', 'no permite el ingreso'
-        ].some(kw => explanationLower.includes(kw) || bodyLower.includes(kw));
+            'datos de acceso', 'datos anteriores', 'clave antigua', 'contraseña antigua', 'no me permite el ingreso', 'no permite el ingreso',
+            'ocurrió un error al iniciar sesión', 'ocurrio un error al iniciar sesion',
+            'verifiques tu correo y contraseña', 'verifiques tu correo y contrasena',
+            'problemas para iniciar sesión', 'problemas para iniciar sesion'
+        ].some(kw => fullOcrContext.includes(kw));
+
+        const isDisneyPasswordErrorWithCodeOption = (
+            (fullOcrContext.includes('disney') || fullOcrContext.includes('mydisney')) &&
+            (
+                fullOcrContext.includes('escribir contraseña') ||
+                fullOcrContext.includes('escribir contrasena') ||
+                fullOcrContext.includes('ocurrió un error al iniciar sesión') ||
+                fullOcrContext.includes('ocurrio un error al iniciar sesion') ||
+                fullOcrContext.includes('verifiques tu correo y contraseña') ||
+                fullOcrContext.includes('verifiques tu correo y contrasena') ||
+                fullOcrContext.includes('problemas para iniciar sesión') ||
+                fullOcrContext.includes('problemas para iniciar sesion')
+            ) &&
+            !fullOcrContext.includes('ingresa el código') &&
+            !fullOcrContext.includes('ingresa el codigo') &&
+            !fullOcrContext.includes('enviamos un código') &&
+            !fullOcrContext.includes('enviamos un codigo')
+        );
 
         const isDateOrAccountQuery = [
             'va hasta', 'vence', 'vencimiento', 'cuando vence', 'cuándo vence',
@@ -16182,6 +16203,34 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'elige tu perfil', 'quién está viendo', 'quien esta viendo', 'quién va a ver', 'quien va a ver',
             'no sale mi nombre', 'cuál perfil', 'cual perfil', 'cuál es mi perfil', 'cual es mi perfil', 'mi nombre'
         ].some(kw => fullOcrContext.includes(kw));
+
+        if (isDisneyPasswordErrorWithCodeOption) {
+            console.log(`[BOT MEDIA OCR DISNEY PASSWORD ERROR] Pantalla de error de contraseña en Disney+ detectada para @${userId}.`);
+            let credBlock = '';
+            try {
+                const { getAccountsByPhone } = require('./apiService');
+                const { resolveRealPhoneFromJid } = require('./billingService');
+                const realP = await resolveRealPhoneFromJid(userId, client, message);
+                const accs = await getAccountsByPhone(realP || userId, foundName);
+                const disneyAcc = (accs || []).find(a => String(a.Streaming || '').toLowerCase().includes('disney'));
+                if (disneyAcc) {
+                    const mail = (disneyAcc.correo || disneyAcc.Correo || '').toString().trim();
+                    const pass = (disneyAcc.contraseña || disneyAcc.Contraseña || disneyAcc.password || '').toString().trim();
+                    if (mail && pass) {
+                        credBlock = `\n🔑 *Verifica tus datos vigentes de Disney+:*\n📧 Correo: \`${mail}\`\n🔒 Contraseña: \`${pass}\`\n`;
+                    }
+                }
+            } catch (e) { }
+
+            await message.reply(
+                `🤖 Veo en tu pantalla que *Disney+* rechazó la contraseña que ingresaste.${credBlock}\n` +
+                `📌 *Sigue este paso a paso para ingresar:*\n\n` +
+                `1️⃣ Revisa que la contraseña esté escrita **exactamente igual** (respetando mayúsculas/minúsculas y sin espacios al final) y toca *Iniciar sesión*.\n` +
+                `2️⃣ Si el error continúa, en esa misma pantalla toca el enlace *"¿Problemas para iniciar sesión? Enviar un código de acceso único"*.\n` +
+                `3️⃣ Apenas presiones esa opción, escríbeme por aquí *"ya envié el código"* y te busco el código de 6 dígitos en el correo al instante. 😊`
+            );
+            return;
+        }
 
         if (isProfileSelectScreen) {
             console.log(`[BOT MEDIA OCR PROFILE SELECT SCREEN] Se detectó pantalla de selección de perfil en @${userId}.`);
