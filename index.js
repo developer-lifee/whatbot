@@ -15357,6 +15357,7 @@ REGLAS:
                                         `Monto Esperado: $${expectedTotal}\n\n` +
                                         `Valida el pago y confirma usando:\n*confirmar ${displayTarget}*`;
 
+                                    let textSentToGroup = false;
                                     try {
                                         let mediaToForward = null;
                                         const mediaMsg = (typeof messages !== 'undefined' && Array.isArray(messages))
@@ -15366,28 +15367,47 @@ REGLAS:
                                             const downloaded = await downloadMediaWithRetry(mediaMsg);
                                             if (downloaded && downloaded.data) {
                                                 const { MessageMedia } = require('whatsapp-web.js');
-                                                mediaToForward = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                                                const mime = downloaded.mimetype || 'image/jpeg';
+                                                const ext = mime.includes('png') ? 'png' : (mime.includes('webp') ? 'webp' : 'jpg');
+                                                mediaToForward = new MessageMedia(mime, downloaded.data, downloaded.filename || `comprobante.${ext}`);
                                             }
                                         }
                                         if (!mediaToForward && mediaData.length > 0 && mediaData[0].data) {
                                             const { MessageMedia } = require('whatsapp-web.js');
                                             const mime = mediaData[0].mimeType || mediaData[0].mimetype || 'image/jpeg';
-                                            mediaToForward = new MessageMedia(mime, mediaData[0].data);
+                                            const ext = mime.includes('png') ? 'png' : (mime.includes('webp') ? 'webp' : 'jpg');
+                                            mediaToForward = new MessageMedia(mime, mediaData[0].data, `comprobante.${ext}`);
                                         }
 
                                         if (mediaToForward) {
                                             try {
-                                                await groupChat.sendMessage(mediaToForward, { caption: adminMsg });
+                                                await groupChat.sendMessage(mediaToForward, { caption: adminMsg, sendSeen: false });
+                                                textSentToGroup = true;
                                             } catch (captionErr) {
-                                                await groupChat.sendMessage(adminMsg);
-                                                await groupChat.sendMessage(mediaToForward);
+                                                await groupChat.sendMessage(adminMsg, { sendSeen: false });
+                                                textSentToGroup = true;
+                                                let forwarded = false;
+                                                if (mediaMsg && typeof mediaMsg.forward === 'function') {
+                                                    try {
+                                                        await mediaMsg.forward(groupChat.id._serialized);
+                                                        forwarded = true;
+                                                    } catch (fwdErr) { }
+                                                }
+                                                if (!forwarded) {
+                                                    await groupChat.sendMessage(mediaToForward, { sendMediaAsDocument: true, sendSeen: false }).catch(e => {
+                                                        console.warn("No se pudo adjuntar imagen del comprobante incompleto al grupo (texto ya enviado):", e.message);
+                                                    });
+                                                }
                                             }
                                         } else {
-                                            await groupChat.sendMessage(adminMsg);
+                                            await groupChat.sendMessage(adminMsg, { sendSeen: false });
+                                            textSentToGroup = true;
                                         }
                                     } catch (mediaSendErr) {
                                         console.warn("No se pudo adjuntar imagen del comprobante incompleto al grupo:", mediaSendErr.message);
-                                        await groupChat.sendMessage(adminMsg);
+                                        if (!textSentToGroup) {
+                                            await groupChat.sendMessage(adminMsg, { sendSeen: false });
+                                        }
                                     }
                                 }
                             } catch (adminErr) {
@@ -15896,34 +15916,46 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                                 const downloaded = await downloadMediaWithRetry(mediaMsg);
                                 if (downloaded && downloaded.data) {
                                     const { MessageMedia } = require('whatsapp-web.js');
-                                    mediaToForward = new MessageMedia(downloaded.mimetype || 'image/jpeg', downloaded.data);
+                                    const mime = downloaded.mimetype || 'image/jpeg';
+                                    const ext = mime.includes('png') ? 'png' : (mime.includes('webp') ? 'webp' : 'jpg');
+                                    mediaToForward = new MessageMedia(mime, downloaded.data, downloaded.filename || `comprobante.${ext}`);
                                 }
                             }
                             if (!mediaToForward && mediaData.length > 0 && mediaData[0].data) {
                                 const { MessageMedia } = require('whatsapp-web.js');
                                 const mime = mediaData[0].mimeType || mediaData[0].mimetype || 'image/jpeg';
-                                mediaToForward = new MessageMedia(mime, mediaData[0].data);
+                                const ext = mime.includes('png') ? 'png' : (mime.includes('webp') ? 'webp' : 'jpg');
+                                mediaToForward = new MessageMedia(mime, mediaData[0].data, `comprobante.${ext}`);
                             }
 
                             if (mediaToForward) {
                                 try {
-                                    await groupChat.sendMessage(mediaToForward, { caption: adminMsg });
+                                    await groupChat.sendMessage(mediaToForward, { caption: adminMsg, sendSeen: false });
                                     textSentToGroup = true;
                                 } catch (captionErr) {
-                                    await groupChat.sendMessage(adminMsg);
+                                    await groupChat.sendMessage(adminMsg, { sendSeen: false });
                                     textSentToGroup = true;
-                                    await groupChat.sendMessage(mediaToForward).catch(e => {
-                                        console.warn("No se pudo adjuntar imagen del comprobante al grupo (texto ya enviado):", e.message);
-                                    });
+                                    let forwarded = false;
+                                    if (mediaMsg && typeof mediaMsg.forward === 'function') {
+                                        try {
+                                            await mediaMsg.forward(groupChat.id._serialized);
+                                            forwarded = true;
+                                        } catch (fwdErr) { }
+                                    }
+                                    if (!forwarded) {
+                                        await groupChat.sendMessage(mediaToForward, { sendMediaAsDocument: true, sendSeen: false }).catch(e => {
+                                            console.warn("No se pudo adjuntar imagen del comprobante al grupo (texto ya enviado):", e.message);
+                                        });
+                                    }
                                 }
                             } else {
-                                await groupChat.sendMessage(adminMsg);
+                                await groupChat.sendMessage(adminMsg, { sendSeen: false });
                                 textSentToGroup = true;
                             }
                         } catch (mediaSendErr) {
                             console.warn("No se pudo adjuntar imagen del comprobante al grupo:", mediaSendErr.message);
                             if (!textSentToGroup) {
-                                await groupChat.sendMessage(adminMsg);
+                                await groupChat.sendMessage(adminMsg, { sendSeen: false });
                             }
                         }
                     }
@@ -16090,6 +16122,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
     const detection = await detectInitialIntent(inputToUse, timedHist, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
 
     // --- OCR/IMAGE CODE REQUEST INTERCEPTOR via Gemini ---
+    // Solo intercepta pantallas donde YA se envió un código 2FA/verificación y el usuario necesita extraerlo de Gmail.
+    // Todas las demás capturas (errores de contraseña, Disney+/Netflix Hogar, perfiles, vencimientos, fallas técnicas)
+    // pasan al cerebro unificado (RAG + Visión + Sentido Común) en generateEmpatheticFallback.
     let isCodeRequestFromImage = false;
     const imageMediaData = (mediaData || []).filter(m => m.mimeType && m.mimeType.startsWith('image/'));
     if (detection && imageMediaData.length > 0) {
@@ -16107,31 +16142,12 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'problemas para iniciar sesión', 'problemas para iniciar sesion'
         ].some(kw => fullOcrContext.includes(kw));
 
-        const isDisneyPasswordErrorWithCodeOption = (
-            (fullOcrContext.includes('disney') || fullOcrContext.includes('mydisney')) &&
-            (
-                fullOcrContext.includes('escribir contraseña') ||
-                fullOcrContext.includes('escribir contrasena') ||
-                fullOcrContext.includes('ocurrió un error al iniciar sesión') ||
-                fullOcrContext.includes('ocurrio un error al iniciar sesion') ||
-                fullOcrContext.includes('verifiques tu correo y contraseña') ||
-                fullOcrContext.includes('verifiques tu correo y contrasena') ||
-                fullOcrContext.includes('problemas para iniciar sesión') ||
-                fullOcrContext.includes('problemas para iniciar sesion')
-            ) &&
-            !fullOcrContext.includes('ingresa el código') &&
-            !fullOcrContext.includes('ingresa el codigo') &&
-            !fullOcrContext.includes('enviamos un código') &&
-            !fullOcrContext.includes('enviamos un codigo')
-        );
-
         const isDateOrAccountQuery = [
             'va hasta', 'vence', 'vencimiento', 'cuando vence', 'cuándo vence',
             'fecha de corte', 'hasta cuando', 'hasta cuándo', 'hasta que dia', 'hasta qué día',
             'cuanto me queda', 'cuánto me queda', 'renov', 'hasta el 11', 'hasta el'
         ].some(kw => bodyLower.includes(kw) || fullOcrContext.includes(kw));
 
-        // Detección de pantallas de expiración / renovación / pérdida de beneficios (ej: YouTube "Tus beneficios terminaron", Spotify "Renovar", etc.)
         const isExpiredOrRenewalScreen = [
             'renovar ahora', 'tus beneficios terminaron', 'renueva tu suscripción', 'renueva tu membresia',
             'renueva tu membresía', 'suscripción ha expirado', 'suscripcion ha expirado', 'suscripción expirada',
@@ -16142,49 +16158,6 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'se te acabó el premium', 'se te acabo el premium', 'sin anuncios y sin conexión'
         ].some(kw => fullOcrContext.includes(kw));
 
-        if (isExpiredOrRenewalScreen && !isIncorrectPassword) {
-            let expiredPlat = null;
-            if (fullOcrContext.includes('youtube') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('youtube'))) {
-                expiredPlat = 'YouTube';
-            } else if (fullOcrContext.includes('spotify') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('spotify'))) {
-                expiredPlat = 'Spotify';
-            } else if (fullOcrContext.includes('disney') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('disney'))) {
-                expiredPlat = 'Disney+';
-            } else if (fullOcrContext.includes('netflix') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('netflix'))) {
-                expiredPlat = 'Netflix';
-            } else if (fullOcrContext.includes('max') || fullOcrContext.includes('hbo') || (detection.detectedPlatform && (detection.detectedPlatform.toLowerCase().includes('max') || detection.detectedPlatform.toLowerCase().includes('hbo')))) {
-                expiredPlat = 'Max';
-            } else if (fullOcrContext.includes('prime') || fullOcrContext.includes('amazon') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('prime'))) {
-                expiredPlat = 'Amazon Prime';
-            } else if (userAccounts && userAccounts.length > 0) {
-                expiredPlat = userAccounts[0].Streaming || userAccounts[0].streaming_platform || 'tu servicio';
-            } else {
-                expiredPlat = detection.detectedPlatform || 'tu servicio';
-            }
-
-            const activeService = userAccounts && userAccounts.find(a => {
-                const plat = (a.Streaming || a.streaming_platform || '').toLowerCase();
-                const expLower = (expiredPlat || '').toLowerCase();
-                return plat && (expLower.includes(plat) || plat.includes(expLower.replace(' premium', '').trim()));
-            });
-
-            console.log(`[BOT MEDIA OCR EXPIRED SCREEN] Se detectó pantalla de renovación/beneficios terminados (${expiredPlat}) en @${userId}.`);
-
-            if (activeService) {
-                // Cuenta bajo garantía activa que perdió beneficios
-                await message.reply(`🤖 ¡Hola! Veo en tu pantalla que tus beneficios de **${expiredPlat}** se han pausado o aparece el aviso de renovar. 📺\n\n` +
-                    `💡 Como tu servicio con nosotros está registrado y vigente, cuentas con **garantía total**. Por favor no ingreses ninguna tarjeta personal ni realices pagos directamente en esa pantalla.\n\n` +
-                    `Ya notifiqué a soporte técnico para revisar tu vinculación y reactivarte el acceso Premium a la brevedad. ¡Gracias por tu paciencia! 😊`);
-                return;
-            } else {
-                // Cuenta no activa o vencida: ofrecer renovación de precios
-                const { processCheckPrices } = require('./billingService');
-                await processCheckPrices(message, userId, userStates, inputToUse, expiredPlat, 1);
-                return;
-            }
-        }
-
-        // Excluir si es una consulta comercial o sobre un plan del catálogo/web
         const isSalesOrCatalogInquiry = [
             'como funciona', 'cómo funciona', 'este plan', 'este servicio', 'de que trata', 'de qué trata',
             'informacion', 'información', 'precio', 'costo', 'valor', 'quiero comprar', 'me interesa',
@@ -16192,122 +16165,30 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'cuanto vale', 'cuánto vale', 'que incluye', 'qué incluye', 'sirve para'
         ].some(kw => bodyLower.includes(kw)) || fullOcrContext.includes('agregar al combo') || fullOcrContext.includes('se entrega correo y clave');
 
-        const wantsImgCode = !isSalesOrCatalogInquiry && !isExpiredOrRenewalScreen && ((detection.metadata && detection.metadata.is2faScreen === true) || [
-            'código de verificación', 'codigo de verificacion', 'código de acceso', 'codigo de acceso',
-            'código de inicio', 'codigo de inicio', 'código de 4 dígitos', 'código de 6 dígitos',
-            'codigo de 6', 'codigo de 4', '6-digit', 'authenticating', '2fa', 'authenticator', 'autenticación',
-            'google authenticator', 'no forma parte', 'hogar con netflix', 'tu tv no forma parte',
-            'actualizar hogar', 'actualización de hogar', 'actualizacion de hogar', 'hogar de netflix',
-            'confirmar tu hogar', 'confirma tu hogar', 'hogar', 'esta es mi cuenta',
-            'enviamos a tu email', 'ingresa el código', 'ingresa el codigo', 'código vence en 15', 'codigo vence en 15',
-            'solicita el reenvio', 'solicita el reenvío', 'ver temporalmente', 'si estás de viaje', 'si estas de viaje',
-            'fuera de casa', 'entendimos mal', 'obtener un código para ver netflix temporalmente',
+        const isPreCodeOptionsScreen = [
+            'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'actualizar hogar',
+            'actualización de hogar', 'actualizacion de hogar', 'hogar de netflix', 'confirmar tu hogar', 'confirma tu hogar',
+            'estoy de viaje', 'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte', 'ver temporalmente',
+            'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'código para ver netflix temporalmente',
             'obtén un código para ver contenido', 'de manera temporal', 'en este dispositivo de manera temporal',
-            'enviar email', 'red wifi de tu hogar',
+            'enviar email', 'red wifi de tu hogar', 'esta es mi cuenta',
             'crea tu propia cuenta para disfrutar de netflix'
-        ].some(kw => fullOcrContext.includes(kw)));
-
-        const isProfileSelectScreen = [
-            'elige tu perfil', 'quién está viendo', 'quien esta viendo', 'quién va a ver', 'quien va a ver',
-            'no sale mi nombre', 'cuál perfil', 'cual perfil', 'cuál es mi perfil', 'cual es mi perfil', 'mi nombre'
         ].some(kw => fullOcrContext.includes(kw));
 
-        if (isDisneyPasswordErrorWithCodeOption) {
-            console.log(`[BOT MEDIA OCR DISNEY PASSWORD ERROR] Pantalla de error de contraseña en Disney+ detectada para @${userId}.`);
-            let credBlock = '';
-            try {
-                const { getAccountsByPhone } = require('./apiService');
-                const { resolveRealPhoneFromJid } = require('./billingService');
-                const realP = await resolveRealPhoneFromJid(userId, client, message);
-                const accs = await getAccountsByPhone(realP || userId, foundName);
-                const disneyAcc = (accs || []).find(a => String(a.Streaming || '').toLowerCase().includes('disney'));
-                if (disneyAcc) {
-                    const mail = (disneyAcc.correo || disneyAcc.Correo || '').toString().trim();
-                    const pass = (disneyAcc.contraseña || disneyAcc.Contraseña || disneyAcc.password || '').toString().trim();
-                    if (mail && pass) {
-                        credBlock = `\n🔑 *Verifica tus datos vigentes de Disney+:*\n📧 Correo: \`${mail}\`\n🔒 Contraseña: \`${pass}\`\n`;
-                    }
-                }
-            } catch (e) { }
+        const isActive2faCodeEntry = (
+            (detection.metadata && detection.metadata.is2faScreen === true) ||
+            [
+                'ingresa el código', 'ingresa el codigo', 'enviamos un código', 'enviamos un codigo',
+                'enviamos a tu email', 'código vence en 15', 'codigo vence en 15',
+                'código de 4 dígitos', 'código de 6 dígitos', 'codigo de 6', 'codigo de 4',
+                '6-digit', 'authenticating', '2fa', 'authenticator', 'google authenticator',
+                'código de verificación', 'codigo de verificacion', 'código de inicio', 'codigo de inicio'
+            ].some(kw => fullOcrContext.includes(kw))
+        );
 
-            await message.reply(
-                `🤖 Veo en tu pantalla que *Disney+* rechazó la contraseña que ingresaste.${credBlock}\n` +
-                `📌 *Sigue este paso a paso para ingresar:*\n\n` +
-                `1️⃣ Revisa que la contraseña esté escrita **exactamente igual** (respetando mayúsculas/minúsculas y sin espacios al final) y toca *Iniciar sesión*.\n` +
-                `2️⃣ Si el error continúa, en esa misma pantalla toca el enlace *"¿Problemas para iniciar sesión? Enviar un código de acceso único"*.\n` +
-                `3️⃣ Apenas presiones esa opción, escríbeme por aquí *"ya envié el código"* y te busco el código de 6 dígitos en el correo al instante. 😊`
-            );
-            return;
-        }
-
-        if (isProfileSelectScreen) {
-            console.log(`[BOT MEDIA OCR PROFILE SELECT SCREEN] Se detectó pantalla de selección de perfil en @${userId}.`);
-            await message.reply(`🤖 ¡Veo la pantalla de perfiles en tu dispositivo! 📺\n\n` +
-                `💡 *Instrucciones para ingresar a tu perfil:*\n\n` +
-                `1. Si no ves un perfil con tu nombre, selecciona la opción **"Añadir perfil"** (o botón **"+"**).\n` +
-                `2. Asígnale a tu nuevo perfil **tu nombre exacto** (tal como estás registrado con nosotros) para llevar el control de tu suscripción. 😊\n\n` +
-                `⚠️ *Importante:* Por favor **no tomes ni modifiques los perfiles de otros usuarios** (como perfiles que ya tengan otros nombres creados).\n\n` +
-                `_Si la plataforma no te deja crear un perfil nuevo porque alcanzó el límite máximo de perfiles, avísanos y te reasignamos una cuenta de inmediato._`);
-            return;
-        }
-
-        if (wantsImgCode && !isIncorrectPassword && !isDateOrAccountQuery) {
-            const isOptionsScreen = [
-                'entendimos mal', 'varias opciones', 'actualizar hogar con netflix', 'actualizar hogar',
-                'actualización de hogar', 'actualizacion de hogar', 'hogar de netflix', 'confirmar tu hogar', 'confirma tu hogar',
-                'estoy de viaje', 'no forma parte del hogar', 'tu tv no forma parte', 'no forma parte', 'ver temporalmente',
-                'si estás de viaje', 'si estas de viaje', 'fuera de casa', 'código para ver netflix temporalmente',
-                'obtén un código para ver contenido', 'de manera temporal', 'en este dispositivo de manera temporal',
-                'enviar email', 'red wifi de tu hogar', 'esta es mi cuenta',
-                'crea tu propia cuenta para disfrutar de netflix'
-            ].some(kw => fullOcrContext.includes(kw));
-
-            if (isOptionsScreen) {
-                // Determinar si la pantalla o contexto corresponde estrictamente a Disney+ o Netflix
-                const isDisney = fullOcrContext.includes('disney') || fullOcrContext.includes('star+') || fullOcrContext.includes('star plus') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('disney'));
-                const isNetflix = fullOcrContext.includes('netflix') || (detection.detectedPlatform && detection.detectedPlatform.toLowerCase().includes('netflix'));
-                const isOtherPlatform = fullOcrContext.includes('youtube') || fullOcrContext.includes('spotify') || fullOcrContext.includes('prime') || fullOcrContext.includes('amazon') || fullOcrContext.includes('hbo') || fullOcrContext.includes('max') || (detection.detectedPlatform && ['youtube', 'spotify', 'prime', 'max'].some(p => detection.detectedPlatform.toLowerCase().includes(p)));
-
-                const hasDisney = userAccounts && userAccounts.some(a => (a.Streaming || a.streaming_platform || '').toLowerCase().includes('disney'));
-                const hasNetflix = userAccounts && userAccounts.some(a => (a.Streaming || a.streaming_platform || '').toLowerCase().includes('netflix'));
-
-                let targetPlatform = null;
-                if (isDisney && !isNetflix) {
-                    targetPlatform = 'disney';
-                } else if (isNetflix && !isDisney) {
-                    targetPlatform = 'netflix';
-                } else if (!isOtherPlatform) {
-                    if (hasDisney && !hasNetflix) targetPlatform = 'disney';
-                    else if (hasNetflix && !hasDisney) targetPlatform = 'netflix';
-                    else if (isNetflix) targetPlatform = 'netflix';
-                    else if (isDisney) targetPlatform = 'disney';
-                }
-
-                if (targetPlatform === 'disney') {
-                    console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones/hogar de Disney+ en @${userId}. Guiando al usuario.`);
-                    await message.reply(`🤖 ¡Hola! Veo la pantalla de confirmación de **Disney+** en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
-                        `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
-                        `1️⃣ Con el control remoto de tu TV, selecciona la opción **"ESTOY FUERA DE CASA"** (o *"Actualizar Hogar"*).\n` +
-                        `2️⃣ En la siguiente pantalla selecciona **"Enviar código"** (o *"Continuar"*).\n` +
-                        `3️⃣ Disney te enviará un **código de acceso de 6 dígitos**. En cuanto le des enviar, escribe aquí la palabra *código* (ej: *"código de disney"*) y el sistema te entregará el código de 6 dígitos para que sigas viendo sin problema. 🚀`);
-                    return;
-                }
-
-                if (targetPlatform === 'netflix') {
-                    console.log(`[BOT MEDIA OCR OPTIONS SCREEN] Se detectó pantalla de opciones/hogar de Netflix/TV en @${userId}. Guiando al usuario.`);
-                    const phoneDigits = (phoneNumber || userId).replace(/\D/g, '');
-                    const phoneParam = phoneDigits && phoneDigits.length >= 10 && phoneDigits.length <= 13 ? `?tel=${phoneDigits}` : '';
-                    await message.reply(`🤖 ¡Hola! Veo la pantalla de confirmación de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
-                        `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
-                        `1️⃣ Con el control remoto de tu TV, selecciona el botón **"Esta es mi Cuenta"**, **"Ver temporalmente"** (o *"Actualizar Hogar con Netflix"*).\n` +
-                        `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
-                        `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código de 4 dígitos o enlace de confirmación para que sigas viendo sin problema. 🚀`);
-                    return;
-                }
-            }
-
+        if (isActive2faCodeEntry && !isIncorrectPassword && !isPreCodeOptionsScreen && !isSalesOrCatalogInquiry && !isExpiredOrRenewalScreen && !isDateOrAccountQuery) {
             isCodeRequestFromImage = true;
-            console.log(`[BOT MEDIA OCR DETECTED IN FLOW] Gemini detected code request in image/explanation. Routing to code generator.`);
+            console.log(`[BOT MEDIA OCR DETECTED IN FLOW] Pantalla activa de ingreso de código 2FA detectada. Enrutando a extractor Gmail.`);
         }
     }
 
@@ -17113,7 +16994,13 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 }
                 return;
             } else if (detection.intent === 'soporte') {
-                const is2fa = detection.metadata && detection.metadata.is2faScreen;
+                const ocrSummaryLower = `${(message.body || '')} ${(detection.explanation || '')} ${(detection.mediaDescription || '')}`.toLowerCase();
+                const isPasswordErrorInOcr = [
+                    'contraseña incorrecta', 'clave incorrecta', 'ocurrió un error al iniciar sesión', 'ocurrio un error al iniciar sesion',
+                    'verifiques tu correo y contraseña', 'verifiques tu correo y contrasena', 'problemas para iniciar sesión', 'problemas para iniciar sesion',
+                    'escribir contraseña', 'escribir contrasena'
+                ].some(kw => ocrSummaryLower.includes(kw)) && !ocrSummaryLower.includes('ingresa el código') && !ocrSummaryLower.includes('ingresa el codigo') && !ocrSummaryLower.includes('enviamos un código') && !ocrSummaryLower.includes('enviamos un codigo');
+                const is2fa = detection.metadata && detection.metadata.is2faScreen && !isPasswordErrorInOcr;
                 const platform = detection.detectedPlatform;
 
                 if (is2fa && platform) {
@@ -17213,8 +17100,9 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 // Si no es un caso de 2FA/código con imagen, revisamos si pide código/enlace por texto antes de tratarlo como soporte o pago
                 const wasAwaitingDetails = currentStateData && currentStateData.state === 'awaiting_support_details';
                 const cleanText = (message.body || "").toLowerCase().trim();
-                const isIssueOrActivationReport = ['desactivado', 'desactivada', 'no está activado', 'no esta activado', 'suspendido', 'suspendida', 'vencido', 'vencida', 'error', 'no funciona', 'caído', 'caido'].some(kw => cleanText.includes(kw));
-                const isCodeTextRequest = !isIssueOrActivationReport && ['código', 'codigo', 'solicité', 'solicite', 'pedí', 'pedi', 'enlace', 'link', 'token', '2fa', 'iniciar sesión', 'iniciar sesion'].some(kw => cleanText.includes(kw));
+                const hasIncomingImage = Boolean(message.hasMedia || (mediaData && mediaData.length > 0));
+                const isIssueOrActivationReport = ['desactivado', 'desactivada', 'no está activado', 'no esta activado', 'suspendido', 'suspendida', 'vencido', 'vencida', 'error', 'no funciona', 'caído', 'caido', 'no me deja', 'no puedo', 'contraseña', 'contrasena', 'clave'].some(kw => cleanText.includes(kw));
+                const isCodeTextRequest = !hasIncomingImage && !isIssueOrActivationReport && ['código', 'codigo', 'solicité', 'solicite', 'pedí', 'pedi', 'enlace', 'link', 'token', '2fa'].some(kw => cleanText.includes(kw));
                 if (isCodeTextRequest && userAccounts && userAccounts.length > 0) {
                     const textPlatformHint = ['claude', 'apple', 'netflix', 'chatgpt', 'gpt', 'disney', 'amazon', 'prime', 'hbo', 'max', 'spotify', 'canva', 'youtube', 'paramount', 'crunchyroll'].find(p => cleanText.includes(p));
                     const effectivePlatform = (platform || textPlatformHint || '').toLowerCase().trim();
@@ -17280,7 +17168,35 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         await safeReply(message, replyText, userId);
                     }
                 } else if (message.hasMedia || (mediaData && mediaData.length > 0)) {
-                    await safeReply(message, `🤖 ¡Hola! He recibido la captura de pantalla del error que me enviaste. 📺\n\nYa notifiqué a nuestro equipo de soporte técnico para revisar la falla y darte solución lo antes posible. ¡Gracias por tu paciencia! 😊`, userId);
+                    // Flujo unificado: analizar la captura con Visión + RAG + Sentido Común antes de escalar a humano
+                    const historyForFallback = await getChatHistoryText(message);
+                    let accs = [];
+                    try { accs = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
+                    const primaryMedia = (mediaData && mediaData.length > 0) ? mediaData[0] : null;
+                    const precomputedDesc = (detection && detection.mediaDescription) ? detection.mediaDescription : null;
+                    const fallbackResult = await generateEmpatheticFallback(
+                        message.body || "",
+                        true,
+                        historyForFallback,
+                        primaryMedia,
+                        accs,
+                        userId,
+                        userStates,
+                        precomputedDesc
+                    );
+                    const fallbackMsg = typeof fallbackResult === 'string' ? fallbackResult : (fallbackResult?.replyMessage || "");
+                    const needsEscalation = typeof fallbackResult === 'object' ? Boolean(fallbackResult?.needsEscalation) : false;
+
+                    if (fallbackMsg && fallbackMsg.replace(/🤖|👍|👋|\s/g, '').length >= 3) {
+                        console.log(`[Support Media RAG] Respondiendo captura de pantalla con Visión+RAG a @${userId} (needsEscalation=${needsEscalation})`);
+                        await safeReply(message, fallbackMsg, userId);
+                        if (!needsEscalation) {
+                            return;
+                        }
+                    } else {
+                        await safeReply(message, `🤖 ¡Hola! He recibido la captura de pantalla del error que me enviaste. 📺\n\nYa notifiqué a nuestro equipo de soporte técnico para revisar la falla y darte solución lo antes posible. ¡Gracias por tu paciencia! 😊`, userId);
+                    }
+
                     const prevSt = userStates.get(userId) || {};
                     const captionReason = (message.body || '').trim() || 'Captura de pantalla de error enviada por el cliente';
                     userStates.set(userId, {

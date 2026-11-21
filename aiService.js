@@ -1371,7 +1371,7 @@ function cleanWhatsAppFormatting(text) {
   return formatted;
 }
 
-async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = [], userId = null, userStates = null) {
+async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = [], userId = null, userStates = null, precomputedMediaDescription = null) {
   const trimmedMsg = (messageContent || "").trim();
   const lowerMsg = (messageContent || "").toLowerCase();
   const isOnlySymbols = trimmedMsg.length > 0 && /^[?¿!¡\s\-_.,*#@]+$/.test(trimmedMsg);
@@ -1541,109 +1541,22 @@ INSTRUCCIÓN DE SEGURIDAD ABSOLUTA:
 Promociona ÚNICAMENTE los métodos de pago listados arriba que estén ACTIVOS. Queda estrictamente prohibido inventar o sugerir cualquier otro número de cuenta, método de pago o Llave que no esté explícitamente listado en la sección anterior.
 `;
 
-  let mediaDescription = "";
+  let mediaDescription = (precomputedMediaDescription && typeof precomputedMediaDescription === 'string') ? precomputedMediaDescription.trim() : "";
   let isAudioMedia = false;
   if (isMedia && mediaData) {
     try {
       const mime = (mediaData.mimeType || "").toLowerCase();
       if (mime.startsWith('audio/')) {
         isAudioMedia = true;
-        mediaDescription = await transcribeAudioWithGemini(mediaData);
+        if (!mediaDescription) {
+          mediaDescription = await transcribeAudioWithGemini(mediaData);
+        }
         if (mediaDescription) {
           console.log(`[AI Fallback Audio] Transcripción de nota de voz: "${mediaDescription}"`);
           messageContent = messageContent ? `${messageContent} (Nota de voz: ${mediaDescription})` : mediaDescription;
         }
-      } else {
+      } else if (!mediaDescription) {
         mediaDescription = await describeImageWithGemini(mediaData, chatHistory, accountSummary);
-      }
-
-      if (mediaDescription && !isAudioMedia) {
-        const descLower = mediaDescription.toLowerCase();
-
-        // DETECCIÓN DE PANTALLA DE ERROR/FALLA DE PAGO DEL PROVEEDOR EN NETFLIX/STREAMING
-        const isPaymentErrorScreen = [
-          'no pudimos procesar tu pago', 'reintentar pago', 'actualizar info de pago', 'actualiza tu información de pago',
-          'tarjeta no pudo procesar', 'cuenta suspendida', 'actualizar método de pago', 'error de pago', 'fallo de pago',
-          'no pudimos procesar', 'reintentar con tu'
-        ].some(kw => descLower.includes(kw));
-
-        if (isPaymentErrorScreen) {
-          console.log("[AI Fallback Media] Detectada pantalla de error de pago prematuro del proveedor. Informando y escalando.");
-          return {
-            replyMessage: `🤖 ¡Hola! Veo en tu pantalla que la cuenta presenta un aviso de pago o tarjeta del proveedor. ⚠️\n\n` +
-              `No te preocupes, tu suscripción con Sheerit está activa y vigente. *Por favor NO ingreses ninguna tarjeta personal ni presiones "Actualizar info de pago".*\n\n` +
-              `Un asesor de soporte revisará tu caso en un momento para reasignarte una cuenta totalmente activa y sin fallas. ¡Gracias por tu paciencia! 😊`,
-            needsEscalation: true
-          };
-        }
-        // DETECCIÓN DE PANTALLA DE HOGAR / VER TEMPORALMENTE / CÓDIGO DE VIAJE (NETFLIX O DISNEY+)
-        const isExpiredOrRenewal = [
-          'renovar ahora', 'tus beneficios terminaron', 'renueva tu suscripción', 'renueva tu membresia',
-          'renueva tu membresía', 'suscripción ha expirado', 'suscripcion ha expirado', 'suscripción expirada',
-          'suscripcion expirada', 'suscripción ha caducado', 'suscripcion ha caducado', 'membresía caducada',
-          'membresia caducada', 'beneficios terminaron', 'no renovar', 'se te acabó el premium'
-        ].some(kw => descLower.includes(kw));
-
-        const isHouseholdScreen = !isExpiredOrRenewal && [
-          'ver temporalmente', 'entendimos mal', 'si estás de viaje', 'si estas de viaje', 'fuera de casa',
-          'obtener un código para ver netflix', 'obtener un codigo para ver netflix',
-          'crea tu propia cuenta para disfrutar de netflix', 'no forma parte del hogar',
-          'actualizar hogar', 'hogar con netflix', 'hogar de netflix', 'tu tv no forma parte',
-          'hogar de disney', 'hogar con disney', 'esta tv no forma parte',
-          'sigue las instrucciones que recibirás por email', 'sigue las instrucciones que recibiras por email',
-          'enviamos un email a la persona titular', 'enviamos un correo a la persona titular',
-          'mantente en esta pantalla hasta completar'
-        ].some(kw => descLower.includes(kw));
-
-        const isHouseholdEmailSent = [
-          'sigue las instrucciones que recibirás por email', 'sigue las instrucciones que recibiras por email',
-          'enviamos un email a la persona titular', 'enviamos un correo a la persona titular',
-          'mantente en esta pantalla hasta completar'
-        ].some(kw => descLower.includes(kw));
-
-        if (isHouseholdScreen) {
-          const isDisney = descLower.includes('disney') || descLower.includes('star+') || descLower.includes('star plus');
-          const isNetflix = descLower.includes('netflix') || (userAccounts && userAccounts.some(a => (a.Streaming || a.streaming_platform || '').toLowerCase().includes('netflix')));
-          const isOtherPlatform = descLower.includes('youtube') || descLower.includes('spotify') || descLower.includes('prime') || descLower.includes('amazon');
-
-          if (isDisney) {
-            console.log("[AI Fallback Media] Detectada pantalla de Hogar de Disney+ en TV. Guiando al usuario de inmediato.");
-            return {
-              replyMessage: `🤖 ¡Hola! Veo en tu pantalla el aviso de Hogar de **Disney+** en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
-                `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
-                `1️⃣ Con el control remoto de tu TV, selecciona la opción **"ESTOY FUERA DE CASA"** (o *"Actualizar Hogar"*).\n` +
-                `2️⃣ En la siguiente pantalla selecciona **"Enviar código"** (o *"Continuar"*).\n` +
-                `3️⃣ Disney te enviará un **código de acceso de 6 dígitos**. En cuanto le des enviar, escribe aquí la palabra *código* (o *"código de disney"*) y el sistema te entregará el código para que sigas viendo sin problema. 🚀`,
-              needsEscalation: false
-            };
-          }
-
-          if (isNetflix && !isOtherPlatform) {
-            console.log("[AI Fallback Media] Detectada pantalla de Hogar / Ver temporalmente de Netflix en TV. Guiando al usuario de inmediato.");
-            const phoneParam = isValidPhone ? `?tel=${customerPhone}` : '';
-
-            if (isHouseholdEmailSent) {
-              return {
-                replyMessage: `🤖 ¡Hola! Veo en tu televisor que Netflix ya envió el correo de confirmación de Hogar a la cuenta titular. 📺⚡\n\n` +
-                  `👉 *Para activar tu pantalla de inmediato:*\n\n` +
-                  `1️⃣ Ingresa directamente a nuestro portal de actualización para autorizar el televisor en 1 solo clic:\n` +
-                  `🔗 https://sheerit.co/actualizar${phoneParam}\n\n` +
-                  `2️⃣ O escribe la palabra *código* (o *"código de netflix"*) aquí en este chat y te extraeremos el enlace de confirmación al instante.\n\n` +
-                  `_Mantén encendida tu pantalla en esa misma imagen mientras confirmas el enlace._ 🚀`,
-                needsEscalation: false
-              };
-            }
-
-            return {
-              replyMessage: `🤖 ¡Hola! Veo en tu pantalla el aviso de Hogar / Ver temporalmente de Netflix en tu TV (no es que la sesión se haya cerrado ni que la clave esté mal). 📺\n\n` +
-                `👉 *Para activarlo de inmediato en tu televisor:*\n\n` +
-                `1️⃣ Con el control remoto de tu TV, selecciona **"Ver temporalmente"** (o *"Actualizar Hogar"*).\n` +
-                `2️⃣ En la siguiente pantalla selecciona **"Enviar correo"** (o *"Enviar código"*).\n` +
-                `3️⃣ En cuanto le des enviar, escribe aquí la palabra *código* (o entra a https://sheerit.co/actualizar${phoneParam}) y el sistema te entregará el código o enlace de confirmación para que sigas viendo. 🚀`,
-              needsEscalation: false
-            };
-          }
-        }
       }
     } catch (e) {
       console.error("Error generating media description in fallback:", e);
@@ -1744,7 +1657,14 @@ INSTRUCCIONES DE RESPUESTA:
     - Indícale de forma directa y clara ingresar a nuestro portal oficial: https://sheerit.co/actualizar (o https://sheerit.co/verificar).
     - NUNCA inventes códigos de ejemplo, ni des enlaces rotos, ni le digas al cliente que busque en páginas externas.
 8. **Credenciales**: Si el usuario pregunta por sus datos, correo, clave o dice "no me han llegado las cuentas", recuérdale amablemente que siempre puede pedirlas poniendo el número 2 o diciéndolo directamente (ej: "regálame mis credenciales").
-9. **Catálogo y Precios**: Si el usuario pide el catálogo completo, el listado de precios, o preguntar "qué servicios tienen", NO le escribas una lista larga. Dile amablemente que puede ver todos nuestros servicios y precios actualizados en nuestra página web oficial: https://sheerit.co/ 🌐`;
+9. **Catálogo y Precios**: Si el usuario pide el catálogo completo, el listado de precios, o preguntar "qué servicios tienen", NO le escribas una lista larga. Dile amablemente que puede ver todos nuestros servicios y precios actualizados en nuestra página web oficial: https://sheerit.co/ 🌐
+10. **ANÁLISIS VISUAL INTELIGENTE + RAG + SENTIDO COMÚN (CAPTURAS DE PANTALLA)**:
+    - Cuando el cliente envíe una imagen/captura de pantalla, analiza con **sentido común práctico** lo que muestra la descripción OCR, compáralo con sus datos reales en \`SERVICIOS ACTUALES DEL CLIENTE\` y combínalo con el \`CONTEXTO DE SOPORTE TÉCNICO\` / RAG, incluso si la pantalla exacta no aparece literal en el RAG.
+    - **Error de contraseña o inicio de sesión (Disney+, Netflix, Max, Prime, etc.)**: Compara el correo/contraseña que se ve en la captura contra sus credenciales vigentes en \`SERVICIOS ACTUALES DEL CLIENTE\`. Si hay diferencia o posible error de tipeo (mayúsculas/espacios), indícale su correo y contraseña vigentes. Además, **fíjate en las opciones visibles en la misma pantalla**: si la app ofrece un enlace o botón como *"¿Problemas para iniciar sesión? Enviar un código de acceso único"* / *"Iniciar con código"*, explícale el paso a paso claro (1. Verificar clave exacta, 2. Si persiste, tocar esa opción para enviar código, 3. Escribir aquí *"ya envié el código"* para entregárselo al instante). NO escales a humano todavía salvo que el cliente confirme que ya lo intentó y sigue fallando.
+    - **Pantallas de Hogar / Viaje / Ver temporalmente en TV (Netflix, Disney+)**: No es que la clave esté mal. Guía paso a paso qué botón presionar con el control remoto (Disney+: *"Estoy fuera de casa"* / *"Actualizar Hogar"* -> *"Enviar código"*; Netflix: *"Ver temporalmente"* / *"Esta es mi cuenta"* / *"Actualizar Hogar"* -> *"Enviar correo/código"*) y dile que apenas envíe el código nos escriba *"código"* (o use https://sheerit.co/actualizar en Netflix). NO escales.
+    - **Pantallas de selección de perfil**: Indícale crear un perfil con su nombre (botón *"+"* / *"Añadir perfil"*) sin tomar ni modificar perfiles de otros usuarios. Solo agrega \`[ESCALAR]\` si indica que ya alcanzó el límite máximo de perfiles.
+    - **Pantallas de "Renovar / Tus beneficios terminaron / Error de pago del proveedor / Cuenta suspendida"**: Revisa la vigencia en \`SERVICIOS ACTUALES DEL CLIENTE\`. Si su cuenta está **VIGENTE**, tranquilízalo (tiene garantía total $0 COP), adviértele **NO ingresar ninguna tarjeta personal ni presionar actualizar pago**, y agrega \`[ESCALAR]\` al final para que soporte lo reactive/reasigne. Si su cuenta está **VENCIDA**, infórmale amablemente que su suscripción venció y puede renovarla escribiendo *"renovar"* o en https://sheerit.co/.
+    - **Cuándo escalar (\`[ESCALAR]\`)**: Agrega \`[ESCALAR]\` al final SOLO cuando el problema realmente requiera intervención manual (cuenta caída/suspendida en garantía, fallo de pago del proveedor en cuenta vigente, límite de pantallas/perfiles, o si el cliente ya intentó el paso a paso y sigue fallando). Si el cliente puede resolverlo siguiendo tus pasos, NO agregues \`[ESCALAR]\`.`;
 
   // 2. Prompt dinámico del usuario (variables únicas por cliente/mensaje)
   const userPrompt = `SERVICIOS ACTUALES DEL CLIENTE:
