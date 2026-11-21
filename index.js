@@ -15610,9 +15610,15 @@ REGLAS:
                                 // Si el usuario ya tiene una cuenta activa en Excel/DB para este teléfono en la plataforma comprada, es una RENOVACIÓN
                                 const { isSamePlatformFamily } = require('./salesRegistryService');
                                 const item0 = stateData.items && stateData.items[0];
-                                const planName0 = (item0 && item0.chosenPlan ? item0.chosenPlan.name : (item0 && item0.plan ? (item0.plan.name || item0.plan) : "")) || "";
+                                const rawPlan0 = item0 && (item0.chosenPlan || item0.plan);
+                                const rawPlan0Text = typeof rawPlan0 === 'string'
+                                    ? rawPlan0
+                                    : (rawPlan0 && typeof rawPlan0 === 'object'
+                                        ? (typeof rawPlan0.name === 'string' ? rawPlan0.name : (typeof rawPlan0.label === 'string' ? rawPlan0.label : ''))
+                                        : '');
+                                const planName0 = rawPlan0Text.trim();
                                 const baseName0 = (item0 ? (item0.Streaming || (item0.platform ? item0.platform.name : "") || item0.name || "") : "").toLowerCase();
-                                const targetPlatformName = planName0 ? `${baseName0} ${planName0}`.toLowerCase().trim() : baseName0.trim();
+                                const targetPlatformName = (planName0 && !/^\d+\s*mes(es)?$/i.test(planName0)) ? `${baseName0} ${planName0}`.toLowerCase().trim() : baseName0.trim();
 
                                 const userHasActiveAccount = userAccounts && Array.isArray(userAccounts) && userAccounts.some(acc => {
                                     const s = (acc.Streaming || "").toLowerCase();
@@ -15681,46 +15687,59 @@ REGLAS:
                                 }
 
                                 // Ejecutar validación automática directa si todo coincide perfectamente
-                                const validationResult = await executePaymentValidation(
-                                    userId,
-                                    {
-                                        ...stateData,
-                                        total: check.amount,
-                                        leftoverAmount: leftoverAmount,
-                                        paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})`,
-                                        ocrBank: check.bank || null,
-                                        ocrDestinationKey: check.destinationKey || null,
-                                        ocrDestinationName: check.destinationName || null,
-                                        ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
-                                        ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
-                                        ocrExtractedDetails: check.extractedDetails || null,
-                                        gmailMatchId: match.id || null
-                                    },
-                                    client,
-                                    userStates,
-                                    null,
-                                    match.id
-                                );
+                                try {
+                                    const validationResult = await executePaymentValidation(
+                                        userId,
+                                        {
+                                            ...stateData,
+                                            total: check.amount,
+                                            leftoverAmount: leftoverAmount,
+                                            paymentMethod: `Gmail Match (${check.bank || 'Bre-B'})`,
+                                            ocrBank: check.bank || null,
+                                            ocrDestinationKey: check.destinationKey || null,
+                                            ocrDestinationName: check.destinationName || null,
+                                            ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
+                                            ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
+                                            ocrExtractedDetails: check.extractedDetails || null,
+                                            gmailMatchId: match.id || null
+                                        },
+                                        client,
+                                        userStates,
+                                        null,
+                                        match.id
+                                    );
 
-                                if (validationResult.success) {
-                                    await markPaymentReferenceUsed(receiptCheck.ref, userId, check.amount);
-                                    // Notificar al grupo administrativo del éxito automático
+                                    if (validationResult && validationResult.success) {
+                                        await markPaymentReferenceUsed(receiptCheck.ref, userId, check.amount);
+                                        // Notificar al grupo administrativo del éxito automático
+                                        try {
+                                            const groupChat = await client.getChatById(GROUP_ID);
+                                            if (false && groupChat) {
+                                                let successMsg = `✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
+                                                    `Monto: ${check.amount}\n` +
+                                                    `Banco: ${check.bank || 'Bre-B'}\n`;
+
+                                                if (leftoverAmount > 0) {
+                                                    const originalPrice = check.amount - leftoverAmount;
+                                                    successMsg += `💰 *EXCEDENTE DETECTADO:* Se cobraron ${check.amount} pero el total era ${originalPrice}. Quedó un saldo a favor de *${leftoverAmount}* COP.\n`;
+                                                }
+
+                                                successMsg += `Asunto: ${match.subject}\n` +
+                                                    `ID Gmail: ${match.id}\n\n` +
+                                                    `El bot ya entregó el servicio automáticamente.`;
+                                                await groupChat.sendMessage(successMsg);
+                                            }
+                                        } catch (e) { }
+                                        return;
+                                    }
+                                } catch (valErr) {
+                                    console.error(`[PAYMENT AUTO-VALIDATE] ❌ Error crítico durante validación automática para ${userId} (Gmail ID: ${match.id}):`, valErr.message);
+                                    await message.reply("🤖 ¡Gracias! Recibimos tu comprobante y confirmamos tu transferencia en el banco. Un asesor finalizará la activación o renovación de tu servicio en breve. 😊");
                                     try {
                                         const groupChat = await client.getChatById(GROUP_ID);
-                                        if (false && groupChat) {
-                                            let successMsg = `✅ *PAGO AUTO-VALIDADO* (@${userId.replace('@c.us', '')})\n` +
-                                                `Monto: $${check.amount}\n` +
-                                                `Banco: ${check.bank || 'Bre-B'}\n`;
-
-                                            if (leftoverAmount > 0) {
-                                                const originalPrice = check.amount - leftoverAmount;
-                                                successMsg += `💰 *EXCEDENTE DETECTADO:* Se cobraron $${check.amount} pero el total era $${originalPrice}. Quedó un saldo a favor de *$${leftoverAmount}* COP.\n`;
-                                            }
-
-                                            successMsg += `Asunto: ${match.subject}\n` +
-                                                `ID Gmail: ${match.id}\n\n` +
-                                                `El bot ya entregó el servicio automáticamente.`;
-                                            await groupChat.sendMessage(successMsg);
+                                        if (groupChat) {
+                                            const displayTarget = realPhone || userId.replace('@c.us', '').replace('@lid', '');
+                                            await groupChat.sendMessage(`⚠️ *PAGO DETECTADO EN GMAIL CON ERROR EN AUTO-ENTREGA* (@${displayTarget})\nMonto: ${check.amount}\nGmail ID: ${match.id}\nError: ${valErr.message}\nPor favor revisar/entregar manualmente.`);
                                         }
                                     } catch (e) { }
                                     return;

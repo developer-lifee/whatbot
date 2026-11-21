@@ -423,14 +423,20 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
         const results = [];
         for (const item of expandedItems) {
-            const planName = (item.chosenPlan ? item.chosenPlan.name : (item.plan ? (item.plan.name || item.plan) : "")) || "";
+            const rawPlan = item.chosenPlan || item.plan;
+            const rawPlanText = typeof rawPlan === 'string'
+                ? rawPlan
+                : (rawPlan && typeof rawPlan === 'object'
+                    ? (typeof rawPlan.name === 'string' ? rawPlan.name : (typeof rawPlan.label === 'string' ? rawPlan.label : ''))
+                    : '');
+            const planName = rawPlanText.trim();
             let platformName = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toString().trim();
             
             // Si hay un plan específico (como Platino, Extra, Claude X2/X5, Apple One/TV, etc.), lo concatenamos para la búsqueda exacta en Excel
-            if (planName && platformName) {
+            if (planName && !/^\d+\s*mes(es)?$/i.test(planName) && platformName) {
                 platformName = `${platformName} ${planName}`;
             } else if (planName && !platformName) {
-                platformName = planName.toString().trim();
+                platformName = planName;
             }
             const lowerName = platformName.toLowerCase();
 
