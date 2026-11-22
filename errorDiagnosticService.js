@@ -500,6 +500,8 @@ async function generateCliPlanAndCommit(extractedInfo, diagnosticNotes = [], use
     const buildEngineErrorResponse = (extraReason = '') => {
         const cliErr = getLastCliErrorDetails() || extraReason || '⏱️ Lectura desbordada / Timeout (>95s) o cuota de modelo agotada';
         return {
+            resumenEquipo: `No alcancé a terminar la revisión automática en este intento. Reporte detectado: ${fallbackCausa}`,
+            solucionEquipo: `Escribe *@continuar* para volver a revisar este caso en detalle.`,
             causaRaiz: `🚨 *[ESTADO DEL MOTOR ANTIGRAVITY CLI]*\n• ${cliErr}\n\n📌 *Contexto preliminar detectado:*\n${fallbackCausa}`,
             planCodigo: `${fallbackPlan}\n\n💡 *Sugerencia:* Escribe *@continuar* para reintentar la inspección focalizada con el CLI.`,
             commitDetallado: fallbackCommit,
@@ -544,11 +546,13 @@ INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
 1. Haz primero una búsqueda exacta con grep -n en los archivos reales (/root/whatbot: index.js, billingService.js, totpService.js, aiService.js, salesRegistryService.js, availabilityService.js, gmailService.js) o en las últimas 30.000 líneas del log con tail + grep.
 2. Especifica exactamente qué variable, función y línea en el código causa el comportamiento y cómo corregirlo.
 3. NUNCA inventes carpetas o archivos que no existan en /root/whatbot.
-4. Devuelve exclusivamente un JSON válido con esta estructura exacta:
+4. Devuelve exclusivamente un JSON válido con esta estructura exacta (incluye SIEMPRE "resumenEquipo" y "solucionEquipo" en lenguaje cotidiano, corto y sin jerga de programación para los asesores, y mantén "causaRaiz" y "planCodigo" técnicos y concisos para desarrollo):
 {
   "platform": "Nombre real de la plataforma involucrada (ej: Claude, ChatGPT, Netflix, etc.)",
-  "causaRaiz": "Explicación técnica específica indicando qué parte exacta del código o estado produjo el fallo y por qué",
-  "planCodigo": "Pasos numerados detallados indicando archivo real, función/bloque y el cambio exacto de código requerido",
+  "resumenEquipo": "1 o 2 frases cortas y sencillas en español cotidiano explicando QUÉ pasó con el cliente/bot (sin nombres de archivos, variables ni código)",
+  "solucionEquipo": "1 o 2 frases cortas y sencillas explicando QUÉ se va a corregir en el comportamiento del bot (y si el equipo debe hacer algo manual con el cliente)",
+  "causaRaiz": "Explicación técnica concisa indicando archivo, función y línea exacta que produjo el fallo",
+  "planCodigo": "Pasos numerados concisos indicando archivo real, función/bloque y el cambio exacto de código requerido",
   "commitDetallado": "Mensaje de commit en español formato conventional commits con título y viñetas técnicas",
   "archivosAfectados": ["archivo_real1.js", "archivo_real2.js"]
 }`;
@@ -572,15 +576,17 @@ INSTRUCCIONES CLAVE DE INGENIERÍA:
 1. Lee el archivo de imagen en "${absoluteImgPath}" usando read_file (1 llamada).
    - Identifica los mensajes del cliente, las respuestas exactas del bot, el nombre/teléfono del cliente y la plataforma REAL del servicio (ej: "Claude", "ChatGPT / GPT", "Netflix", "Amazon", "Disney", etc. NUNCA "WHATSAPP").
 2. Haz búsquedas focalizadas y rápidas (con grep -n en el archivo específico del módulo, ej: billingService.js para precios, totpService.js para 2FA, availabilityService.js para stock, index.js para flujos). NO leas logs extensos (máximo tail -n 200 si necesitas verificar la última traza).
-3. Devuelve tu respuesta técnica exclusivamente en un JSON estructurado así (sin texto adicional fuera del JSON):
+3. Devuelve tu respuesta exclusivamente en un JSON estructurado así (sin texto adicional fuera del JSON). Incluye SIEMPRE "resumenEquipo" y "solucionEquipo" en lenguaje muy sencillo y corto para asesores no técnicos, y deja lo técnico conciso en "causaRaiz" y "planCodigo":
 {
   "clientName": string | null,
   "clientPhone": string | null,
   "platform": string,
   "problemType": string,
-  "summary": "Resumen fiel y exacto del caso según la captura",
-  "causaRaiz": "Explicación técnica detallada de por qué ocurrió el fallo en el código del bot (mencionando archivo, línea y función real)",
-  "planCodigo": "Pasos detallados de las modificaciones en código requeridas en los archivos reales del repositorio",
+  "summary": "Resumen fiel y breve del caso según la captura (1-2 frases)",
+  "resumenEquipo": "1 o 2 frases cortas y sencillas en español cotidiano explicando QUÉ pasó con el cliente/bot (sin nombres de archivos, variables ni términos técnicos)",
+  "solucionEquipo": "1 o 2 frases cortas y sencillas explicando QUÉ se va a corregir para que no vuelva a pasar (y si el asesor debe hacer algo manual con el cliente)",
+  "causaRaiz": "Explicación técnica concisa de por qué ocurrió el fallo en el código del bot (mencionando archivo, línea y función real)",
+  "planCodigo": "Pasos numerados concisos de las modificaciones en código requeridas en los archivos reales del repositorio",
   "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios",
   "archivosAfectados": ["billingService.js", "index.js"]
 }`;
@@ -601,12 +607,14 @@ ${diagnosticNotes.join('\n') || 'Sin notas adicionales'}
 
 INSTRUCCIONES DE INGENIERÍA OBLIGATORIAS:
 1. Haz búsquedas focalizadas con \`grep -n\` directamente en el módulo especializado (ej: billingService.js/availabilityService.js si es cobro/precios, totpService.js/gmailService.js si son códigos, supportScheduleService.js si son turnos). NO descargues ni proceses logs masivos (máximo tail -n 200).
-2. Explica con precisión técnica qué condición o línea de código produce el problema reportado y detalla la solución exacta.
+2. Explica primero en lenguaje cotidiano y corto para el equipo ("resumenEquipo" y "solucionEquipo", sin código ni variables) y luego con precisión técnica concisa para desarrollo ("causaRaiz" y "planCodigo").
 3. Devuelve un JSON estrictamente estructurado así:
 {
   "platform": "Plataforma real identificada (ej: Claude, ChatGPT, Netflix, General)",
-  "causaRaiz": "Explicación técnica precisa de por qué ocurrió el fallo en el código o estado (mencionando funciones/estados reales)",
-  "planCodigo": "Pasos detallados de las modificaciones en código en los archivos reales para resolverlo de raíz",
+  "resumenEquipo": "1 o 2 frases cortas y sencillas en español cotidiano explicando QUÉ pasó (sin nombres de archivos, variables ni jerga técnica)",
+  "solucionEquipo": "1 o 2 frases cortas y sencillas explicando QUÉ se va a corregir en el bot (y si el equipo debe hacer algo manual)",
+  "causaRaiz": "Explicación técnica concisa de por qué ocurrió el fallo en el código o estado (mencionando archivo, función y línea real)",
+  "planCodigo": "Pasos numerados concisos de las modificaciones en código en los archivos reales para resolverlo de raíz",
   "commitDetallado": "Título y cuerpo del commit propuesto con viñetas claras explicando los cambios y la prevención de regresión",
   "archivosAfectados": ["archivo_real1.js", "archivo_real2.js"]
 }`;
@@ -725,6 +733,8 @@ async function handleAdvisorErrorReport(message, client, userStates) {
         // Evitar bucles recursivos ignorando mensajes autogenerados del bot
         if (
             bodyLower.includes('[diagnóstico') ||
+            bodyLower.includes('[revisión de error]') ||
+            bodyLower.includes('[revisión preliminar]') ||
             bodyLower.includes('ticket #err-') ||
             bodyLower.includes('ticket: #err-') ||
             bodyLower.includes('#err-') ||
@@ -1106,19 +1116,26 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                 isPreliminary: false
             });
 
+            const adjResumen = updatedCliSolution.resumenEquipo || pendingTicket.summary || '';
+            const adjSolucion = updatedCliSolution.solucionEquipo || '';
+            const adjFilesStr = targetFiles.length > 0 ? targetFiles.join(', ') : 'Por confirmar';
+
             let adjustedMsg = `🛠️ *[PROPUESTA AJUSTADA]* (Ticket #${pendingTicket.id})\n\n`;
-            adjustedMsg += `✏️ *Ajuste recibido:* "${userInstruction}"\n\n`;
-            adjustedMsg += `🔍 *Explicación actualizada:* \n${updatedCliSolution.causaRaiz}\n\n`;
-            adjustedMsg += `💡 *Nuevo Plan de Código:* \n${updatedCliSolution.planCodigo}\n\n`;
+            adjustedMsg += `✏️ *Ajuste:* "${userInstruction}"\n`;
+            if (adjResumen) adjustedMsg += `📌 *¿Qué pasó?* ${adjResumen}\n`;
+            if (adjSolucion) adjustedMsg += `✅ *¿Qué vamos a corregir?* ${adjSolucion}\n`;
+
+            adjustedMsg += `\n────────────────────\n`;
+            adjustedMsg += `🔧 *Detalle técnico (para desarrollo):*\n`;
+            adjustedMsg += `• *Archivos:* ${adjFilesStr}\n`;
+            adjustedMsg += `• *Causa:* ${updatedCliSolution.causaRaiz}\n`;
+            adjustedMsg += `• *Plan:*\n${updatedCliSolution.planCodigo}\n`;
             if (updatedCliSolution.commitDetallado) {
-                adjustedMsg += `📝 *Commit Propuesto:* \n\`\`\`\n${updatedCliSolution.commitDetallado}\n\`\`\`\n\n`;
+                const commitTitleLine = updatedCliSolution.commitDetallado.split('\n')[0].trim();
+                adjustedMsg += `• *Commit:* \`${commitTitleLine}\`\n`;
             }
-            adjustedMsg += `👉 *Para implementar cambios en código y subir a GitHub:* Escribe *@commit* o *@aceptar*\n`;
-            adjustedMsg += `🔄 *Para profundizar o revalidar solución:* Escribe *@continuar*\n`;
-            adjustedMsg += `✏️ *Para seguir ajustando:* Escribe *@cambio <tu ajuste>*\n`;
-            adjustedMsg += `🛑 *Para descartar:* Escribe *@deje asi*\n`;
-            adjustedMsg += `⏪ *Para deshacer último commit:* Escribe *@devolver commit*\n\n`;
-            adjustedMsg += `⚠️ *Nota:* El comando *@restart* solo estará disponible una vez que apruebes con *@commit*.`;
+            adjustedMsg += `\n👉 *@aceptar* (o *@commit*) para aplicar el arreglo\n`;
+            adjustedMsg += `✏️ *@cambio <ajuste>* | 🛑 *@deje asi* | 🔄 *@continuar* | ⏪ *@devolver commit*`;
 
             try {
                 await message.reply(adjustedMsg);
@@ -1551,42 +1568,59 @@ async function handleAdvisorErrorReport(message, client, userStates) {
             createdAt: new Date().toISOString()
         });
 
-        // 9. Construir Mensaje de Respuesta
+        // 9. Construir Mensaje de Respuesta (Primero resumen sencillo para el equipo, luego detalle técnico para desarrollo)
         let responseMsg = cliSolution.isPreliminary
-            ? `⚠️ *[PROPUESTA PRELIMINAR]* (Ticket #${ticketId})\n\n`
-            : `🛠️ *[AUDITORÍA Y PROPUESTA TÉCNICA]* (Ticket #${ticketId})\n\n`;
+            ? `⚠️ *[REVISIÓN PRELIMINAR]* (Ticket #${ticketId})\n\n`
+            : `🛠️ *[REVISIÓN DE ERROR]* (Ticket #${ticketId})\n\n`;
 
         const reportedText = effectiveText || (extractedInfo.summary || '');
         if (reportedText) {
-            responseMsg += `💬 *En respuesta a:* "${reportedText.length > 90 ? reportedText.slice(0, 90) + '...' : reportedText}"\n`;
+            responseMsg += `💬 *Reporte:* "${reportedText.length > 90 ? reportedText.slice(0, 90) + '...' : reportedText}"\n`;
         }
+        const metaParts = [];
         if (extractedInfo.clientName || cleanPhone) {
-            responseMsg += `👤 *Cliente:* ${extractedInfo.clientName || 'Identificado'} ${cleanPhone ? `(+57 ${cleanPhone})` : ''}\n`;
+            metaParts.push(`👤 *Cliente:* ${extractedInfo.clientName || 'Identificado'}${cleanPhone ? ` (+57 ${cleanPhone})` : ''}`);
         }
-        if (extractedInfo.platform) {
-            responseMsg += `📺 *Plataforma:* ${platUpper}\n`;
+        if (platDisplay && platDisplay !== 'GENERAL') {
+            metaParts.push(`📺 *Servicio:* ${platDisplay}`);
         }
-        if (extractedInfo.summary) {
-            responseMsg += `📋 *Situación:* ${extractedInfo.summary}\n`;
+        if (metaParts.length > 0) {
+            responseMsg += `${metaParts.join(' | ')}\n`;
+        }
+
+        const teamSummary = cliSolution.resumenEquipo || extractedInfo.summary || '';
+        const teamSolution = cliSolution.solucionEquipo || '';
+        if (teamSummary) {
+            responseMsg += `\n📌 *¿Qué pasó?*\n${teamSummary}\n`;
+        }
+        if (teamSolution) {
+            responseMsg += `\n✅ *¿Qué vamos a corregir?*\n${teamSolution}\n`;
         }
 
         if (diagnosticNotes.length > 0) {
-            responseMsg += `\n🔍 *REVISIÓN REALIZADA EN EL SISTEMA:*\n` + diagnosticNotes.map(n => `• ${n}`).join('\n') + `\n`;
+            responseMsg += `\n🔎 *Revisión en sistema:*\n` + diagnosticNotes.map(n => `• ${n}`).join('\n') + `\n`;
         }
 
-        if (cliSolution.causaRaiz && cliSolution.causaRaiz !== extractedInfo.summary) {
-            responseMsg += `\n🔬 *Diagnóstico Técnico:* \n${cliSolution.causaRaiz}\n`;
+        // Sección técnica separada y compacta para Esteban / desarrollo
+        const affectedFilesList = Array.isArray(cliSolution.archivosAfectados) && cliSolution.archivosAfectados.length > 0
+            ? cliSolution.archivosAfectados.join(', ')
+            : 'Por confirmar';
+        responseMsg += `\n────────────────────\n`;
+        responseMsg += `🔧 *Detalle técnico (para desarrollo):*\n`;
+        responseMsg += `• *Archivos:* ${affectedFilesList}\n`;
+        if (cliSolution.causaRaiz && cliSolution.causaRaiz !== teamSummary) {
+            responseMsg += `• *Causa raíz:* ${cliSolution.causaRaiz}\n`;
         }
-
-        responseMsg += `\n💡 *Plan de Modificaciones en Código:* \n${cliSolution.planCodigo}\n`;
+        if (cliSolution.planCodigo) {
+            responseMsg += `• *Plan en código:*\n${cliSolution.planCodigo}\n`;
+        }
         if (cliSolution.commitDetallado) {
-            responseMsg += `\n📝 *Commit Propuesto:* \n\`\`\`\n${cliSolution.commitDetallado}\n\`\`\`\n`;
+            const commitTitleLine = cliSolution.commitDetallado.split('\n')[0].trim();
+            responseMsg += `• *Commit:* \`${commitTitleLine}\`\n`;
         }
-        responseMsg += `\n👉 *Para implementar cambio en código y subir a GitHub:* Escribe *@commit* o *@aceptar*\n`;
-        responseMsg += `🔄 *Para profundizar o revalidar solución:* Escribe *@continuar*\n`;
-        responseMsg += `✏️ *Para pedir otra solución o ajuste:* Escribe *@cambio <la solución que quieres>*\n`;
-        responseMsg += `🛑 *Para descartar:* Escribe *@deje asi*\n`;
-        responseMsg += `⏪ *Para deshacer último commit:* Escribe *@devolver commit*\n`;
+
+        responseMsg += `\n👉 *@aceptar* (o *@commit*) para aplicar el arreglo\n`;
+        responseMsg += `✏️ *@cambio <indicación>* | 🛑 *@deje asi* | 🔄 *@continuar* | ⏪ *@devolver commit*`;
 
         // Responder citando el mensaje del asesor o directamente si falla el quote
         try {

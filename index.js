@@ -10947,19 +10947,21 @@ async function ensureClientReady() {
             }
         }
 
-        if (!client._eventsAttached) {
-            console.log('🔧 [WhatsApp Fix] Adjuntando listeners de eventos...');
+        const hasPageListeners = await client.pupPage.evaluate(() => Boolean(window.__whatbotListenersAttached)).catch(() => false);
+        if (!client._eventsAttached || !hasPageListeners) {
+            console.log(`🔧 [WhatsApp Fix] Adjuntando listeners de eventos... (${!hasPageListeners ? 'página recargada o sin listeners' : 'arranque inicial'})`);
+            let attachedInPage = false;
             try {
                 await Promise.race([
                     client.attachEventListeners(),
                     new Promise((_, reject) => setTimeout(() => reject(new Error('attachEventListeners timeout (15s)')), 15000))
                 ]);
-                client._eventsAttached = true;
+                attachedInPage = true;
                 console.log('🔧 [WhatsApp Fix] Listeners de eventos adjuntados correctamente.');
             } catch (attErr) {
                 console.warn('⚠️ [WhatsApp Fix] attachEventListeners falló o dio timeout:', attErr.message);
-                // Inyectar directamente el listener básico de mensajes en la página
-                await client.pupPage.evaluate(() => {
+                // Inyectar directamente el listener básico de mensajes en la página (útil tras recarga de WhatsApp Web)
+                attachedInPage = await client.pupPage.evaluate(() => {
                     try {
                         if (window.Store && window.Store.Msg && typeof window.onAddMessageEvent === 'function') {
                             window.Store.Msg.off('add');
@@ -10968,9 +10970,17 @@ async function ensureClientReady() {
                                     window.onAddMessageEvent(window.WWebJS.getMessageModel(msg));
                                 }
                             });
+                            return true;
                         }
                     } catch (_) {}
-                }).catch(() => {});
+                    return false;
+                }).catch(() => false);
+                if (attachedInPage) {
+                    console.log('🔧 [WhatsApp Fix] Listener directo Store.Msg.on("add") re-inyectado correctamente.');
+                }
+            }
+            if (attachedInPage) {
+                await client.pupPage.evaluate(() => { window.__whatbotListenersAttached = true; }).catch(() => {});
                 client._eventsAttached = true;
             }
         }
@@ -11440,24 +11450,33 @@ client.on('loading_screen', (percent, message) => {
     broadcastSseEvent('status', { status: currentWhatsappStatus, percent, message });
 });
 
+let activeAuthReadyCheck = null;
 client.on('authenticated', () => {
     console.log('✅ [AUTENTICADO] Sesión validada en WhatsApp Web. Descargando chats e historial...');
     currentWhatsappStatus = 'AUTHENTICATED';
     latestQrCode = null;
     latestPairingCode = null;
+    // Resetear bandera para forzar re-verificación de listeners si WhatsApp Web recargó la página
+    client._eventsAttached = false;
     broadcastSseEvent('status', { status: currentWhatsappStatus });
-    // Iniciar verificación activa post-autenticación para no depender del timeout de 30s de WWebJS
+    if (activeAuthReadyCheck) {
+        clearInterval(activeAuthReadyCheck);
+        activeAuthReadyCheck = null;
+    }
+    // Iniciar verificación activa post-autenticación (incluso en re-autenticaciones en caliente)
     let checks = 0;
-    const authReadyCheck = setInterval(async () => {
+    activeAuthReadyCheck = setInterval(async () => {
         checks++;
-        if (client._readyEmitted || checks > 40) {
-            clearInterval(authReadyCheck);
+        if (checks > 40) {
+            clearInterval(activeAuthReadyCheck);
+            activeAuthReadyCheck = null;
             return;
         }
         try {
             const ready = await ensureClientReady();
-            if (ready) {
-                clearInterval(authReadyCheck);
+            if (ready && client._eventsAttached) {
+                clearInterval(activeAuthReadyCheck);
+                activeAuthReadyCheck = null;
             }
         } catch (_) {}
     }, 2000);
@@ -11525,6 +11544,8 @@ client.on('message_create', async (msg) => {
                     effectiveMsgText.includes('[SOLUCIÓN IMPLEMENTADA') ||
                     effectiveMsgText.includes('[PROPUESTA AJUSTADA') ||
                     effectiveMsgText.includes('[DIAGNÓSTICO') ||
+                    effectiveMsgText.includes('[REVISIÓN DE ERROR]') ||
+                    effectiveMsgText.includes('[REVISIÓN PRELIMINAR]') ||
                     effectiveMsgText.includes('DIAGNÓSTICO Y RESPUESTA') ||
                     effectiveMsgText.includes('Ticket #ERR-') ||
                     effectiveMsgText.includes('Ticket: #ERR-') ||
