@@ -13082,17 +13082,38 @@ REGLAS:
                                     });
                                 }
                                 if (matchedRenewalAccounts.length > 0) {
+                                    const { getPlatformPriceFromExcel } = require('./billingService');
+                                    const { getPlatforms } = require('./apiService');
+                                    const catalogPlatforms = await getPlatforms().catch(() => []);
+                                    const calculatedRenewalTotal = matchedRenewalAccounts.reduce((sum, acc) => sum + (Number(getPlatformPriceFromExcel(acc, catalogPlatforms)) || 0), 0);
                                     curState.isRenewal = true;
                                     curState.items = matchedRenewalAccounts;
-                                    curState.total = Number(check.amount) || curState.total || 0;
+                                    curState.total = calculatedRenewalTotal > 0 ? calculatedRenewalTotal : (curState.total || 0);
                                     curState.realPhone = curState.realPhone || realPhone || String(lookupPhone).replace(/\D/g, '');
-                                    console.log(`[Payment Receipt Universal Bypass] 🔄 Contexto de renovación reconstruido desde Excel para @${userId}: ${matchedRenewalAccounts.map(a => a.Streaming).join(', ')}`);
+                                    console.log(`[Payment Receipt Universal Bypass] 🔄 Contexto de renovación reconstruido desde Excel para @${userId}: ${matchedRenewalAccounts.map(a => a.Streaming).join(', ')} (Total esperado: ${curState.total})`);
                                 } else if (check.inferredPlatform && (!curState.items || curState.items.length === 0)) {
+                                    const { getPlatforms } = require('./apiService');
+                                    const catalogPlatforms = await getPlatforms().catch(() => []);
+                                    const inferredLower = String(check.inferredPlatform || '').toLowerCase().trim();
+                                    const matchedPlat = (catalogPlatforms || []).find(p => {
+                                        const pName = String(p.name || '').toLowerCase().trim();
+                                        return pName && (pName === inferredLower || pName.includes(inferredLower) || inferredLower.includes(pName));
+                                    });
+                                    let inferredPrice = 0;
+                                    if (matchedPlat) {
+                                        if (Array.isArray(matchedPlat.plans) && matchedPlat.plans.length > 0) {
+                                            const ocrAmt = Number(check.amount) || 0;
+                                            const matchingPlan = matchedPlat.plans.find(pl => Number(pl.price) === ocrAmt);
+                                            inferredPrice = matchingPlan ? Number(matchingPlan.price) : (Number(matchedPlat.plans[0].price) || Number(matchedPlat.price) || 0);
+                                        } else {
+                                            inferredPrice = Number(matchedPlat.price) || 0;
+                                        }
+                                    }
                                     curState.isRenewal = false;
-                                    curState.items = [{ name: check.inferredPlatform, platform: { name: check.inferredPlatform }, quantity: 1 }];
-                                    curState.total = Number(check.amount) || curState.total || 0;
+                                    curState.items = [{ name: matchedPlat ? matchedPlat.name : check.inferredPlatform, platform: matchedPlat || { name: check.inferredPlatform }, price: inferredPrice, quantity: 1 }];
+                                    curState.total = inferredPrice > 0 ? inferredPrice : (curState.total || 0);
                                     curState.realPhone = curState.realPhone || realPhone || String(lookupPhone).replace(/\D/g, '');
-                                    console.log(`[Payment Receipt Universal Bypass] 🛒 Contexto de compra nueva reconstruido desde OCR para @${userId}: ${check.inferredPlatform}`);
+                                    console.log(`[Payment Receipt Universal Bypass] 🛒 Contexto de compra nueva reconstruido desde OCR para @${userId}: ${check.inferredPlatform} (Total esperado: ${curState.total})`);
                                 }
                             } catch (accErr) {
                                 console.warn('[Payment Receipt Universal Bypass] Error reconstruyendo renovación desde Excel:', accErr.message);
@@ -19036,15 +19057,44 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                         }
 
                         // ✅ Llave Bre-V correcta o QR del negocio: validar monto y proceder
-                        const { adjustDurationToMatchAmount } = require('./billingService');
+                        const { adjustDurationToMatchAmount, getPlatformPriceFromExcel } = require('./billingService');
                         await adjustDurationToMatchAmount(stateData, check.amount, userId);
 
+                        if (!stateData.total || Number(stateData.total) <= 0) {
+                            if (Array.isArray(stateData.items) && stateData.items.length > 0) {
+                                try {
+                                    const { getPlatforms } = require('./apiService');
+                                    const catalogPlats = await getPlatforms().catch(() => []);
+                                    const recalcTotal = stateData.items.reduce((sum, item) => {
+                                        const itemPrice = Number(item.price || item.precio) || Number(getPlatformPriceFromExcel(item, catalogPlats)) || 0;
+                                        return sum + itemPrice;
+                                    }, 0);
+                                    if (recalcTotal > 0) stateData.total = recalcTotal;
+                                } catch (recalcErr) { }
+                            }
+                        }
+
                         const expectedTotal = Math.max(0, (stateData.total || 0) - (stateData.saldo || 0));
+                        if (expectedTotal <= 0) {
+                            console.warn(`[AUTO-VALIDATE] ⚠️ No se pudo determinar el precio esperado (expectedTotal=${expectedTotal}) para ${userId}. Escalando a revisión manual.`);
+                            try {
+                                const groupChat = await client.getChatById(GROUP_ID);
+                                if (groupChat) {
+                                    const realPhoneClean = (stateData.realPhone || userId).replace(/\D/g, '');
+                                    await groupChat.sendMessage(`📸 *COMPROBANTE SIN PRECIO ESPERADO - REVISIÓN MANUAL* (@${realPhoneClean})\nMonto OCR: ${Number(check.amount).toLocaleString('es-CO')}\nBanco: ${check.bank || 'Desconocido'}\nLlave: ${check.destinationKey || 'N/A'}\n\n⚠️ No se pudo determinar el valor real del servicio. Para aprobar: *@bot confirmar ${realPhoneClean}*`);
+                                }
+                            } catch (e) { }
+                            await message.reply("🤖 ¡Gracias! He recibido tu comprobante y lo he enviado a nuestro equipo para validación. En breve un asesor confirmará tu pago. 😊");
+                            userStates.set(userId, { ...stateData, state: 'waiting_admin_confirmation' });
+                            await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
+                            return;
+                        }
+
                         const currentAmount = Number(check.amount);
                         const previousPaid = (stateData.checkAmount && stateData.checkAmount !== currentAmount) ? stateData.checkAmount : 0;
                         const totalPaidSoFar = previousPaid + currentAmount;
 
-                        const amountMatches = expectedTotal <= 0 ||
+                        const amountMatches =
                             Math.abs(currentAmount - expectedTotal) < 500 ||
                             Math.abs(totalPaidSoFar - expectedTotal) < 500 ||
                             currentAmount >= (expectedTotal - 500) ||

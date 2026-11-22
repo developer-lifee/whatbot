@@ -967,7 +967,7 @@ async function processCheckCredentials(userId, client, triggerMessage = "", hist
 
     } catch (error) {
         console.error('[Billing Service] Error al procesar credenciales:', error);
-        await safeSend(null, "🤖 Hubo un error al recuperar tus credenciales. Por favor, inténtalo de nuevo en un momento o contacta a un asesor.", userId, client);
+        await safeSend(null, "🤖 Hubo un error al recuperar tus credenciales. Por favor, inténtalo de nuevo en un momento o contacta a un asesor.", userId);
     }
 }
 
@@ -980,7 +980,17 @@ async function adjustDurationToMatchAmount(stateData, paidAmount, userId) {
         // 0. Si el usuario YA seleccionó ítems específicos en el contexto de la conversación (stateData.items)
         // y el monto pagado coincide con el total esperado de esa selección:
         if (stateData.items && Array.isArray(stateData.items) && stateData.items.length > 0) {
-            const currentTotal = stateData.total || stateData.items.reduce((sum, item) => sum + (item.price || item.precio || 0), 0);
+            let currentTotal = Number(stateData.total) || 0;
+            if (currentTotal <= 0) {
+                const platformsForItems = await getPlatformKnowledge().catch(() => []);
+                currentTotal = stateData.items.reduce((sum, item) => {
+                    const itemPrice = Number(item.price || item.precio) || Number(getPlatformPriceFromExcel(item, platformsForItems)) || 0;
+                    return sum + itemPrice;
+                }, 0);
+                if (currentTotal > 0) {
+                    stateData.total = currentTotal;
+                }
+            }
             if (currentTotal > 0 && Math.abs(currentTotal - paidAmount) < 500) {
                 console.log(`[Duration Adjuster] 🎯 Respetando selección previa del contexto del chat: ${stateData.items.map(i => i.Streaming || i.name).join(', ')} ($${paidAmount}).`);
                 stateData.total = paidAmount;
