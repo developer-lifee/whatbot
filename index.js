@@ -11064,8 +11064,7 @@ server.listen(port, () => {
 
                     // Si lleva más de 6 minutos en espera sin vincular, forzar reinicio limpio para regenerar una sesión fresca
                     if (qrReadyHeartbeatCount >= 3) {
-                        console.warn('⚠️ [ANTI-ZOMBIE] El proceso lleva más de 6 minutos en espera de vinculación. Forzando reinicio limpio para regenerar sesión fresca...');
-                        process.exit(1);
+                        await safeAntiZombieExit('El proceso lleva más de 6 minutos en espera de vinculación. Regenerando sesión fresca...');
                     }
                     return;
                 } else {
@@ -11077,8 +11076,7 @@ server.listen(port, () => {
 
                 // Si lleva 4 heartbeats seguidos (8 minutos) sin estar en CONNECTED tras el calentamiento y sin estar descargando, forzar reinicio
                 if (nonConnectedHeartbeatCount >= 4) {
-                    console.error(`🔥 [ANTI-ZOMBIE] El cliente WhatsApp lleva ${nonConnectedHeartbeatCount * 2} minutos sin estar en estado CONNECTED ni sincronizando (estado actual: '${state}'). Forzando reinicio para PM2...`);
-                    process.exit(1);
+                    await safeAntiZombieExit(`El cliente WhatsApp lleva ${nonConnectedHeartbeatCount * 2} minutos sin estar en estado CONNECTED ni sincronizando (estado actual: '${state}').`);
                 }
                 return;
             }
@@ -11108,8 +11106,7 @@ server.listen(port, () => {
                 criticalErrorCount++;
                 console.warn(`⚠️ [ANTI-ZOMBIE] Fallo crítico detectado en heartbeat (${criticalErrorCount}/3): ${err.message}`);
                 if (criticalErrorCount >= 3) {
-                    console.error('🔥 [ANTI-ZOMBIE] Detectado estado crítico persistente de Puppeteer (3 fallos seguidos). Forzando reinicio para PM2...');
-                    process.exit(1);
+                    await safeAntiZombieExit('Detectado estado crítico persistente de Puppeteer (3 fallos seguidos).');
                 }
             } else {
                 criticalErrorCount = 0;
@@ -11162,6 +11159,53 @@ const client = new Client({
 global.client = client;
 
 // Manejo de cierres limpios
+let isAntiZombieExiting = false;
+async function safeAntiZombieExit(reason) {
+    if (isAntiZombieExiting) return;
+    isAntiZombieExiting = true;
+    console.error(`🔥 [ANTI-ZOMBIE] ${reason} Cerrando Chromium de forma segura antes de reiniciar para no corromper IndexedDB...`);
+    try {
+        if (client && typeof client.destroy === 'function') {
+            await Promise.race([
+                client.destroy().catch(() => {}),
+                new Promise(resolve => setTimeout(resolve, 8000))
+            ]);
+        }
+    } catch (e) {
+        console.warn('[ANTI-ZOMBIE] Advertencia cerrando cliente:', e.message);
+    }
+    process.exit(1);
+}
+
+let lastExternalQrAlertAt = 0;
+async function notifyExternalSessionAlert(reason) {
+    const now = Date.now();
+    if (now - lastExternalQrAlertAt < 30 * 60 * 1000) return;
+    lastExternalQrAlertAt = now;
+
+    const text = `🚨 [Whatbot Sheerit] Sesión de WhatsApp desconectada (${reason}). Escanea el código QR en el panel web para reconectar.`;
+    try {
+        if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
+            await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ chat_id: process.env.TELEGRAM_CHAT_ID, text })
+            });
+            console.log('📨 [Session Alert] Alerta de sesión caída enviada por Telegram.');
+        }
+        if (process.env.ALERT_WEBHOOK_URL) {
+            await fetch(process.env.ALERT_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event: 'whatsapp_session_lost', reason, text, timestamp: new Date().toISOString() })
+            });
+            console.log('📨 [Session Alert] Alerta de sesión caída enviada al webhook externo.');
+        }
+    } catch (err) {
+        console.error('[Session Alert] Error enviando notificación externa:', err.message);
+    }
+}
+
 async function shutdown() {
     console.log('Cerrando bot de forma limpia...');
     try {
@@ -11185,6 +11229,7 @@ client.on('qr', (qr) => {
     latestPairingCode = null;
     currentWhatsappStatus = 'QR_READY';
     broadcastSseEvent('status', { status: currentWhatsappStatus, qr: qr });
+    notifyExternalSessionAlert('QR_READY - Se requiere escanear QR').catch(() => {});
 });
 
 // Auto-recargador de código QR si expira en WhatsApp Web (WhatsApp Web detiene la rotación y muestra botón de recargar tras ~120s)
@@ -13274,6 +13319,7 @@ REGLAS:
                 console.log(`[BOT MUTE REACTIVATE IMMEDIATE] Reactivando bot para @${userId} por intención resoluble.`);
                 userStates.delete(userId);
                 currentState = undefined;
+                currentStateData = undefined;
                 isSolvable = true;
             }
         } catch (err) {
@@ -13296,6 +13342,7 @@ REGLAS:
                 console.log(`[DEBUG] Reactivando bot desde waiting_human para @${userId} (expirado o explícito).`);
                 userStates.delete(userId);
                 currentState = undefined;
+                currentStateData = undefined;
             } else {
                 // BYPASS INTELIGENTE: Si el usuario pide un código de verificación/2FA o sus credenciales, lo asistimos automáticamente
                 const txt = (message.body || "").toLowerCase();
@@ -17288,7 +17335,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         }
                     }
 
-                    if (hasRecentHuman || (currentStateData && currentStateData.state === 'waiting_human' && currentStateData.waiting_human_mode === 'advisor')) {
+                    const liveStateData = userStates.get(userId);
+                    if (hasRecentHuman || (liveStateData && liveStateData.state === 'waiting_human' && liveStateData.waiting_human_mode === 'advisor')) {
                         console.log(`[Support Direct Answer] 🤫 Asesor humano activo para @${userId}. Omitiendo prompt genérico de soporte para no interrumpir.`);
                         return;
                     }

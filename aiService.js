@@ -653,6 +653,14 @@ async function executeDirectDeepSeek(prompt, systemInstruction, isJson) {
       isDeepSeekDisabled = true;
       deepSeekDisableUntil = Date.now() + 10 * 60 * 1000;
       console.warn("🚫 [DeepSeek Circuit] Saldo insuficiente (402). Activando failover temporal.");
+      const nowMs = Date.now();
+      if (!global.__lastDeepSeek402AlertAt || (nowMs - global.__lastDeepSeek402AlertAt) > 4 * 60 * 60 * 1000) {
+        global.__lastDeepSeek402AlertAt = nowMs;
+        if (global.client && typeof global.client.sendMessage === 'function') {
+          const alertMsg = `🚨 *ALERTA DE SALDO DEEPSEEK (402)*\n\nLa cuenta de DeepSeek se quedó sin saldo (*Insufficient Balance*). El bot activó el failover temporal a Gemini, pero si Gemini llega a cuota (429) las respuestas pueden fallar.\n\n💳 Por favor recarga saldo en https://platform.deepseek.com (el bot retomará DeepSeek automáticamente).`;
+          global.client.sendMessage('120363427163636523@g.us', alertMsg, { sendSeen: false }).catch(() => {});
+        }
+      }
     }
     throw new Error(`DeepSeek API Error: ${response.status} ${response.statusText} - ${errText}`);
   }
@@ -1401,10 +1409,27 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
 
   if (!isForced && !isCommercialReactivation && chatHistory && chatHistory.includes('Asesor Humano (Atención Manual)')) {
     const lines = chatHistory.split('\n').filter(l => l.trim().length > 0);
-    const lastLines = lines.slice(-5).join(' ');
-    if (lastLines.includes('Asesor Humano (Atención Manual)') && !messageContent?.toLowerCase()?.includes('@bot') && messageContent?.trim()?.toLowerCase() !== 'menu') {
-      console.log(`[AI Empathetic Fallback] Asesor humano detectado en la última interacción del historial. Silenciando bot para no interrumpir.`);
-      return { replyMessage: null, needsEscalation: false };
+    const lastLinesArr = lines.slice(-5);
+    const advisorLines = lastLinesArr.filter(l => l.includes('Asesor Humano (Atención Manual)'));
+
+    if (advisorLines.length > 0 && !messageContent?.toLowerCase()?.includes('@bot') && messageContent?.trim()?.toLowerCase() !== 'menu') {
+      // Verificar que el mensaje del asesor sea realmente reciente (de hoy y dentro de 120 min),
+      // evitando silenciar al bot por conversaciones antiguas de días anteriores.
+      const todayTag = new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }).toLowerCase();
+      const hasTodayAdvisorLine = advisorLines.some(l => {
+        const m = l.match(/^\[([^,\]]+),/);
+        return m && m[1].trim().toLowerCase() === todayTag;
+      });
+      const st = userStates && userId ? userStates.get(userId) : null;
+      const lastHumanMs = st && st.lastHumanInteraction ? (Date.now() - st.lastHumanInteraction) : null;
+      const isActiveAdvisorState = Boolean(st && st.state === 'waiting_human' && st.waiting_human_mode === 'advisor' && (lastHumanMs === null || lastHumanMs <= 120 * 60 * 1000));
+
+      if (hasTodayAdvisorLine && (lastHumanMs === null || lastHumanMs <= 120 * 60 * 1000 || isActiveAdvisorState)) {
+        console.log(`[AI Empathetic Fallback] Asesor humano reciente detectado en el historial de hoy. Silenciando bot para no interrumpir.`);
+        return { replyMessage: null, needsEscalation: false };
+      } else {
+        console.log(`[AI Empathetic Fallback] ℹ️ Mensaje de asesor humano en historial es antiguo (no reciente). Permitiendo respuesta del bot.`);
+      }
     }
   }
 
@@ -1639,7 +1664,7 @@ GUÍA DE FUNCIONAMIENTO Y PRECIOS:
 ${platformContext}
 
 CONTEXTO DE SOPORTE TÉCNICO (PROBLEMAS COMUNES):
-${supportContext}${ragContext ? "\n\n" + ragContext : ""}
+${supportContext}
 
 INSTRUCCIONES DE RESPUESTA:
 1. **Brevedad Extrema (REGLA DE ORO)**: Tus respuestas deben ser MUY CORTAS y directas al grano (1 o 2 párrafos máximo). A los clientes no les gusta leer textos largos.
@@ -1671,7 +1696,7 @@ INSTRUCCIONES DE RESPUESTA:
 ${accountSummary || "Ninguno registrado actualmente."}${specificAccountIncidents ? "\n" + specificAccountIncidents : ""}${warrantyNotice ? "\n" + warrantyNotice : ""}
 
 ENLACE DE VERIFICACIÓN PERSONALIZADO:
-${verificationLink}
+${verificationLink}${ragContext ? "\n\nCONOCIMIENTO RAG RELEVANTE PARA ESTE CASO:\n" + ragContext : ""}
 
 CONTEXTO DE LA CONVERSACIÓN:
 ${chatHistory || "No hay mensajes previos."}
