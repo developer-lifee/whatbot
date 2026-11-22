@@ -361,7 +361,8 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
               const numPrice = parseInt(pl.price) || 0;
               const formatted = numPrice > 0 ? `$${numPrice.toLocaleString('es-CO')} COP` : `$${pl.price}`;
               const cleanLabel = formatCleanPlanLabel(u.item.platform.name, pl.name);
-              alternatives.push({ label: cleanLabel, price: formatted, platformName: u.item.platform.name });
+              const detailText = (pl.detalles || (Array.isArray(pl.characteristics) && pl.characteristics[0]) || '').trim();
+              alternatives.push({ label: cleanLabel, price: formatted, details: detailText, platformName: u.item.platform.name });
             }
           }
         }
@@ -371,12 +372,19 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     const allGenericQueries = unavailableItems.every(u => !u.item.chosenPlan);
 
     // Si el cliente preguntó en general (ej: "¿tienes Claude?") sin elegir un plan específico
-    // y SÍ hay planes disponibles de esa plataforma, responder positivamente listando los planes disponibles.
+    // y SÍ hay planes disponibles de esa plataforma, responder positivamente listando los planes disponibles con explicación clara.
     if (allGenericQueries && alternatives.length > 0) {
       const platformNames = [...new Set(unavailableItems.map(u => u.item.platform.name))].join(', ');
       let availMsg = `🤖 ¡Sí! Hoy tenemos disponible *${platformNames}* en los siguientes planes:\n\n`;
       for (const alt of alternatives) {
         availMsg += `• *${alt.label}* — ${alt.price}\n`;
+        if (alt.details) {
+          availMsg += `  _${alt.details}_\n`;
+        }
+      }
+      const hasMultiplierNames = alternatives.some(a => /\d+\s*x\b/i.test(a.label));
+      if (hasMultiplierNames) {
+        availMsg += `\n💡 _Nota: los valores como "5x", "20x" o "50x" indican cuántas veces más mensajes y capacidad de uso tienes frente a una cuenta gratuita._\n`;
       }
       availMsg += `\n¿Cuál de estos planes te gustaría activar? 😊`;
       await message.reply(availMsg);
@@ -389,8 +397,11 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
     }
 
     if (alternatives.length > 0) {
-      const altList = alternatives.map(a => `*${a.label}* a ${a.price}`).join(', ');
-      unavailMsg += `\n💡 *Opciones alternativas disponibles hoy:* ${altList}. ¿Te gustaría activar alguna de estas?`;
+      unavailMsg += `\n💡 *Opciones alternativas disponibles hoy:*\n`;
+      for (const alt of alternatives) {
+        unavailMsg += `• *${alt.label}* — ${alt.price}${alt.details ? ` _(${alt.details})_` : ''}\n`;
+      }
+      unavailMsg += `\n¿Te gustaría activar alguna de estas?`;
     } else {
       unavailMsg += `\nTe avisaremos tan pronto tengamos nuevos cupos disponibles. 😊`;
     }
