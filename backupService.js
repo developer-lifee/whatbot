@@ -131,6 +131,123 @@ function dumpDatabase(outputSqlPath) {
     }
 }
 
+async function getOneDriveAccessToken() {
+    const msTokenPath = path.join(ROOT_DIR, 'ms_graph_token.json');
+    if (!fs.existsSync(msTokenPath)) return null;
+    const tokenData = JSON.parse(fs.readFileSync(msTokenPath, 'utf8'));
+    if (!tokenData || !tokenData.refresh_token) return null;
+
+    const bodyParams = new URLSearchParams({
+        client_id: tokenData.client_id || 'dd590625-bd57-487f-94c9-c8fb4c44ebfb',
+        grant_type: 'refresh_token',
+        refresh_token: tokenData.refresh_token,
+        scope: 'Files.Read.All Files.ReadWrite.All offline_access'
+    });
+
+    const tokenRes = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: bodyParams
+    });
+    const tokenJson = await tokenRes.json();
+    if (!tokenRes.ok || !tokenJson.access_token) {
+        throw new Error(tokenJson.error_description || tokenJson.error || 'Error obteniendo token OneDrive');
+    }
+
+    if (tokenJson.refresh_token && tokenJson.refresh_token !== tokenData.refresh_token) {
+        tokenData.refresh_token = tokenJson.refresh_token;
+        tokenData.updated_at = new Date().toISOString();
+        try { fs.writeFileSync(msTokenPath, JSON.stringify(tokenData, null, 2), 'utf8'); } catch (_) {}
+    }
+
+    return tokenJson.access_token;
+}
+
+async function uploadToOneDrive(filePath, fileName) {
+    const accessToken = await getOneDriveAccessToken();
+    if (!accessToken) return null;
+
+    const fileSize = fs.statSync(filePath).size;
+    const sessionUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${DRIVE_FOLDER_NAME}/${encodeURIComponent(fileName)}:/createUploadSession`;
+    const sessionRes = await fetch(sessionUrl, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            item: { '@microsoft.graph.conflictBehavior': 'replace' }
+        })
+    });
+    const sessionJson = await sessionRes.json();
+    if (!sessionRes.ok || !sessionJson.uploadUrl) {
+        throw new Error(`createUploadSession falló: ${JSON.stringify(sessionJson).slice(0, 200)}`);
+    }
+
+    // Subir en bloques múltiplos de 320 KiB (5 MiB = 5 * 1024 * 1024)
+    const CHUNK_SIZE = 5 * 1024 * 1024;
+    const fd = fs.openSync(filePath, 'r');
+    let uploadedItem = null;
+    try {
+        let offset = 0;
+        while (offset < fileSize) {
+            const end = Math.min(offset + CHUNK_SIZE, fileSize);
+            const length = end - offset;
+            const buffer = Buffer.alloc(length);
+            fs.readSync(fd, buffer, 0, length, offset);
+
+            const chunkRes = await fetch(sessionJson.uploadUrl, {
+                method: 'PUT',
+                headers: {
+                    'Content-Length': String(length),
+                    'Content-Range': `bytes ${offset}-${end - 1}/${fileSize}`
+                },
+                body: buffer
+            });
+            const chunkJson = await chunkRes.json().catch(() => ({}));
+            if (!chunkRes.ok && chunkRes.status !== 202) {
+                throw new Error(`Error subiendo bloque ${offset}-${end - 1}: HTTP ${chunkRes.status}`);
+            }
+            if (chunkJson && chunkJson.id) {
+                uploadedItem = chunkJson;
+            }
+            offset = end;
+        }
+    } finally {
+        fs.closeSync(fd);
+    }
+
+    // Purgar respaldos antiguos en OneDrive (conservar últimos MAX_DRIVE_BACKUPS)
+    try {
+        const listRes = await fetch(
+            `https://graph.microsoft.com/v1.0/me/drive/root:/${DRIVE_FOLDER_NAME}:/children?$select=id,name,createdDateTime&$top=50`,
+            { headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        const listJson = await listRes.json().catch(() => ({}));
+        const items = (listJson.value || [])
+            .filter(i => i.name && i.name.startsWith('whatbot_backup_'))
+            .sort((a, b) => new Date(b.createdDateTime) - new Date(a.createdDateTime));
+        if (items.length > MAX_DRIVE_BACKUPS) {
+            for (const oldItem of items.slice(MAX_DRIVE_BACKUPS)) {
+                await fetch(`https://graph.microsoft.com/v1.0/me/drive/items/${oldItem.id}`, {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${accessToken}` }
+                }).catch(() => {});
+                console.log(`[Backup] 🧹 Eliminado respaldo antiguo en OneDrive: ${oldItem.name}`);
+            }
+        }
+    } catch (pruneErr) {
+        console.warn('[Backup] Advertencia limpiando backups antiguos en OneDrive:', pruneErr.message);
+    }
+
+    return {
+        provider: 'onedrive',
+        id: uploadedItem ? uploadedItem.id : `onedrive:${fileName}`,
+        url: (uploadedItem && uploadedItem.webUrl) || `onedrive://${DRIVE_FOLDER_NAME}/${fileName}`,
+        size: fileSize
+    };
+}
+
 async function getOrCreateDriveFolder(drive) {
     const listRes = await drive.files.list({
         q: `name = '${DRIVE_FOLDER_NAME}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
@@ -306,24 +423,39 @@ async function runBackup() {
         const finalSizeMb = (finalSizeBytes / (1024 * 1024)).toFixed(2);
         console.log(`[Backup] 📦 Archivo final listo: ${finalPath} (${finalSizeMb} MB).`);
 
-        // 6. Subir a Google Drive y registrar en drive_backups
-        let driveInfo = null;
+        // 6. Subir a la nube: primero OneDrive (token rotativo activo) y opcionalmente Google Drive si está vigente
+        let cloudInfo = null;
         try {
-            driveInfo = await uploadToGoogleDrive(finalPath, finalName);
-            if (driveInfo) {
-                console.log(`[Backup] ☁️ Subido a Google Drive (${DRIVE_FOLDER_NAME}): ${driveInfo.url}`);
-                try {
-                    await pool.query(
-                        `INSERT INTO drive_backups (file_name, original_path, drive_file_id, drive_url, file_size)
-                         VALUES (?, ?, ?, ?, ?)`,
-                        [finalName, finalPath, driveInfo.id, driveInfo.url, finalSizeBytes]
-                    );
-                } catch (dbLogErr) {
-                    console.warn('[Backup] ⚠️ No se pudo registrar en tabla drive_backups:', dbLogErr.message);
-                }
+            cloudInfo = await uploadToOneDrive(finalPath, finalName);
+            if (cloudInfo) {
+                console.log(`[Backup] ☁️ Subido a OneDrive (${DRIVE_FOLDER_NAME}): ${cloudInfo.url}`);
             }
-        } catch (driveErr) {
-            console.error('[Backup] ❌ Error subiendo a Google Drive:', driveErr.message);
+        } catch (odErr) {
+            console.warn('[Backup] ⚠️ Error subiendo a OneDrive:', odErr.message);
+        }
+
+        if (!cloudInfo) {
+            try {
+                cloudInfo = await uploadToGoogleDrive(finalPath, finalName);
+                if (cloudInfo) {
+                    cloudInfo.provider = 'google_drive';
+                    console.log(`[Backup] ☁️ Subido a Google Drive (${DRIVE_FOLDER_NAME}): ${cloudInfo.url}`);
+                }
+            } catch (driveErr) {
+                console.error('[Backup] ❌ Error subiendo a Google Drive:', driveErr.message);
+            }
+        }
+
+        if (cloudInfo) {
+            try {
+                await pool.query(
+                    `INSERT INTO drive_backups (file_name, original_path, drive_file_id, drive_url, file_size)
+                     VALUES (?, ?, ?, ?, ?)`,
+                    [finalName, finalPath, cloudInfo.id, cloudInfo.url, finalSizeBytes]
+                );
+            } catch (dbLogErr) {
+                console.warn('[Backup] ⚠️ No se pudo registrar en tabla drive_backups:', dbLogErr.message);
+            }
         }
 
         // 7. Limpiar respaldos locales antiguos
@@ -338,7 +470,7 @@ async function runBackup() {
             filePath: finalPath,
             sizeBytes: finalSizeBytes,
             encrypted: Boolean(encKey),
-            drive: driveInfo
+            cloud: cloudInfo
         };
     } finally {
         try {

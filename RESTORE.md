@@ -1,6 +1,6 @@
 # Guía de Recuperación ante Desastres (Whatbot)
 
-Si pierdes acceso al VPS actual, puedes levantar todo el ecosistema en un servidor nuevo en ~5 minutos usando el último respaldo de Google Drive (`Whatbot_Backups`) y Docker.
+Si pierdes acceso al VPS actual, puedes levantar todo el ecosistema en un servidor nuevo en ~5 minutos usando el último respaldo en **OneDrive** (carpeta `Whatbot_Backups`, o respaldo secundario en Google Drive) y Docker.
 
 ## 1. Requisitos en el servidor nuevo
 ```bash
