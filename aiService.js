@@ -1254,7 +1254,7 @@ Debes responder en formato JSON:
 {
   "isReceipt": boolean, // true si la descripción detalla claramente un recibo de banco con una transferencia exitosa.
   "isPreTransfer": boolean, // true si es una pantalla PREVIA a confirmar la transferencia (ej: "¿Cuánto vas a transferir?", botón "Transferir plata", resumen antes de enviar) y NO un comprobante final.
-  "amount": number | null, // El valor numérico de la transferencia. Si es en COP, pon el entero (ej: 33000). Si es en USD o dólares (ej: $4.88 USD), pon 4.88 (con decimales).
+  "amount": number | null, // El valor numérico NETO transferido al destinatario (SIN impuesto 4x1.000 ni comisiones). En bancos como Nu que muestran "Monto total" ($22.088) + "Monto" ($22.000) + "Impuesto 4x1.000" ($88), extrae SIEMPRE el "Monto" neto (22000), NUNCA el "Monto total". Si es en COP, pon el entero (ej: 33000). Si es en USD o dólares (ej: $4.88 USD), pon 4.88 (con decimales).
   "currency": string | null, // "COP" si es en pesos colombianos, "USD" si es en dólares, etc.
   "bank": string | null, // Nombre del banco o medio detectado (Nequi, Daviplata, Bancolombia, Bre-B, Bold, etc.)
   "confidence": number, // Confianza de que es un recibo real y válido (0 a 1)
@@ -1277,6 +1277,7 @@ Reglas:
 - REGLA CRÍTICA (BANCOLOMBIA): Capturas de la app Bancolombia (incluyendo modo oscuro) que muestren "Datos de la transferencia", "Valor de la transferencia", "Producto destino" (ej: "Esteban David Avila Diagama", "Esteban Avila") corresponden a una transferencia confirmada:
   - "isReceipt": true, "bank": "Bancolombia", "confidence": 1.0.
 - REGLA CRÍTICA (COMPROBANTES MODERNOS NEQUI / BRE-V CON QR): Los comprobantes de Nequi y Bre-V incluyen un código QR en la parte superior con el texto "¡Escanea este QR con Nequi para verificar tu envio al instante!" junto con "Pago realizado", "Para: Sheerit Esteban Avila", "Llave: 0087387259", "¿Cuánto?: $ ...", "Referencia: M...". ESTO ES UN COMPROBANTE DE PAGO EXITOSO Y VÁLIDO (isReceipt: true, confidence: 1.0). NUNCA lo consideres como factura pendiente ni como QR de cobro.
+- REGLA CRÍTICA (IMPUESTO 4x1.000 / NU / COMISIONES): Si el comprobante desglosa "Monto total" (o "Total debitado"), "Monto" (o "Valor transferencia") e "Impuesto 4x1.000" / GMF / comisión (muy común en Nu / Nubank vía Bre-B), el campo "amount" DEBE ser estrictamente el **Monto neto transferido** (el que recibe el destinatario, ej. 22000) y NUNCA el "Monto total" con el 4x1.000 sumado (ej. 22088).
 - Si indica ERROR, TRANSACCIÓN RECHAZADA o CUENTA SUSPENDIDA, marca isReceipt: false.
 - REGLA CRÍTICA DE EXCLUSIÓN (LOGIN / 2FA / PANTALLA DE ACCESO O CLAUDE): Si la imagen describe un inicio de sesión, pantalla de verificación en 2 pasos (2FA), solicitud de código temporal de 6 dígitos, código enviado al email (ej: Claude, Anthropic, Netflix, Disney+, Google, OpenAI), o pantalla de error/actualizar hogar, DEBES responder con isReceipt: false, amount: null, bank: null, confidence: 0. Bajo NINGUNA circunstancia clasifiques una pantalla de login de Claude o código como comprobante de pago.
 - Para 'inferredPlatform': Examina el [Historial reciente] o texto adjunto. Si el cliente menciona "office", "office 365", pon "Microsoft 365". Si el cliente habla de HBO, Netflix, Disney, pon esa plataforma exacta.`;
@@ -1286,6 +1287,9 @@ Reglas:
       const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "payment_receipt_prompt"');
       if (rows && rows.length > 0) {
         promptTemplate = rows[0].cfg_value;
+        if (!promptTemplate.includes('4x1.000')) {
+          promptTemplate += `\n- REGLA CRÍTICA (IMPUESTO 4x1.000 / NU / COMISIONES): Si el comprobante desglosa "Monto total", "Monto" e "Impuesto 4x1.000" / GMF, el campo "amount" DEBE ser el Monto neto transferido (ej: 22000), NUNCA el "Monto total" con el 4x1.000 sumado (ej: 22088).`;
+        }
       }
     } catch (dbErr) {
       console.warn("[aiService] Error querying payment_receipt_prompt from database, using default.");
