@@ -12778,9 +12778,15 @@ async function baseProcessIncomingMessage(messages) {
         }
     }
 
+    const latestValidationTs = Math.max(
+        (stateByUserId && stateByUserId.lastPaymentValidated) || 0,
+        (stateByPhone && stateByPhone.lastPaymentValidated) || 0,
+        (stateByRawPhone && stateByRawPhone.lastPaymentValidated) || 0
+    );
     const activeInteractiveState = [stateByUserId, stateByPhone, stateByRawPhone].find(s => {
         if (!s || !interactiveActiveStates.includes(s.state)) return false;
         const lastTime = s.timestamp || s.lastMessageTime || 0;
+        if (latestValidationTs && lastTime && latestValidationTs >= lastTime) return false;
         const ageHours = lastTime ? (Date.now() - lastTime) / (1000 * 3600) : 999;
         return ageHours <= getInteractiveStateTTL(s);
     });
@@ -17770,6 +17776,21 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         case 'awaiting_netflix_operator_post_payment':
             const ispInfo = (message.body || "").trim();
             const st = userStates.get(userId) || {};
+
+            if (st.lastPaymentValidated && (Date.now() - st.lastPaymentValidated) < 2 * 60 * 60 * 1000) {
+                userStates.set(userId, { state: 'main_menu', nombre: st.nombre, chatJid: userId, lastPaymentValidated: st.lastPaymentValidated });
+                if (realPhone) {
+                    userStates.set(realPhone, { state: 'main_menu', nombre: st.nombre, chatJid: userId, lastPaymentValidated: st.lastPaymentValidated });
+                    userStates.set(`${realPhone}@c.us`, { state: 'main_menu', nombre: st.nombre, chatJid: userId, lastPaymentValidated: st.lastPaymentValidated });
+                }
+                await message.reply("🤖 Tu pago ya fue validado y tus credenciales fueron entregadas. Si tienes algún inconveniente con tu cuenta o perfiles, un asesor te ayudará en breve. 😊");
+                break;
+            }
+
+            if (message.hasMedia || !ispInfo) {
+                await message.reply("🤖 Para continuar con la activación de tu Netflix, por favor escríbeme en texto la *localidad/municipio* y tu *operador de internet* (ejemplo: *suba-movistar*). 😊");
+                break;
+            }
 
             userStates.set(userId, { ...st, state: 'awaiting_payment_confirmation', netflixIsp: ispInfo });
 

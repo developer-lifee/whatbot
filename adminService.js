@@ -1,6 +1,32 @@
 const { fetchRawData, updateExcelData } = require('./apiService');
 const { recordNewSale } = require('./salesRegistryService');
 const GROUP_ID = process.env.GROUP_ID || '120363102144405222@g.us';
+const processedGmailMatchIds = new Set();
+
+function syncUserStateAcrossKeys(userStates, userId, targetJid, userState, nextState) {
+    if (!userStates) return;
+    const keys = new Set();
+    if (userId) keys.add(userId);
+    if (targetJid) keys.add(targetJid);
+    if (userState && userState.chatJid) keys.add(userState.chatJid);
+    if (userState && userState.realPhone) {
+        const cleanPhone = String(userState.realPhone).trim();
+        if (cleanPhone) {
+            keys.add(cleanPhone);
+            if (!cleanPhone.includes('@')) {
+                keys.add(`${cleanPhone}@c.us`);
+            }
+        }
+    }
+
+    for (const key of keys) {
+        if (nextState === null) {
+            userStates.delete(key);
+        } else {
+            userStates.set(key, nextState);
+        }
+    }
+}
 
 function isCriticalBrowserError(err) {
     if (!err || !err.message) return false;
@@ -484,6 +510,19 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     const amount = userState.total || 0;
     if (amount <= 0) return { success: false, message: "Monto no válido" };
 
+    const targetJid = userState.chatJid || userId;
+    const candidateMatchId = preMatchedId || userState.gmailMatchId || null;
+    if (candidateMatchId && processedGmailMatchIds.has(String(candidateMatchId))) {
+        console.warn(`[Payment Auto-Validate] ⛔ Pago Gmail ${candidateMatchId} ya fue procesado anteriormente para evitar doble entrega (${userId}).`);
+        syncUserStateAcrossKeys(userStates, userId, targetJid, userState, {
+            state: 'main_menu',
+            nombre: userState.nombre,
+            chatJid: targetJid,
+            lastPaymentValidated: Date.now()
+        });
+        return { success: false, duplicate: true, message: "Este pago de Gmail ya fue validado anteriormente" };
+    }
+
     let matchId = preMatchedId;
     if (!matchId && !userState.autoValidatedByKey) {
         const match = await findMatchingPayment(amount, 60);
@@ -491,11 +530,31 @@ async function executePaymentValidation(userId, userState, client, userStates, a
         matchId = match.id;
     }
 
+    if (matchId) {
+        if (processedGmailMatchIds.has(String(matchId))) {
+            console.warn(`[Payment Auto-Validate] ⛔ Pago Gmail ${matchId} ya fue procesado anteriormente para evitar doble entrega (${userId}).`);
+            syncUserStateAcrossKeys(userStates, userId, targetJid, userState, {
+                state: 'main_menu',
+                nombre: userState.nombre,
+                chatJid: targetJid,
+                lastPaymentValidated: Date.now()
+            });
+            return { success: false, duplicate: true, message: "Este pago de Gmail ya fue validado anteriormente" };
+        }
+        processedGmailMatchIds.add(String(matchId));
+    }
+
     const paymentLabel = matchId
         ? `Gmail Match (${matchId})`
         : (userState.paymentMethod || 'Auto-OCR Llave');
     let enrichedState = { ...userState, gmailMatchId: userState.gmailMatchId || matchId || null };
-    let results = await recordNewSale(userId, enrichedState, paymentLabel);
+    let results;
+    try {
+        results = await recordNewSale(userId, enrichedState, paymentLabel);
+    } catch (saleErr) {
+        if (matchId) processedGmailMatchIds.delete(String(matchId));
+        throw saleErr;
+    }
 
     // Respaldo de renovación: si results quedó vacío pero el cliente tiene cuenta activa coincidente en Excel, ejecutar como renovación
     if ((!Array.isArray(results) || results.length === 0) && amount > 0) {
@@ -569,8 +628,6 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     }
     console.log(`[Payment Auto-Validate] ✅ Registro en Excel completado para ${userId}`);
 
-    const targetJid = userState.chatJid || userId;
-
     if (adminMessage) {
         await adminMessage.reply(report);
     } else {
@@ -588,7 +645,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     renewalMsg += `\n\n💰 *Nota:* Tienes un saldo a favor de *$${userState.leftoverAmount.toLocaleString('es-CO')}* COP. Un asesor lo revisará con calma. 😊`;
                 }
                 await client.sendMessage(targetJid, renewalMsg);
-                userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                syncUserStateAcrossKeys(userStates, userId, targetJid, userState, { state: 'main_menu', nombre: userState.nombre, chatJid: targetJid, lastPaymentValidated: Date.now() });
                 return { success: true };
             }
 
@@ -656,13 +713,12 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                             await client.sendMessage(targetJid, `⚠️ *Nota:* Tus otros servicios (*${otherPlats}*) requieren activación manual por parte de un asesor. ${expectation}`);
                         }
 
-                        userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: targetJid, lastPaymentValidated: Date.now() });
+                        syncUserStateAcrossKeys(userStates, userId, targetJid, userState, { state: 'awaiting_apple_one_details', chatJid: targetJid, lastPaymentValidated: Date.now() });
                     } else if (newManualItems.length > 0) {
-                        userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                        syncUserStateAcrossKeys(userStates, userId, targetJid, userState, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     }
                     await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
-                    userStates.delete(userId);
-                    if (targetJid && targetJid !== userId) userStates.delete(targetJid);
+                    syncUserStateAcrossKeys(userStates, userId, targetJid, userState, null);
                     return { success: true };
                 }
             } else {
@@ -679,7 +735,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                                 `No se pudo actualizar automáticamente la fila en Excel. Por favor, renueva la fecha manualmente.`);
                         }
                     } catch (e) { }
-                    userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                    syncUserStateAcrossKeys(userStates, userId, targetJid, userState, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                     return { success: true };
                 }
@@ -725,7 +781,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                             await client.sendMessage(targetJid, `⚠️ *Nota:* Tus otros servicios (*${otherPlats}*) requieren de una activación personalizada. ${expectation}`);
                         }
 
-                        userStates.set(userId, { state: 'awaiting_apple_one_details', chatJid: targetJid, lastPaymentValidated: Date.now() });
+                        syncUserStateAcrossKeys(userStates, userId, targetJid, userState, { state: 'awaiting_apple_one_details', chatJid: targetJid, lastPaymentValidated: Date.now() });
                     } else {
                         let manualMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\n`;
                         const formatCleanPlatformTitle = (rawName) => {
@@ -767,7 +823,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                             }
                         } catch (e) { }
 
-                        userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                        syncUserStateAcrossKeys(userStates, userId, targetJid, userState, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     }
                     await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                     return { success: true };
@@ -778,7 +834,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     const successMsg = `🤖 ¡Tu pago ha sido verificado con éxito! 🎉\n\nTu suscripción de *${renewalPlats}* ha sido renovada exitosamente.${vencLine}\n\n¡Gracias por renovar con Sheerit! 😊`;
                     await client.sendMessage(targetJid, successMsg);
                     await removeLabelFromChat(userId, client, ['pago', 'revisión', 'manual']);
-                    userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: userState.chatJid, lastPaymentValidated: Date.now() });
+                    syncUserStateAcrossKeys(userStates, userId, targetJid, userState, { state: 'main_menu', nombre: userState.nombre, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     return { success: true };
                 }
 
@@ -788,7 +844,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     const manualMsg = `🤖 ¡Tu pago ${amtFmt ? `de *${amtFmt}* ` : ''}ha sido verificado con éxito! 🎉\n\n` +
                         `Un asesor revisará tu chat en breve para asignarte y entregarte tus credenciales. ${expectation}`;
                     await client.sendMessage(targetJid, manualMsg);
-                    userStates.set(userId, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
+                    syncUserStateAcrossKeys(userStates, userId, targetJid, userState, { state: 'waiting_human', waitingCount: 1, chatJid: targetJid, lastPaymentValidated: Date.now() });
                     await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                     return { success: true };
                 }
@@ -809,7 +865,7 @@ async function executePaymentValidation(userId, userState, client, userStates, a
     }
 
     await removeLabelFromChat(userId, client, ['pago', 'revisión', 'manual']);
-    userStates.set(userId, { state: 'main_menu', nombre: userState.nombre, chatJid: userState.chatJid, lastPaymentValidated: Date.now() });
+    syncUserStateAcrossKeys(userStates, userId, targetJid, userState, { state: 'main_menu', nombre: userState.nombre, chatJid: targetJid, lastPaymentValidated: Date.now() });
     return { success: true };
 }
 
