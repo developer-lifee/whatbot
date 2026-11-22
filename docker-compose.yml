@@ -1,0 +1,46 @@
+services:
+  db:
+    image: mariadb:10.11
+    container_name: whatbot-db
+    restart: unless-stopped
+    environment:
+      TZ: America/Bogota
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-whatbot_root_change_me}
+      MARIADB_DATABASE: ${DB_NAME:-whatbot}
+      MARIADB_USER: ${DB_USER:-whatbot}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-whatbot_pass_change_me}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  whatbot:
+    build: .
+    container_name: whatbot-app
+    restart: unless-stopped
+    shm_size: "1gb"
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      TZ: America/Bogota
+      PUPPETEER_EXECUTABLE_PATH: /usr/bin/chromium
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ./wwebjs_auth:/app/wwebjs_auth
+      - ./uploads:/app/uploads
+      - ./tokens:/app/tokens
+      - ./logs:/app/logs
+      - ./backups:/app/backups
+      - ./.env:/app/.env:ro
+
+volumes:
+  mariadb_data:
