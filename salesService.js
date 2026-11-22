@@ -338,12 +338,19 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
 
   // Si todas las plataformas o planes solicitados no están disponibles
   if (unavailableItems.length > 0 && availableItems.length === 0) {
-    let unavailMsg = `🤖 Lo sentimos mucho, en este momento no tenemos cupos libres ni disponibilidad para compras nuevas de:\n`;
-    for (const u of unavailableItems) {
-      unavailMsg += `• *${u.item.platform.name}${u.item.chosenPlan ? ' (' + u.item.chosenPlan.name + ')' : ''}* - ${u.reason}\n`;
-    }
+    // Helper para evitar nombres duplicados ej. "Claude Pro & Claude Max Claude Pro 5x"
+    const formatCleanPlanLabel = (platformName, planName) => {
+      const pName = String(platformName || '').trim();
+      const plName = String(planName || '').trim();
+      if (!plName) return pName;
+      const firstWord = pName.split(/[\s&/]+/)[0].toLowerCase();
+      if (firstWord.length >= 3 && plName.toLowerCase().includes(firstWord)) {
+        return plName;
+      }
+      return `${pName} ${plName}`;
+    };
 
-    // Buscar si la plataforma tiene planes alternativos con stock disponible
+    // Buscar si la plataforma tiene planes con stock disponible
     const alternatives = [];
     for (const u of unavailableItems) {
       if (u.item.platform && Array.isArray(u.item.platform.plans)) {
@@ -353,15 +360,37 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
             if (plAvail.available !== false) {
               const numPrice = parseInt(pl.price) || 0;
               const formatted = numPrice > 0 ? `$${numPrice.toLocaleString('es-CO')} COP` : `$${pl.price}`;
-              alternatives.push(`*${u.item.platform.name} ${pl.name}* a ${formatted}`);
+              const cleanLabel = formatCleanPlanLabel(u.item.platform.name, pl.name);
+              alternatives.push({ label: cleanLabel, price: formatted, platformName: u.item.platform.name });
             }
           }
         }
       }
     }
 
+    const allGenericQueries = unavailableItems.every(u => !u.item.chosenPlan);
+
+    // Si el cliente preguntó en general (ej: "¿tienes Claude?") sin elegir un plan específico
+    // y SÍ hay planes disponibles de esa plataforma, responder positivamente listando los planes disponibles.
+    if (allGenericQueries && alternatives.length > 0) {
+      const platformNames = [...new Set(unavailableItems.map(u => u.item.platform.name))].join(', ');
+      let availMsg = `🤖 ¡Sí! Hoy tenemos disponible *${platformNames}* en los siguientes planes:\n\n`;
+      for (const alt of alternatives) {
+        availMsg += `• *${alt.label}* — ${alt.price}\n`;
+      }
+      availMsg += `\n¿Cuál de estos planes te gustaría activar? 😊`;
+      await message.reply(availMsg);
+      return;
+    }
+
+    let unavailMsg = `🤖 Lo sentimos mucho, en este momento no tenemos cupos libres ni disponibilidad para compras nuevas de:\n`;
+    for (const u of unavailableItems) {
+      unavailMsg += `• *${u.item.platform.name}${u.item.chosenPlan ? ' (' + u.item.chosenPlan.name + ')' : ''}* - ${u.reason}\n`;
+    }
+
     if (alternatives.length > 0) {
-      unavailMsg += `\n💡 *Opciones alternativas disponibles hoy:* ${alternatives.join(', ')}. ¿Te gustaría activar alguna de estas?`;
+      const altList = alternatives.map(a => `*${a.label}* a ${a.price}`).join(', ');
+      unavailMsg += `\n💡 *Opciones alternativas disponibles hoy:* ${altList}. ¿Te gustaría activar alguna de estas?`;
     } else {
       unavailMsg += `\nTe avisaremos tan pronto tengamos nuevos cupos disponibles. 😊`;
     }
