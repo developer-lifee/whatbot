@@ -184,11 +184,11 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-3.5-flash",          // Modelo Flash 3.5 ultra-rápido, estable y multimodal
-  "gemini-3.5-flash-lite",     // Respaldo liviano de alta disponibilidad
+  "gemini-4-hydrogen",         // Modelo principal familia Gemini 4 (rápido, multimodal, sin saturación 429)
+  "gemini-3.8-flash",          // Respaldo Flash 3.8
   "gemini-3.6-flash",          // Respaldo Flash 3.6
-  "gemini-flash-lite-latest",  // Respaldo liviano
-  "gemini-flash-latest"        // Modelo estándar Flash
+  "gemini-3.5-flash-lite",     // Respaldo liviano de alta disponibilidad
+  "gemini-flash-latest"        // Respaldo estándar Flash
 ];
 
 /**
