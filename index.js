@@ -65,14 +65,26 @@ function parseReceiptDateISO(check) {
     return null;
 }
 
+function normalizeValidReceiptReference(rawRef) {
+    if (!rawRef) return null;
+    const clean = String(rawRef).trim().toUpperCase();
+    if (clean.length < 5 || !/\d/.test(clean)) return null;
+    const INVALID_REF_WORDS = new Set([
+        'ERENCIA', 'REFERENCIA', 'COMPROBANTE', 'AUTORIZACION', 'AUTORIZACIÓN',
+        'CODIGO', 'CÓDIGO', 'NINGUNA', 'NINGUNO', 'NULL', 'NONE', 'N/A', 'NA',
+        'NO_VISIBLE', 'NOVISIBLE', 'DESCONOCIDA', 'DESCONOCIDO'
+    ]);
+    if (INVALID_REF_WORDS.has(clean)) return null;
+    return clean;
+}
+
 function extractReceiptReference(check) {
     if (!check) return null;
-    if (check.transactionReference && String(check.transactionReference).trim()) {
-        return String(check.transactionReference).trim().toUpperCase();
-    }
+    const directRef = normalizeValidReceiptReference(check.transactionReference);
+    if (directRef) return directRef;
     const details = String(check.extractedDetails || '');
     const refMatch = details.match(/(?:referencia|ref|comprobante|autorizaci[oó]n|codigo)\s*[:#]?\s*([A-Z0-9_-]{5,})/i);
-    return refMatch ? refMatch[1].trim().toUpperCase() : null;
+    return refMatch ? normalizeValidReceiptReference(refMatch[1]) : null;
 }
 
 async function validatePaymentReceiptFreshnessAndRef(check, userId) {
@@ -110,11 +122,12 @@ async function validatePaymentReceiptFreshnessAndRef(check, userId) {
 }
 
 async function markPaymentReferenceUsed(ref, userId, amount) {
-    if (!ref) return;
+    const validRef = normalizeValidReceiptReference(ref);
+    if (!validRef) return;
     try {
         const { pool } = require('./database');
         await pool.query(`CREATE TABLE IF NOT EXISTS used_payment_references (id INT AUTO_INCREMENT PRIMARY KEY, ref_code VARCHAR(100) NOT NULL UNIQUE, user_id VARCHAR(100), amount DECIMAL(12,2), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`);
-        await pool.query('INSERT IGNORE INTO used_payment_references (ref_code, user_id, amount) VALUES (?, ?, ?)', [ref, String(userId || ''), Number(amount || 0)]);
+        await pool.query('INSERT IGNORE INTO used_payment_references (ref_code, user_id, amount) VALUES (?, ?, ?)', [validRef, String(userId || ''), Number(amount || 0)]);
     } catch (dbErr) {
         console.warn('[PAYMENT VALIDATION] Error guardando used_payment_references:', dbErr.message);
     }
