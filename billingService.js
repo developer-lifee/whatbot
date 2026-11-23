@@ -2,8 +2,13 @@ const { getAccountsByPhone, fetchCustomersData, getJsDateFromExcel, getTodayInBo
 const { normalizeStreamingName } = require('./availabilityService');
 const { generateCredentialsResponse } = require('./aiService');
 const { getPlatformKnowledge } = require('./apiService');
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+
+// Ventana corta de deduplicación para evitar envíos exactamente idénticos en ráfaga al mismo destinatario
+const recentSafeSends = new Map();
+const SAFE_SEND_DEDUP_TTL_MS = 20000;
 
 async function safeSend(message, text, userId = null, clientInstance = null) {
     if (!text || typeof text !== 'string' || text.replace(/🤖|👍|👋|\s/g, '').length === 0) {
@@ -92,6 +97,24 @@ async function safeSend(message, text, userId = null, clientInstance = null) {
     const jidsToTry = [realPhoneJid, lidJid, (userId && userId.includes('@c.us')) ? userId : null]
         .filter((j, idx, self) => Boolean(j) && self.indexOf(j) === idx)
         .filter(j => !j.includes(botNum) && !j.includes('573118587974'));
+
+    const dedupRecipient = jidsToTry[0] || userId || (message && message.from) || '';
+    if (dedupRecipient && !String(dedupRecipient).includes('@g.us')) {
+        const textHash = crypto.createHash('sha256').update(text.trim()).digest('hex').slice(0, 16);
+        const dedupKey = `${dedupRecipient}:${textHash}`;
+        const nowMs = Date.now();
+        const lastSentMs = recentSafeSends.get(dedupKey) || 0;
+        if (nowMs - lastSentMs < SAFE_SEND_DEDUP_TTL_MS) {
+            console.log(`[safeSend Dedup] 🛑 Bloqueado envío duplicado en ráfaga para ${dedupRecipient} (hace ${Math.round((nowMs - lastSentMs) / 1000)}s).`);
+            return null;
+        }
+        recentSafeSends.set(dedupKey, nowMs);
+        if (recentSafeSends.size > 200) {
+            for (const [k, ts] of recentSafeSends.entries()) {
+                if (nowMs - ts >= SAFE_SEND_DEDUP_TTL_MS) recentSafeSends.delete(k);
+            }
+        }
+    }
 
     if (activeClient) {
         const sendOpts = { linkPreview: false };

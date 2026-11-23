@@ -11907,6 +11907,9 @@ async function processFallbackWithEscalation(message, userId, isMedia, mediaData
 
 // Mapa para evitar spam de notificaciones de "no encontré códigos" en ráfaga (TTL 45s)
 const recentNotFoundNotices = new Map();
+// Mapa para evitar envío duplicado del mismo código/enlace en ráfaga (TTL 90s)
+const recentlySentCodes = new Map();
+const RECENT_CODE_TTL_MS = 90000;
 
 /**
  * Procesa el envío del código 2FA o manual para una cuenta seleccionada
@@ -12160,7 +12163,23 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         response += `\n\n📱 *Dispositivos:* ${remainingMsg} (${deviceStatus.devicesUsed}/${deviceStatus.maxDevices} usados).`;
                     }
 
-                    await safeReply(message, response, userId);
+                    const dedupToken = latest.code || latest.link || validVerificationLink || streamingName;
+                    const dedupKey = `${userId}:${accountEmail}:${dedupToken}`;
+                    const nowMs = Date.now();
+                    const lastSentMs = recentlySentCodes.get(dedupKey) || 0;
+                    const isDuplicateRecentCode = !message.isWebRequest && (nowMs - lastSentMs < RECENT_CODE_TTL_MS);
+
+                    if (isDuplicateRecentCode) {
+                        console.log(`[Code Dedup] 🛑 Omitiendo envío duplicado de código/enlace (${dedupKey}) para @${String(userId).replace('@c.us', '')} (enviado hace ${Math.round((nowMs - lastSentMs) / 1000)}s).`);
+                    } else {
+                        if (!message.isWebRequest) {
+                            recentlySentCodes.set(dedupKey, nowMs);
+                            for (const [k, ts] of recentlySentCodes.entries()) {
+                                if (nowMs - ts >= RECENT_CODE_TTL_MS) recentlySentCodes.delete(k);
+                            }
+                        }
+                        await safeReply(message, response, userId);
+                    }
                     userStates.delete(userId);
                     return {
                         success: true,
@@ -18127,6 +18146,13 @@ async function safeReply(message, content, userId) {
     if (stripped.length === 0) {
         console.log(`[Safe Reply] 🛑 Omitiendo respuesta vacía o emoji suelto: "${content}"`);
         return null;
+    }
+    if (userId && !String(userId).includes('@g.us') && typeof messageQueues !== 'undefined' && messageQueues.has(userId)) {
+        const pendingQueue = messageQueues.get(userId);
+        if (pendingQueue && Array.isArray(pendingQueue.messages) && pendingQueue.messages.length > 0) {
+            console.log(`[Safe Reply] 🛑 Omitiendo respuesta tardía para @${String(userId).replace('@c.us', '')}: hay ${pendingQueue.messages.length} mensaje(s) nuevo(s) en cola.`);
+            return null;
+        }
     }
     const { safeSend } = require('./billingService');
     return await safeSend(message, content, userId);
