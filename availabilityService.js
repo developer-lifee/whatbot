@@ -73,6 +73,9 @@ function normalizeStreamingName(name) {
     }
     if (normalized.includes('spotify')) {
         if (normalized.includes('owner')) return 'spotify_owner';
+        if (normalized.includes('individual') || normalized.includes('personal') || normalized.includes('propia') || normalized.includes('tucorreo')) {
+            return 'spotify_individual';
+        }
         return 'spotify';
     }
     if (normalized.includes('youtube')) {
@@ -120,7 +123,8 @@ function normalizeStreamingName(name) {
 async function checkSpreadsheetStock(platformName) {
     try {
         const data = await fetchRawData();
-        const targetSearch = normalizeStreamingName(platformName);
+        const rawTarget = normalizeStreamingName(platformName);
+        const targetSearch = rawTarget === 'spotify_individual' ? 'spotify' : rawTarget;
         const config = getAvailabilityConfig();
         
         const matchingLibres = data.filter(row => {
@@ -192,6 +196,11 @@ async function getPlatformAvailability(platformName, options = {}) {
     // 2. Coincidencia exacta por nombre de plataforma normalizado (evita que 'Netflix Extra' bloquee 'Netflix')
     if (!configKey) {
         configKey = Object.keys(config).find(key => {
+            const kLower = key.toLowerCase().trim();
+            // Evitar que claves de planes específicos de Spotify (ej. 'Spotify Cuenta Nueva o Renovación') bloqueen consultas genéricas u otros planes
+            if (kLower.includes('spotify') && kLower !== 'spotify' && normalizedQuery === 'spotify') {
+                return false;
+            }
             const kNorm = normalizeStreamingName(key);
             return kNorm && targetNormalized && kNorm === targetNormalized;
         });
