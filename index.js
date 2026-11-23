@@ -16322,18 +16322,35 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             'crea tu propia cuenta para disfrutar de netflix'
         ].some(kw => fullOcrContext.includes(kw));
 
+        const isBillingOrPaymentErrorScreen = [
+            'no pudimos cobrarte', 'no se pudo hacer el cobro', 'reintentar pago',
+            'actualizar la información de pago', 'actualizar la informacion de pago',
+            'actualiza la información de pago', 'actualiza la informacion de pago',
+            'método de pago', 'metodo de pago', 'problema de facturación', 'problema de facturacion',
+            'fallo de cobro', 'pago rechazado'
+        ].some(kw => fullOcrContext.includes(kw));
+
+        const isExplicitlyNot2fa = (
+            (detection.metadata && detection.metadata.is2faScreen === false) ||
+            [
+                'no es una pantalla 2fa', 'ni una pantalla 2fa',
+                'ni una solicitud de 2fa', 'no una solicitud de 2fa',
+                'no es un código 2fa', 'no es un codigo 2fa'
+            ].some(kw => explanationLower.includes(kw))
+        );
+
         const isActive2faCodeEntry = (
             (detection.metadata && detection.metadata.is2faScreen === true) ||
             [
                 'ingresa el código', 'ingresa el codigo', 'enviamos un código', 'enviamos un codigo',
                 'enviamos a tu email', 'código vence en 15', 'codigo vence en 15',
                 'código de 4 dígitos', 'código de 6 dígitos', 'codigo de 6', 'codigo de 4',
-                '6-digit', 'authenticating', '2fa', 'authenticator', 'google authenticator',
+                '6-digit', 'authenticating', 'authenticator', 'google authenticator',
                 'código de verificación', 'codigo de verificacion', 'código de inicio', 'codigo de inicio'
             ].some(kw => fullOcrContext.includes(kw))
         );
 
-        if (isActive2faCodeEntry && !isIncorrectPassword && !isPreCodeOptionsScreen && !isSalesOrCatalogInquiry && !isExpiredOrRenewalScreen && !isDateOrAccountQuery) {
+        if (isActive2faCodeEntry && !isExplicitlyNot2fa && !isBillingOrPaymentErrorScreen && !isIncorrectPassword && !isPreCodeOptionsScreen && !isSalesOrCatalogInquiry && !isExpiredOrRenewalScreen && !isDateOrAccountQuery) {
             isCodeRequestFromImage = true;
             console.log(`[BOT MEDIA OCR DETECTED IN FLOW] Pantalla activa de ingreso de código 2FA detectada. Enrutando a extractor Gmail.`);
         }
