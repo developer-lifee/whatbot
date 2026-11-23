@@ -15474,6 +15474,15 @@ REGLAS:
                 }
 
                 // --- NUEVO: VALIDACIÓN AUTOMÁTICA GMAIL ---
+                // Purgar estado residual contaminado ANTES de ajustar duración/combo para no borrar renovaciones recién resueltas
+                const isStaleStatePre = stateData.state === 'waiting_human' || stateData.state === 'main_menu' || (stateData.timestamp && (Date.now() - stateData.timestamp > 4 * 60 * 60 * 1000));
+                if (isStaleStatePre && !stateData.isRenewal) {
+                    console.log(`[PAYMENT AUTO-VALIDATE] 🧹 Purgando estado residual (${stateData.state}) para @${userId}`);
+                    delete stateData.items;
+                    delete stateData.isRenewal;
+                    delete stateData.total;
+                }
+
                 const { adjustDurationToMatchAmount } = require('./billingService');
                 await adjustDurationToMatchAmount(stateData, check.amount, userId);
 
@@ -15584,25 +15593,20 @@ REGLAS:
                             }
                             return;
                         } else {
-                            // 1. Purgar estado residual contaminado si no corresponde a un carrito activo reciente
-                            const isStaleState = stateData.state === 'waiting_human' || stateData.state === 'main_menu' || (stateData.timestamp && (Date.now() - stateData.timestamp > 4 * 60 * 60 * 1000));
-                            if (isStaleState) {
-                                console.log(`[PAYMENT AUTO-VALIDATE] 🧹 Purgando estado residual (${stateData.state}) para @${userId}`);
-                                delete stateData.items;
-                                delete stateData.isRenewal;
-                                delete stateData.total;
-                            }
-
-                            // 2. Priorizar plataforma inferida por OCR/IA sobre estados residuales
+                            // 2. Priorizar plataforma inferida por OCR/IA sobre estados residuales (solo si no es renovación ya resuelta)
                             const inferredPlat = (check.inferredPlatform || stateData.targetPlatform || '').toString().trim();
-                            if (inferredPlat) {
+                            const hasResolvedRenewal = stateData.isRenewal === true && Array.isArray(stateData.items) && stateData.items.length > 0;
+                            if (inferredPlat && !hasResolvedRenewal) {
                                 try {
                                     const { getPlatformPriceFromExcel } = require('./billingService');
+                                    const { isSamePlatformFamily } = require('./salesRegistryService');
                                     const normInferred = inferredPlat.toLowerCase();
-                                    const activeList = Array.isArray(stateData.activeAccounts) ? stateData.activeAccounts : [];
+                                    const activeList = (Array.isArray(userAccounts) && userAccounts.length > 0)
+                                        ? userAccounts
+                                        : (Array.isArray(stateData.activeAccounts) ? stateData.activeAccounts : []);
                                     const hasActiveMatch = activeList.some(acc => {
                                         const p = (acc.Streaming || acc.Plataforma || '').toString().toLowerCase();
-                                        return p && (p.includes(normInferred) || normInferred.includes(p));
+                                        return p && (p.includes(normInferred) || normInferred.includes(p) || isSamePlatformFamily(p, normInferred));
                                     });
                                     if (!hasActiveMatch) {
                                         const currentItemPlat = (stateData.items && stateData.items[0]) ? (stateData.items[0].Streaming || stateData.items[0].Plataforma || (stateData.items[0].platform && stateData.items[0].platform.name) || '').toString().toLowerCase() : '';
@@ -15625,8 +15629,8 @@ REGLAS:
                                 }
                             }
 
-                            // 3. Asegurar propiedad price en cada item de compras nuevas
-                            if (stateData.isNewSale || stateData.isRenewal === false) {
+                            // 3. Asegurar propiedad price en cada item de compras nuevas (sin pisar renovaciones)
+                            if (!stateData.isRenewal && (stateData.isNewSale || stateData.isRenewal === false)) {
                                 stateData.isNewSale = true;
                                 stateData.isRenewal = false;
                                 if (Array.isArray(stateData.items)) {

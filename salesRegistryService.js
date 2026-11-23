@@ -493,10 +493,32 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                         console.log(`[Sales Registry] Advertencia: Desfase de fila detectado para ${platformName}. Fila sugerida ${tempRow} no coincide con el teléfono ${phone}. Buscando inteligentemente...`);
                     }
                 }
+            } else if (userState.isRenewal && !itemRow && platformName) {
+                // Respaldo de renovación por teléfono y plataforma cuando falta itemRow
+                const phoneDigits = (phone || "").toString().replace(/\D/g, '');
+                const phoneLast10 = phoneDigits.length >= 10 ? phoneDigits.slice(-10) : phoneDigits;
+                if (phoneLast10 && phoneLast10.length >= 7) {
+                    const matchedByPhone = allRows.find(r => {
+                        const rowStreaming = r.Streaming || r.Plataforma || '';
+                        if (!rowStreaming) return false;
+                        const rowPhone = (r.numero || r.Numero || "").toString().replace(/\D/g, '');
+                        const whatsappDigits = (r.whatsapp || "").toString().replace(/\D/g, '');
+                        const hasPhone = (rowPhone && rowPhone.includes(phoneLast10)) || (whatsappDigits && whatsappDigits.includes(phoneLast10));
+                        if (!hasPhone) return false;
+                        return isSamePlatformFamily(rowStreaming, platformName) ||
+                            normalizeStreamingName(rowStreaming).includes(normalizeStreamingName(platformName)) ||
+                            normalizeStreamingName(platformName).includes(normalizeStreamingName(rowStreaming));
+                    });
+                    if (matchedByPhone) {
+                        targetRow = matchedByPhone._rowNumber || (allRows.indexOf(matchedByPhone) + 2);
+                        excelRow = matchedByPhone;
+                        console.log(`[Sales Registry] Respaldo de renovación: Fila ${targetRow} resuelta por teléfono/plataforma (${matchedByPhone.Streaming || platformName}) para ${phone}.`);
+                    }
+                }
             }
 
             if (targetRow && excelRow) {
-                const baseDate = item.deben || null;
+                const baseDate = item.deben || excelRow.deben || excelRow.Deben || null;
                 const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, baseDate);
                 const realStreamingName = excelRow.Streaming || excelRow.Plataforma || platformName;
 
@@ -584,7 +606,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             let isAutoRenewal = false;
 
             const lastMsgText = userState.lastMessage || "";
-            const isExplicitNewAccount = (userState.isNewSale || userState.forceNewSale || /nueva|otra|adicional|segunda|comprar otra/i.test(lastMsgText));
+            const isExplicitNewAccount = !userState.isRenewal && (userState.isNewSale || userState.forceNewSale || /nueva|otra|adicional|segunda|comprar otra/i.test(lastMsgText));
 
             if (!isExplicitNewAccount) {
                 const userPhoneDigits = (phone || "").toString().replace(/\D/g, '');
@@ -805,6 +827,16 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     vencimiento: nextPaymentDate,
                     "customer mail": matchedRow["customer mail"] || matchedRow["Customer Mail"] || "",
                     customerMail: matchedRow["customer mail"] || matchedRow["Customer Mail"] || ""
+                });
+                continue;
+            }
+
+            if (userState.isRenewal) {
+                console.warn(`[Sales Registry] ⚠️ Renovación solicitada para ${platformName || 'servicio'} (${phone}) pero no se encontró fila activa en Excel. Evitando asignar cupo nuevo.`);
+                results.push({
+                    name: platformName || 'Renovación pendiente',
+                    status: 'manual_validation_required',
+                    reason: 'No se encontró fila activa coincidente en Excel para renovar automáticamente'
                 });
                 continue;
             }
