@@ -562,12 +562,13 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
 
             const snippet = fullMsg.data.snippet || '';
             const parts = getMessageParts(fullMsg.data.payload);
-            const decodedText = decodeQuotedPrintable(parts.text || parts.html || "");
+            const decodedText = decodeQuotedPrintable(parts.text || "");
             const decodedHtml = decodeQuotedPrintable(parts.html || "");
             const decodedSnippet = decodeQuotedPrintable(snippet);
 
+            // Combinar snippet, texto plano y HTML para no perder códigos que solo aparecen en el cuerpo HTML
             // Eliminar URLs completas y UUIDs (ej. messageGuid partido en varias líneas) para evitar extraer números/IDs falsos dentro de enlaces
-            const textToSearchForCode = decodedSnippet + ' ' + decodedText;
+            const textToSearchForCode = [decodedSnippet, decodedText, decodedHtml].filter(Boolean).join(' ');
             const bodyWithoutUrls = textToSearchForCode
                 .replace(/https?:\/\/[^\s<>"`']+/gi, ' ')
                 .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, ' ');
@@ -680,6 +681,13 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
 
             // Extraer el mejor enlace (sin logos ni imágenes de Claude/Streaming)
             const link = extractBestLink(decodedHtml || decodedText, decodedSubject);
+
+            // Evitar devolver correos sin código OTP cuando no corresponden a una plataforma de enlace mágico ni tienen enlace explícito de verificación
+            const isMagicLinkOrActionPlatform = isNetflixMail || isClaudeMail || /canva|chatgpt|openai|notion|medium|crunchyroll/i.test(`${decodedSubject} ${decodedFrom} ${superCleanBody}`);
+            const hasExplicitActionLink = link && /magic-link|verify|token=|code=|update-primary-location|update_household|update-household|travel\/verify|nftoken=|manageaccountaccess/i.test(link.toLowerCase());
+            if (!code && !isMagicLinkOrActionPlatform && !hasExplicitActionLink) {
+                continue;
+            }
 
             codesFound.push({
                 id: fullMsg.data.id,

@@ -12065,13 +12065,15 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         }
                     }
 
-                    const latest = codes[0];
-
                     // Plataformas basadas ÚNICAMENTE en Enlace Mágico / Magic Link (ej: Claude, Canva, ChatGPT)
                     const isLinkOnlyPlatform = nameLower.includes('claude') || nameLower.includes('canva') || nameLower.includes('gpt') || nameLower.includes('notion') || nameLower.includes('medium');
 
                     // Plataformas basadas ÚNICAMENTE en Código OTP (ej: Disney+, Max, Amazon, Paramount, VIX)
                     const isCodeOnlyPlatform = !isLinkOnlyPlatform && (nameLower.includes('disney') || nameLower.includes('star') || (nameLower.includes('max') && !nameLower.includes('claude')) || nameLower.includes('hbo') || nameLower.includes('prime') || nameLower.includes('amazon') || nameLower.includes('paramount') || nameLower.includes('vix') || nameLower.includes('youtube'));
+
+                    const latest = (isCodeOnlyPlatform && !codes[0]?.code)
+                        ? (codes.find(c => c && c.code) || codes[0])
+                        : codes[0];
 
                     let response = '';
                     let validVerificationLink = null;
@@ -12135,12 +12137,19 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
                     } else if (isCodeOnlyPlatform || (!latest.link && latest.code)) {
                         // 3. ENTREGA EXCLUSIVA DE CÓDIGO (DISNEY, MAX, PRIME, ETC.)
-                        response = `🤖 *Código de ${streamingName} Encontrado* 🚀\n\n`;
-                        if (latest.code) {
-                            response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
-                        } else {
-                            response += `📝 ${latest.snippet}\n\n`;
+                        if (!latest.code) {
+                            const noCodeMsg = `⚠️ Encontré un correo reciente de *${streamingName}* en ${accountEmail || 'tu cuenta'}, pero no pude extraer el código numérico automáticamente.\n\nPor favor, intenta reenviar el código en tu pantalla o escribe *soporte* para que un asesor te ayude de inmediato.`;
+                            if (!message.isWebRequest) {
+                                await safeReply(message, noCodeMsg, userId);
+                            }
+                            userStates.delete(userId);
+                            return {
+                                success: false,
+                                message: `No se pudo extraer el código numérico para ${streamingName}.`
+                            };
                         }
+                        response = `🤖 *Código de ${streamingName} Encontrado* 🚀\n\n`;
+                        response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                         response += `⏰ Recibido hace ${latest.time} min.\n\n_Úsalo en tu pantalla o aplicación para iniciar sesión._`;
 
                     } else {
