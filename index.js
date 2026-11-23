@@ -15413,7 +15413,13 @@ REGLAS:
                         }
                     }
 
-                    // Si el carrito contiene plataformas que el usuario YA TIENE activas en Excel/DB, es obligatoriamente una RENOVACIÓN
+                    // Si el carrito ya contiene filas existentes de Excel o plataformas activas en Excel/DB sin solicitud explícita de cuenta nueva, es obligatoriamente una RENOVACIÓN
+                    const hasExcelRowsInItems = Array.isArray(stateData.items) && stateData.items.some(item => item && (item.rowNumber || item._rowNumber || item.correo));
+                    if (hasExcelRowsInItems && !explicitlyWantsNew) {
+                        stateData.isRenewal = true;
+                        stateData.isNewSale = false;
+                        userStates.set(userId, stateData);
+                    }
                     if (userAccounts && userAccounts.length > 0 && !isNewRequested && stateData.items && stateData.items.length > 0) {
                         const { isSamePlatformFamily } = require('./salesRegistryService');
                         const matchingActiveAccounts = userAccounts.filter(acc => {
@@ -15429,6 +15435,7 @@ REGLAS:
                             console.log(`[PAYMENT INTERCEPTOR] Encontradas ${matchingActiveAccounts.length} cuentas activas existentes para @${userId}. Marcadas estrictamente como RENOVACIÓN.`);
                             stateData.items = matchingActiveAccounts;
                             stateData.isRenewal = true;
+                            stateData.isNewSale = false;
                             userStates.set(userId, stateData);
                         }
                     }
@@ -15595,6 +15602,11 @@ REGLAS:
                         } else {
                             // 2. Priorizar plataforma inferida por OCR/IA sobre estados residuales (solo si no es renovación ya resuelta)
                             const inferredPlat = (check.inferredPlatform || stateData.targetPlatform || '').toString().trim();
+                            const hasExistingExcelItems = Array.isArray(stateData.items) && stateData.items.some(item => item && (item.rowNumber || item._rowNumber || item.correo));
+                            if (hasExistingExcelItems && !explicitlyWantsNew) {
+                                stateData.isRenewal = true;
+                                stateData.isNewSale = false;
+                            }
                             const hasResolvedRenewal = stateData.isRenewal === true && Array.isArray(stateData.items) && stateData.items.length > 0;
                             if (inferredPlat && !hasResolvedRenewal) {
                                 try {
@@ -15608,7 +15620,10 @@ REGLAS:
                                         const p = (acc.Streaming || acc.Plataforma || '').toString().toLowerCase();
                                         return p && (p.includes(normInferred) || normInferred.includes(p) || isSamePlatformFamily(p, normInferred));
                                     });
-                                    if (!hasActiveMatch) {
+                                    if (hasActiveMatch && !explicitlyWantsNew) {
+                                        stateData.isRenewal = true;
+                                        stateData.isNewSale = false;
+                                    } else if (!hasActiveMatch) {
                                         const currentItemPlat = (stateData.items && stateData.items[0]) ? (stateData.items[0].Streaming || stateData.items[0].Plataforma || (stateData.items[0].platform && stateData.items[0].platform.name) || '').toString().toLowerCase() : '';
                                         if (!currentItemPlat || (!currentItemPlat.includes(normInferred) && !normInferred.includes(currentItemPlat))) {
                                             const inferredPrice = getPlatformPriceFromExcel(inferredPlat, []) || check.amount || 20000;
@@ -15630,7 +15645,7 @@ REGLAS:
                             }
 
                             // 3. Asegurar propiedad price en cada item de compras nuevas (sin pisar renovaciones)
-                            if (!stateData.isRenewal && (stateData.isNewSale || stateData.isRenewal === false)) {
+                            if (!stateData.isRenewal && !hasExistingExcelItems && (stateData.isNewSale || stateData.isRenewal === false)) {
                                 stateData.isNewSale = true;
                                 stateData.isRenewal = false;
                                 if (Array.isArray(stateData.items)) {
@@ -15824,15 +15839,28 @@ REGLAS:
                                     stateData.isRenewal = true;
                                 }
 
-                                let hasNetflix = false;
-                                if (stateData.items && Array.isArray(stateData.items)) {
-                                    hasNetflix = stateData.items.some(item => {
+                                const shouldAskNetflixOperator = (st, accs, explicitNew) => {
+                                    if (!st || st.isRenewal) return false;
+                                    const itemsList = Array.isArray(st.items) ? st.items : [];
+                                    const hasNetflixItem = itemsList.some(item => {
                                         const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
                                         return name.includes('netflix') && !name.includes('extra');
                                     });
-                                }
+                                    if (!hasNetflixItem) return false;
+                                    const hasExistingNetflixRow = itemsList.some(item => {
+                                        const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                                        return name.includes('netflix') && !name.includes('extra') && (item.rowNumber || item._rowNumber || item.correo);
+                                    });
+                                    if (hasExistingNetflixRow && !explicitNew) return false;
+                                    const hasActiveNetflixAcc = Array.isArray(accs) && accs.some(acc => {
+                                        const s = (acc.Streaming || acc.Plataforma || "").toLowerCase();
+                                        return s.includes('netflix') && !s.includes('extra');
+                                    });
+                                    if (hasActiveNetflixAcc && !explicitNew) return false;
+                                    return true;
+                                };
 
-                                if (hasNetflix && !stateData.isRenewal) {
+                                if (shouldAskNetflixOperator(stateData, userAccounts, explicitlyWantsNew)) {
                                     await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
 
                                     const nextNetflixState = {
@@ -15946,16 +15974,29 @@ REGLAS:
 
                 // Si no hubo match automático, seguimos con el flujo manual
                 // Revisamos si en el carrito (items) hay un servicio de Netflix
-                let hasNetflix = false;
-                if (stateData.items && Array.isArray(stateData.items)) {
-                    hasNetflix = stateData.items.some(item => {
+                const shouldAskNetflixOperatorManual = (st, accs, explicitNew) => {
+                    if (!st || st.isRenewal) return false;
+                    const itemsList = Array.isArray(st.items) ? st.items : [];
+                    const hasNetflixItem = itemsList.some(item => {
                         const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
                         // Solo pedir operador si es Netflix pero NO es Extra
                         return name.includes('netflix') && !name.includes('extra');
                     });
-                }
+                    if (!hasNetflixItem) return false;
+                    const hasExistingNetflixRow = itemsList.some(item => {
+                        const name = (item.Streaming || (item.platform ? item.platform.name : "") || item.name || "").toLowerCase();
+                        return name.includes('netflix') && !name.includes('extra') && (item.rowNumber || item._rowNumber || item.correo);
+                    });
+                    if (hasExistingNetflixRow && !explicitNew) return false;
+                    const hasActiveNetflixAcc = Array.isArray(accs) && accs.some(acc => {
+                        const s = (acc.Streaming || acc.Plataforma || "").toLowerCase();
+                        return s.includes('netflix') && !s.includes('extra');
+                    });
+                    if (hasActiveNetflixAcc && !explicitNew) return false;
+                    return true;
+                };
 
-                if (hasNetflix && !stateData.isRenewal) {
+                if (shouldAskNetflixOperatorManual(stateData, userAccounts, explicitlyWantsNew)) {
                     await message.reply("🤖 ¡Gracias! He recibido tu comprobante de pago. 🎉\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
 
                     userStates.set(userId, {
