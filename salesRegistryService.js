@@ -118,7 +118,7 @@ function isSamePlatformFamily(name1, name2) {
  * @param {string|Date} baseDate - Opcional, fecha base desde la cual sumar (ej: vencimiento anterior)
  * @returns {string} Fecha en formato YYYY-MM-DD
  */
-function calculateNextPaymentDate(subscriptionType, overrideMonths = null, baseDate = null) {
+function calculateNextPaymentDate(subscriptionType, overrideMonths = null, baseDate = null, fixedBillingDay = null) {
     let now = new Date();
 
     if (baseDate) {
@@ -150,7 +150,12 @@ function calculateNextPaymentDate(subscriptionType, overrideMonths = null, baseD
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const year = now.getFullYear();
 
-    return `${year}-${month}-${day}`;
+    const baseIso = `${year}-${month}-${day}`;
+    if (fixedBillingDay) {
+        const { applyFixedBillingDay } = require('./customBillingService');
+        return applyFixedBillingDay(baseIso, fixedBillingDay);
+    }
+    return baseIso;
 }
 
 /**
@@ -519,8 +524,15 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
             if (targetRow && excelRow) {
                 const baseDate = item.deben || excelRow.deben || excelRow.Deben || null;
-                const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, baseDate);
                 const realStreamingName = excelRow.Streaming || excelRow.Plataforma || platformName;
+                let fixedDay = null;
+                try {
+                    const { getCustomBillingRulesByPhone, findMatchingCustomRule } = require('./customBillingService');
+                    const cRules = await getCustomBillingRulesByPhone(phone);
+                    const mRule = findMatchingCustomRule(cRules, realStreamingName);
+                    if (mRule && mRule.fixed_billing_day) fixedDay = mRule.fixed_billing_day;
+                } catch (_) {}
+                const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, baseDate, fixedDay);
 
                 console.log(`[Sales Registry] RENOVACIÓN detectada para ${realStreamingName} en fila ${targetRow}. Nueva fecha: ${nextPaymentDate}`);
                 const updates = {
@@ -751,7 +763,14 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
 
             if (finalRow) {
                 const baseDate = matchedRow ? (matchedRow.deben || matchedRow.Deben) : null;
-                const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, baseDate);
+                let fixedDayAuto = null;
+                try {
+                    const { getCustomBillingRulesByPhone, findMatchingCustomRule } = require('./customBillingService');
+                    const cRules = await getCustomBillingRulesByPhone(phone);
+                    const mRule = findMatchingCustomRule(cRules, (matchedRow && matchedRow.Streaming) || platformName);
+                    if (mRule && mRule.fixed_billing_day) fixedDayAuto = mRule.fixed_billing_day;
+                } catch (_) {}
+                const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, baseDate, fixedDayAuto);
 
                 const updates = {
                     "deben": nextPaymentDate,

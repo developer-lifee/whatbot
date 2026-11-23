@@ -2533,6 +2533,180 @@ app.post('/api/admin/client/update-expiration', express.json(), async (req, res)
     }
 });
 
+// Endpoint para unificar la fecha de vencimiento (deben) de TODAS las cuentas activas de un cliente
+// y calcular prorrateo exacto (saldo a favor/descuento o saldo en contra/a cobrar)
+app.post('/api/admin/client/unify-expiration', express.json(), async (req, res) => {
+    try {
+        const { phone, targetDate, previewOnly = false, saveFixedDay = false, clientName = '', password } = req.body || {};
+        if (password !== 'admin123') {
+            return res.status(401).json({ success: false, message: 'Unauthorized' });
+        }
+        const cleanPhone = String(phone || '').replace(/\D/g, '');
+        const phoneTail = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+        if (!phoneTail || phoneTail.length < 7) {
+            return res.status(400).json({ success: false, message: 'Teléfono del cliente inválido.' });
+        }
+        const cleanTargetDate = String(targetDate || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanTargetDate)) {
+            return res.status(400).json({ success: false, message: 'Debes indicar una fecha objetivo válida (YYYY-MM-DD).' });
+        }
+
+        const [ty, tm, td] = cleanTargetDate.split('-').map(Number);
+        const targetDateObj = new Date(ty, tm - 1, td);
+        targetDateObj.setHours(0, 0, 0, 0);
+
+        const { fetchRawData, updateExcelData, getJsDateFromExcel, getPlatformKnowledge } = require('./apiService');
+        const { getPlatformPriceFromExcel } = require('./billingService');
+        const { getCustomBillingRulesByPhone, findMatchingCustomRule, saveCustomBillingRule } = require('./customBillingService');
+
+        const [allRows, platforms, customRules] = await Promise.all([
+            fetchRawData(false),
+            getPlatformKnowledge().catch(() => []),
+            getCustomBillingRulesByPhone(phoneTail).catch(() => [])
+        ]);
+
+        const clientRows = [];
+        for (let idx = 0; idx < (allRows || []).length; idx++) {
+            const r = allRows[idx];
+            if (!r) continue;
+            const rPhone = String(r.numero || r.Numero || '').replace(/\D/g, '');
+            if (!rPhone || !rPhone.includes(phoneTail)) continue;
+            const rName = String(r.Nombre || r.nombre || r.whatsapp || '').trim();
+            if (!rName || ['libre', 'disponible', 'vacio', 'vacío'].includes(rName.toLowerCase())) continue;
+            clientRows.push({
+                rowNumber: r._rowNumber || r.rowNumber || (idx + 2),
+                row: r
+            });
+        }
+
+        if (clientRows.length === 0) {
+            return res.status(404).json({ success: false, message: 'No se encontraron servicios activos para este cliente en Excel.' });
+        }
+
+        const breakdown = [];
+        let totalNetAdjustment = 0; // > 0 = cliente debe pagar extra (días adicionales); < 0 = saldo a favor/descuento del cliente
+        let totalExtraCharge = 0;
+        let totalCreditDiscount = 0;
+
+        for (const item of clientRows) {
+            const r = item.row;
+            const streamingName = String(r.Streaming || r.Plataforma || 'SERVICIO').trim();
+            const rawCurrentDate = r.deben || r.Columna4 || r.vencimiento || '';
+            const currentDateObj = getJsDateFromExcel(rawCurrentDate);
+
+            let currentDateISO = null;
+            let diffDays = 0;
+            if (currentDateObj && !isNaN(currentDateObj.getTime())) {
+                const cLocal = new Date(currentDateObj.getFullYear(), currentDateObj.getMonth(), currentDateObj.getDate());
+                cLocal.setHours(0, 0, 0, 0);
+                currentDateISO = `${cLocal.getFullYear()}-${String(cLocal.getMonth() + 1).padStart(2, '0')}-${String(cLocal.getDate()).padStart(2, '0')}`;
+                diffDays = Math.round((targetDateObj.getTime() - cLocal.getTime()) / (1000 * 60 * 60 * 24));
+            }
+
+            // Resolver precio mensual real (acuerdo personalizado primero, luego catálogo)
+            const matchedRule = findMatchingCustomRule(customRules, streamingName);
+            let monthlyPrice = getPlatformPriceFromExcel(r, platforms, '');
+            if (matchedRule && matchedRule.mode === 'custom_price' && Number(matchedRule.custom_amount) > 0) {
+                monthlyPrice = Number(matchedRule.custom_amount);
+            }
+
+            const dailyRate = monthlyPrice > 0 ? (monthlyPrice / 30) : 0;
+            const adjustmentAmount = Math.round(dailyRate * diffDays); // + = a cobrar, - = saldo a favor (descuento)
+
+            totalNetAdjustment += adjustmentAmount;
+            if (adjustmentAmount > 0) totalExtraCharge += adjustmentAmount;
+            if (adjustmentAmount < 0) totalCreditDiscount += Math.abs(adjustmentAmount);
+
+            breakdown.push({
+                rowNumber: item.rowNumber,
+                streaming: streamingName,
+                accountEmail: String(r.correo || r.Correo || '').trim(),
+                currentDate: currentDateISO || 'Sin fecha',
+                targetDate: cleanTargetDate,
+                diffDays,
+                monthlyPrice,
+                adjustmentAmount
+            });
+        }
+
+        const balanceStatus = totalNetAdjustment > 0
+            ? 'charge_client'
+            : (totalNetAdjustment < 0 ? 'client_credit' : 'even');
+
+        if (previewOnly) {
+            return res.json({
+                success: true,
+                preview: true,
+                targetDate: cleanTargetDate,
+                fixedDay: td,
+                rowsCount: breakdown.length,
+                breakdown,
+                totalExtraCharge,
+                totalCreditDiscount,
+                netAdjustment: totalNetAdjustment,
+                balanceStatus
+            });
+        }
+
+        // Aplicar escritura en Excel para TODAS las filas activas del cliente
+        let updatedCount = 0;
+        const failedRows = [];
+        for (const b of breakdown) {
+            try {
+                const updates = {
+                    deben: cleanTargetDate,
+                    Columna4: cleanTargetDate,
+                    observaciones: `Fecha unificada (${cleanTargetDate})`
+                };
+                await updateExcelData(b.rowNumber, updates);
+                updatedCount++;
+            } catch (rowErr) {
+                console.error(`[Unify Expiration] Error actualizando fila ${b.rowNumber}:`, rowErr.message);
+                failedRows.push({ rowNumber: b.rowNumber, streaming: b.streaming, error: rowErr.message });
+            }
+        }
+
+        // Si pidió guardar también el día fijo para futuras renovaciones, persistir en custom_billing_rules
+        let updatedRules = customRules;
+        if (saveFixedDay && td >= 1 && td <= 31) {
+            const existingAllRule = customRules.find(r => String(r.platform || '').toUpperCase() === 'ALL');
+            updatedRules = await saveCustomBillingRule({
+                phone: phoneTail,
+                client_name: clientName || (clientRows[0].row.Nombre || clientRows[0].row.whatsapp || ''),
+                platform: 'ALL',
+                account_email: existingAllRule ? existingAllRule.account_email : null,
+                mode: existingAllRule ? existingAllRule.mode : 'fixed_date',
+                custom_amount: existingAllRule ? existingAllRule.custom_amount : null,
+                fixed_billing_day: td,
+                notes: existingAllRule && existingAllRule.notes
+                    ? existingAllRule.notes
+                    : `Fecha fija unificada al día ${td} de cada mes`
+            });
+        }
+
+        console.log(`[Admin API] 📅 Unificación completada para ${phoneTail}: ${updatedCount}/${breakdown.length} filas -> ${cleanTargetDate} | Ajuste neto: ${totalNetAdjustment} COP`);
+
+        res.json({
+            success: true,
+            preview: false,
+            targetDate: cleanTargetDate,
+            fixedDay: td,
+            updatedCount,
+            rowsCount: breakdown.length,
+            failedRows,
+            breakdown,
+            totalExtraCharge,
+            totalCreditDiscount,
+            netAdjustment: totalNetAdjustment,
+            balanceStatus,
+            rules: updatedRules
+        });
+    } catch (e) {
+        console.error('[Admin API] Error unificando vencimientos:', e.message);
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
 // Endpoint para editar datos del cliente, contraseña o customer mail en Excel
 app.post('/api/admin/client/update-fields', express.json(), async (req, res) => {
     try {
