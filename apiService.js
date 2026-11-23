@@ -879,12 +879,25 @@ async function updateExcelData(rowNumber, updates) {
     let isWriteSuccess = false;
     let result = null;
 
-    // 1. Intentar escribir DIRECTAMENTE en Microsoft Graph (OneDrive)
-    try {
-      result = await writeRowToGraphDirect(rowNumber, updates);
-      isWriteSuccess = true;
-    } catch (graphErr) {
-      console.warn(`[API Service] ⚠️ Falló escritura directa en Graph: ${graphErr.message}. Intentando Azure...`);
+    // 1. Intentar escribir DIRECTAMENTE en Microsoft Graph (OneDrive) con reintentos ante hipos transitorios
+    let lastGraphErr = null;
+    for (let graphAttempt = 1; graphAttempt <= 3; graphAttempt++) {
+      try {
+        result = await writeRowToGraphDirect(rowNumber, updates);
+        isWriteSuccess = true;
+        break;
+      } catch (graphErr) {
+        lastGraphErr = graphErr;
+        if (graphAttempt < 3) {
+          const waitMs = graphAttempt * 2000;
+          console.warn(`[API Service] ⚠️ Intento ${graphAttempt}/3 en Graph (Fila ${rowNumber}) falló: ${graphErr.message}. Reintentando en ${waitMs / 1000}s...`);
+          await new Promise(r => setTimeout(r, waitMs));
+        }
+      }
+    }
+
+    if (!isWriteSuccess) {
+      console.warn(`[API Service] ⚠️ Falló escritura directa en Graph tras 3 intentos: ${lastGraphErr ? lastGraphErr.message : 'desconocido'}. Intentando Azure...`);
       // 2. Fallback a Azure Function
       try {
         const response = await fetch(AZURE_WRITE_API_URL, {
@@ -908,6 +921,7 @@ async function updateExcelData(rowNumber, updates) {
     }
 
     // SIEMPRE actualizar excel_cache.json localmente para que el bot y las consultas reflejen la venta de inmediato
+    let cachedRowSnapshot = null;
     try {
       const localCachePath = path.join(__dirname, 'excel_cache.json');
       if (fs.existsSync(localCachePath)) {
@@ -917,8 +931,10 @@ async function updateExcelData(rowNumber, updates) {
           const rowIndex = cachedList.findIndex(r => r && (r.rowNumber === rowNumber || r._rowNumber === rowNumber));
           if (rowIndex !== -1) {
             cachedList[rowIndex] = { ...cachedList[rowIndex], ...updates };
+            cachedRowSnapshot = cachedList[rowIndex];
           } else if (rowNumber >= 2 && (rowNumber - 2) < cachedList.length) {
             cachedList[rowNumber - 2] = { ...cachedList[rowNumber - 2], ...updates };
+            cachedRowSnapshot = cachedList[rowNumber - 2];
           }
           fs.writeFileSync(localCachePath, JSON.stringify(cachedList, null, 2));
           console.log(`[API Service] 💾 Fila ${rowNumber} actualizada exitosamente en excel_cache.json local.`);
@@ -936,7 +952,7 @@ async function updateExcelData(rowNumber, updates) {
       return result;
     }
 
-    // Si falló tanto Graph como Azure, encolar en pending_excel_updates.json
+    // Si falló tanto Graph (3 intentos) como Azure, encolar en pending_excel_updates.json
     try {
       const pendingPath = path.join(__dirname, 'pending_excel_updates.json');
       let pendingList = [];
@@ -950,20 +966,22 @@ async function updateExcelData(rowNumber, updates) {
       console.error(`[API Service] Error encolando actualización pendiente:`, queueErr.message);
     }
 
-    // 🚨 NOTIFICAR INMEDIATAMENTE AL GRUPO DE ASESORES PARA EVITAR SOBREVENTAS O DESFASES
+    // 🚨 NOTIFICAR AL GRUPO SOLO SI FALLARON TODOS LOS REINTENTOS (con datos reales de la fila)
     try {
       const activeClient = (typeof global !== 'undefined' ? global.client : null);
       if (activeClient) {
         const groupId = process.env.GROUP_ID || '120363102144405222@g.us';
-        const clientName = updates.Nombre || updates.nombre || updates.whatsapp || 'Cliente';
-        const streamingName = updates.Streaming || updates.streaming || updates.Plataforma || 'Servicio';
-        const vencDate = updates.deben || updates.Columna4 || 'N/A';
-        const adminAlert = `🚨 *¡ALERTA CRÍTICA: FALLÓ ESCRITURA EN EXCEL ONLINE!* ⚠️\n\n` +
-          `El bot procesó una entrega o renovación pero *NO se pudo guardar en el Excel de OneDrive* (Fila ${rowNumber}).\n` +
+        const rowInfo = cachedRowSnapshot || {};
+        const clientName = updates.Nombre || updates.nombre || updates.whatsapp || rowInfo.Nombre || rowInfo.nombre || rowInfo.whatsapp || 'Sin cliente asignado';
+        const streamingName = updates.Streaming || updates.streaming || updates.Plataforma || rowInfo.Streaming || rowInfo.streaming || rowInfo.Plataforma || 'Servicio';
+        const accountEmail = updates.correo || updates.Correo || rowInfo.correo || rowInfo.Correo || '';
+        const vencDate = updates.deben || updates.Columna4 || updates.vencimiento || updates.Vencimiento || rowInfo.deben || rowInfo.vencimiento || 'N/A';
+        const adminAlert = `⚠️ *AVISO: REINTENTO PENDIENTE EN EXCEL ONLINE* (Fila ${rowNumber})\n\n` +
+          `Microsoft OneDrive rechazó temporalmente la escritura tras 3 intentos; el bot ya la dejó *encolada para sincronizarse automáticamente*.\n` +
           `👤 *Cliente:* ${clientName}\n` +
-          `📺 *Servicio:* ${streamingName}\n` +
-          `📅 *Vence:* ${vencDate}\n\n` +
-          `👉 *Acción requerida para asesores:* Por favor anoten esta fila manualmente en el Excel Online para evitar sobreventas o alertas desfasadas de cobro.`;
+          `📺 *Servicio:* ${streamingName}${accountEmail ? ` (\`${accountEmail}\`)` : ''}\n` +
+          `📅 *Fecha/Vence:* ${vencDate}\n\n` +
+          `👉 Si en un par de minutos no aparece actualizada en Excel Online, por favor regístrenla manualmente.`;
         activeClient.sendMessage(groupId, adminAlert).catch(e => console.error('[API Service] Error enviando alerta al grupo:', e.message));
       }
     } catch (alertErr) {
