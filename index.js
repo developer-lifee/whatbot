@@ -10452,6 +10452,20 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     }) || ['amazon', 'prime', 'hbo', 'max', 'disney', 'star', 'office', 'm365', 'microsoft', 'apple', 'netflix', 'spotify', 'youtube', 'crunchyroll', 'paramount', 'vix', 'canva', 'chatgpt', 'gpt', 'claude', 'capcut', 'duolingo'].some(alias => reqClean.includes(alias));
 
                     if (!isSupportedPlatform) {
+                        const isLiveTvRequest = /directv|dgo|winsport|winplus|magis|telelatino|clarovideo|movistartv|espn|foxsport|tvenvivo|canales/i.test(reqClean);
+                        const iptvPlatform = catalogPlatforms.find(p => (p.name || '').toLowerCase().includes('iptv'));
+                        if (isLiveTvRequest && iptvPlatform && iptvPlatform.isAvailable !== false) {
+                            const iptvPrice = Number(iptvPlatform.price) || 10000;
+                            console.log(`[Catalog Guard] Solicitud de TV en vivo (${detection.detectedPlatform}) puenteada proactivamente a IPTV ($${iptvPrice}) para @${userId}.`);
+                            const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName, isRenewal: false, items: [], total: 0 };
+                            userStates.set(userId, nextState);
+                            if (cleanPhoneJid) userStates.set(cleanPhoneJid, nextState);
+                            await message.reply(
+                                `🤖 ¡Hola ${foundName}! No vendemos *${detection.detectedPlatform}* directamente como cuenta oficial, pero con nuestro servicio de *IPTV* (*$${iptvPrice.toLocaleString('es-CO')} COP/mes*) sí puedes ver canales en vivo de TV, deportes y gran parte de esa programación (+10.000 canales, películas y series VOD en HD/FHD/4K, multi-dispositivo). 📺⚽\n\n¿Te gustaría activar *IPTV* hoy por *$${iptvPrice.toLocaleString('es-CO')} COP/mes*, o prefieres ver el catálogo completo en https://sheerit.co? 😊`
+                            );
+                            return;
+                        }
+
                         console.log(`[Catalog Guard] Servicio no comercializado detectado (${detection.detectedPlatform}) para @${userId}. Mostrando catálogo oficial e iniciando proceso de venta.`);
                         const nextState = { ...existingState, state: 'awaiting_purchase_platforms', nombre: foundName, isRenewal: false, items: [], total: 0 };
                         userStates.set(userId, nextState);
