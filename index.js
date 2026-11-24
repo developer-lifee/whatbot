@@ -5137,6 +5137,14 @@ client.on('authenticated', () => {
 
 // DETECTAR INTERVENCIÓN HUMANA
 
+function isAdvisorAwaitingReplyQuestion(rawText) {
+    const txt = String(rawText || '').trim();
+    if (!txt || txt.length < 6) return false;
+    const lower = txt.toLowerCase();
+    if (txt.includes('?') || txt.includes('¿')) return true;
+    return /\b(una consulta|quiz[aá]s\s+t[uú]|tienes\s+abiert[ao]|me\s+confirmas?|puedes\s+confirmar|conf[ií]rmame|me\s+avisas?|me\s+dices?|me\s+regalas?|puedes\s+revisar|ya\s+te\s+dej[oó]|ya\s+pudiste|te\s+lleg[oó]|te\s+sirvi[oó]|te\s+funcion[oó]|me\s+env[ií]as?|env[ií]ame|cu[aá]l\s+es|en\s+qu[eé]\s+dispositivo|nos\s+pide\s+mensaje\s+de\s+verificaci[oó]n|quedo\s+atento\s+a\s+tu\s+respuesta)\b/i.test(lower);
+}
+
 client.on('message_create', async (msg) => {
     // Ignorar si el mensaje es antiguo
     if (msg.timestamp < BOT_START_TIME) return;
@@ -5291,13 +5299,32 @@ client.on('message_create', async (msg) => {
         if (!msg.body.includes('🤖') && !isTestCommand && !isBotCommand && !isSystemResponse) {
             const cleanTargetJid = targetId.split('@')[0].split(':')[0].replace(/\D/g, '') + '@c.us';
             const existingSt = userStates.get(targetId) || userStates.get(cleanTargetJid) || (msg.to ? userStates.get(msg.to) : null) || {};
+            const isQuestionForClient = isAdvisorAwaitingReplyQuestion(msg.body);
+            const isAdvisorFarewell = !isQuestionForClient && /\b(con mucho gusto|con gusto|feliz d[ií]a|feliz tarde|feliz noche|que tengas buen d[ií]a|un placer ayudarte)\b/i.test(body);
+
+            let pendingAdvisorQuestion = existingSt.pendingAdvisorQuestion && !existingSt.pendingAdvisorQuestion.notified && (Date.now() - (existingSt.pendingAdvisorQuestion.askedAt || 0) < 24 * 60 * 60 * 1000)
+                ? existingSt.pendingAdvisorQuestion
+                : null;
+
+            if (isQuestionForClient) {
+                pendingAdvisorQuestion = {
+                    text: String(msg.body || '').trim().slice(0, 350),
+                    askedAt: Date.now(),
+                    notified: false
+                };
+                console.log(`[Advisor Follow-Up] 📌 Pregunta de asesor registrada para ${targetId}: "${pendingAdvisorQuestion.text.slice(0, 80)}"`);
+            } else if (isAdvisorFarewell) {
+                pendingAdvisorQuestion = null;
+            }
+
             const muteObj = {
                 ...(typeof existingSt === 'object' ? existingSt : {}),
                 state: 'waiting_human',
                 waitingCount: 0,
                 lastHumanInteraction: Date.now(),
                 waiting_human_mode: 'advisor',
-                clientWaitingSince: null
+                clientWaitingSince: null,
+                pendingAdvisorQuestion
             };
 
             console.log(`[BOT MUTE] Detectada intervención manual para ${targetId}. Silenciando bot estrictamente.`);
@@ -7087,6 +7114,52 @@ REGLAS:
         }
 
         if (!isSolvable) {
+            const altPhoneState = cleanPhoneJid ? userStates.get(cleanPhoneJid) : null;
+            const pendingQ = (currentStateData && currentStateData.pendingAdvisorQuestion) ||
+                (altPhoneState && altPhoneState.pendingAdvisorQuestion) || null;
+
+            if (pendingQ && !pendingQ.notified && (Date.now() - (pendingQ.askedAt || 0)) < 24 * 60 * 60 * 1000) {
+                const elapsedMin = Math.max(1, Math.round((Date.now() - pendingQ.askedAt) / 60000));
+                const elapsedStr = elapsedMin >= 60
+                    ? `${Math.floor(elapsedMin / 60)}h ${elapsedMin % 60}m`
+                    : `${elapsedMin} min`;
+
+                pendingQ.notified = true;
+                const updatedSt = {
+                    ...(typeof currentStateData === 'object' ? currentStateData : {}),
+                    state: 'waiting_human',
+                    waiting_human_mode: 'advisor',
+                    lastHumanInteraction: Date.now(),
+                    advisorReason: 'Respondió pregunta de asesor',
+                    pendingAdvisorQuestion: pendingQ
+                };
+                userStates.set(userId, updatedSt);
+                if (cleanPhoneJid && cleanPhoneJid !== userId) {
+                    userStates.set(cleanPhoneJid, updatedSt);
+                }
+
+                try {
+                    const { getClientDisplayInfo } = require('./billingService');
+                    const cInfo = await getClientDisplayInfo(userId, client, message, updatedSt);
+                    const clientTag = (cInfo && cInfo.userTag) || `${foundName || 'Cliente'} (+${realPhone || String(userId).replace(/\D/g, '')})`;
+                    const replySnippet = (message.combinedBody || message.body || '').trim() || (message.hasMedia ? '[Imagen / Archivo adjunto]' : '[Mensaje]');
+                    const groupChat = await client.getChatById(GROUP_ID);
+                    if (groupChat) {
+                        await groupChat.sendMessage(
+                            `📩 *RESPUESTA DE CLIENTE A PREGUNTA DE ASESOR*\n` +
+                            `👤 *Cliente:* ${clientTag}\n` +
+                            `⏱️ *Pregunta enviada hace:* ${elapsedStr}\n\n` +
+                            `❓ *Pregunta del asesor:*\n_"${pendingQ.text}"_\n\n` +
+                            `💬 *Respuesta del cliente:*\n"${replySnippet.slice(0, 400)}"`
+                        );
+                        console.log(`[Advisor Follow-Up] 📩 Reportada respuesta de @${userId} al grupo (${GROUP_ID}).`);
+                    }
+                } catch (followErr) {
+                    console.error('[Advisor Follow-Up] Error reportando respuesta al grupo:', followErr.message);
+                }
+                return;
+            }
+
             const lastInteraction = (currentStateData && currentStateData.lastHumanInteraction) || 0;
             const timeSinceLastHumanMs = lastInteraction ? (Date.now() - lastInteraction) : Infinity;
             const minutesSinceLastHuman = timeSinceLastHumanMs / (1000 * 60);
