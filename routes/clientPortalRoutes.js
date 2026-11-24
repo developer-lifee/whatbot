@@ -1,11 +1,146 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('bcryptjs');
 const { pool } = require('../database');
 const { getAccountsByPhone } = require('../apiService');
+const { hashPassword, signSessionToken, verifySessionToken } = require('../authService');
+const { createRateLimiter } = require('../securityMiddleware');
 const { checkAccountAutomationStatus } = require('./adminCatalogAndAccountingRoutes');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
+
+const clientPasswordLoginLimiter = createRateLimiter({
+    name: 'client-password-login',
+    windowMs: 15 * 60 * 1000,
+    maxAttempts: 6,
+    message: 'Demasiados intentos fallidos. Intenta nuevamente en 15 minutos.'
+});
+
+function normalizeClientPhoneKey(rawPhone) {
+    const clean = String(rawPhone || '').replace(/\D/g, '');
+    if (!clean) return '';
+    return (clean.length === 10 && clean.startsWith('3')) ? `57${clean}` : clean;
+}
+
+let clientAuthTableReady = false;
+async function ensureClientAuthTable() {
+    if (clientAuthTableReady) return;
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS client_portal_auth (
+            phone VARCHAR(25) PRIMARY KEY,
+            password_hash VARCHAR(255) NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+    `);
+    clientAuthTableReady = true;
+}
+
+async function hasClientPassword(canonicalPhone) {
+    if (!canonicalPhone) return false;
+    try {
+        await ensureClientAuthTable();
+        const last10 = canonicalPhone.slice(-10);
+        const [rows] = await pool.query(
+            'SELECT phone FROM client_portal_auth WHERE phone = ? OR phone = ? OR phone = ? LIMIT 1',
+            [canonicalPhone, last10, `57${last10}`]
+        );
+        return Boolean(rows && rows.length > 0);
+    } catch (e) {
+        console.warn('[ClientAuth] Error verificando client_portal_auth:', e.message);
+        return false;
+    }
+}
+
+async function loadFormattedClientAccounts(cleanPhone, isDemo) {
+    const { isAiLimitedPlatform, getDeviceUsage } = require('../deviceLimitService');
+    if (isDemo) {
+        return DEMO_ACCOUNTS_LIST.map(a => {
+            const isAi = isAiLimitedPlatform(a.Streaming || a.platform);
+            const deviceStatus = isAi ? getDeviceUsage('57000', a.email, 3, a.Nombre || a.profile) : null;
+            return {
+                ...a,
+                isLimitedPlatform: isAi,
+                devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
+                devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
+                maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
+            };
+        });
+    }
+
+    const { getAccountsByPhone: fetchAccs, getJsDateFromExcel } = require('../apiService');
+    const userAccounts = await fetchAccs(cleanPhone, null, true);
+
+    const formattedAccounts = await Promise.all(userAccounts.map(async (acc) => {
+        const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
+        const rawPerfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
+        const perfil = rawPerfil || "N/A";
+
+        const rawVenc = acc.deben || acc.Columna4 || acc.vencimiento;
+        const jsDate = getJsDateFromExcel ? getJsDateFromExcel(rawVenc) : null;
+        const vencFormatted = jsDate ? jsDate.toISOString().split('T')[0] : (rawVenc || "");
+
+        const isAi = isAiLimitedPlatform(acc.Streaming || acc.platform);
+        const accEmailNorm = (acc.correo || '').trim().toLowerCase();
+        const accPlatNorm = (acc.Streaming || acc.platform || '').trim().toLowerCase();
+        const cuposCount = isAi ? Math.max(1, userAccounts.filter(u => {
+            const uEmail = (u.correo || '').trim().toLowerCase();
+            if (accEmailNorm && uEmail) return uEmail === accEmailNorm;
+            return (u.Streaming || u.platform || '').trim().toLowerCase() === accPlatNorm;
+        }).length) : 1;
+        const maxAllowed = 3 * cuposCount;
+        const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, maxAllowed, rawPerfil || pin) : null;
+        const autoStatus = await checkAccountAutomationStatus(acc.correo, acc.Streaming);
+
+        return {
+            id: acc.id || acc._rowNumber,
+            platform: (acc.Streaming || "").toUpperCase(),
+            email: acc.correo || "",
+            password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
+            profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
+            vencimiento: vencFormatted,
+            isAutomated: autoStatus.isAutomated,
+            automationType: autoStatus.type,
+            automationLabel: autoStatus.label,
+            isLimitedPlatform: isAi,
+            devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
+            devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
+            maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
+        };
+    }));
+
+    if (formattedAccounts.length === 0) {
+        try {
+            const last10 = cleanPhone.slice(-10);
+            const [recentSales] = await pool.query(
+                `SELECT * FROM web_sales_approved 
+                 WHERE (whatsapp LIKE ? OR whatsapp = ?) 
+                 AND approvedAt >= NOW() - INTERVAL 48 HOUR 
+                 ORDER BY approvedAt DESC`,
+                [`%${last10}%`, cleanPhone]
+            );
+            if (recentSales && recentSales.length > 0) {
+                recentSales.forEach(s => {
+                    formattedAccounts.push({
+                        id: `pending-${s.order_id}`,
+                        platform: (s.platformName || "SERVICIO").toUpperCase(),
+                        email: s.email || "Asignando cuenta...",
+                        password: "En proceso de entrega",
+                        profile: `${s.firstName || 'Cliente'} (En preparación)`,
+                        vencimiento: "Activación en curso",
+                        isPendingDelivery: true,
+                        isAutomated: false
+                    });
+                });
+            }
+        } catch (dbSalesErr) {
+            console.warn('[ClientAccounts] Error buscando compras recientes en BD:', dbSalesErr.message);
+        }
+    }
+
+    return formattedAccounts;
+}
 
 // ==========================================
 // CLIENT OTP PORTAL SIGN-IN & 2FA REQUESTS
@@ -261,7 +396,16 @@ app.post('/api/client/request-otp', express.json(), async (req, res) => {
             console.log(`[OTP] Enviado código ${otpCode} a @${recipientJid} (Usuario: ${cleanPhone})`);
             return res.json({ success: true, message: isDemo ? 'Código OTP enviado con éxito a tu WhatsApp (+57 313 3890800)' : 'Código OTP enviado con éxito a tu WhatsApp' });
         } else {
-            return res.status(503).json({ success: false, message: 'El servicio de envío de códigos no está disponible en este momento' });
+            const canonicalPhone = normalizeClientPhoneKey(cleanPhone);
+            const clientHasPass = await hasClientPassword(canonicalPhone);
+            return res.status(503).json({
+                success: false,
+                whatsappOffline: true,
+                hasPassword: clientHasPass,
+                message: clientHasPass
+                    ? 'WhatsApp no está disponible en este momento, pero puedes ingresar con tu contraseña.'
+                    : 'El servicio de envío de códigos por WhatsApp no está disponible en este momento.'
+            });
         }
     } catch (e) {
         console.error('Error al generar OTP para cliente:', e.message);
@@ -278,6 +422,7 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
         }
 
         const cleanPhone = phone.replace(/\D/g, '');
+        const canonicalPhone = normalizeClientPhoneKey(cleanPhone);
         const isDemo = isDemoClientPhone(cleanPhone);
         const otpData = clientOtps.get(cleanPhone) || (isDemo ? (clientOtps.get('000') || clientOtps.get('57000')) : null);
 
@@ -297,111 +442,26 @@ app.post('/api/client/verify-otp', express.json(), async (req, res) => {
         // OTP Válido - Limpiar
         clientOtps.delete(cleanPhone);
 
-        if (isDemo) {
-            const { isAiLimitedPlatform, getDeviceUsage } = require('../deviceLimitService');
-            const demoFormatted = DEMO_ACCOUNTS_LIST.map(a => {
-                const isAi = isAiLimitedPlatform(a.Streaming || a.platform);
-                const deviceStatus = isAi ? getDeviceUsage('57000', a.email, 3, a.Nombre || a.profile) : null;
-                return {
-                    ...a,
-                    isLimitedPlatform: isAi,
-                    devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
-                    devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
-                    maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
-                };
-            });
-            return res.json({
-                success: true,
-                message: 'Verificación exitosa (Modo Demo)',
-                accounts: demoFormatted
+        const formattedAccounts = await loadFormattedClientAccounts(cleanPhone, isDemo);
+        const sessionToken = signSessionToken({ role: 'client', phone: canonicalPhone });
+        const clientHasPass = isDemo ? false : await hasClientPassword(canonicalPhone);
+
+        if (!isDemo) {
+            recordClient2FaLog({
+                phone: cleanPhone,
+                platform: 'PORTAL',
+                accountEmail: '',
+                requestSource: 'web',
+                status: 'otp_verified',
+                message: `Cliente inició sesión en el portal de cuentas (${formattedAccounts.length} servicio(s) consultado(s))`
             });
         }
-
-        const { getAccountsByPhone, getJsDateFromExcel } = require('../apiService');
-        const { getDeviceUsage, isAiLimitedPlatform, checkAccountAutomationStatus } = require('../deviceLimitService');
-        const userAccounts = await getAccountsByPhone(cleanPhone, null, true);
-
-        const formattedAccounts = await Promise.all(userAccounts.map(async (acc) => {
-            const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
-            const rawPerfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
-            const perfil = rawPerfil || "N/A";
-
-            const rawVenc = acc.deben || acc.Columna4 || acc.vencimiento;
-            const jsDate = getJsDateFromExcel ? getJsDateFromExcel(rawVenc) : null;
-            const vencFormatted = jsDate ? jsDate.toISOString().split('T')[0] : (rawVenc || "");
-
-            const isAi = isAiLimitedPlatform(acc.Streaming || acc.platform);
-            const accEmailNorm = (acc.correo || '').trim().toLowerCase();
-            const accPlatNorm = (acc.Streaming || acc.platform || '').trim().toLowerCase();
-            const cuposCount = isAi ? Math.max(1, userAccounts.filter(u => {
-                const uEmail = (u.correo || '').trim().toLowerCase();
-                if (accEmailNorm && uEmail) return uEmail === accEmailNorm;
-                return (u.Streaming || u.platform || '').trim().toLowerCase() === accPlatNorm;
-            }).length) : 1;
-            const maxAllowed = 3 * cuposCount;
-            const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, maxAllowed, rawPerfil || pin) : null;
-            const autoStatus = await checkAccountAutomationStatus(acc.correo, acc.Streaming);
-
-            return {
-                id: acc.id || acc._rowNumber,
-                platform: (acc.Streaming || "").toUpperCase(),
-                email: acc.correo || "",
-                password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
-                profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
-                vencimiento: vencFormatted,
-                isAutomated: autoStatus.isAutomated,
-                automationType: autoStatus.type,
-                automationLabel: autoStatus.label,
-                isLimitedPlatform: isAi,
-                devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
-                devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
-                maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
-            };
-        }));
-
-        // Si aún no se ha sincronizado en la hoja de Excel pero la compra fue aprobada recientemente
-        if (formattedAccounts.length === 0) {
-            try {
-                const { pool } = require('../database');
-                const last10 = cleanPhone.slice(-10);
-                const [recentSales] = await pool.query(
-                    `SELECT * FROM web_sales_approved 
-                     WHERE (whatsapp LIKE ? OR whatsapp = ?) 
-                     AND approvedAt >= NOW() - INTERVAL 48 HOUR 
-                     ORDER BY approvedAt DESC`,
-                    [`%${last10}%`, cleanPhone]
-                );
-                if (recentSales && recentSales.length > 0) {
-                    recentSales.forEach(s => {
-                        formattedAccounts.push({
-                            id: `pending-${s.order_id}`,
-                            platform: (s.platformName || "SERVICIO").toUpperCase(),
-                            email: s.email || "Asignando cuenta...",
-                            password: "En proceso de entrega",
-                            profile: `${s.firstName || 'Cliente'} (En preparación)`,
-                            vencimiento: "Activación en curso",
-                            isPendingDelivery: true,
-                            isAutomated: false
-                        });
-                    });
-                }
-            } catch (dbSalesErr) {
-                console.warn('[verify-otp] Error buscando compras recientes en BD:', dbSalesErr.message);
-            }
-        }
-
-        recordClient2FaLog({
-            phone: cleanPhone,
-            platform: 'PORTAL',
-            accountEmail: '',
-            requestSource: 'web',
-            status: 'otp_verified',
-            message: `Cliente inició sesión en el portal de cuentas (${formattedAccounts.length} servicio(s) consultado(s))`
-        });
 
         res.json({
             success: true,
-            message: 'Verificación exitosa',
+            message: isDemo ? 'Verificación exitosa (Modo Demo)' : 'Verificación exitosa',
+            sessionToken,
+            hasPassword: clientHasPass,
             accounts: formattedAccounts
         });
     } catch (e) {
@@ -419,118 +479,137 @@ app.post('/api/client/auto-session', express.json(), async (req, res) => {
         }
 
         const cleanPhone = phone.replace(/\D/g, '');
+        const canonicalPhone = normalizeClientPhoneKey(cleanPhone);
         const isDemo = isDemoClientPhone(cleanPhone);
 
-        if (isDemo) {
-            const { isAiLimitedPlatform, getDeviceUsage } = require('../deviceLimitService');
-            const demoFormatted = DEMO_ACCOUNTS_LIST.map(a => {
-                const isAi = isAiLimitedPlatform(a.Streaming || a.platform);
-                const deviceStatus = isAi ? getDeviceUsage('57000', a.email, 3, a.Nombre || a.profile) : null;
-                return {
-                    ...a,
-                    isLimitedPlatform: isAi,
-                    devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
-                    devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
-                    maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
-                };
-            });
-            return res.json({
-                success: true,
-                message: 'Sesión automática (Modo Demo)',
-                accounts: demoFormatted
+        const formattedAccounts = await loadFormattedClientAccounts(cleanPhone, isDemo);
+        const sessionToken = signSessionToken({ role: 'client', phone: canonicalPhone });
+        const clientHasPass = isDemo ? false : await hasClientPassword(canonicalPhone);
+
+        if (!isDemo) {
+            recordClient2FaLog({
+                phone: cleanPhone,
+                platform: 'PORTAL',
+                accountEmail: '',
+                requestSource: 'web',
+                status: 'portal_access',
+                message: `Cliente ingresó al portal tras completar compra (${formattedAccounts.length} servicio(s) entregado(s))`
             });
         }
-
-        const { getAccountsByPhone, getJsDateFromExcel } = require('../apiService');
-        const { getDeviceUsage, isAiLimitedPlatform, checkAccountAutomationStatus } = require('../deviceLimitService');
-        const userAccounts = await getAccountsByPhone(cleanPhone, null, true);
-
-        const formattedAccounts = await Promise.all(userAccounts.map(async (acc) => {
-            const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
-            const rawPerfil = acc.Nombre || acc.nombre || acc.Perfil || acc.perfil || "";
-            const perfil = rawPerfil || "N/A";
-
-            const rawVenc = acc.deben || acc.Columna4 || acc.vencimiento;
-            const jsDate = getJsDateFromExcel ? getJsDateFromExcel(rawVenc) : null;
-            const vencFormatted = jsDate ? jsDate.toISOString().split('T')[0] : (rawVenc || "");
-
-            const isAi = isAiLimitedPlatform(acc.Streaming || acc.platform);
-            const accEmailNorm = (acc.correo || '').trim().toLowerCase();
-            const accPlatNorm = (acc.Streaming || acc.platform || '').trim().toLowerCase();
-            const cuposCount = isAi ? Math.max(1, userAccounts.filter(u => {
-                const uEmail = (u.correo || '').trim().toLowerCase();
-                if (accEmailNorm && uEmail) return uEmail === accEmailNorm;
-                return (u.Streaming || u.platform || '').trim().toLowerCase() === accPlatNorm;
-            }).length) : 1;
-            const maxAllowed = 3 * cuposCount;
-            const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, maxAllowed, rawPerfil || pin) : null;
-            const autoStatus = await checkAccountAutomationStatus(acc.correo, acc.Streaming);
-
-            return {
-                id: acc.id || acc._rowNumber,
-                platform: (acc.Streaming || "").toUpperCase(),
-                email: acc.correo || "",
-                password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
-                profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
-                vencimiento: vencFormatted,
-                isAutomated: autoStatus.isAutomated,
-                automationType: autoStatus.type,
-                automationLabel: autoStatus.label,
-                isLimitedPlatform: isAi,
-                devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
-                devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
-                maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
-            };
-        }));
-
-        // Si aún no se ha sincronizado en la hoja de Excel pero la compra fue aprobada recientemente
-        if (formattedAccounts.length === 0) {
-            try {
-                const { pool } = require('../database');
-                const last10 = cleanPhone.slice(-10);
-                const [recentSales] = await pool.query(
-                    `SELECT * FROM web_sales_approved 
-                     WHERE (whatsapp LIKE ? OR whatsapp = ?) 
-                     AND approvedAt >= NOW() - INTERVAL 48 HOUR 
-                     ORDER BY approvedAt DESC`,
-                    [`%${last10}%`, cleanPhone]
-                );
-                if (recentSales && recentSales.length > 0) {
-                    recentSales.forEach(s => {
-                        formattedAccounts.push({
-                            id: `pending-${s.order_id}`,
-                            platform: (s.platformName || "SERVICIO").toUpperCase(),
-                            email: s.email || "Asignando cuenta...",
-                            password: "En proceso de entrega",
-                            profile: `${s.firstName || 'Cliente'} (En preparación)`,
-                            vencimiento: "Activación en curso",
-                            isPendingDelivery: true,
-                            isAutomated: false
-                        });
-                    });
-                }
-            } catch (dbSalesErr) {
-                console.warn('[auto-session] Error buscando compras recientes en BD:', dbSalesErr.message);
-            }
-        }
-
-        recordClient2FaLog({
-            phone: cleanPhone,
-            platform: 'PORTAL',
-            accountEmail: '',
-            requestSource: 'web',
-            status: 'portal_access',
-            message: `Cliente ingresó al portal tras completar compra (${formattedAccounts.length} servicio(s) entregado(s))`
-        });
 
         res.json({
             success: true,
-            message: 'Sesión iniciada con éxito',
+            message: isDemo ? 'Sesión automática (Modo Demo)' : 'Sesión iniciada con éxito',
+            sessionToken,
+            hasPassword: clientHasPass,
             accounts: formattedAccounts
         });
     } catch (e) {
         console.error('Error en auto-session de cliente:', e.message);
         res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST Client Password Login (independiente de WhatsApp Web)
+app.post('/api/client/login-password', clientPasswordLoginLimiter, express.json(), async (req, res) => {
+    try {
+        const { phone, password } = req.body || {};
+        if (!phone || !password) {
+            return res.status(400).json({ success: false, message: 'Ingresa tu número de WhatsApp y contraseña.' });
+        }
+
+        const cleanPhone = String(phone).replace(/\D/g, '');
+        const canonicalPhone = normalizeClientPhoneKey(cleanPhone);
+        const isDemo = isDemoClientPhone(cleanPhone);
+        if (!canonicalPhone) {
+            return res.status(400).json({ success: false, message: 'Número de teléfono inválido.' });
+        }
+
+        await ensureClientAuthTable();
+        const last10 = canonicalPhone.slice(-10);
+        const [rows] = await pool.query(
+            'SELECT phone, password_hash FROM client_portal_auth WHERE phone = ? OR phone = ? OR phone = ? LIMIT 1',
+            [canonicalPhone, last10, `57${last10}`]
+        );
+
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                noPasswordSet: true,
+                message: 'Aún no has creado una contraseña para este número. Ingresa primero con Código OTP por WhatsApp y créala desde tu portal.'
+            });
+        }
+
+        const match = await bcrypt.compare(String(password), rows[0].password_hash);
+        if (!match) {
+            return res.status(401).json({ success: false, message: 'Contraseña incorrecta.' });
+        }
+
+        const formattedAccounts = await loadFormattedClientAccounts(cleanPhone, isDemo);
+        const sessionToken = signSessionToken({ role: 'client', phone: normalizeClientPhoneKey(rows[0].phone) || canonicalPhone });
+
+        if (!isDemo) {
+            recordClient2FaLog({
+                phone: cleanPhone,
+                platform: 'PORTAL',
+                accountEmail: '',
+                requestSource: 'web',
+                status: 'password_login',
+                message: `Cliente inició sesión con contraseña de respaldo (${formattedAccounts.length} servicio(s))`
+            });
+        }
+
+        return res.json({
+            success: true,
+            message: 'Inicio de sesión exitoso',
+            sessionToken,
+            hasPassword: true,
+            accounts: formattedAccounts
+        });
+    } catch (e) {
+        console.error('Error en login-password de cliente:', e.message);
+        res.status(500).json({ success: false, message: 'Error interno al validar contraseña.' });
+    }
+});
+
+// POST Create or Update Client Backup Password (requires signed client sessionToken)
+app.post('/api/client/set-password', express.json(), async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const headerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+        const token = headerToken || (req.body && req.body.sessionToken) || '';
+        const payload = verifySessionToken(token);
+
+        if (!payload || payload.role !== 'client' || !payload.phone) {
+            return res.status(401).json({ success: false, message: 'Tu sesión expiró. Vuelve a iniciar sesión para guardar tu contraseña.' });
+        }
+
+        const reqPhone = normalizeClientPhoneKey((req.body && req.body.phone) || payload.phone);
+        const tokenPhone = normalizeClientPhoneKey(payload.phone);
+        if (reqPhone && tokenPhone && reqPhone.slice(-10) !== tokenPhone.slice(-10)) {
+            return res.status(403).json({ success: false, message: 'No autorizado para modificar otro número.' });
+        }
+
+        const newPassword = String((req.body && req.body.newPassword) || '');
+        if (newPassword.length < 6 || newPassword.length > 64) {
+            return res.status(400).json({ success: false, message: 'La contraseña debe tener entre 6 y 64 caracteres.' });
+        }
+
+        await ensureClientAuthTable();
+        const passwordHash = await hashPassword(newPassword);
+        await pool.query(
+            'INSERT INTO client_portal_auth (phone, password_hash) VALUES (?, ?) ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash)',
+            [tokenPhone, passwordHash]
+        );
+
+        return res.json({
+            success: true,
+            hasPassword: true,
+            message: 'Contraseña guardada con éxito. Ya puedes ingresar con tu número y contraseña aunque WhatsApp no esté disponible.'
+        });
+    } catch (e) {
+        console.error('Error guardando contraseña de cliente:', e.message);
+        res.status(500).json({ success: false, message: 'Error guardando tu contraseña.' });
     }
 });
 
