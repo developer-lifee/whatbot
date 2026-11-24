@@ -19452,7 +19452,88 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
 
                         // ✅ Llave Bre-V correcta o QR del negocio: validar monto y proceder
                         const { adjustDurationToMatchAmount, getPlatformPriceFromExcel } = require('./billingService');
-                        await adjustDurationToMatchAmount(stateData, check.amount, userId);
+                        const currentAmount = Number(check.amount);
+                        const previousPaid = (stateData.checkAmount && stateData.checkAmount !== currentAmount) ? stateData.checkAmount : 0;
+                        const totalPaidSoFar = previousPaid + currentAmount;
+
+                        const reconstructMissingCartItems = async () => {
+                            if (Array.isArray(stateData.items) && stateData.items.length > 0) return;
+                            const recentHist = await getChatHistoryText(message).catch(() => '');
+                            const inferredPlat = (check.inferredPlatform || '').toLowerCase().trim();
+                            const sourceText = `${inferredPlat} ${recentHist || ''}`.toLowerCase();
+
+                            try {
+                                const { getAccountsByPhone } = require('./apiService');
+                                const activeAccounts = await getAccountsByPhone(stateData.realPhone || userId);
+                                if (Array.isArray(activeAccounts) && activeAccounts.length > 0) {
+                                    const matchedActive = activeAccounts.filter(acc => {
+                                        const stName = (acc.Streaming || '').toLowerCase().trim();
+                                        if (!stName) return false;
+                                        if (inferredPlat && (stName.includes(inferredPlat) || inferredPlat.includes(stName))) return true;
+                                        const baseWord = stName.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
+                                        return baseWord.length >= 3 && sourceText.includes(baseWord);
+                                    });
+                                    if (matchedActive.length > 0) {
+                                        stateData.isRenewal = true;
+                                        stateData.items = matchedActive;
+                                        console.log(`[AUTO-VALIDATE] 🔄 Renovación reconstruida antes de validar precio para ${userId}: ${matchedActive.map(a => a.Streaming).join(', ')}`);
+                                        return;
+                                    }
+                                }
+                            } catch (renRecErr) {
+                                console.warn('[AUTO-VALIDATE] Advertencia reconstruyendo renovación previa:', renRecErr.message);
+                            }
+
+                            try {
+                                const catalogList = (typeof allPlatforms !== 'undefined' && Array.isArray(allPlatforms) && allPlatforms.length > 0)
+                                    ? allPlatforms
+                                    : await require('./salesService').getPlatforms().catch(() => []);
+                                const recoveredItems = [];
+                                for (const p of catalogList) {
+                                    const pNameLower = (p.name || '').toLowerCase();
+                                    const baseWord = pNameLower.split(/[\s+(]/)[0].replace(/[^a-z0-9]/g, '');
+                                    if (baseWord && baseWord.length >= 3 && sourceText.includes(baseWord)) {
+                                        const defaultPlan = (Array.isArray(p.plans) && p.plans.length > 0) ? p.plans[0] : { name: 'Estándar', price: p.price || 0 };
+                                        recoveredItems.push({
+                                            name: p.name,
+                                            Streaming: p.name,
+                                            platform: p,
+                                            chosenPlan: defaultPlan,
+                                            price: Number(defaultPlan.price || p.price || 0),
+                                            quantity: 1
+                                        });
+                                    }
+                                }
+                                if (recoveredItems.length > 0) {
+                                    const sumAll = recoveredItems.reduce((acc, it) => acc + (it.price || 0), 0);
+                                    if (Math.abs(sumAll - totalPaidSoFar) <= 2000) {
+                                        stateData.items = recoveredItems;
+                                    } else {
+                                        const exactSingle = recoveredItems.filter(it => Math.abs((it.price || 0) - totalPaidSoFar) <= 1500);
+                                        if (exactSingle.length === 1) {
+                                            stateData.items = exactSingle;
+                                        } else {
+                                            for (let i = 0; i < recoveredItems.length; i++) {
+                                                for (let j = i + 1; j < recoveredItems.length; j++) {
+                                                    if (Math.abs((recoveredItems[i].price || 0) + (recoveredItems[j].price || 0) - totalPaidSoFar) <= 1500) {
+                                                        stateData.items = [recoveredItems[i], recoveredItems[j]];
+                                                        break;
+                                                    }
+                                                }
+                                                if (stateData.items && stateData.items.length > 0) break;
+                                            }
+                                        }
+                                    }
+                                    if (stateData.items && stateData.items.length > 0) {
+                                        console.log(`[AUTO-VALIDATE] 🛒 Carrito reconstruido antes de validar precio para ${userId}: ${stateData.items.map(i => i.name || i.Streaming).join(', ')}`);
+                                    }
+                                }
+                            } catch (cartRecErr) {
+                                console.warn('[AUTO-VALIDATE] Advertencia reconstruyendo carrito previo:', cartRecErr.message);
+                            }
+                        };
+
+                        await reconstructMissingCartItems();
 
                         if (!stateData.total || Number(stateData.total) <= 0) {
                             if (Array.isArray(stateData.items) && stateData.items.length > 0) {
@@ -19468,8 +19549,10 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                             }
                         }
 
+                        await adjustDurationToMatchAmount(stateData, check.amount, userId);
+
                         const expectedTotal = Math.max(0, (stateData.total || 0) - (stateData.saldo || 0));
-                        if (expectedTotal <= 0) {
+                        if (expectedTotal <= 0 && (!isAutoValidate || currentAmount <= 0)) {
                             console.warn(`[AUTO-VALIDATE] ⚠️ No se pudo determinar el precio esperado (expectedTotal=${expectedTotal}) para ${userId}. Escalando a revisión manual.`);
                             try {
                                 const groupChat = await client.getChatById(GROUP_ID);
@@ -19483,10 +19566,6 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                             await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']);
                             return;
                         }
-
-                        const currentAmount = Number(check.amount);
-                        const previousPaid = (stateData.checkAmount && stateData.checkAmount !== currentAmount) ? stateData.checkAmount : 0;
-                        const totalPaidSoFar = previousPaid + currentAmount;
 
                         const amountMatches =
                             Math.abs(currentAmount - expectedTotal) < 500 ||
