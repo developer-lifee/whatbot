@@ -484,21 +484,19 @@ async function isProviderSender(userId) {
 function isExplicitPaymentMessage(text) {
     if (!text) return false;
     const clean = text.toLowerCase().trim();
+    // Nunca interpretar solicitudes de código, acceso, hogar o soporte como "ya pagué"
+    if (/\b(c[oó]digo|godigo|code|2fa|totp|otp|pin|hogar|enlace|link|contrase[nñ]a|clave|correo|perfil|usuario|sesi[oó]n)\b/i.test(clean)) {
+        return false;
+    }
     const explicitPaymentPhrases = [
         "ya pagu", "ya realice el pago", "ya realice pago", "ya hice el pago", "ya hice pago",
-        "ya transferi", "ya deposite", "ya envie el pago", "ya mande el pago", "ya consigne",
-        "comprobante de pago", "comprobante", "pantallazo del pago", "aqui esta el pago",
-        "ya qued", "ya quedó", "ya quedo", "listo el pago", "listo ya", "ya cancele", "ya cancelé",
-        "pagado", "ya pase", "ya pasé", "ya se pago", "ya se pagó", "ya mande", "ya mandé",
-        "ya envie", "ya envié", "acabo de pagar", "acabo de transferir", "acabo de enviar",
-        "ya deposité", "ya consigné", "consignado", "transferido", "ahi te mande", "ahí te mandé",
-        "ahi te envie", "ahí te envié", "te envie", "te envié", "te mande", "te mandé",
-        "ya te envie", "ya te envié", "ya te mande", "ya te mandé", "te pase", "te pasé"
+        "ya transferi", "ya transferí", "ya deposite", "ya deposité", "ya envie el pago", "ya envié el pago",
+        "ya mande el pago", "ya mandé el pago", "ya consigne", "ya consigné",
+        "comprobante de pago", "comprobante", "pantallazo del pago", "aqui esta el pago", "aquí está el pago",
+        "listo el pago", "ya cancele", "ya cancelé", "pagado", "ya se pago", "ya se pagó",
+        "acabo de pagar", "acabo de transferir", "consignado", "transferido"
     ];
-    return explicitPaymentPhrases.some(phrase => clean.includes(phrase)) ||
-        clean === 'listo' || clean.startsWith('listo ') ||
-        clean === 'ya' || clean.startsWith('ya ') ||
-        clean === 'hecho' || clean === 'ok listo';
+    return explicitPaymentPhrases.some(phrase => clean.includes(phrase));
 }
 
 let globalLastPaymentUserId = null; // Memoria del último usuario que envió un comprobante o pidió ayuda
@@ -13661,7 +13659,8 @@ REGLAS:
             }
 
             // Si el cliente afirma haber pagado por texto sin comprobante mientras está en waiting_human
-            if (isExplicitPaymentMessage(cleanBody) && !message.hasMedia) {
+            // (nunca interceptar si está pidiendo código/credenciales o si la IA ya detectó credenciales)
+            if (!isCodeRequest && (!detection || detection.intent !== 'credenciales') && isExplicitPaymentMessage(cleanBody) && !message.hasMedia) {
                 console.log(`[BOT MUTE] @${userId} afirma haber pagado sin comprobante en waiting_human. Solicitando comprobante.`);
                 await message.reply("🤖 ¡Hola! Para poder verificar tu pago y proceder con la entrega/activación de inmediato, por favor envíanos la *captura de pantalla o foto del comprobante de transferencia* 📸. ¡Quedo muy atento! 😊");
                 return;
