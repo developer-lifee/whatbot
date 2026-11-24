@@ -4604,6 +4604,12 @@ server.listen(port, () => {
         try {
             if (!client) return;
 
+            // Si el navegador ya no está conectado, no hay recuperación posible dentro del proceso: reiniciar de inmediato (incluso en calentamiento)
+            if (client.pupBrowser && typeof client.pupBrowser.isConnected === 'function' && !client.pupBrowser.isConnected()) {
+                await safeAntiZombieExit('Heartbeat detectó Chromium desconectado (browserConnected=false).');
+                return;
+            }
+
             const isWarmingUp = (Date.now() - botProcessStartTime) < (10 * 60 * 1000);
 
             let state = null;
@@ -4806,14 +4812,68 @@ async function notifyExternalSessionAlert(reason) {
     }
 }
 
+let isShuttingDown = false;
 async function shutdown() {
+    if (isShuttingDown) return;
+    isShuttingDown = true;
     console.log('Cerrando bot de forma limpia...');
     try {
-        if (client) await client.destroy();
+        // Dar tiempo a Chromium para cerrar y vaciar el perfil (IndexedDB) antes de salir.
+        // Requiere kill_timeout >= 15000 en PM2 (ver ecosystem.config.js); con el valor por defecto (1.6s) PM2 lo mata con SIGKILL a mitad de escritura.
+        if (client) {
+            await Promise.race([
+                client.destroy().catch(() => {}),
+                new Promise(resolve => setTimeout(resolve, 12000))
+            ]);
+        }
         if (server) server.close();
-        process.exit(0);
     } catch (e) {
-        process.exit(1);
+        console.warn('[Shutdown] Advertencia cerrando cliente:', e.message);
+    }
+    process.exit(0);
+}
+
+// Vigilante de Chromium: si el navegador muere o se desconecta, reiniciar de inmediato en vez de quedar zombie con "detached Frame"
+function attachBrowserWatchdog() {
+    const browser = client && client.pupBrowser;
+    if (!browser || browser.__whatbotWatchdog) return;
+    browser.__whatbotWatchdog = true;
+
+    try {
+        const proc = typeof browser.process === 'function' ? browser.process() : null;
+        if (proc) {
+            proc.once('exit', (code, signal) => {
+                console.error(`🔥 [Chromium Watchdog] El proceso de Chromium (pid ${proc.pid}) terminó. code=${code} signal=${signal}`);
+            });
+        }
+    } catch (e) { }
+
+    browser.once('disconnected', () => {
+        if (isShuttingDown || isAntiZombieExiting) return;
+        currentWhatsappStatus = 'DISCONNECTED';
+        safeAntiZombieExit('Chromium se desconectó inesperadamente (navegador cerrado o caído). Reiniciando de inmediato para evitar el estado zombie con "detached Frame".');
+    });
+    console.log('🛡️ [Chromium Watchdog] Vigilancia de desconexión del navegador activada.');
+}
+
+// Matar procesos Chromium huérfanos que sigan usando el perfil de sesión (p. ej. tras un SIGKILL de PM2) antes de borrar los Singleton locks
+function killOrphanChromiumForProfile() {
+    if (process.platform !== 'linux') return 0;
+    try {
+        const { execSync } = require('child_process');
+        const authDir = path.join(__dirname, 'wwebjs_auth');
+        // El patrón usa [x] para que la propia línea de comando del shell no coincida consigo misma
+        const pattern = `user-data-dir=[${authDir[0]}]${authDir.slice(1)}`;
+        const out = execSync(`pgrep -f '${pattern}' || true`, { encoding: 'utf8' }).trim();
+        const pids = out.split('\n').map(s => parseInt(s, 10)).filter(p => p && p !== process.pid);
+        pids.forEach(pid => { try { process.kill(pid, 'SIGKILL'); } catch (_) { } });
+        if (pids.length > 0) {
+            console.log(`🧹 [Startup Clean] ${pids.length} proceso(s) Chromium huérfano(s) del perfil de sesión terminados: ${pids.join(', ')}`);
+        }
+        return pids.length;
+    } catch (e) {
+        console.warn('[Startup Clean] No se pudo verificar Chromium huérfano:', e.message);
+        return 0;
     }
 }
 
@@ -12969,6 +13029,9 @@ async function startClientWithRetries(maxRetries = 5) {
             console.log(`🤖 Inicializando cliente de WhatsApp Web (Intento ${attempt}/${maxRetries})...`);
             const fs = require('fs');
             const path = require('path');
+            if (killOrphanChromiumForProfile() > 0) {
+                await new Promise(r => setTimeout(r, 1500));
+            }
             const sessionDirs = [
                 path.join(__dirname, 'wwebjs_auth', 'session'),
                 path.join(__dirname, 'wwebjs_auth', 'session', 'Default'),
@@ -12991,6 +13054,7 @@ async function startClientWithRetries(maxRetries = 5) {
             });
 
             await client.initialize();
+            attachBrowserWatchdog();
             console.log('✅ Cliente de WhatsApp Web inicializado correctamente.');
             return;
         } catch (err) {
