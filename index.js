@@ -8537,38 +8537,43 @@ REGLAS:
     }
 
     // --- GENERAL CODE INTERCEPTOR (Netflix, Disney+, Max, Amazon, GPT, Apple, etc.) ---
-    const lowerBody = cleanBody.toLowerCase();
+    async function tryHandleVerificationCodeRequest(rawInputText, hasVisualMedia = false) {
+        const lowerBody = String(rawInputText || '').trim().toLowerCase();
+        if (!lowerBody) return false;
 
-    const wantsCodeKeywords = [
-        'código', 'codigo', 'codigoo', 'codigooo', 'actualizar hogar', 'mi codigo', 'mi código',
-        'enviar código', 'enviar codigo', 'el código', 'el codigo', 'code',
-        'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación',
-        'envia el codigo', 'envía el código', 'mandar codigo', 'mandar código',
-        'claucode', 'claudecode', 'claude code', 'codigo claude', 'código claude',
-        'inicio de sesion', 'inicio de sesión', 'iniciar sesion', 'iniciar sesión'
-    ];
-    const platformsSupported = [
-        'netflix', 'disney', 'claude', 'claucode', 'claudecode', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt',
-        'youtube', 'spotify', 'paramount', 'apple', 'canva',
-        'crunchyroll', 'vix', 'gamma', 'iptv', 'magis', 'microsoft'
-    ];
-    const isRecentPaymentState = currentStateData && (currentStateData.state === 'awaiting_payment_confirmation' || currentStateData.state === 'waiting_admin_confirmation') && (Date.now() - (currentStateData.timestamp || 0) < 4 * 3600 * 1000);
-    const hasPaymentWord = lowerBody.includes('qr') || lowerBody.includes('barras') || lowerBody.includes('pago') || lowerBody.includes('comprobante') || lowerBody.includes('recibo') || lowerBody.includes('abono') || lowerBody.includes('transferencia');
-    const isPaymentOrReceipt = (isRecentPaymentState && hasPaymentWord) || (!message.hasMedia ? false : hasPaymentWord);
-    const hasExplicitCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) || /\b(c[oó]dig[oó]+|code)\b/i.test(lowerBody) || /clau(de)?\s*code/i.test(lowerBody);
-    let hasCodeKeyword = hasExplicitCodeKeyword && !isPaymentOrReceipt;
-    const { isCodeFailureReport } = require('./totpService');
-    const isCodeFollowUpMsg = isCodeFailureReport(lowerBody) || /^(ya\s*(lo\s*)?(envi[eé]|ped[ií]|solicit[eé]|mand[eé])|ya|listo|no\s*(me\s*)?llega|no\s+lo\s+tengo|a[uú]n\s+no|todav[ií]a\s+no)[\s?!.]*$/i.test(lowerBody.trim()) || (lowerBody.split(/\s+/).length <= 6 && (lowerBody.includes('ya lo envie') || lowerBody.includes('ya lo envié') || lowerBody.includes('ya lo pedi') || lowerBody.includes('ya lo pedí') || lowerBody.includes('no lo tengo') || lowerBody.includes('no me llega')));
-    if (!hasCodeKeyword && !isPaymentOrReceipt && isCodeFollowUpMsg) {
-        const recentHist = (await getChatHistoryText(message).catch(() => '')).toLowerCase();
-        if (['código', 'codigo', 'continuar con correo', 'claucode', 'claude.ai', 'enviar código', 'enviar codigo', '2fa'].some(kw => recentHist.includes(kw))) {
-            hasCodeKeyword = true;
+        const wantsCodeKeywords = [
+            'código', 'codigo', 'codigoo', 'codigooo', 'actualizar hogar', 'mi codigo', 'mi código',
+            'enviar código', 'enviar codigo', 'el código', 'el codigo', 'code',
+            'pide codigo', 'pide código', 'authenticator', 'token', 'verificacion', 'verificación',
+            'envia el codigo', 'envía el código', 'mandar codigo', 'mandar código',
+            'claucode', 'claudecode', 'claude code', 'codigo claude', 'código claude',
+            'inicio de sesion', 'inicio de sesión', 'iniciar sesion', 'iniciar sesión'
+        ];
+        const platformsSupported = [
+            'netflix', 'disney', 'claude', 'claucode', 'claudecode', 'cloud', 'max', 'hbo', 'prime', 'amazon', 'gpt', 'chatgpt',
+            'youtube', 'spotify', 'paramount', 'apple', 'canva',
+            'crunchyroll', 'vix', 'gamma', 'iptv', 'magis', 'microsoft'
+        ];
+        const isRecentPaymentState = currentStateData && (currentStateData.state === 'awaiting_payment_confirmation' || currentStateData.state === 'waiting_admin_confirmation') && (Date.now() - (currentStateData.timestamp || 0) < 4 * 3600 * 1000);
+        const hasPaymentWord = lowerBody.includes('qr') || lowerBody.includes('barras') || lowerBody.includes('pago') || lowerBody.includes('comprobante') || lowerBody.includes('recibo') || lowerBody.includes('abono') || lowerBody.includes('transferencia');
+        const isPaymentOrReceipt = (isRecentPaymentState && hasPaymentWord) || (hasVisualMedia && hasPaymentWord);
+        const hasExplicitCodeKeyword = wantsCodeKeywords.some(kw => lowerBody.includes(kw)) || /\b(c[oó]dig[oó]+|code)\b/i.test(lowerBody) || /clau(de)?\s*code/i.test(lowerBody);
+        let hasCodeKeyword = hasExplicitCodeKeyword && !isPaymentOrReceipt;
+        const { isCodeFailureReport } = require('./totpService');
+        const isCodeFollowUpMsg = isCodeFailureReport(lowerBody) || /^(ya\s*(lo\s*)?(envi[eé]|ped[ií]|solicit[eé]|mand[eé])|ya|listo|no\s*(me\s*)?llega|no\s+lo\s+tengo|a[uú]n\s+no|todav[ií]a\s+no)[\s?!.]*$/i.test(lowerBody.trim()) || (lowerBody.split(/\s+/).length <= 6 && (lowerBody.includes('ya lo envie') || lowerBody.includes('ya lo envié') || lowerBody.includes('ya lo pedi') || lowerBody.includes('ya lo pedí') || lowerBody.includes('no lo tengo') || lowerBody.includes('no me llega')));
+        if (!hasCodeKeyword && !isPaymentOrReceipt && isCodeFollowUpMsg) {
+            const recentHist = (await getChatHistoryText(message).catch(() => '')).toLowerCase();
+            if (['código', 'codigo', 'continuar con correo', 'claucode', 'claude.ai', 'enviar código', 'enviar codigo', '2fa'].some(kw => recentHist.includes(kw))) {
+                hasCodeKeyword = true;
+            }
         }
-    }
-    const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
-    const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw) || /\b(c[oó]dig[oó]+|code)\b/i.test(lowerBody) || /clau(de)?\s*code/i.test(lowerBody)) && !isPaymentOrReceipt;
+        const hasPlatformKeyword = platformsSupported.some(p => lowerBody.includes(p));
+        const isQuestionOrCode = (lowerBody === '?' || wantsCodeKeywords.some(kw => lowerBody === kw) || /\b(c[oó]dig[oó]+|code)\b/i.test(lowerBody) || /clau(de)?\s*code/i.test(lowerBody)) && !isPaymentOrReceipt;
 
-    if (hasCodeKeyword || (isQuestionOrCode && hasPlatformKeyword)) {
+        if (!hasCodeKeyword && !(isQuestionOrCode && hasPlatformKeyword)) {
+            return false;
+        }
+
         try {
             const { getAccountsByPhone } = require('./apiService');
             const userAccounts = await getAccountsByPhone(realPhone, foundName);
@@ -8601,7 +8606,7 @@ REGLAS:
                     `4️⃣ Tan pronto tu pantalla te pida el código temporal de verificación, me escribes aquí: *'código'* (o por ejemplo *'código claude'*) y te lo entregaré al instante. 📲✨`;
 
                 await message.reply(howToMsg);
-                return;
+                return true;
             }
 
             if (userAccounts.length > 0) {
@@ -8617,7 +8622,7 @@ REGLAS:
                     } else {
                         targetAccount = {
                             correo: directEmail,
-                            Streaming: matchedPlatform ? matchedPlatform.toUpperCase() : (userAccounts[0] ? userAccounts[0].Streaming : 'AMAZON')
+                            Streaming: userAccounts[0] ? userAccounts[0].Streaming : 'AMAZON'
                         };
                     }
                 }
@@ -8634,7 +8639,7 @@ REGLAS:
                             if (matchedPlatform === 'amazon' || matchedPlatform === 'prime') {
                                 return streamingName.includes('amazon') || streamingName.includes('prime');
                             }
-                            if (matchedPlatform === 'claude' || matchedPlatform === 'claucode' || matchedPlatform === 'claudecode') {
+                            if (matchedPlatform === 'claude' || matchedPlatform === 'claucode' || matchedPlatform === 'claudecode' || matchedPlatform === 'cloud') {
                                 return streamingName.includes('claude');
                             }
                             return streamingName.includes(matchedPlatform);
@@ -8644,9 +8649,9 @@ REGLAS:
                     // Si especificó una plataforma pero no está entre sus cuentas activas, no usar fallbacks
                     if (matchedPlatform && !targetAccount) {
                         const activePlats = Array.from(new Set(userAccounts.map(a => (a.Streaming || "").toUpperCase()).filter(Boolean))).join(', ');
-                        const platDisplayName = (matchedPlatform === 'claucode' || matchedPlatform === 'claudecode') ? 'CLAUDE' : matchedPlatform.toUpperCase();
+                        const platDisplayName = (matchedPlatform === 'claucode' || matchedPlatform === 'claudecode' || matchedPlatform === 'cloud') ? 'CLAUDE' : matchedPlatform.toUpperCase();
                         await message.reply(`🤖 Veo que solicitas un código para *${platDisplayName}*, pero no tienes una cuenta activa de esa plataforma vinculada a tu número de WhatsApp. ${activePlats ? `Actualmente solo tienes activo: *${activePlats}*` : 'No tienes servicios activos con nosotros'}.\n\nSi deseas renovar o adquirir tu cuenta de *${platDisplayName}*, por favor indícalo para ayudarte. 😊`);
-                        return;
+                        return true;
                     }
                 }
 
@@ -8677,17 +8682,22 @@ REGLAS:
                         timestamp: Date.now(),
                         nombre: foundName
                     });
-                    return;
+                    return true;
                 }
 
                 if (targetAccount) {
                     await processAccountVerificationCode(message, userId, targetAccount, realPhone, client, userStates);
-                    return;
+                    return true;
                 }
             }
         } catch (e) {
             console.error("Error en interceptor general de códigos:", e);
         }
+        return false;
+    }
+
+    if (await tryHandleVerificationCodeRequest(cleanBody, Boolean(message.hasMedia))) {
+        return;
     }
 
     if (cleanBody.toLowerCase().startsWith("hola, estoy interesado en")) {
@@ -8734,6 +8744,15 @@ REGLAS:
         // Si solo se enviaron notas de voz (sin fotos/imágenes adjuntas), desactivar isMedia para no confundir al bot
         if (mediaData.length === 0 && messages.some(m => m.isAudioNote)) {
             isMedia = false;
+        }
+
+        // Ejecutar también el interceptor general de códigos sobre transcripciones de notas de voz
+        if (messages.some(m => m.isAudioNote) && (message.body || '').trim()) {
+            const audioHandledAsCode = await tryHandleVerificationCodeRequest(message.body, mediaData.length > 0);
+            if (audioHandledAsCode) {
+                console.log(`[Audio Code Interceptor] 🎙️ Solicitud de código en nota de voz atendida automáticamente para @${userId}.`);
+                return;
+            }
         }
 
         // --- INTERCEPTOR GLOBAL DE PAGOS ---
