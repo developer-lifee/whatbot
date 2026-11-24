@@ -1434,7 +1434,7 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
 
       if (hasTodayAdvisorLine && (lastHumanMs === null || lastHumanMs <= 120 * 60 * 1000 || isActiveAdvisorState)) {
         console.log(`[AI Empathetic Fallback] Asesor humano reciente detectado en el historial de hoy. Silenciando bot para no interrumpir.`);
-        return { replyMessage: null, needsEscalation: false };
+        return { replyMessage: null, needsEscalation: false, silent: true };
       } else {
         console.log(`[AI Empathetic Fallback] ℹ️ Mensaje de asesor humano en historial es antiguo (no reciente). Permitiendo respuesta del bot.`);
       }

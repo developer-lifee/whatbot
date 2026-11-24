@@ -10233,10 +10233,23 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                             const lastHumanTimeMs = lastHumanMsg.timestamp * 1000;
                             const timeSinceLastHumanMs = Date.now() - lastHumanTimeMs;
                             const hoursSinceLastHuman = timeSinceLastHumanMs / (1000 * 60 * 60);
-                            console.log(`[Flow Recovery Debug] Último mensaje humano detectado hace ${hoursSinceLastHuman.toFixed(2)} horas.`);
+                            const cleanRecoveryText = String(message.body || '').trim();
+                            const isQuotedReply = Boolean(message.hasQuotedMsg);
+                            const isShortCourtesyOrAck = cleanRecoveryText.split(/\s+/).filter(Boolean).length <= 4 &&
+                                /^(si|s[ií](\s+se[nñ]or[a]?)?|ok|okay|okey|ah\s+okey(\s+gracias)?|gracias|muchas\s+gracias|listo|claro|dale|bueno|perfecto|entendido)[!.,🙏😊👍\s]*$/i.test(cleanRecoveryText);
+
+                            console.log(`[Flow Recovery Debug] Último mensaje humano detectado hace ${hoursSinceLastHuman.toFixed(2)} horas (quoted=${isQuotedReply}, shortAck=${isShortCourtesyOrAck}).`);
                             if (hoursSinceLastHuman > 2) {
-                                console.log(`[Flow Recovery] 🕒 El último mensaje del asesor fue hace más de 2 horas. Ignorando 'waiting_human' recuperado por la IA.`);
-                                detection.recoveredState = null;
+                                if ((isQuotedReply || isShortCourtesyOrAck) && hoursSinceLastHuman <= 12) {
+                                    console.log(`[Flow Recovery] 🤫 Respuesta directa/citada o cortesía corta hacia asesor del mismo día (${hoursSinceLastHuman.toFixed(2)}h). Manteniendo 'waiting_human' para no interrumpir.`);
+                                } else {
+                                    console.log(`[Flow Recovery] 🕒 El último mensaje del asesor fue hace más de 2 horas. Ignorando 'waiting_human' recuperado por la IA.`);
+                                    detection.recoveredState = null;
+                                    if (detection.intent === 'soporte' && isShortCourtesyOrAck) {
+                                        console.log(`[Flow Recovery] 🤫 Evitando 'intent=soporte' huérfano para afirmación/cortesía corta ("${cleanRecoveryText}").`);
+                                        detection.intent = 'cierre';
+                                    }
+                                }
                             }
                         } else {
                             console.log(`[Flow Recovery Debug] No se encontró mensaje humano previo en los últimos 15 mensajes. Ignorando 'waiting_human'.`);
@@ -10452,7 +10465,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     }) || ['amazon', 'prime', 'hbo', 'max', 'disney', 'star', 'office', 'm365', 'microsoft', 'apple', 'netflix', 'spotify', 'youtube', 'crunchyroll', 'paramount', 'vix', 'canva', 'chatgpt', 'gpt', 'claude', 'capcut', 'duolingo'].some(alias => reqClean.includes(alias));
 
                     if (!isSupportedPlatform) {
-                        const isLiveTvRequest = /directv|dgo|winsport|winplus|magis|telelatino|clarovideo|movistartv|espn|foxsport|tvenvivo|canales/i.test(reqClean);
+                        const isLiveTvRequest = /^win$|directv|dgo|winsport|winplus|magis|telelatino|clarovideo|movistartv|espn|foxsport|tvenvivo|canales/i.test(reqClean);
                         const iptvPlatform = catalogPlatforms.find(p => (p.name || '').toLowerCase().includes('iptv'));
                         if (isLiveTvRequest && iptvPlatform && iptvPlatform.isAvailable !== false) {
                             const iptvPrice = Number(iptvPlatform.price) || 10000;
@@ -10800,6 +10813,10 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         let accs = [];
                         try { accs = await getAccountsByPhone(realPhone, foundName); } catch (e) {}
                         const fallbackResult = await generateEmpatheticFallback(message.body || "", false, historyForFallback, null, accs, userId, userStates);
+                        if (fallbackResult && fallbackResult.silent === true) {
+                            console.log(`[Support Direct Answer] 🤫 Fallback IA solicitó silencio intencional por asesor humano activo para @${userId}.`);
+                            return;
+                        }
                         const fallbackMsg = typeof fallbackResult === 'string' ? fallbackResult : (fallbackResult?.replyMessage || "");
 
                         if (fallbackMsg && fallbackMsg.replace(/🤖|👍|👋|\s/g, '').length >= 3) {
@@ -10815,6 +10832,12 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     const liveStateData = userStates.get(userId);
                     if (hasRecentHuman || (liveStateData && liveStateData.state === 'waiting_human' && liveStateData.waiting_human_mode === 'advisor')) {
                         console.log(`[Support Direct Answer] 🤫 Asesor humano activo para @${userId}. Omitiendo prompt genérico de soporte para no interrumpir.`);
+                        return;
+                    }
+
+                    const isPureAckOrCourtesy = /^(si|s[ií]\s+se[nñ]or[a]?|ok|okay|okey|ah\s+okey(\s+gracias)?|gracias|muchas\s+gracias|listo|dale|claro|bueno|perfecto|entendido)[!.,🙏😊👍\s]*$/i.test(cleanText);
+                    if (isPureAckOrCourtesy) {
+                        console.log(`[Support Direct Answer] 🤫 Afirmación/cortesía corta ("${cleanText}") sin descripción de falla para @${userId}. Omitiendo prompt genérico de soporte.`);
                         return;
                     }
 
