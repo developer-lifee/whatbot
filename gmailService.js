@@ -178,10 +178,10 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
             const expectedRef = receiptMeta && receiptMeta.reference ? String(receiptMeta.reference).trim().toUpperCase() : null;
             const expectedDateISO = receiptMeta && receiptMeta.receiptDateISO ? String(receiptMeta.receiptDateISO).trim() : null;
             const expectedBank = receiptMeta && receiptMeta.bank ? String(receiptMeta.bank).trim().toLowerCase() : '';
-            const expectedPayer = receiptMeta && receiptMeta.payerName ? String(receiptMeta.payerName).trim() : null;
+            const isNequiNativeRef = Boolean(expectedRef && /^M\d{6,}$/i.test(expectedRef));
             const isInterbankOrLongBrebRef =
-                /daviplata|nu\b|nubank|bre-b|breb|lulo|dale|movii|bancolombia/.test(expectedBank) ||
-                (expectedRef && /^[A-Z0-9]{20,}$/i.test(expectedRef));
+                /daviplata|nu\b|nubank|bre-b|breb|lulo|dale|movii|bancolombia|bcs|caja social|bogota|davivienda|bbva|occidente|popular|av villas|falabella|scotiabank/.test(expectedBank) ||
+                (expectedRef && !isNequiNativeRef);
 
             if (isBancolombia) {
                 const isTransfer = /transferencia|recibida|abono|movimiento|alerta|notificaci|pago|ingreso|dep[oó]sito|recepci|transacci|compra|venta|redeban|daviplata|sheerit/i.test(body) ||
@@ -242,23 +242,15 @@ async function findMatchingPaymentInAccount(email, query, targetAmount, toleranc
                         if (expectedDateISO && emailDateISO !== expectedDateISO) {
                             continue;
                         }
-                        // Validar identificador único (Referencia o Tx ID) cuando ambos estén presentes,
-                        // flexibilizando cuando es transferencia interbancaria Bre-B / ID MOL alfanumérico (>= 20 chars) o DaviPlata
-                        if (expectedRef && (emailRef || emailTxId) && !isInterbankOrLongBrebRef) {
+                        // Validar identificador único (Referencia o Tx ID) solo cuando el comprobante trae referencia nativa Nequi (M########).
+                        // En transferencias interbancarias Bre-B (Bancolombia TRIH..., BCS APIU..., Nu, DaviPlata, etc.), el banco origen genera
+                        // una referencia distinta a la M######## del correo de Nequi y con frecuencia paga un familiar/negocio con otro nombre;
+                        // en ese caso el match queda protegido por monto exacto + fecha exacta + ventana reciente + correo no consumido.
+                        if (expectedRef && (emailRef || emailTxId) && isNequiNativeRef && !isInterbankOrLongBrebRef) {
                             const refMatches = (emailRef && (emailRef === expectedRef || emailRef.includes(expectedRef) || expectedRef.includes(emailRef))) ||
                                                (emailTxId && (emailTxId === expectedRef || emailTxId.includes(expectedRef) || expectedRef.includes(emailTxId)));
                             if (!refMatches) {
                                 continue;
-                            }
-                        } else if (isInterbankOrLongBrebRef && expectedPayer && payerMatch && payerMatch[1]) {
-                            const normalizeName = (s) => s.replace(/<[^>]+>/g, ' ').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').trim();
-                            const payerTokens = normalizeName(expectedPayer).split(/\s+/).filter(t => t.length >= 3);
-                            const emailPayerNorm = normalizeName(payerMatch[1]);
-                            if (payerTokens.length > 0 && emailPayerNorm) {
-                                const hasNameOverlap = payerTokens.some(t => emailPayerNorm.includes(t));
-                                if (!hasNameOverlap) {
-                                    continue;
-                                }
                             }
                         }
 
