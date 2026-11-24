@@ -2785,6 +2785,27 @@ app.post('/api/admin/client/update-fields', express.json(), async (req, res) => 
 
         let extraUpdatedRows = 0;
         const accountEmailToMatch = (originalCorreo || updates.correo || (matchedRowObj && (matchedRowObj.correo || matchedRowObj.Correo)) || '').toString().toLowerCase().trim();
+        const isSamePasswordFamily = (streamA, streamB) => {
+            if (!streamA || !streamB) return true;
+            if (streamA === streamB) return true;
+            const families = [
+                /apple|icloud/,
+                /netflix/,
+                /disney/,
+                /spotify/,
+                /youtube/,
+                /\bhbo\b|\bmax\b/,
+                /prime|amazon/,
+                /paramount/,
+                /crunchy/,
+                /canva/,
+                /chatgpt|\bgpt\b/,
+                /claude/,
+                /microsoft|office/,
+                /\bvix\b/
+            ];
+            return families.some(rx => rx.test(streamA) && rx.test(streamB));
+        };
         if (applyPasswordToAccount && updates['contraseña'] !== undefined && accountEmailToMatch) {
             const targetStreamingNorm = (streaming || (matchedRowObj && (matchedRowObj.Streaming || matchedRowObj.Plataforma)) || '').toString().toLowerCase().trim();
             for (const row of allRows) {
@@ -2792,7 +2813,7 @@ app.post('/api/admin/client/update-fields', express.json(), async (req, res) => 
                 if (rNum === targetRow) continue;
                 const rEmail = (row.correo || row.Correo || '').toString().toLowerCase().trim();
                 const rStream = (row.Streaming || row.Plataforma || '').toString().toLowerCase().trim();
-                if (rEmail === accountEmailToMatch && (!targetStreamingNorm || rStream === targetStreamingNorm)) {
+                if (rEmail === accountEmailToMatch && isSamePasswordFamily(targetStreamingNorm, rStream)) {
                     await updateExcelData(rNum, { 'contraseña': updates['contraseña'] });
                     extraUpdatedRows++;
                 }
