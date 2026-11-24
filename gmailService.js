@@ -568,8 +568,8 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
             // Eliminar bloques <style> enteros
             const noStyleBody = bodyWithoutUrls.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, ' ');
 
-            // Limpiar etiquetas HTML y colores hexadecimales basura residuales
-            const cleanBody = noStyleBody.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ');
+            // Limpiar etiquetas HTML, entidades invisibles (&nbsp;, &zwnj;) y colores hexadecimales basura residuales
+            const cleanBody = noStyleBody.replace(/<[^>]*>?/gm, ' ').replace(/&nbsp;|&zwnj;/gi, ' ').replace(/\s+/g, ' ');
             const superCleanBody = cleanBody.replace(/\b(?:F9F9F9|FFFFFF|000000|E5E5E5|CCCCCC|DEDEDE)\b/gi, ' ');
 
             let code = null;
@@ -588,8 +588,10 @@ async function findRecentCodes(email, toleranceMinutes = 10, searchQuery = '') {
             }
 
             // Si el correo es específicamente de actualización de hogar o código de acceso temporal de Netflix, es por ENLACE (botón 'Sí, la envié yo' u 'Obtener código'), no viene código de 4 dígitos en el cuerpo
-            const isNetflixHouseholdUpdate = /actualizar.*hogar|update-primary-location|c[oó]mo actualizar|confirmar.*hogar|update.*household|acceso\s+temporal|temporary\s+access|travel\/verify/i.test(decodedSubject) ||
-                /actualizar.*hogar|update-primary-location|c[oó]mo actualizar tu hogar|travel\/verify|obtener\s+c[oó]digo/i.test(superCleanBody);
+            const isNetflixHouseholdUpdate = isNetflixMail && (
+                /actualizar.*hogar|update-primary-location|c[oó]mo actualizar|confirmar.*hogar|update.*household|acceso\s+temporal|temporary\s+access|travel\/verify/i.test(decodedSubject) ||
+                /actualizar.*hogar|update-primary-location|c[oó]mo actualizar tu hogar|travel\/verify|obtener\s+c[oó]digo/i.test(superCleanBody)
+            );
 
             if (!isNetflixHouseholdUpdate) {
                 if (isNetflixMail) {
