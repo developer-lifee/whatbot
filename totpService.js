@@ -101,9 +101,9 @@ async function getEmailCodeFallback(email) {
  * @param {number} [windowMs=900000] (15 mins)
  * @returns {Object} { canRequest, devicesUsed, devicesRemaining, maxDevices, limitReached }
  */
-function checkAndIncrementUsage(phone, email, maxAllowed = 3, windowMs = 15 * 60 * 1000, profile = null) {
+function checkAndIncrementUsage(phone, email, maxAllowed = 3, windowMs = 3 * 60 * 1000, profile = null, clientIp = null, deviceInfo = null) {
     const { registerDeviceRequest } = require('./deviceLimitService');
-    return registerDeviceRequest(phone, email, null, maxAllowed, windowMs, profile);
+    return registerDeviceRequest(phone, email, clientIp, maxAllowed, windowMs, profile, null, deviceInfo);
 }
 
 /**

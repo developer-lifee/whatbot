@@ -39,7 +39,7 @@ function generateSlug(length = 6) {
     return slug;
 }
 
-async function shortenUrl(originalUrl) {
+async function shortenUrl(originalUrl, meta = null) {
     if (!originalUrl || typeof originalUrl !== 'string') return originalUrl;
     const trimmed = originalUrl.trim();
     if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) return trimmed;
@@ -48,6 +48,10 @@ async function shortenUrl(originalUrl) {
     // Verificar si la URL ya existe en el almacén
     for (const [code, item] of Object.entries(urlStore)) {
         if (item && item.targetUrl === trimmed) {
+            if (meta && !item.meta) {
+                item.meta = meta;
+                saveStore();
+            }
             return `${BASE_DOMAIN}/l/${code}`;
         }
     }
@@ -60,27 +64,47 @@ async function shortenUrl(originalUrl) {
     urlStore[code] = {
         code,
         targetUrl: trimmed,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        ...(meta ? { meta } : {}),
+        hits: []
     };
     saveStore();
 
     return `${BASE_DOMAIN}/l/${code}`;
 }
 
-function getTargetUrl(code) {
+function getUrlRecord(code) {
     if (!code) return null;
-    if (urlStore[code]) {
-        return urlStore[code].targetUrl;
-    }
+    if (urlStore[code]) return urlStore[code];
     loadStore();
-    if (urlStore[code]) {
-        return urlStore[code].targetUrl;
+    return urlStore[code] || null;
+}
+
+function getTargetUrl(code) {
+    const rec = getUrlRecord(code);
+    return rec ? rec.targetUrl : null;
+}
+
+function recordShortUrlHit(code, hitInfo = {}) {
+    const rec = getUrlRecord(code);
+    if (!rec) return null;
+    if (!Array.isArray(rec.hits)) rec.hits = [];
+    rec.hits.push({
+        at: new Date().toISOString(),
+        ip: hitInfo.ip || 'unknown',
+        deviceLabel: hitInfo.deviceLabel || 'Desconocido'
+    });
+    if (rec.hits.length > 10) {
+        rec.hits = rec.hits.slice(-10);
     }
-    return null;
+    saveStore();
+    return rec;
 }
 
 module.exports = {
     shortenUrl,
     getTargetUrl,
+    getUrlRecord,
+    recordShortUrlHit,
     generateSlug
 };

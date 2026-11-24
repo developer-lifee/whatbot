@@ -64,7 +64,8 @@ async function loadFormattedClientAccounts(cleanPhone, isDemo) {
                 isLimitedPlatform: isAi,
                 devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
                 devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
-                maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
+                maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null,
+                registeredDevices: isAi && deviceStatus ? (deviceStatus.registeredDevices || []) : []
             };
         });
     }
@@ -106,7 +107,8 @@ async function loadFormattedClientAccounts(cleanPhone, isDemo) {
             isLimitedPlatform: isAi,
             devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
             devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
-            maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null
+            maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null,
+            registeredDevices: isAi && deviceStatus ? (deviceStatus.registeredDevices || []) : []
         };
     }));
 
@@ -786,8 +788,23 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
             }
         };
 
+        const rawIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').toString();
+        const reqClientIp = rawIp.split(',')[0].replace('::ffff:', '').trim();
+        const reqUserAgent = String(req.headers['user-agent'] || '');
+        const { parseDeviceLabelFromUserAgent } = require('../deviceLimitService');
+        const reqDeviceLabel = parseDeviceLabelFromUserAgent(reqUserAgent) || 'Web';
+        const deviceTag = reqClientIp ? ` (${reqDeviceLabel} • IP: ${reqClientIp})` : ` (${reqDeviceLabel})`;
+
         // Ejecutar extractor automático y obtener el resultado estructurado
-        const extractionResult = await ctx.processAccountVerificationCode(mockMessage, userJid, targetAccount, isDemo ? ADMIN_DEMO_RECIPIENT_PHONE : cleanPhone, ctx.getClient(), userStates);
+        const extractionResult = await ctx.processAccountVerificationCode(
+            mockMessage,
+            userJid,
+            targetAccount,
+            isDemo ? ADMIN_DEMO_RECIPIENT_PHONE : cleanPhone,
+            ctx.getClient(),
+            userStates,
+            { clientIp: reqClientIp, userAgent: reqUserAgent, deviceLabel: reqDeviceLabel }
+        );
 
         if (extractionResult && extractionResult.limitReached) {
             await recordClient2FaLog({
@@ -797,7 +814,7 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
                 accountEmail: targetAccount.correo || '',
                 requestSource: 'web',
                 status: 'limit_reached',
-                message: `Límite de 3 dispositivos alcanzado (${extractionResult.devicesUsed ?? 3}/3)`
+                message: `Límite de 3 dispositivos alcanzado (${extractionResult.devicesUsed ?? 3}/3)${deviceTag}`
             });
             return res.status(429).json({
                 success: false,
@@ -805,6 +822,7 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
                 devicesUsed: extractionResult.devicesUsed ?? 3,
                 devicesRemaining: 0,
                 maxDevices: extractionResult.maxDevices ?? 3,
+                registeredDevices: extractionResult.registeredDevices || [],
                 message: extractionResult.message || "Has alcanzado el límite de 3 dispositivos permitidos para este servicio. Por favor comunícate con un asesor para transferir tu acceso."
             });
         }
@@ -817,7 +835,7 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
                 accountEmail: targetAccount.correo || '',
                 requestSource: 'web',
                 status: 'manual_required',
-                message: extractionResult.message || "Requiere verificación manual de asesor"
+                message: (extractionResult.message || "Requiere verificación manual de asesor") + deviceTag
             });
             return res.json({
                 success: true,
@@ -836,7 +854,7 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
                 requestSource: 'web',
                 status: 'success',
                 codeOrLink: extractionResult.code || extractionResult.link || '',
-                message: extractionResult.code ? `Código encontrado: ${extractionResult.code}` : 'Enlace de acceso listo'
+                message: (extractionResult.code ? `Código encontrado: ${extractionResult.code}` : 'Enlace de acceso listo') + deviceTag
             });
             return res.json({
                 success: true,
@@ -848,7 +866,11 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
                 account: targetAccount.correo,
                 devicesUsed: extractionResult.devicesUsed,
                 devicesRemaining: extractionResult.devicesRemaining,
-                maxDevices: extractionResult.maxDevices || 3
+                maxDevices: extractionResult.maxDevices || 3,
+                isNewDevice: Boolean(extractionResult.isNewDevice),
+                deviceAlreadyRegistered: Boolean(extractionResult.deviceAlreadyRegistered),
+                deviceLabel: extractionResult.deviceLabel || reqDeviceLabel,
+                registeredDevices: extractionResult.registeredDevices || []
             });
         }
 

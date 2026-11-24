@@ -50,6 +50,42 @@ function getNormalizedKey(phone, emailOrPlatform, profile = null, slotId = null)
     return `${normPhone}_${cleanIdentifier}${cleanProfile}${cleanSlot}`;
 }
 
+function parseDeviceLabelFromUserAgent(ua) {
+    const raw = String(ua || '').trim();
+    if (!raw) return null;
+
+    let os = 'Equipo';
+    if (/iphone/i.test(raw)) os = 'iPhone';
+    else if (/ipad/i.test(raw)) os = 'iPad';
+    else if (/android/i.test(raw)) os = 'Android';
+    else if (/windows/i.test(raw)) os = 'Windows';
+    else if (/macintosh|mac os x/i.test(raw)) os = 'Mac';
+    else if (/linux/i.test(raw)) os = 'Linux';
+
+    let browser = '';
+    if (/edg\//i.test(raw)) browser = 'Edge';
+    else if (/opr\//i.test(raw) || /opera/i.test(raw)) browser = 'Opera';
+    else if (/chrome|crios/i.test(raw)) browser = 'Chrome';
+    else if (/firefox|fxios/i.test(raw)) browser = 'Firefox';
+    else if (/safari/i.test(raw)) browser = 'Safari';
+
+    return browser ? `${os} • ${browser}` : os;
+}
+
+function extractRegisteredDevices(record) {
+    if (!record || !Array.isArray(record.sessions)) return [];
+    const seen = new Set();
+    const list = [];
+    for (const s of record.sessions) {
+        const label = s && s.deviceLabel ? String(s.deviceLabel).trim() : '';
+        if (label && !seen.has(label)) {
+            seen.add(label);
+            list.push(label);
+        }
+    }
+    return list;
+}
+
 /**
  * Consulta el estado actual de dispositivos sin incrementar el conteo.
  */
@@ -57,7 +93,7 @@ function getDeviceUsage(phone, emailOrPlatform, maxAllowed = 3, profile = null, 
     const effectiveMax = (typeof maxAllowed === 'number' && maxAllowed > 0) ? maxAllowed : 3;
 
     if (!phone) {
-        return { devicesUsed: 0, devicesRemaining: effectiveMax, maxDevices: effectiveMax, isBlocked: false };
+        return { devicesUsed: 0, devicesRemaining: effectiveMax, maxDevices: effectiveMax, isBlocked: false, registeredDevices: [] };
     }
 
     const usage = loadDeviceUsage();
@@ -73,21 +109,35 @@ function getDeviceUsage(phone, emailOrPlatform, maxAllowed = 3, profile = null, 
         devicesRemaining: remaining,
         maxDevices: effectiveMax,
         isBlocked: used >= effectiveMax,
-        lastSessionAt: record ? record.lastSessionAt : null
+        lastSessionAt: record ? record.lastSessionAt : null,
+        registeredDevices: extractRegisteredDevices(record)
     };
 }
 
 /**
  * Registra un intento de acceso / código.
- * Conectado con el perfil asignado al cliente y opcionalmente con su cupo/fila.
- * Si el usuario solicita varios códigos en la misma sesión (ventana de 15 minutos),
- * NO incrementa el número de dispositivos.
+ * Si llega con huella web (IP + SO/navegador), reconoce dispositivos ya vinculados sin gastar cupo extra
+ * y descuenta de inmediato si entra desde un equipo diferente.
+ * Sin huella web (ej. WhatsApp), concede máximo 1 reintento en una ventana corta de 3 minutos.
  */
-function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllowed = 3, sessionWindowMs = 15 * 60 * 1000, profile = null, slotId = null) {
+function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllowed = 3, sessionWindowMs = 3 * 60 * 1000, profile = null, slotId = null, deviceInfo = null) {
     const effectiveMax = (typeof maxAllowed === 'number' && maxAllowed > 0) ? maxAllowed : 3;
+    const deviceLabel = (deviceInfo && deviceInfo.deviceLabel) ||
+        (deviceInfo && deviceInfo.userAgent ? parseDeviceLabelFromUserAgent(deviceInfo.userAgent) : null);
+    const cleanIp = clientIp ? String(clientIp).replace('::ffff:', '').trim() : null;
+    const fingerprint = (cleanIp && deviceLabel) ? `${cleanIp}|${deviceLabel}` : null;
 
     if (!phone) {
-        return { canRequest: true, devicesUsed: 1, devicesRemaining: Math.max(0, effectiveMax - 1), maxDevices: effectiveMax, isNewDevice: true };
+        return {
+            canRequest: true,
+            devicesUsed: 1,
+            devicesRemaining: Math.max(0, effectiveMax - 1),
+            maxDevices: effectiveMax,
+            isNewDevice: true,
+            deviceAlreadyRegistered: false,
+            deviceLabel: deviceLabel || null,
+            registeredDevices: deviceLabel ? [deviceLabel] : []
+        };
     }
 
     const usage = loadDeviceUsage();
@@ -99,6 +149,7 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
 
     // Si no existe registro previo, es el dispositivo 1
     if (!record || typeof record !== 'object') {
+        const entryLabel = deviceLabel || 'WhatsApp';
         record = {
             count: 1,
             profile: profile || null,
@@ -106,8 +157,15 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
             firstSeenAt: now,
             lastSessionAt: now,
             lastRequestAt: now,
+            currentSessionRetries: 0,
             sessions: [
-                { sessionIndex: 1, timestamp: now, ip: clientIp || 'unknown' }
+                {
+                    sessionIndex: 1,
+                    timestamp: now,
+                    ip: cleanIp || 'unknown',
+                    deviceLabel: entryLabel,
+                    ...(fingerprint ? { fingerprint } : {})
+                }
             ]
         };
         usage[key] = record;
@@ -118,7 +176,10 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
             devicesUsed: 1,
             devicesRemaining: Math.max(0, effectiveMax - 1),
             maxDevices: effectiveMax,
-            isNewDevice: true
+            isNewDevice: true,
+            deviceAlreadyRegistered: false,
+            deviceLabel: entryLabel,
+            registeredDevices: extractRegisteredDevices(record)
         };
     }
 
@@ -129,26 +190,57 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
     if (!record.slotId && slotId) {
         record.slotId = slotId;
     }
-
-    // Verificar si está dentro de la misma sesión activa (ventana de gracia)
-    const timeSinceLastSession = now - (record.lastSessionAt || 0);
-    const isSameSession = timeSinceLastSession < sessionWindowMs;
-
-    if (isSameSession) {
-        record.lastRequestAt = now;
-        usage[key] = record;
-        saveDeviceUsage(usage);
-
-        return {
-            canRequest: true,
-            devicesUsed: record.count,
-            devicesRemaining: Math.max(0, effectiveMax - record.count),
-            maxDevices: effectiveMax,
-            isNewDevice: false
-        };
+    if (!Array.isArray(record.sessions)) {
+        record.sessions = [];
     }
 
-    // Es una NUEVA sesión (nuevo dispositivo o nuevo inicio de sesión días/horas después)
+    // Caso A: Viene desde Web con huella exacta (IP + dispositivo)
+    if (fingerprint) {
+        const existingSession = record.sessions.find(s => s && s.fingerprint === fingerprint);
+        if (existingSession) {
+            record.lastRequestAt = now;
+            existingSession.lastSeenAt = now;
+            usage[key] = record;
+            saveDeviceUsage(usage);
+
+            return {
+                canRequest: true,
+                devicesUsed: record.count,
+                devicesRemaining: Math.max(0, effectiveMax - record.count),
+                maxDevices: effectiveMax,
+                isNewDevice: false,
+                deviceAlreadyRegistered: true,
+                deviceLabel,
+                registeredDevices: extractRegisteredDevices(record)
+            };
+        }
+        // Huella web distinta: verificar límite y registrar de inmediato como dispositivo nuevo
+    } else {
+        // Caso B: Solicitud sin huella (WhatsApp) -> máximo 1 reintento dentro de ventana corta (3 min por defecto)
+        const timeSinceLastSession = now - (record.lastSessionAt || 0);
+        const retries = Number(record.currentSessionRetries || 0);
+        const isSameSession = timeSinceLastSession < sessionWindowMs && retries < 1;
+
+        if (isSameSession) {
+            record.currentSessionRetries = retries + 1;
+            record.lastRequestAt = now;
+            usage[key] = record;
+            saveDeviceUsage(usage);
+
+            return {
+                canRequest: true,
+                devicesUsed: record.count,
+                devicesRemaining: Math.max(0, effectiveMax - record.count),
+                maxDevices: effectiveMax,
+                isNewDevice: false,
+                deviceAlreadyRegistered: false,
+                deviceLabel: null,
+                registeredDevices: extractRegisteredDevices(record)
+            };
+        }
+    }
+
+    // Es un NUEVO dispositivo o nueva sesión fuera de la gracia
     if (record.count >= effectiveMax) {
         return {
             canRequest: false,
@@ -156,7 +248,10 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
             devicesRemaining: 0,
             maxDevices: effectiveMax,
             isNewDevice: false,
-            limitReached: true
+            deviceAlreadyRegistered: false,
+            limitReached: true,
+            deviceLabel: deviceLabel || null,
+            registeredDevices: extractRegisteredDevices(record)
         };
     }
 
@@ -164,8 +259,15 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
     record.count++;
     record.lastSessionAt = now;
     record.lastRequestAt = now;
-    if (!Array.isArray(record.sessions)) record.sessions = [];
-    record.sessions.push({ sessionIndex: record.count, timestamp: now, ip: clientIp || 'unknown' });
+    record.currentSessionRetries = 0;
+    const entryLabel = deviceLabel || 'WhatsApp';
+    record.sessions.push({
+        sessionIndex: record.count,
+        timestamp: now,
+        ip: cleanIp || 'unknown',
+        deviceLabel: entryLabel,
+        ...(fingerprint ? { fingerprint } : {})
+    });
 
     usage[key] = record;
     saveDeviceUsage(usage);
@@ -175,7 +277,10 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
         devicesUsed: record.count,
         devicesRemaining: Math.max(0, effectiveMax - record.count),
         maxDevices: effectiveMax,
-        isNewDevice: true
+        isNewDevice: true,
+        deviceAlreadyRegistered: false,
+        deviceLabel: entryLabel,
+        registeredDevices: extractRegisteredDevices(record)
     };
 }
 
@@ -298,6 +403,7 @@ async function checkAccountAutomationStatus(accountEmail, platform) {
 
 module.exports = {
     isAiLimitedPlatform,
+    parseDeviceLabelFromUserAgent,
     getDeviceUsage,
     registerDeviceRequest,
     resetDeviceUsage,

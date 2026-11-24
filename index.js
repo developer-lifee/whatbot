@@ -5606,6 +5606,10 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
     const { isCodeFailureReport } = require('./totpService');
     const incomingText = (message && !message.isWebRequest && message.body) ? String(message.body) : '';
     const isFailureReport = Boolean(options.forceGmailFallback) || isCodeFailureReport(incomingText);
+    const clientIp = options.clientIp || null;
+    const deviceInfo = (options.deviceLabel || options.userAgent)
+        ? { deviceLabel: options.deviceLabel || null, userAgent: options.userAgent || null }
+        : null;
 
     if (accountEmail && !isNetflixExtra) {
         const fs = require('fs');
@@ -5651,7 +5655,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
                 if (isAi) {
                     const profileIdent = targetAccount ? (targetAccount.Nombre || targetAccount.nombre || targetAccount["pin perfil"] || targetAccount.perfil || "") : "";
-                    deviceStatus = checkAndIncrementUsage(realPhone, accountEmail, 3, 15 * 60 * 1000, profileIdent);
+                    deviceStatus = checkAndIncrementUsage(realPhone, accountEmail, 3, 3 * 60 * 1000, profileIdent, clientIp, deviceInfo);
                     if (!deviceStatus.canRequest) {
                         const limitMsg = `🤖 *Límite de dispositivos alcanzado (3/3)*\n\n` +
                             `Has alcanzado el límite de *3 dispositivos permitidos* para tu perfil de *${streamingName}*.\n\n` +
@@ -5665,6 +5669,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                             devicesUsed: deviceStatus.devicesUsed,
                             devicesRemaining: 0,
                             maxDevices: 3,
+                            registeredDevices: deviceStatus.registeredDevices || [],
                             message: "Has alcanzado el límite de 3 dispositivos permitidos para este servicio. Contacta a soporte para transferir tu acceso."
                         };
                     }
@@ -5677,7 +5682,12 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         const remText = deviceStatus.devicesRemaining === 1
                             ? "Te queda *1 dispositivo disponible*"
                             : `Te quedan *${deviceStatus.devicesRemaining} dispositivos disponibles*`;
-                        remainingMsg = `\n\n📱 *Dispositivos:* ${remText} (${deviceStatus.devicesUsed}/${deviceStatus.maxDevices} usados).`;
+                        const devTag = deviceStatus.deviceAlreadyRegistered && deviceStatus.deviceLabel
+                            ? `\n_Equipo ya registrado: ${deviceStatus.deviceLabel} (sin descontar cupo)_`
+                            : (deviceStatus.isNewDevice && deviceStatus.deviceLabel && deviceStatus.deviceLabel !== 'WhatsApp'
+                                ? `\n_Dispositivo vinculado: ${deviceStatus.deviceLabel}_`
+                                : '');
+                        remainingMsg = `\n\n📱 *Dispositivos:* ${remText} (${deviceStatus.devicesUsed}/${deviceStatus.maxDevices} usados).${devTag}`;
                     }
                     await message.reply(`🤖 🔐 *Tu código de acceso (2FA) para ${streamingName}:* 🚀\n\n🔢 Código: *${code}*${remainingMsg}\n\n_Este código cambia cada 30 segundos. Úsalo pronto._`);
                     userStates.delete(userId);
@@ -5689,6 +5699,10 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
                         devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
                         maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null,
+                        isNewDevice: isAi && deviceStatus ? Boolean(deviceStatus.isNewDevice) : false,
+                        deviceAlreadyRegistered: isAi && deviceStatus ? Boolean(deviceStatus.deviceAlreadyRegistered) : false,
+                        deviceLabel: isAi && deviceStatus ? (deviceStatus.deviceLabel || null) : null,
+                        registeredDevices: isAi && deviceStatus ? (deviceStatus.registeredDevices || []) : [],
                         message: `Código 2FA generado: ${code}`
                     };
                 }
@@ -5745,7 +5759,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
                     if (isAi) {
                         const profileIdent = targetAccount ? (targetAccount.Nombre || targetAccount.nombre || targetAccount["pin perfil"] || targetAccount.perfil || "") : "";
-                        deviceStatus = registerDeviceRequest(realPhone, accountEmail || streamingName, null, 3, 15 * 60 * 1000, profileIdent);
+                        deviceStatus = registerDeviceRequest(realPhone, accountEmail || streamingName, clientIp, 3, 3 * 60 * 1000, profileIdent, null, deviceInfo);
                         if (!deviceStatus.canRequest) {
                             const limitMsg = `🤖 *Límite de dispositivos alcanzado (3/3)*\n\n` +
                                 `Has alcanzado el límite de *3 dispositivos permitidos* para tu perfil de *${streamingName}*.\n\n` +
@@ -5760,6 +5774,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                                 devicesUsed: deviceStatus.devicesUsed,
                                 devicesRemaining: 0,
                                 maxDevices: 3,
+                                registeredDevices: deviceStatus.registeredDevices || [],
                                 message: "Has alcanzado el límite de 3 dispositivos permitidos para este servicio. Contacta a soporte para transferir tu acceso."
                             };
                         }
@@ -5777,13 +5792,27 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 
                     let response = '';
                     let validVerificationLink = null;
+                    let deliveredLink = latest.link || null;
 
                     if (isLinkOnlyPlatform) {
+                        if (isClaude && latest.link) {
+                            try {
+                                const { shortenUrl } = require('./urlShortenerService');
+                                deliveredLink = await shortenUrl(latest.link, {
+                                    phone: realPhone || '',
+                                    platform: streamingName,
+                                    accountEmail,
+                                    type: 'claude_magic_link'
+                                });
+                            } catch (_) {
+                                deliveredLink = latest.link;
+                            }
+                        }
                         // 1. ENTREGA DE ENLACE MÁGICO O CÓDIGO EMAIL (CLAUDE, CANVA, CHATGPT, ETC.)
-                        const headerKind = latest.link ? 'Enlace de acceso' : 'Código de acceso';
+                        const headerKind = deliveredLink ? 'Enlace de acceso' : 'Código de acceso';
                         response = `🤖 *${headerKind} de ${streamingName} Encontrado* 🚀\n\n`;
-                        if (latest.link) {
-                            response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${latest.link}\n\n`;
+                        if (deliveredLink) {
+                            response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${deliveredLink}\n\n`;
                             if (isClaude) {
                                 response += `💡 _Si tu pantalla te pide un código de 6 dígitos en lugar de iniciar sesión directamente, abre el enlace de arriba en tu navegador para ver el código e ingrésalo en tu pantalla._\n\n`;
                             }
@@ -5791,7 +5820,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         if (latest.code) {
                             response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                         }
-                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este ${latest.link ? 'enlace' : 'código'} vence pronto._`;
+                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este ${deliveredLink ? 'enlace' : 'código'} vence pronto._`;
 
                     } else if (nameLower.includes('netflix')) {
                         // 2. NETFLIX (CÓDIGO DE 4 DÍGITOS + ENLACE DE HOGAR SHEERIT)
@@ -5894,14 +5923,18 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     return {
                         success: true,
                         code: latest.code || null,
-                        link: latest.link || (nameLower.includes('netflix') ? validVerificationLink : null),
+                        link: deliveredLink || (nameLower.includes('netflix') ? validVerificationLink : null),
                         snippet: latest.snippet || null,
-                        type: latest.link ? 'link' : (latest.code ? 'code' : 'general'),
+                        type: deliveredLink ? 'link' : (latest.code ? 'code' : 'general'),
                         isLimitedPlatform: isAi,
                         devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
                         devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
                         maxDevices: isAi && deviceStatus ? deviceStatus.maxDevices : null,
-                        message: latest.code ? `Código encontrado: ${latest.code}` : (latest.link ? 'Enlace de acceso encontrado' : 'Código o enlace encontrado')
+                        isNewDevice: isAi && deviceStatus ? Boolean(deviceStatus.isNewDevice) : false,
+                        deviceAlreadyRegistered: isAi && deviceStatus ? Boolean(deviceStatus.deviceAlreadyRegistered) : false,
+                        deviceLabel: isAi && deviceStatus ? (deviceStatus.deviceLabel || null) : null,
+                        registeredDevices: isAi && deviceStatus ? (deviceStatus.registeredDevices || []) : [],
+                        message: latest.code ? `Código encontrado: ${latest.code}` : (deliveredLink ? 'Enlace de acceso encontrado' : 'Código o enlace encontrado')
                     };
                 } else {
                     const notFoundText = isFailureReport
@@ -6039,10 +6072,30 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
 // Endpoint de redirección pública HTTP 302 para enlaces acortados
 app.get('/l/:code', (req, res) => {
     try {
-        const { getTargetUrl } = require('./urlShortenerService');
-        const target = getTargetUrl(req.params.code);
-        if (target) {
-            return res.redirect(302, target);
+        const { getUrlRecord, recordShortUrlHit } = require('./urlShortenerService');
+        const { parseDeviceLabelFromUserAgent } = require('./deviceLimitService');
+        const rec = getUrlRecord(req.params.code);
+        if (rec && rec.targetUrl) {
+            const rawIp = (req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '').toString();
+            const clientIp = rawIp.split(',')[0].replace('::ffff:', '').trim();
+            const deviceLabel = parseDeviceLabelFromUserAgent(req.headers['user-agent'] || '') || 'Navegador';
+            recordShortUrlHit(req.params.code, { ip: clientIp, deviceLabel });
+
+            if (rec.meta && rec.meta.phone) {
+                const { pool } = require('./database');
+                pool.query(
+                    `INSERT INTO client_2fa_logs (phone, client_name, platform, account_email, request_source, status, code_or_link, message) VALUES (?, '', ?, ?, 'web_link', 'link_opened', ?, ?)`,
+                    [
+                        String(rec.meta.phone).replace(/\D/g, ''),
+                        String(rec.meta.platform || '').toUpperCase(),
+                        String(rec.meta.accountEmail || ''),
+                        `/l/${req.params.code}`,
+                        `Enlace abierto en ${deviceLabel} (IP: ${clientIp})`
+                    ]
+                ).catch(() => {});
+            }
+
+            return res.redirect(302, rec.targetUrl);
         }
         return res.status(404).send('Enlace no encontrado o expirado');
     } catch (err) {
