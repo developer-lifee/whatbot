@@ -668,8 +668,11 @@ async function executePaymentValidation(userId, userState, client, userStates, a
                     const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";
                     const vencStr = formatVencimientoDate(res.vencimiento);
                     const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
+                    const overdueLine = res.overdueAdjustment && res.overdueAdjustment.daysDeducted > 0
+                        ? `⚖️ _Ajuste: se descontaron ${res.overdueAdjustment.daysDeducted} día(s) por saldo prorrateado pendiente ($${Number(res.overdueAdjustment.totalDebtAmount || 0).toLocaleString('es-CO')}) de días disfrutados anteriormente._\n`
+                        : "";
                     
-                    credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}\n`;
+                    credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}${overdueLine}\n`;
                 }
             });
 
@@ -1400,8 +1403,11 @@ async function handleAdminPaymentConfirmation(message, command, client, userStat
                     const pinLine = res.pin ? `📌 ${labelPin}: \`${res.pin}\`\n` : "";
                     const vencStr = formatVencimientoDate(res.vencimiento);
                     const vencLine = vencStr ? `📅 Vence: *${vencStr}*\n` : "";
+                    const overdueLine = res.overdueAdjustment && res.overdueAdjustment.daysDeducted > 0
+                        ? `⚖️ _Ajuste: se descontaron ${res.overdueAdjustment.daysDeducted} día(s) por saldo prorrateado pendiente ($${Number(res.overdueAdjustment.totalDebtAmount || 0).toLocaleString('es-CO')}) de días disfrutados anteriormente._\n`
+                        : "";
                     
-                    credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}\n`;
+                    credentialsMsg += `📺 *${masked.streamingName}*\n📧 Usuario: \`${masked.correo}\`\n🔑 Contraseña: \`${masked.clave}\`\n${pinLine}${vencLine}${overdueLine}\n`;
                 }
             });
 

@@ -2366,6 +2366,14 @@ app.get('/api/admin/client-history', async (req, res) => {
             console.warn("[client-history] Error querying custom_billing_rules:", cbErr.message);
         }
 
+        let overdueDebts = [];
+        try {
+            const { getPendingOverdueDebts } = require('./overdueDebtService');
+            overdueDebts = await getPendingOverdueDebts(targetTail);
+        } catch (odErr) {
+            console.warn("[client-history] Error querying client_overdue_debts:", odErr.message);
+        }
+
         res.json({
             fullname: customer.fullname || '',
             phone: customer.phone || cleanPhone,
@@ -2375,7 +2383,8 @@ app.get('/api/admin/client-history', async (req, res) => {
             purchases: saleRows,
             excelHistory: excelHistory,
             validatedPayments: validatedPayments,
-            customBillingRules: customBillingRules
+            customBillingRules: customBillingRules,
+            overdueDebts: overdueDebts
         });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -2412,6 +2421,19 @@ app.post('/api/admin/custom-billing/delete', express.json(), async (req, res) =>
         if (!id) return res.status(400).json({ success: false, message: 'Falta ID de acuerdo.' });
         const { deleteCustomBillingRule } = require('./customBillingService');
         await deleteCustomBillingRule(id);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, message: e.message });
+    }
+});
+
+// POST Delete / Forgive Pending Overdue Debt
+app.post('/api/admin/overdue-debt/delete', express.json(), async (req, res) => {
+    try {
+        const { id } = req.body || {};
+        if (!id) return res.status(400).json({ success: false, message: 'Falta ID de saldo pendiente.' });
+        const { deleteOverdueDebt } = require('./overdueDebtService');
+        await deleteOverdueDebt(id);
         res.json({ success: true });
     } catch (e) {
         res.status(500).json({ success: false, message: e.message });
@@ -2796,12 +2818,12 @@ app.post('/api/admin/client/update-fields', express.json(), async (req, res) => 
 // Endpoint para aplicar corte de servicio y gestionar reinicio de dispositivos cuando se sacan todas las sesiones
 app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
     try {
-        const { rowNumber, phone, streaming, email, reason, resetDevices, leaveSlotVirgin = true, password, agentName } = req.body;
+        const { rowNumber, phone, streaming, email, reason, resetDevices, leaveSlotVirgin = true, saveOverdueDebt = true, password, agentName } = req.body;
         if (password !== 'admin123') {
             return res.status(401).json({ success: false, message: 'Unauthorized' });
         }
 
-        const { updateExcelData, fetchRawData, getTodayInBogota } = require('./apiService');
+        const { updateExcelData, fetchRawData, getTodayInBogota, getJsDateFromExcel, getPlatformKnowledge } = require('./apiService');
         const { resetDeviceUsage } = require('./deviceLimitService');
         let targetRow = parseInt(rowNumber);
 
@@ -2863,6 +2885,51 @@ app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
             }
         }
 
+        // Registrar saldo prorrateado por días disfrutados de más (si aplica y saveOverdueDebt !== false)
+        let recordedDebt = null;
+        if (saveOverdueDebt !== false && targetData) {
+            try {
+                const rawExp = targetData.deben || targetData.Columna4 || targetData.vencimiento || null;
+                const expDateObj = rawExp ? getJsDateFromExcel(rawExp) : null;
+                if (expDateObj && !isNaN(expDateObj.getTime())) {
+                    const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                    const expMidnight = new Date(expDateObj.getFullYear(), expDateObj.getMonth(), expDateObj.getDate());
+                    const extraDays = Math.round((todayMidnight.getTime() - expMidnight.getTime()) / (1000 * 60 * 60 * 24));
+                    if (extraDays > 0) {
+                        const prevPhone = (phone || targetData.numero || targetData.Numero || targetData.whatsapp || '').toString().replace(/\D/g, '');
+                        const prevStreaming = streaming || targetData.Streaming || targetData.Plataforma || 'SERVICIO';
+                        const prevName = `${targetData.Nombre || ''} ${targetData.Apellido || ''}`.trim() || targetData.whatsapp || '';
+                        const { getPlatformPriceFromExcel } = require('./billingService');
+                        const { getCustomBillingRulesByPhone, findMatchingCustomRule } = require('./customBillingService');
+                        const { recordOverdueDebt } = require('./overdueDebtService');
+                        const [platforms, customRules] = await Promise.all([
+                            getPlatformKnowledge().catch(() => []),
+                            getCustomBillingRulesByPhone(prevPhone).catch(() => [])
+                        ]);
+                        let monthlyPrice = getPlatformPriceFromExcel(targetData, platforms, '');
+                        const matchedRule = findMatchingCustomRule(customRules, prevStreaming);
+                        if (matchedRule && matchedRule.mode === 'custom_price' && Number(matchedRule.custom_amount) > 0) {
+                            monthlyPrice = Number(matchedRule.custom_amount);
+                        }
+                        recordedDebt = await recordOverdueDebt({
+                            phone: prevPhone,
+                            clientName: prevName,
+                            platform: prevStreaming,
+                            extraDays,
+                            monthlyPrice,
+                            cutDate: dateStr,
+                            notes: `Corte (${cleanReason}) con +${extraDays} día(s) de más en ${prevStreaming}`
+                        });
+                        if (recordedDebt) {
+                            console.log(`[Admin Cut Service] ⚖️ Guardada mora previa para ${prevPhone}: +${extraDays}d = $${recordedDebt.debt_amount} COP (${prevStreaming})`);
+                        }
+                    }
+                }
+            } catch (debtErr) {
+                console.warn('[Admin Cut Service] No se pudo registrar saldo de mora:', debtErr.message);
+            }
+        }
+
         let updatePayload = {};
         if (leaveSlotVirgin) {
             updatePayload = {
@@ -2891,12 +2958,13 @@ app.post('/api/admin/client/cut-service', express.json(), async (req, res) => {
         res.json({
             success: true,
             message: leaveSlotVirgin 
-                ? `Servicio cortado y casilla liberada ("virgen") exitosamente para nueva venta.${resetDevices ? ' Límite de dispositivos reseteado.' : ''}`
+                ? `Servicio cortado y casilla liberada ("virgen") exitosamente para nueva venta.${resetDevices ? ' Límite de dispositivos reseteado.' : ''}${recordedDebt ? ` Mora de +${recordedDebt.extra_days} día(s) ($${Number(recordedDebt.debt_amount || 0).toLocaleString('es-CO')} COP) guardada para descontar en su próxima activación.` : ''}`
                 : `Servicio marcado para corte exitosamente.${resetDevices ? ' Límite de dispositivos reseteado.' : ''}`,
             rowNumber: targetRow,
             leaveSlotVirgin: !!leaveSlotVirgin,
             observaciones: leaveSlotVirgin ? '' : obsValue,
             devicesReset,
+            recordedDebt,
             result
         });
     } catch (e) {

@@ -898,8 +898,35 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
             const slot = findAvailableSlot(platformName, allRows, preferredEmail);
 
             if (slot) {
-                const nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths);
-                console.log(`[Sales Registry] Cupo encontrado para ${platformName} en fila ${slot.index}`);
+                let fixedDayNew = null;
+                try {
+                    const { getCustomBillingRulesByPhone, findMatchingCustomRule } = require('./customBillingService');
+                    const cRulesNew = await getCustomBillingRulesByPhone(phone);
+                    const mRuleNew = findMatchingCustomRule(cRulesNew, slot.rowData.Streaming || platformName);
+                    if (mRuleNew && mRuleNew.fixed_billing_day) fixedDayNew = mRuleNew.fixed_billing_day;
+                } catch (_) {}
+                let nextPaymentDate = calculateNextPaymentDate(itemSubscriptionType, itemMonths, null, fixedDayNew);
+
+                // Descontar automáticamente en días el valor prorrateado de mora previa (si el cliente fue cortado con días de más)
+                let overdueAdjustment = null;
+                try {
+                    const { consumeOverdueDebtForSale } = require('./overdueDebtService');
+                    const newSalePlat = slot.rowData.Streaming || platformName;
+                    let newSaleMonthlyPrice = Number(item.price || (item.chosenPlan && item.chosenPlan.price) || (item.platform && item.platform.price) || slot.rowData.precio || 0);
+                    if (newSaleMonthlyPrice > 0 && itemMonths > 1) newSaleMonthlyPrice = Math.round(newSaleMonthlyPrice / itemMonths);
+                    if (!newSaleMonthlyPrice) {
+                        const { getPlatformPriceFromExcel } = require('./billingService');
+                        const { getPlatformKnowledge } = require('./apiService');
+                        const plats = await getPlatformKnowledge().catch(() => []);
+                        newSaleMonthlyPrice = getPlatformPriceFromExcel(slot.rowData, plats);
+                    }
+                    overdueAdjustment = await consumeOverdueDebtForSale(phone, newSalePlat, newSaleMonthlyPrice, nextPaymentDate);
+                    if (overdueAdjustment && overdueAdjustment.adjustedDate) {
+                        nextPaymentDate = overdueAdjustment.adjustedDate;
+                    }
+                } catch (_) {}
+
+                console.log(`[Sales Registry] Cupo encontrado para ${platformName} en fila ${slot.index} (Vence: ${nextPaymentDate})`);
 
                 // Lógica de separación de nombres limpia
                 let firstName = name;
@@ -915,6 +942,9 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                 const isValidClientPhone = cleanDigitsOnly.length >= 7 && cleanDigitsOnly.length <= 12 && !isBotNumber(cleanDigitsOnly);
                 const finalPhoneToWrite = isValidClientPhone ? formatWhatsAppNumber(phone) : "";
 
+                const obsOverdueTag = overdueAdjustment
+                    ? ` | -${overdueAdjustment.daysDeducted}d mora previa ($${overdueAdjustment.totalDebtAmount})`
+                    : '';
                 const updates = {
                     "whatsapp": name,
                     "numero": finalPhoneToWrite,
@@ -922,7 +952,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     "apellido": lastName,
                     "deben": nextPaymentDate,
                     "Columna4": nextPaymentDate,
-                    "observaciones": `Venta Auto (${nextPaymentDate}) - ${new Date().toLocaleDateString()}`
+                    "observaciones": `Venta Auto (${nextPaymentDate})${obsOverdueTag} - ${new Date().toLocaleDateString()}`
                 };
 
                 console.log(`[Sales Registry] Enviando actualización a Azure:`, JSON.stringify(updates, null, 2));
@@ -955,6 +985,7 @@ async function recordNewSale(userId, userState, paymentMethod, overrideMonths = 
                     contraseña: slot.rowData.contraseña || slot.rowData.Contraseña || slot.rowData.password || "",
                     pin: slot.rowData["pin perfil"] || slot.rowData.pin || "",
                     vencimiento: nextPaymentDate,
+                    overdueAdjustment: overdueAdjustment || null,
                     "customer mail": slot.rowData["customer mail"] || slot.rowData["Customer Mail"] || "",
                     customerMail: slot.rowData["customer mail"] || slot.rowData["Customer Mail"] || ""
                 });
