@@ -5,6 +5,30 @@ const PLATFORMS_URL = 'https://sheerit.co/data/platforms.json';
 const fs = require('fs');
 const path = require('path');
 
+const DEFERRAL_PAUSE_REGEX = /\b(te aviso|consulto|consultar|lo pienso|lo voy a pensar|despu[eé]s te|luego te|m[aá]s tarde|ahora no|ahorita no|te confirmo luego|te confirmo despu[eé]s|d[eé]jame ver|dejame ver)\b/i;
+const PRODUCT_QUESTION_REGEX = /\?|\b(cu[aá]ntas?|pantallas?|dispositivos?|perfiles?|c[oó]mo funciona|qu[eé] incluye|es compartid|puedo usar|las 4|simult[aá]ne)\b/i;
+
+function extractMentionedPriceFromText(text) {
+  if (!text) return null;
+  const raw = String(text).toLowerCase();
+  const kMatch = raw.match(/\b(\d{1,3})\s*(?:mil|k)\b/i);
+  if (kMatch) {
+    const val = parseInt(kMatch[1], 10);
+    if (val >= 3 && val <= 999) return val * 1000;
+  }
+  const numMatch = raw.match(/\$?\s*(\d{1,3}(?:[.,]\d{3})+|\d{4,6})\b/);
+  if (numMatch) {
+    const digits = parseInt(numMatch[1].replace(/[.,]/g, ''), 10);
+    if (digits >= 3000 && digits <= 500000) return digits;
+  }
+  return null;
+}
+
+function matchPlanByPrice(platform, candidatePrice) {
+  if (!platform || !Array.isArray(platform.plans) || !candidatePrice) return null;
+  return platform.plans.find(p => Math.abs((Number(p.price) || 0) - Number(candidatePrice)) <= 500) || null;
+}
+
 function findPlatformByName(platformName, platforms) {
   if (!platformName || !platforms) return null;
   const rawLower = platformName.toLowerCase().trim();
@@ -292,6 +316,7 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
   const platforms = await getPlatforms();
   let selectedItems = [];
   let invalidElements = [];
+  const inferredPriceFromMsg = statedPrice || extractMentionedPriceFromText(mensaje);
 
   items.forEach(item => {
     if (!item || !item.platform) return;
@@ -303,11 +328,32 @@ async function handleSubscriptionInterest(message, userId, userStates, client, G
         const targetPlan = item.plan.toLowerCase().replace(/[^a-z0-9]/g, '');
         plan = platform.plans.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlan));
       }
+      if (!plan && inferredPriceFromMsg) {
+        plan = matchPlanByPrice(platform, inferredPriceFromMsg);
+      }
       selectedItems.push({ platform, chosenPlan: plan, originalItem: item });
     } else {
       invalidElements.push(item.platform);
     }
   });
+
+  // Si el cliente está haciendo una pregunta informativa (ej. "¿Cuántas pantallas son?"), responder la duda con sentido común y tono vendedor antes de encerrarlo en el menú numérico
+  const isProductQuestion = PRODUCT_QUESTION_REGEX.test(mensaje || '');
+  const isReadyToPay = /\b(env[ií]a(me)?\s+(medios|la cuenta|llave)|voy a pagar|quiero pagar|listo para pagar|dame los datos para pagar)\b/i.test(mensaje || '');
+  if (isProductQuestion && !isReadyToPay && selectedItems.length > 0) {
+    try {
+      const { generateEmpatheticFallback } = require('./aiService');
+      const fallback = await generateEmpatheticFallback(mensaje, false, chatHistoryText, null, [], userId, userStates);
+      if (fallback && fallback.replyMessage) {
+        let cleanReply = fallback.replyMessage
+          .replace(/\n*📌\s*\*?Tu turno en la cola de espera:\*?[^\n\.]*[\n\.]*/gi, '');
+        await message.reply(cleanReply);
+        return;
+      }
+    } catch (qErr) {
+      console.warn('[salesService] Error resolviendo duda comercial con fallback IA:', qErr.message);
+    }
+  }
 
   // Verificar disponibilidad general antes de armar la respuesta
   // Si el cliente expresa intención de renovación o ya viene en flujo de renovación, no bloquear por falta de cupos de compras nuevas
@@ -585,13 +631,17 @@ async function handleAwaitingPurchasePlatforms(message, userId, userStates, clie
         chosenPlan = platform.plans.find(p => p.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(targetPlan));
       }
 
-      // --- MEJORA: Si la IA no detectó plan pero el usuario respondió a una aclaración ---
+      // --- MEJORA: Si la IA no detectó plan pero el usuario respondió a una aclaración o indicó el precio ---
       if (!chosenPlan && lastPlats.some(lp => lp.toLowerCase().includes(platform.name.toLowerCase()))) {
           const lowerBody = mensaje.toLowerCase().trim();
           chosenPlan = platform.plans.find(p => 
               lowerBody.includes(p.name.toLowerCase().trim()) || 
               p.name.toLowerCase().includes(lowerBody)
           );
+      }
+      if (!chosenPlan) {
+          const msgPrice = extractMentionedPriceFromText(mensaje);
+          if (msgPrice) chosenPlan = matchPlanByPrice(platform, msgPrice);
       }
 
       // Si la plataforma ya estaba en el estado anterior, la actualizamos en lugar de duplicarla
@@ -795,13 +845,32 @@ async function handleSelectingPlans(message, userId, userStates) {
     return;
   }
 
+  // Detectar si el cliente pausa o va a consultar con alguien ("Déjame consulto y te aviso", "Voy a consultar con mi esposa")
+  if (DEFERRAL_PAUSE_REGEX.test(body)) {
+    userStates.delete(userId);
+    await message.reply('🤖 ¡Claro que sí! Consúltalo con tranquilidad 😊. Apenas sepas cuál plan prefieres me escribes por aquí y con gusto te ayudamos a activarlo al instante.');
+    return;
+  }
+
   let selection = parseInt(body) - 1;
 
-  // Si no es un número directo, intentar con IA para entender la opción
+  // Si no es un número directo, intentar resolver por precio mencionado o con IA
+  if (isNaN(selection) || selection < 0) {
+    const mentionedPrice = extractMentionedPriceFromText(body);
+    if (mentionedPrice && !PRODUCT_QUESTION_REGEX.test(body)) {
+      const priceIdx = availablePlans.findIndex(p => Math.abs((Number(p.price) || 0) - mentionedPrice) <= 500);
+      if (priceIdx !== -1) selection = priceIdx;
+    }
+  }
+
   if (isNaN(selection) || selection < 0) {
     const aiResult = await parsePlanSelection(message.combinedBody || message.body, availablePlans, platform.name, selected);
     if (aiResult) {
-      if (aiResult.isQuestion && aiResult.salesReply) {
+      if (aiResult.isDeferral) {
+        userStates.delete(userId);
+        await message.reply(aiResult.salesReply || '🤖 ¡Claro que sí! Consúltalo con tranquilidad 😊. Cuando decidas me escribes por aquí y te lo activamos al instante.');
+        return;
+      } else if (aiResult.isQuestion && aiResult.salesReply) {
         // Respuesta vendedora: Resuelve la pregunta del cliente y se mantiene en el mismo estado para que elija
         await message.reply(aiResult.salesReply);
         return;
@@ -812,6 +881,19 @@ async function handleSelectingPlans(message, userId, userStates) {
   }
 
   if (isNaN(selection) || selection < 0 || selection >= availablePlans.length) {
+    if (body.length > 3 && !/^\d+$/.test(body)) {
+      try {
+        const { generateEmpatheticFallback } = require('./aiService');
+        const historyText = await getChatHistoryText(message);
+        const fallback = await generateEmpatheticFallback(message.combinedBody || message.body, false, historyText, null, [], userId, userStates);
+        if (fallback && fallback.replyMessage) {
+          await message.reply(fallback.replyMessage);
+          return;
+        }
+      } catch (fbErr) {
+        console.warn('[salesService] Fallback conversacional en handleSelectingPlans falló:', fbErr.message);
+      }
+    }
     await message.reply('🤖 No te entendí. Por favor dime el número del plan (ej: 1), di su nombre o escribe "agregar" si quieres algo más.');
     return;
   }
@@ -1092,5 +1174,6 @@ module.exports = {
   calculateAndShowPrice,
   getChatHistoryText,
   safeFetchMessages,
-  getDynamicPaymentMessage
+  getDynamicPaymentMessage,
+  extractMentionedPriceFromText
 };

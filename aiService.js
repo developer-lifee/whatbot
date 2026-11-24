@@ -1156,26 +1156,29 @@ async function parsePlanSelection(messageContent, availablePlans, currentPlatfor
 El mensaje actual del usuario es: "{{MESSAGE_CONTENT}}"
 
 Analiza la intención del usuario y clasifícala en uno de los siguientes sub-intents:
-1. "plan_selection": El usuario está eligiendo o confirmando uno de los planes (ej. dice "la 1", "netflix 4k", "el de 17000" o escribe un número directamente).
-2. "service_doubt_or_ignorance": El usuario tiene dudas sobre los servicios, precios, características, expresa desconocimiento, no entiende qué está eligiendo, o tiene confusión/inquietudes sobre cómo funciona su combo o si incluye otras plataformas del carrito (por ejemplo, si pregunta "¿Y paramount?", "¿Este plan incluye ambos?", "¿Qué diferencia hay?", "pero es que no entiendo", etc.).
-3. "other": Cualquier otro tipo de mensaje.
+1. "plan_selection": El usuario está eligiendo o confirmando uno de los planes (ej. dice "la 1", "netflix 4k", "el de 17000", "el de 17 mil" o escribe un número directamente).
+2. "service_doubt_or_ignorance": El usuario tiene dudas sobre los servicios, pantallas simultáneas, precios, características, expresa desconocimiento o tiene inquietudes sobre su combo/pedido (por ejemplo, si pregunta "¿Cuántas pantallas son?", "¿Las 4?", "¿Este plan incluye ambos?", "¿Qué diferencia hay?", etc.). Responde directo, claro y vendedor en 1-2 párrafos máximo.
+3. "deferral_or_pause": El usuario indica que lo va a pensar, consultar con alguien (su esposa/socio/familia) o avisar después (ej. "Déjame consulto y te aviso", "Voy a consultar con mi esposa", "Luego te escribo"). Responde amablemente dejándole la puerta abierta sin presionarlo ni pedirle números de menú.
+4. "other": Cualquier otro tipo de mensaje conversacional.
 
-Si el sub-intent es "service_doubt_or_ignorance", debes activar el ESPÍRITU DEL VENDEDOR:
-- Escribe una respuesta comercial (salesReply) sumamente amable, persuasiva, vendedora y clara.
-- Explica detalladamente y con paciencia qué plataformas están en su pedido y que primero estamos definiendo el plan de "{{PLATFORM_NAME}}".
-- Resuelve la duda con base en las características y dile que al final sumaremos los servicios con un descuento por combo.
+Si el sub-intent es "service_doubt_or_ignorance":
+- Escribe una respuesta comercial (salesReply) sumamente amable, persuasiva, vendedora y directa al grano (1-2 párrafos máximo).
+- Aclara de entrada la duda concreta (ej. si pregunta por pantallas de Netflix, explica claramente si es 1 pantalla/perfil a la vez) y destaca por qué le conviene activarlo con Sheerit.
+
+Si el sub-intent es "deferral_or_pause":
+- Escribe una respuesta amable (salesReply) confirmando que puede consultarlo tranquilo y escribir cuando decida para activarle el servicio al instante.
 
 Salida esperada en formato JSON estricto:
 {
-    "subIntent": "plan_selection" | "service_doubt_or_ignorance" | "other",
-    "salesReply": string | null, // Si subIntent es "service_doubt_or_ignorance", escribe la respuesta vendedora y aclaratoria detallada. En otro caso, null.
-    "selectedIndex": number | null // Si subIntent es "plan_selection", indica el número de la opción elegida (1, 2, 3...) o null si no se entiende. En otro caso, null.
+    "subIntent": "plan_selection" | "service_doubt_or_ignorance" | "deferral_or_pause" | "other",
+    "salesReply": string | null, // Respuesta natural para service_doubt_or_ignorance, deferral_or_pause u other. null solo en plan_selection.
+    "selectedIndex": number | null // Si subIntent es "plan_selection", indica el número de la opción elegida (1, 2, 3...) o null.
 }`;
 
   try {
     const { pool } = require('./database');
     const [rows] = await pool.query('SELECT cfg_value FROM system_configs WHERE cfg_key = "plan_selection_prompt"');
-    if (rows && rows.length > 0) {
+    if (rows && rows.length > 0 && rows[0].cfg_value && rows[0].cfg_value.includes('deferral_or_pause')) {
       promptTemplate = rows[0].cfg_value;
     }
   } catch (dbErr) {
@@ -1193,12 +1196,13 @@ Salida esperada en formato JSON estricto:
     const result = JSON.parse(jsonString);
     return {
       selectedIndex: result.selectedIndex || null,
+      isDeferral: result.subIntent === 'deferral_or_pause',
       isQuestion: result.subIntent === 'service_doubt_or_ignorance' || result.subIntent === 'other',
       salesReply: result.salesReply || null
     };
   } catch (error) {
     console.error("Error parsing plan selection:", error);
-    return { selectedIndex: null, isQuestion: false, salesReply: null };
+    return { selectedIndex: null, isDeferral: false, isQuestion: false, salesReply: null };
   }
 }
 
