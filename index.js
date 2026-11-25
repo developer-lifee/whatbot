@@ -7052,26 +7052,34 @@ REGLAS:
             if (isRecentlyActive && ((currentStateData && currentStateData.agent) || mode === 'advisor' || minutesSinceLastHuman < 45)) {
                 console.log(`[BOT MUTE ACTIVE] Silenciando bot para @${userId} (Asesor activo hace ${minutesSinceLastHuman.toFixed(1)} mins o asignado a ${currentStateData ? currentStateData.agent : 'humano'}).`);
 
+                const isLiveAdvisorChat = minutesSinceLastHuman < 30;
+                const isShortCourtesyOrAck = !message.hasMedia && cleanInput.length > 0 && cleanInput.length <= 60 && /^(hola[\s,!.]*)?(s[ií][\s,!.]*)?(muchas\s+gracias|mil\s+gracias|gracias|ok|okay|listo|perfecto|dale|vale|genial|excelente|entendido|de\s+acuerdo|s[ií]\s+se[ñn]or|s[ií]\s+se[ñn]ora|claro|super|s[uú]per|bien|todo\s+bien|ya\s+qued[oó]|ya\s+funcion[oó]|ya\s+entr[eé]|ya\s+pude|bendiciones|feliz\s+(d[ií]a|tarde|noche))[\s!.,❤️🙏👍👌😊]*$/iu.test(cleanInput);
+
                 // Si el soporte o asesores se encuentran en horario de descanso/almuerzo o fuera de horario, avisar al cliente para no dejarlo sin respuesta
+                // NUNCA enviar este aviso si un asesor acaba de hablar en vivo (<30 min) o si el cliente solo envió un agradecimiento/confirmación corta.
                 try {
-                    const { isSupportOpen, getOfflineReplyMessage } = require('./supportScheduleService');
-                    const supportStatus = await isSupportOpen();
-                    const now = Date.now();
-                    const lastNotice = (currentStateData && currentStateData.lastRestNoticeSent) || 0;
-                    // Cooldown de 2 horas para no repetir el aviso en cada mensaje
-                    if (!supportStatus.open && (now - lastNotice > 1000 * 60 * 120)) {
-                        const offlineMsg = await getOfflineReplyMessage(userId, userStates);
-                        if (offlineMsg) {
-                            await message.reply(offlineMsg);
-                            if (currentStateData) currentStateData.lastRestNoticeSent = now;
+                    if (isLiveAdvisorChat || isShortCourtesyOrAck) {
+                        console.log(`[Support Schedule Notice] Aviso de horario suprimido para @${userId} (liveAdvisorChat=${isLiveAdvisorChat}, shortCourtesy=${isShortCourtesyOrAck}).`);
+                    } else {
+                        const { isSupportOpen, getOfflineReplyMessage } = require('./supportScheduleService');
+                        const supportStatus = await isSupportOpen();
+                        const now = Date.now();
+                        const lastNotice = (currentStateData && currentStateData.lastRestNoticeSent) || 0;
+                        // Cooldown de 2 horas para no repetir el aviso en cada mensaje
+                        if (!supportStatus.open && (now - lastNotice > 1000 * 60 * 120)) {
+                            const offlineMsg = await getOfflineReplyMessage(userId, userStates);
+                            if (offlineMsg) {
+                                await message.reply(offlineMsg);
+                                if (currentStateData) currentStateData.lastRestNoticeSent = now;
+                            }
                         }
                     }
                 } catch (schedErr) {
                     console.warn('[Support Schedule Notice] Error verificando horario:', schedErr.message);
                 }
 
-                // Registrar que el cliente respondió para que aparezca en el panel de tickets
-                if (!currentStateData.clientWaitingSince) {
+                // Registrar que el cliente respondió para que aparezca en el panel de tickets (excepto cortesías puras tras respuesta humana)
+                if (!currentStateData.clientWaitingSince && !isShortCourtesyOrAck) {
                     const updatedState = { ...currentStateData, clientWaitingSince: Date.now() };
                     userStates.set(userId, updatedState);
                     if (cleanPhoneJid) userStates.set(cleanPhoneJid, updatedState);
