@@ -5993,6 +5993,7 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
         }
 
         // C. Correo externo vinculado a una receta RPA — consulta directamente la BD
+        let rpaAttemptedAndFailed = false;
         if (accountEmail) {
             try {
                 const { pool } = require('./database');
@@ -6006,7 +6007,8 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                 );
 
                 if (subRows.length > 0 && subRows[0].rpa_recipe_id && subRows[0].recipe_json) {
-                    await message.reply(`🤖 *Buscando tu código de acceso para ${streamingName}...* ⏳\n\nEsto puede tardar unos 30-45 segundos. Por favor espera en línea.`);
+                    rpaAttemptedAndFailed = true;
+                    await safeReply(message, `🤖 *Buscando tu código de acceso para ${streamingName}...* ⏳\n\nEsto puede tardar unos 30-45 segundos. Por favor espera en línea.`, userId);
 
                     const recipeJson = typeof subRows[0].recipe_json === 'string'
                         ? JSON.parse(subRows[0].recipe_json)
@@ -6015,14 +6017,20 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     const rpaVariables = { CUSTOMER_EMAIL: accountEmail };
                     console.log(`[RPA Auto] Ejecutando receta #${subRows[0].rpa_recipe_id} ("${subRows[0].recipe_name}") para ${accountEmail}`);
 
-                    const rpaResult = await runRpaRecipe(recipeJson, rpaVariables);
+                    const rpaResult = await Promise.race([
+                        runRpaRecipe(recipeJson, rpaVariables),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout ejecutando receta RPA (75s)')), 75000))
+                    ]);
 
                     if (rpaResult && rpaResult.success && rpaResult.data) {
                         const extractedCode = Object.values(rpaResult.data).find(v => v && v.toString().trim().length >= 4);
                         if (extractedCode) {
-                            await message.reply(`🤖 🔐 *Tu código de acceso para ${streamingName}:* 🚀\n\n🔢 Código: *${extractedCode.toString().trim()}*\n\n_Úsalo pronto para iniciar sesión en tu dispositivo._`);
-                            userStates.delete(userId);
-                            return;
+                            const sent = await safeReply(message, `🤖 🔐 *Tu código de acceso para ${streamingName}:* 🚀\n\n🔢 Código: *${extractedCode.toString().trim()}*\n\n_Úsalo pronto para iniciar sesión en tu dispositivo._`, userId);
+                            if (sent !== false) {
+                                userStates.delete(userId);
+                                return;
+                            }
+                            console.warn(`[RPA Auto] Falló la entrega por WhatsApp del código para ${accountEmail}; escalando a asesores.`);
                         }
                     }
                     console.warn(`[RPA Auto] Receta #${subRows[0].rpa_recipe_id} no devolvió código válido para ${accountEmail}`);
@@ -6039,8 +6047,11 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
             return;
         }
 
-        // E. No tiene token y no es Netflix (explicar amablemente y alertar al grupo admin)
-        await message.reply(`🤖 ¡Hola! Encontré tu cuenta de *${streamingName}* (${accountEmail}), pero aún no está vinculada a nuestro sistema de códigos automáticos 2FA.\n\nHe notificado a tu asesor para que te entregue tu código manualmente en un momento. Además, vincularemos tu cuenta para que en futuras ocasiones puedas obtener tus códigos en segundos de forma automática. ¡Gracias por tu paciencia!`);
+        // E. No tiene token (o falló extracción RPA) y no es Netflix (explicar amablemente y alertar al grupo admin)
+        const fallbackManualMsg = rpaAttemptedAndFailed
+            ? `🤖 ¡Hola! Intenté obtener automáticamente tu código de *${streamingName}* (${accountEmail}), pero ocurrió una demora o fallo temporal.\n\nHe notificado de inmediato a un asesor para que te envíe tu código manualmente en un momento. ¡Gracias por tu paciencia!`
+            : `🤖 ¡Hola! Encontré tu cuenta de *${streamingName}* (${accountEmail}), pero aún no está vinculada a nuestro sistema de códigos automáticos 2FA.\n\nHe notificado a tu asesor para que te entregue tu código manualmente en un momento. Además, vincularemos tu cuenta para que en futuras ocasiones puedas obtener tus códigos en segundos de forma automática. ¡Gracias por tu paciencia!`;
+        await safeReply(message, fallbackManualMsg, userId);
 
         // Silenciar bot para este cliente y poner en cola de espera humana
         userStates.set(userId, { state: 'waiting_human', waitingCount: 0, lastHumanInteraction: Date.now(), waiting_human_mode: 'bot' });

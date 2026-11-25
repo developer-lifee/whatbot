@@ -93,14 +93,29 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                     } catch (selectorErr) {
                         console.log(`[RPA Runner] Selector ${step.selector} no hallado. Aplicando fallback de escaneo inteligente en pantalla...`);
 
+                        const withTimeout = (promise, ms, label) => Promise.race([
+                            promise,
+                            new Promise((_, reject) => setTimeout(() => reject(new Error(`Timeout en ${label} (${ms}ms)`)), ms))
+                        ]);
+
                         // 2. Fallback: Loop up to 7 times (35 seconds max) if page shows a loading message
                         for (let attempt = 0; attempt < 7; attempt++) {
-                            const loadingState = await page.evaluate(() => {
-                                const bodyText = document.body ? document.body.innerText : '';
-                                return bodyText.includes('trayendo el código') ||
-                                    bodyText.includes('espera unos segundos') ||
-                                    bodyText.toLowerCase().includes('cargando');
-                            });
+                            let loadingState = false;
+                            try {
+                                loadingState = await withTimeout(
+                                    page.evaluate(() => {
+                                        const bodyText = document.body ? document.body.innerText : '';
+                                        return bodyText.includes('trayendo el código') ||
+                                            bodyText.includes('espera unos segundos') ||
+                                            bodyText.toLowerCase().includes('cargando');
+                                    }),
+                                    8000,
+                                    `page.evaluate intento ${attempt + 1}/7`
+                                );
+                            } catch (evalErr) {
+                                console.warn(`[RPA Runner] ${evalErr.message}. Saliendo del bucle de espera.`);
+                                break;
+                            }
 
                             if (loadingState) {
                                 console.log(`[RPA Runner] Cargando código de Spotinet... Reintento ${attempt + 1}/7 (espera 5s)`);
@@ -108,7 +123,11 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
 
                                 // Take progress screenshot for user peace of mind
                                 try {
-                                    const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 40 });
+                                    const screenshotBase64 = await withTimeout(
+                                        page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 40 }),
+                                        8000,
+                                        `page.screenshot intento ${attempt + 1}/7`
+                                    );
                                     const item = {
                                         step: recipe.steps.indexOf(step) + 1,
                                         action: 'extract_wait',
@@ -120,36 +139,42 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                                         const job = rpaJobs.get(jobId);
                                         if (job) job.screenshots = [...screenshots];
                                     }
-                                } catch (e) { }
+                                } catch (e) {
+                                    console.warn(`[RPA Runner] Advertencia captura de espera (${attempt + 1}/7):`, e.message);
+                                }
                                 continue;
                             }
                             break;
                         }
 
                         // Extract text using keywords and regex
-                        extracted = await page.evaluate(() => {
-                            const bodyText = document.body ? document.body.innerText : '';
+                        extracted = await withTimeout(
+                            page.evaluate(() => {
+                                const bodyText = document.body ? document.body.innerText : '';
 
-                            // Check if the 20 minutes warning alert is present in page text
-                            if (bodyText.includes('últimos 20 min') || bodyText.toLowerCase().includes('no pediste el código')) {
-                                return '⚠️ El cliente no ha solicitado el código en su dispositivo en los últimos 20 minutos.';
-                            }
+                                // Check if the 20 minutes warning alert is present in page text
+                                if (bodyText.includes('últimos 20 min') || bodyText.toLowerCase().includes('no pediste el código')) {
+                                    return '⚠️ El cliente no ha solicitado el código en su dispositivo en los últimos 20 minutos.';
+                                }
 
-                            const elements = Array.from(document.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6'));
-                            // Look for elements containing keywords like "Código" or "sesión" and having digit patterns
-                            const matches = elements.filter(el => {
-                                const text = el.innerText || '';
-                                return (text.toLowerCase().includes('código') || text.toLowerCase().includes('sesión') || text.toLowerCase().includes('codigo')) && /\b\d{6}\b/.test(text);
-                            });
+                                const elements = Array.from(document.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6'));
+                                // Look for elements containing keywords like "Código" or "sesión" and having digit patterns
+                                const matches = elements.filter(el => {
+                                    const text = el.innerText || '';
+                                    return (text.toLowerCase().includes('código') || text.toLowerCase().includes('sesión') || text.toLowerCase().includes('codigo')) && /\b\d{6}\b/.test(text);
+                                });
 
-                            if (matches.length > 0) {
-                                return matches[0].innerText.trim();
-                            }
+                                if (matches.length > 0) {
+                                    return matches[0].innerText.trim();
+                                }
 
-                            // Last resort: scan the entire body text
-                            const bodyMatch = bodyText.match(/\b\d{6}\b/);
-                            return bodyMatch ? `Código: ${bodyMatch[0]}` : null;
-                        });
+                                // Last resort: scan the entire body text
+                                const bodyMatch = bodyText.match(/\b\d{6}\b/);
+                                return bodyMatch ? `Código: ${bodyMatch[0]}` : null;
+                            }),
+                            10000,
+                            'extracción final de texto'
+                        );
                     }
 
                     results[step.save_as || 'extracted'] = extracted;
@@ -216,7 +241,10 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
             failureScreenshot
         };
     } finally {
-        await browser.close();
+        await Promise.race([
+            browser.close().catch(() => {}),
+            new Promise(resolve => setTimeout(resolve, 5000))
+        ]);
     }
 }
 
