@@ -5605,7 +5605,9 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
     const isNetflixExtra = streamingName.includes('NETFLIX') && streamingName.includes('EXTRA');
     const { isCodeFailureReport } = require('./totpService');
     const incomingText = (message && !message.isWebRequest && message.body) ? String(message.body) : '';
-    const isFailureReport = Boolean(options.forceGmailFallback) || isCodeFailureReport(incomingText);
+    const ocrContextText = `${incomingText} ${options.ocrText || ''}`;
+    const isEmailCodeRequest = Boolean(options.isEmailCodeScreen) || /busca en tu bandeja de entrada|check your inbox|c[oó]digo de verificaci[oó]n que acabamos de enviar|reenviar correo electr[oó]nico/i.test(ocrContextText);
+    const isFailureReport = Boolean(options.forceGmailFallback) || isEmailCodeRequest || isCodeFailureReport(incomingText);
     const clientIp = options.clientIp || null;
     const deviceInfo = (options.deviceLabel || options.userAgent)
         ? { deviceLabel: options.deviceLabel || null, userAgent: options.userAgent || null }
@@ -5622,14 +5624,25 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
         const hasTotpSecret = gptSecrets[accountEmail];
 
         if (hasTotpSecret && isFailureReport) {
-            console.warn(`[TOTP Fallback] ⚠️ Cliente @${realPhone || userId} reportó fallo con código TOTP de ${accountEmail} (${streamingName}). Saltando a respaldo de Gmail...`);
-            const lastAlert = totpFailureAlertCooldowns.get(accountEmail) || 0;
-            if (Date.now() - lastAlert > 4 * 60 * 60 * 1000 && client && client.sendMessage) {
-                totpFailureAlertCooldowns.set(accountEmail, Date.now());
-                const alertText = `⚠️ *[ALERTA SEMILLA 2FA RECHAZADA]*\n\n` +
-                    `El cliente *+${realPhone || userId}* reportó que el código TOTP de *${streamingName}* (\`${accountEmail}\`) no funciona.\n` +
-                    `El bot activó respaldo automático por Gmail. Por favor revisa si la semilla en *Cuentas 2FA* está desactualizada.`;
-                client.sendMessage('120363427163636523@g.us', alertText, { sendSeen: false }).catch(() => {});
+            console.warn(`[TOTP Fallback] ⚠️ Cliente @${realPhone || userId} reportó fallo o pantalla de código por correo para ${accountEmail} (${streamingName}). Saltando a respaldo de Gmail...`);
+            if (isEmailCodeRequest && (streamingName.includes('GPT') || streamingName.includes('CHATGPT'))) {
+                await message.reply(
+                    `🤖 *Instrucciones para iniciar sesión en ChatGPT:*\n\n` +
+                    `La pantalla que envías solicita un *código enviado al correo (Gmail)* y no el de la app autenticadora.\n\n` +
+                    `1️⃣ Ingresa el *correo* de la cuenta.\n` +
+                    `2️⃣ Selecciona *"Continuar con contraseña"* e ingresa la *contraseña*.\n` +
+                    `3️⃣ Luego sí te pedirá el *código de autenticación (2FA)*.\n\n` +
+                    `⏳ Buscando también el código reciente en Gmail...`
+                ).catch(() => {});
+            } else {
+                const lastAlert = totpFailureAlertCooldowns.get(accountEmail) || 0;
+                if (Date.now() - lastAlert > 4 * 60 * 60 * 1000 && client && client.sendMessage) {
+                    totpFailureAlertCooldowns.set(accountEmail, Date.now());
+                    const alertText = `⚠️ *[ALERTA SEMILLA 2FA RECHAZADA]*\n\n` +
+                        `El cliente *+${realPhone || userId}* reportó que el código TOTP de *${streamingName}* (\`${accountEmail}\`) no funciona.\n` +
+                        `El bot activó respaldo automático por Gmail. Por favor revisa si la semilla en *Cuentas 2FA* está desactualizada.`;
+                    client.sendMessage('120363427163636523@g.us', alertText, { sendSeen: false }).catch(() => {});
+                }
             }
         }
 
@@ -9813,7 +9826,13 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         const bodyLower = inputToUse.toLowerCase();
         const fullOcrContext = `${bodyLower} ${explanationLower} ${mediaDescLower} ${extractedDetailsLower}`;
 
-        const isIncorrectPassword = [
+        const isEmailOrOtpCodeScreen = [
+            'busca en tu bandeja de entrada', 'check your inbox', 'ingrese el código de verificación',
+            'ingrese el codigo de verificacion', 'reenviar correo electrónico', 'reenviar correo electronico',
+            'código de verificación', 'codigo de verificacion', 'código incorrecto', 'codigo incorrecto'
+        ].some(kw => fullOcrContext.includes(kw));
+
+        const isIncorrectPassword = !isEmailOrOtpCodeScreen && [
             'incorrecta', 'incorrecto', 'no son correctos', 'contraseña incorrecta', 'clave incorrecta', 'credenciales incorrectas',
             'datos de acceso', 'datos anteriores', 'clave antigua', 'contraseña antigua', 'no me permite el ingreso', 'no permite el ingreso',
             'ocurrió un error al iniciar sesión', 'ocurrio un error al iniciar sesion',
