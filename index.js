@@ -10203,6 +10203,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
     const isChangingTopic = detection.intent &&
         !['desconocido', 'comprar', 'pagar', 'cierre', 'renovar', 'duda_contexto'].includes(detection.intent) &&
+        !(currentState === 'awaiting_churn_reason' && detection.intent === 'cancelar') &&
         !(isSingleDigit && statesExpectingNumbers.includes(currentState));
     const isVeryFrustrated = detection.frustrationLevel >= 7;
 
@@ -10226,9 +10227,12 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             lowerBody.startsWith('comprar ') ||
             lowerBody.startsWith('renovar ');
 
+        // Si menciona otra plataforma solo como motivo de cancelación (ej. 'tengo chatgpt y con ese es suficiente'), no romper el flujo
+        const isMentioningExistingService = /\b(tengo|ya tengo|ya uso|estoy usando|con ese|con esa|es suficiente|me quedo con)\b/i.test(lowerBody);
         // Detectar si el usuario quiere comprar otro servicio, cambiar de plataforma o preguntar por otra
-        const isPurchaseOrOtherIntent = ['comprar', 'pagar', 'renovar', 'soporte'].includes(detection.intent) ||
-            detection.detectedPlatform ||
+        const isPurchaseOrOtherIntent = !isMentioningExistingService && (
+            ['comprar', 'pagar', 'renovar', 'soporte'].includes(detection.intent) ||
+            (detection.detectedPlatform && detection.intent !== 'cancelar') ||
             lowerBody.includes('quiero') ||
             lowerBody.includes('tienen') ||
             lowerBody.includes('tiene') ||
@@ -10243,7 +10247,8 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             lowerBody.includes('max') ||
             lowerBody.includes('apple') ||
             lowerBody.includes('paramount') ||
-            lowerBody.includes('crunchyroll');
+            lowerBody.includes('crunchyroll')
+        );
 
         if (hasRefusalText || isExplicitOtherAction) {
             isChurnRefusal = true;
