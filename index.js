@@ -6014,7 +6014,9 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         ? JSON.parse(subRows[0].recipe_json)
                         : subRows[0].recipe_json;
 
-                    const rpaVariables = { CUSTOMER_EMAIL: accountEmail };
+                    const { getRpaProviderVariables } = require('./routes/adminAgentsAndPayrollRoutes');
+                    const recipePlatform = (recipeJson && recipeJson.platform) || streamingName;
+                    const rpaVariables = await getRpaProviderVariables(recipePlatform, { CUSTOMER_EMAIL: accountEmail });
                     console.log(`[RPA Auto] Ejecutando receta #${subRows[0].rpa_recipe_id} ("${subRows[0].recipe_name}") para ${accountEmail}`);
 
                     const rpaResult = await Promise.race([

@@ -8,6 +8,43 @@ const accountingService = require('../accountingService');
 const ROOT_DIR = path.resolve(__dirname, '..');
 const rpaJobs = new Map();
 
+async function getRpaProviderVariables(platform, baseVariables = {}) {
+    const rpaVariables = { ...(baseVariables || {}) };
+    const cleanPlatform = String(platform || '').trim();
+
+    try {
+        const [providers] = await pool.query(
+            `SELECT username, password, platform, provider_name
+             FROM provider_credentials
+             WHERE LOWER(platform) = LOWER(?)
+                OR LOWER(provider_name) = LOWER(?)
+                OR LOWER(platform) = 'general'
+             ORDER BY
+                (LOWER(platform) = LOWER(?)) DESC,
+                (LOWER(provider_name) = LOWER(?)) DESC,
+                created_at DESC
+             LIMIT 1`,
+            [cleanPlatform, cleanPlatform, cleanPlatform, cleanPlatform]
+        );
+
+        if (providers && providers.length > 0) {
+            const cred = providers[0];
+            if (cred.username) {
+                rpaVariables.PROVIDER_USER = rpaVariables.PROVIDER_USER || cred.username;
+                rpaVariables.ADMIN_USER = rpaVariables.ADMIN_USER || cred.username;
+            }
+            if (cred.password) {
+                rpaVariables.PROVIDER_PASSWORD = rpaVariables.PROVIDER_PASSWORD || cred.password;
+                rpaVariables.ADMIN_PASSWORD = rpaVariables.ADMIN_PASSWORD || cred.password;
+            }
+        }
+    } catch (dbErr) {
+        console.error('[RPA] Error al consultar credenciales de proveedor:', dbErr.message);
+    }
+
+    return rpaVariables;
+}
+
 async function runRpaRecipe(recipe, variables = {}, jobId = null) {
     const puppeteer = require('puppeteer');
     const browser = await puppeteer.launch({
@@ -24,15 +61,129 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
     const results = {};
     const screenshots = [];
 
+    const resolvedVariables = { ...(variables || {}) };
+    const adminUser = resolvedVariables.ADMIN_USER || resolvedVariables.PROVIDER_USER;
+    const adminPassword = resolvedVariables.ADMIN_PASSWORD || resolvedVariables.PROVIDER_PASSWORD;
+    if (adminUser !== undefined) {
+        resolvedVariables.ADMIN_USER = adminUser;
+        resolvedVariables.PROVIDER_USER = adminUser;
+    }
+    if (adminPassword !== undefined) {
+        resolvedVariables.ADMIN_PASSWORD = adminPassword;
+        resolvedVariables.PROVIDER_PASSWORD = adminPassword;
+    }
+
+    const parseTextSelectorParts = (rawSelector) => {
+        if (typeof rawSelector !== 'string' || !rawSelector.includes(':has-text(')) {
+            return null;
+        }
+        const parts = rawSelector.split(',').map(p => p.trim()).filter(Boolean);
+        const parsed = [];
+        for (const part of parts) {
+            const match = part.match(/^(.*?):has-text\((['"])(.*?)\2\)\s*$/i);
+            if (match) {
+                parsed.push({
+                    baseSelector: (match[1] || '*').trim() || '*',
+                    text: match[3]
+                });
+            } else {
+                parsed.push({
+                    baseSelector: part,
+                    text: null
+                });
+            }
+        }
+        return parsed.length > 0 ? parsed : null;
+    };
+
+    const waitForSmartSelector = async (selector, timeoutMs) => {
+        const parsedParts = parseTextSelectorParts(selector);
+        if (!parsedParts) {
+            return await page.waitForSelector(selector, { timeout: timeoutMs });
+        }
+
+        await page.waitForFunction(
+            (parts) => {
+                for (const part of parts) {
+                    let candidates = [];
+                    try {
+                        candidates = Array.from(document.querySelectorAll(part.baseSelector));
+                    } catch (e) {
+                        continue;
+                    }
+                    for (const el of candidates) {
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width === 0 && rect.height === 0) continue;
+                        if (part.text === null) return true;
+                        const txt = (el.innerText || el.textContent || '').trim();
+                        if (txt.includes(part.text)) return true;
+                    }
+                }
+                return false;
+            },
+            { timeout: timeoutMs },
+            parsedParts
+        );
+    };
+
+    const findSmartElementHandle = async (selector) => {
+        const parsedParts = parseTextSelectorParts(selector);
+        if (!parsedParts) {
+            return await page.$(selector);
+        }
+
+        const handle = await page.evaluateHandle((parts) => {
+            const matches = [];
+            for (const part of parts) {
+                let candidates = [];
+                try {
+                    candidates = Array.from(document.querySelectorAll(part.baseSelector));
+                } catch (e) {
+                    continue;
+                }
+                for (const el of candidates) {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width === 0 && rect.height === 0) continue;
+                    if (part.text === null) {
+                        matches.push(el);
+                        continue;
+                    }
+                    const txt = (el.innerText || el.textContent || '').trim();
+                    if (txt.includes(part.text)) {
+                        matches.push(el);
+                    }
+                }
+            }
+            if (matches.length === 0) return null;
+            // Prefer the innermost matching element (e.g., <a> or <button> over outer wrapper <div>)
+            const innermost = matches.find(el => !matches.some(other => other !== el && el.contains(other)));
+            return innermost || matches[0];
+        }, parsedParts);
+
+        return handle.asElement();
+    };
+
     try {
-        for (const step of recipe.steps) {
+        for (const rawStep of recipe.steps) {
+            const step = { ...rawStep };
             console.log(`[RPA Runner] Ejecutando paso: ${step.action} - ${step.description || ''}`);
 
             const replaceVars = (val) => {
                 if (typeof val === 'string') {
+                    const trimmed = val.trim();
+                    if (trimmed === 'ADMIN_USER' || trimmed === 'PROVIDER_USER') {
+                        return results[trimmed] !== undefined
+                            ? results[trimmed]
+                            : (resolvedVariables[trimmed] !== undefined ? resolvedVariables[trimmed] : '');
+                    }
+                    if (trimmed === 'ADMIN_PASSWORD' || trimmed === 'PROVIDER_PASSWORD') {
+                        return results[trimmed] !== undefined
+                            ? results[trimmed]
+                            : (resolvedVariables[trimmed] !== undefined ? resolvedVariables[trimmed] : '');
+                    }
                     return val.replace(/\{\{(\w+)\}\}/g, (_, name) => {
                         if (results[name] !== undefined) return results[name];
-                        return variables[name] !== undefined ? variables[name] : '';
+                        return resolvedVariables[name] !== undefined ? resolvedVariables[name] : '';
                     });
                 }
                 return val;
@@ -56,7 +207,7 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
             if (jobId) {
                 const job = rpaJobs.get(jobId);
                 if (job) {
-                    job.progress = `Paso ${recipe.steps.indexOf(step) + 1} de ${recipe.steps.length}: ${step.description || step.action}`;
+                    job.progress = `Paso ${recipe.steps.indexOf(rawStep) + 1} de ${recipe.steps.length}: ${step.description || step.action}`;
                 }
             }
 
@@ -65,31 +216,52 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                     await page.goto(step.url, { waitUntil: 'networkidle2', timeout: getTimeout(30000) });
                     await new Promise(r => setTimeout(r, 2000)); // Pacing delay
                     break;
-                case 'type':
-                    await page.waitForSelector(step.selector, { timeout: getTimeout(15000) });
-                    await page.type(step.selector, value);
+                case 'type': {
+                    await waitForSmartSelector(step.selector, getTimeout(15000));
+                    if (parseTextSelectorParts(step.selector)) {
+                        const elHandle = await findSmartElementHandle(step.selector);
+                        if (!elHandle) throw new Error(`Selector no encontrado: ${step.selector}`);
+                        await elHandle.type(value);
+                    } else {
+                        await page.type(step.selector, value);
+                    }
                     await new Promise(r => setTimeout(r, 1000)); // Pacing delay
                     break;
-                case 'click':
-                    await page.waitForSelector(step.selector, { timeout: getTimeout(15000) });
-                    await page.click(step.selector);
+                }
+                case 'click': {
+                    await waitForSmartSelector(step.selector, getTimeout(15000));
+                    if (parseTextSelectorParts(step.selector)) {
+                        const elHandle = await findSmartElementHandle(step.selector);
+                        if (!elHandle) throw new Error(`Selector no encontrado: ${step.selector}`);
+                        await elHandle.click();
+                    } else {
+                        await page.click(step.selector);
+                    }
                     await new Promise(r => setTimeout(r, 2000)); // Pacing delay
                     break;
+                }
                 case 'wait_navigation':
                     await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: getTimeout(20000) });
                     break;
                 case 'wait_selector':
-                    await page.waitForSelector(step.selector, { timeout: getTimeout(60000) });
+                    await waitForSmartSelector(step.selector, getTimeout(60000));
                     break;
                 case 'extract_text':
                     let extracted = null;
                     try {
                         // 1. Try target selector first with a shorter, fast timeout (12s)
-                        await page.waitForSelector(step.selector, { timeout: 12000 });
-                        extracted = await page.evaluate((sel) => {
-                            const el = document.querySelector(sel);
-                            return el ? el.innerText.trim() : null;
-                        }, step.selector);
+                        await waitForSmartSelector(step.selector, 12000);
+                        if (parseTextSelectorParts(step.selector)) {
+                            const elHandle = await findSmartElementHandle(step.selector);
+                            extracted = elHandle
+                                ? await page.evaluate(el => el.innerText.trim(), elHandle)
+                                : null;
+                        } else {
+                            extracted = await page.evaluate((sel) => {
+                                const el = document.querySelector(sel);
+                                return el ? el.innerText.trim() : null;
+                            }, step.selector);
+                        }
                     } catch (selectorErr) {
                         console.log(`[RPA Runner] Selector ${step.selector} no hallado. Aplicando fallback de escaneo inteligente en pantalla...`);
 
@@ -129,7 +301,7 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
                                         `page.screenshot intento ${attempt + 1}/7`
                                     );
                                     const item = {
-                                        step: recipe.steps.indexOf(step) + 1,
+                                        step: recipe.steps.indexOf(rawStep) + 1,
                                         action: 'extract_wait',
                                         description: `Cargando código (intento ${attempt + 1})...`,
                                         img: `data:image/jpeg;base64,${screenshotBase64}`
@@ -188,7 +360,7 @@ async function runRpaRecipe(recipe, variables = {}, jobId = null) {
             try {
                 const screenshotBase64 = await page.screenshot({ encoding: 'base64', type: 'jpeg', quality: 40 });
                 const item = {
-                    step: recipe.steps.indexOf(step) + 1,
+                    step: recipe.steps.indexOf(rawStep) + 1,
                     action: step.action,
                     description: step.description || '',
                     img: `data:image/jpeg;base64,${screenshotBase64}`
@@ -2180,20 +2352,8 @@ app.post('/api/admin/rpa/run', express.json(), async (req, res) => {
         const recipeObj = rows[0];
         const recipeJson = typeof recipeObj.recipe_json === 'string' ? JSON.parse(recipeObj.recipe_json) : recipeObj.recipe_json;
 
-        // Query active provider credentials for this platform
-        const rpaVariables = { ...(variables || {}) };
-        try {
-            const [providers] = await pool.query(
-                'SELECT username, password FROM provider_credentials WHERE platform = ? ORDER BY created_at DESC LIMIT 1',
-                [recipeObj.platform]
-            );
-            if (providers && providers.length > 0) {
-                rpaVariables.PROVIDER_USER = providers[0].username;
-                rpaVariables.PROVIDER_PASSWORD = providers[0].password;
-            }
-        } catch (dbErr) {
-            console.error('[RPA] Error al consultar credenciales de proveedor:', dbErr.message);
-        }
+        // Query active provider credentials for this platform with fallback
+        const rpaVariables = await getRpaProviderVariables(recipeObj.platform, variables);
 
         const jobId = `job_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
@@ -2361,5 +2521,6 @@ app.post('/api/admin/bot/toggle-sleep', express.json(), (req, res) => {
 
 module.exports = {
     registerAdminAgentsAndPayrollRoutes,
-    runRpaRecipe
+    runRpaRecipe,
+    getRpaProviderVariables
 };
