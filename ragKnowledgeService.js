@@ -48,8 +48,7 @@ function cosineSimilarity(vecA, vecB) {
 }
 
 const EMBEDDING_MODELS = [
-  "gemini-embedding-001",
-  "gemini-embedding-2"
+  "gemini-embedding-001"
 ];
 
 /**
@@ -319,7 +318,7 @@ async function initKnowledgeVectors(forceRefresh = false) {
   }
 
   const docs = loadSourceDocuments();
-  console.log(`[RAG Service] Generando embeddings para ${docs.length} fragmentos de conocimiento con Gemini text-embedding-004...`);
+  console.log(`[RAG Service] Generando embeddings para ${docs.length} fragmentos de conocimiento con Gemini gemini-embedding-001...`);
 
   const vectors = [];
   for (const doc of docs) {

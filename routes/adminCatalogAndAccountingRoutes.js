@@ -1529,6 +1529,13 @@ async function loadAccountingPlatformConfigs() {
                 platformConfigs[pKey].defaultSalePrice = saleVal;
             }
         }
+
+        if (platformConfigs['NETFLIX']) {
+            platformConfigs['NETFLIX'].extraPlatform = 'NETFLIX EXTRA';
+            platformConfigs['NETFLIX'].defaultExtraSlots = 2;
+            platformConfigs['NETFLIX'].extraSlotCost = platformConfigs['NETFLIX EXTRA']?.defaultCost || 9900;
+            platformConfigs['NETFLIX'].extraSlotSalePrice = platformConfigs['NETFLIX EXTRA']?.defaultSalePrice || 17000;
+        }
     } catch (e) {
         console.warn('[Master Accounts] Error cargando configuración desde Contabilidad:', e.message);
     }
@@ -1719,6 +1726,9 @@ app.post('/api/admin/accounts/add', express.json(), async (req, res) => {
             correo,
             contraseña,
             perfiles,
+            extraPerfiles = 0,
+            extraStreaming = '',
+            extraUnitCost = null,
             vencimiento,
             proveedor,
             paymentMethod,
@@ -1738,6 +1748,10 @@ app.post('/api/admin/accounts/add', express.json(), async (req, res) => {
         const cleanEmail = String(correo).trim();
         const cleanPass = String(contraseña).trim();
         const numPerfiles = Math.max(1, Math.min(30, parseInt(perfiles, 10) || 1));
+        const numExtra = Math.max(0, Math.min(10, parseInt(extraPerfiles, 10) || 0));
+        const cleanExtraPlat = numExtra > 0
+            ? String(extraStreaming || (cleanPlat.toUpperCase() === 'NETFLIX' ? 'NETFLIX EXTRA' : '')).trim()
+            : '';
 
         const { fetchRawData, updateExcelData, getTodayInBogota } = require('../apiService');
         const allRows = await fetchRawData();
@@ -1763,71 +1777,107 @@ app.post('/api/admin/accounts/add', express.json(), async (req, res) => {
             await updateExcelData(rowNumber, updates);
         }
 
-        // UPSERT en stream_accounts
-        const [existingDb] = await pool.query(
-            'SELECT id FROM stream_accounts WHERE LOWER(account_email) = ? AND LOWER(streaming_platform) = ? LIMIT 1',
-            [cleanEmail.toLowerCase(), cleanPlat.toLowerCase()]
-        );
+        if (numExtra > 0 && cleanExtraPlat) {
+            for (let j = 0; j < numExtra; j++) {
+                const extraRowNumber = startRow + numPerfiles + j;
+                const extraUpdates = {
+                    "Streaming": cleanExtraPlat,
+                    "correo": cleanEmail,
+                    "contraseña": cleanPass,
+                    "Nombre": "",
+                    "whatsapp": "",
+                    "numero": "",
+                    "deben": ""
+                };
+                if (vencimiento) extraUpdates["vencimiento"] = String(vencimiento).trim();
+                if (combinedPayMethod) extraUpdates["Metodo de pago"] = combinedPayMethod;
+                await updateExcelData(extraRowNumber, extraUpdates);
+            }
+        }
 
         const parsedCost = costPrice !== '' && costPrice !== null && costPrice !== undefined ? Number(costPrice) : null;
         const parsedSale = salePrice !== '' && salePrice !== null && salePrice !== undefined ? Number(salePrice) : null;
+        const resolvedExtraUnitCost = extraUnitCost !== '' && extraUnitCost !== null && extraUnitCost !== undefined
+            ? Number(extraUnitCost)
+            : (cleanExtraPlat.toUpperCase() === 'NETFLIX EXTRA' ? 9900 : 0);
+        const resolvedExtraSalePrice = cleanExtraPlat.toUpperCase() === 'NETFLIX EXTRA' ? 17000 : null;
         const expDateSql = vencimiento && /^\d{4}-\d{2}-\d{2}$/.test(String(vencimiento).trim()) ? String(vencimiento).trim() : null;
 
-        if (existingDb.length > 0) {
-            await pool.query(
-                `UPDATE stream_accounts
-                 SET account_password = ?, provider_name = ?, max_profiles = ?, expiration_date = COALESCE(?, expiration_date),
-                     cost_price = COALESCE(?, cost_price), sale_price = COALESCE(?, sale_price),
-                     payment_method = COALESCE(?, payment_method), guide_notes = COALESCE(?, guide_notes), status = 'active'
-                 WHERE id = ?`,
-                [
-                    cleanPass,
-                    proveedor ? String(proveedor).trim() : null,
-                    numPerfiles,
-                    expDateSql,
-                    parsedCost,
-                    parsedSale,
-                    paymentMethod ? String(paymentMethod).trim() : null,
-                    guideNotes ? String(guideNotes).trim() : null,
-                    existingDb[0].id
-                ]
+        const upsertMasterDbRow = async (platName, slotsCount, costVal, saleVal) => {
+            const [existingDb] = await pool.query(
+                'SELECT id FROM stream_accounts WHERE LOWER(account_email) = ? AND LOWER(streaming_platform) = ? LIMIT 1',
+                [cleanEmail.toLowerCase(), platName.toLowerCase()]
             );
-        } else {
-            await pool.query(
-                `INSERT INTO stream_accounts
-                 (account_email, streaming_platform, account_password, is_provider, provider_name, max_profiles, expiration_date, cost_price, sale_price, payment_method, guide_notes, status)
-                 VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-                [
-                    cleanEmail,
-                    cleanPlat.toLowerCase(),
-                    cleanPass,
-                    proveedor ? String(proveedor).trim() : null,
-                    numPerfiles,
-                    expDateSql,
-                    parsedCost,
-                    parsedSale,
-                    paymentMethod ? String(paymentMethod).trim() : null,
-                    guideNotes ? String(guideNotes).trim() : null
-                ]
+
+            if (existingDb.length > 0) {
+                await pool.query(
+                    `UPDATE stream_accounts
+                     SET account_password = ?, provider_name = ?, max_profiles = ?, expiration_date = COALESCE(?, expiration_date),
+                         cost_price = COALESCE(?, cost_price), sale_price = COALESCE(?, sale_price),
+                         payment_method = COALESCE(?, payment_method), guide_notes = COALESCE(?, guide_notes), status = 'active'
+                     WHERE id = ?`,
+                    [
+                        cleanPass,
+                        proveedor ? String(proveedor).trim() : null,
+                        slotsCount,
+                        expDateSql,
+                        costVal,
+                        saleVal,
+                        paymentMethod ? String(paymentMethod).trim() : null,
+                        guideNotes ? String(guideNotes).trim() : null,
+                        existingDb[0].id
+                    ]
+                );
+            } else {
+                await pool.query(
+                    `INSERT INTO stream_accounts
+                     (account_email, streaming_platform, account_password, is_provider, provider_name, max_profiles, expiration_date, cost_price, sale_price, payment_method, guide_notes, status)
+                     VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+                    [
+                        cleanEmail,
+                        platName.toLowerCase(),
+                        cleanPass,
+                        proveedor ? String(proveedor).trim() : null,
+                        slotsCount,
+                        expDateSql,
+                        costVal,
+                        saleVal,
+                        paymentMethod ? String(paymentMethod).trim() : null,
+                        guideNotes ? String(guideNotes).trim() : null
+                    ]
+                );
+            }
+        };
+
+        await upsertMasterDbRow(cleanPlat, numPerfiles, parsedCost, parsedSale);
+        if (numExtra > 0 && cleanExtraPlat) {
+            await upsertMasterDbRow(
+                cleanExtraPlat,
+                numExtra,
+                resolvedExtraUnitCost > 0 ? resolvedExtraUnitCost : null,
+                resolvedExtraSalePrice
             );
         }
 
-        if (recordExpense && parsedCost && parsedCost > 0) {
+        const totalExpenseAmount = (parsedCost || 0) + (numExtra > 0 && cleanExtraPlat ? (numExtra * resolvedExtraUnitCost) : 0);
+        if (recordExpense && totalExpenseAmount > 0) {
             try {
                 const today = getTodayInBogota ? getTodayInBogota() : new Date();
                 const todayStr = today.toISOString().split('T')[0];
                 const fallbackExp = expDateSql || new Date(today.getTime() + 30 * 86400000).toISOString().split('T')[0];
+                const baseNote = guideNotes ? String(guideNotes).trim() : 'Compra inicial de cuenta matriz';
+                const extraNote = (numExtra > 0 && cleanExtraPlat) ? `${baseNote} | Incluye ${numExtra} cupos ${cleanExtraPlat}` : baseNote;
                 await accountingService.recordAccountRenewal({
                     platform: cleanPlat.toUpperCase(),
                     account_email: cleanEmail,
                     provider: proveedor ? String(proveedor).trim() : 'Directo',
                     payment_method: paymentMethod ? String(paymentMethod).trim() : 'Compra Inicial',
-                    amount_paid: parsedCost,
+                    amount_paid: totalExpenseAmount,
                     renewal_date: todayStr,
                     expiration_date: fallbackExp,
                     duration_days: 30,
                     profile_slots: numPerfiles,
-                    notes: guideNotes ? String(guideNotes).trim() : 'Compra inicial de cuenta matriz',
+                    notes: extraNote,
                     registered_by: 'Admin',
                     sync_to_cash_flow: true,
                     sync_to_excel: false
@@ -1839,7 +1889,9 @@ app.post('/api/admin/accounts/add', express.json(), async (req, res) => {
 
         res.json({
             success: true,
-            message: `Cuenta matriz ${cleanPlat} (${cleanEmail}) creada con ${numPerfiles} cupos en Excel y MariaDB.`
+            message: (numExtra > 0 && cleanExtraPlat)
+                ? `Cuenta matriz ${cleanPlat} (${cleanEmail}) creada con ${numPerfiles} cupos ${cleanPlat} + ${numExtra} cupos ${cleanExtraPlat} en Excel y MariaDB.`
+                : `Cuenta matriz ${cleanPlat} (${cleanEmail}) creada con ${numPerfiles} cupos en Excel y MariaDB.`
         });
     } catch (e) {
         console.error('[Master Accounts Add Error]:', e);

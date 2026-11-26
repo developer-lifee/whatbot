@@ -6,7 +6,7 @@ const SEED_STREAMING_COSTS = [
   { platform: 'CRUNCHY ROLL', email: 'gagwgwaggwf@spotinetshop.com', total_cost: 14900, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-16' },
   { platform: 'DISNEY', email: 'combitds@spotinetonline.org', total_cost: 18000, profile_slots: 7, duration_days: 30, expiration_date: '2024-06-18' },
   { platform: 'HBO', email: '2377eb6a@spotinetshop.com', total_cost: 15000, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-23' },
-  { platform: 'NETFLIX', email: 'bohrdavidaviladaza@gmail.com', total_cost: 64700, profile_slots: 7, duration_days: 30, expiration_date: '2024-06-30' },
+  { platform: 'NETFLIX', email: 'bohrdavidaviladaza@gmail.com', total_cost: 54900, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-30' },
   { platform: 'SPOTIFY', email: 'alep2037@yopmail.com', total_cost: 30500, profile_slots: 5, duration_days: 30, expiration_date: '2024-07-18' },
   { platform: 'VIX', email: 'combitds@spotinetonline.org', total_cost: 5000, profile_slots: 7, duration_days: 30, expiration_date: '2024-08-03' },
   { platform: 'PARAMOUNT', email: 'spotinetparamoun919822@spotinetshop.com', total_cost: 23900, profile_slots: 3, duration_days: 30, expiration_date: '2024-07-05' },
@@ -327,7 +327,7 @@ async function recordAccountRenewal(data) {
         if (rowEmail !== targetEmailNorm) return false;
         if (cleanPlat) {
           const rowPlatKey = typeof normalizePlatformKey === 'function' ? normalizePlatformKey(c.Streaming || '') : (c.Streaming || '').toLowerCase();
-          return rowPlatKey === targetPlatKey;
+          return rowPlatKey === targetPlatKey || (targetPlatKey === 'NETFLIX' && rowPlatKey === 'NETFLIX EXTRA');
         }
         return true;
       });
@@ -758,15 +758,25 @@ async function calculateDailyAccounting() {
   });
 
   // 2. Procesar egresos e inventario necesario según costos de cuentas configurados (streaming_costs)
+  // Priorizar siempre la fila base de catálogo (provider IS NULL, id más bajo) para evitar que renovaciones individuales o costos compuestos sobrescriban el costo base
+  const sortedCosts = [...costs].sort((a, b) => {
+    const aIsBase = !a.provider || String(a.provider).trim() === '' ? 0 : 1;
+    const bIsBase = !b.provider || String(b.provider).trim() === '' ? 0 : 1;
+    if (aIsBase !== bIsBase) return aIsBase - bIsBase;
+    return (Number(a.id) || 0) - (Number(b.id) || 0);
+  });
+
   const costMap = {};
-  costs.forEach(cost => {
+  sortedCosts.forEach(cost => {
     const plat = cost.platform.toUpperCase().trim();
-    costMap[plat] = {
-      total_cost: parseFloat(cost.total_cost) || 0,
-      profile_slots: cost.profile_slots || 1,
-      duration_days: cost.duration_days || 30,
-      email: cost.email || ''
-    };
+    if (!costMap[plat]) {
+      costMap[plat] = {
+        total_cost: parseFloat(cost.total_cost) || 0,
+        profile_slots: cost.profile_slots || 1,
+        duration_days: cost.duration_days || 30,
+        email: cost.email || ''
+      };
+    }
   });
 
   // Lista de plataformas cuyo costo ya está implícito en la cuenta matriz principal

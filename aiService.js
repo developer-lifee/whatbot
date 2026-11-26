@@ -184,11 +184,11 @@ function getMaskedAccessData(acc) {
 }
 
 const MODELS = [
-  "gemini-4-hydrogen",         // Modelo principal familia Gemini 4 (rápido, multimodal, sin saturación 429)
+  "gemini-4-hydrogen",         // Modelo principal familia Gemini 4 (verificado 200 OK, rápido y multimodal)
+  "gemini-flash-lite-latest",  // Respaldo inmediato de alta disponibilidad (verificado 200 OK)
   "gemini-3.8-flash",          // Respaldo Flash 3.8
-  "gemini-3.6-flash",          // Respaldo Flash 3.6
-  "gemini-3.5-flash-lite",     // Respaldo liviano de alta disponibilidad
-  "gemini-flash-latest"        // Respaldo estándar Flash
+  "gemini-3.7-flash",          // Respaldo Flash 3.7
+  "gemini-flash-latest"        // Alias dinámico oficial Flash
 ];
 
 /**
@@ -487,7 +487,15 @@ function summarizeSupportKnowledge(supportData) {
  * @param {object|null} mediaData { data: 'base64', mimeType: 'image/jpeg' }
  * @returns {Promise<string>}
  */
+let geminiMediaCooldownUntil = 0;
+const GEMINI_MEDIA_COOLDOWN_MS = 90 * 1000;
+
 async function callGemini(prompt, systemInstruction = "Eres un asistente de soporte y ventas amable y profesional de Sheerit, un servicio de cuentas de streaming. Tu tono es servicial, claro y directo. Siempre buscas ayudar al cliente a completar su compra o resolver su duda.", isJson = true, mediaData = null) {
+  if (mediaData && Date.now() < geminiMediaCooldownUntil) {
+    console.log('[Gemini Media Fast-Failover] Cooldown activo por 429 reciente, usando respaldo multimodal directo...');
+    return await callFallbackVisionOrText(prompt, systemInstruction, isJson, mediaData);
+  }
+
   const parts = [{ text: prompt }];
 
   if (mediaData) {
@@ -521,8 +529,12 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
   }
 
   let lastError = null;
+  let consecutive429 = 0;
+  let abortGeminiLoop = false;
+  const modelsToTry = mediaData ? MODELS.slice(0, 2) : MODELS;
 
-  for (const modelName of MODELS) {
+  for (const modelName of modelsToTry) {
+    if (abortGeminiLoop) break;
     let attempts = 1; // 1 intento por modelo para failover rápido sin agotar cuota por ráfagas
     let delay = 1000;
 
@@ -535,8 +547,8 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
       try {
         const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
-        // Timeout adaptativo: 20s para imágenes/OCR multimodal, 10s para texto
-        const geminiTimeoutMs = mediaData ? 20000 : 10000;
+        // Timeout adaptativo: 12s para imágenes/OCR multimodal, 10s para texto
+        const geminiTimeoutMs = mediaData ? 12000 : 10000;
         const response = await fetch(`${API_URL}?key=${activeKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -548,6 +560,16 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
         if (response.status === 429 || response.status === 503 || response.status === 502 || response.status === 504) {
           console.warn(`⚠️ [Gemini API] Error ${response.status} en intento ${attempt}/${attempts} (${modelName}). Aplicando backoff y rotando clave...`);
           rotateGeminiKey();
+          if (response.status === 429) {
+            consecutive429++;
+            if (consecutive429 >= 2) {
+              if (mediaData) {
+                geminiMediaCooldownUntil = Date.now() + GEMINI_MEDIA_COOLDOWN_MS;
+              }
+              abortGeminiLoop = true;
+              break;
+            }
+          }
           if (attempt < attempts) {
             const backoffTime = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
             await new Promise(r => setTimeout(r, backoffTime));
@@ -583,6 +605,7 @@ async function callGemini(prompt, systemInstruction = "Eres un asistente de sopo
 
         const data = await response.json();
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        geminiMediaCooldownUntil = 0;
 
         if (!text) {
           return isJson ? "{}" : "";

@@ -215,7 +215,7 @@ async function callGemini38FlashHttp(prompt, systemInstruction = "Eres Antigravi
     const keys = getGeminiApiKeys();
     
     // Modelos disponibles en el endpoint v1beta en orden de velocidad/disponibilidad
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-flash-latest'];
+    const modelsToTry = ['gemini-4-hydrogen', 'gemini-flash-lite-latest', 'gemini-3.8-flash', 'gemini-flash-latest'];
     let lastError = null;
 
     if (keys.length > 0) {
