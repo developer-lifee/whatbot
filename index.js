@@ -5989,18 +5989,25 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                             }
                         }
                         // 1. ENTREGA DE ENLACE MÁGICO O CÓDIGO EMAIL (CLAUDE, CANVA, CHATGPT, ETC.)
-                        const headerKind = deliveredLink ? 'Enlace de acceso' : 'Código de acceso';
-                        response = `🤖 *${headerKind} de ${streamingName} Encontrado* 🚀\n\n`;
-                        if (deliveredLink) {
-                            response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${deliveredLink}\n\n`;
-                            if (isClaude) {
-                                response += `💡 _Si tu pantalla te pide un código de 6 dígitos en lugar de iniciar sesión directamente, abre el enlace de arriba en tu navegador para ver el código e ingrésalo en tu pantalla._\n\n`;
+                        if (isClaude && deliveredLink) {
+                            response = `🤖 *Acceso de ${streamingName}* 🚀\n\n`;
+                            response += `👉 ${deliveredLink}\n\n`;
+                            if (latest.code) {
+                                response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
                             }
+                            response += `*¿Te pide código de 6 dígitos?* Abre ese enlace en tu celular o navegador: ahí te muestra el código (o te inicia sesión directo).\n`;
+                            response += `⏰ Recibido hace ${latest.time} min (vence en 10 min).`;
+                        } else {
+                            const headerKind = deliveredLink ? 'Enlace de acceso' : 'Código de acceso';
+                            response = `🤖 *${headerKind} de ${streamingName} Encontrado* 🚀\n\n`;
+                            if (deliveredLink) {
+                                response += `🔗 *Haz clic en este enlace para iniciar sesión / activar tu cuenta:*\n👉 ${deliveredLink}\n\n`;
+                            }
+                            if (latest.code) {
+                                response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
+                            }
+                            response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este ${deliveredLink ? 'enlace' : 'código'} vence pronto._`;
                         }
-                        if (latest.code) {
-                            response += `🔢 *Tu código de acceso es:* *${latest.code}*\n\n`;
-                        }
-                        response += `📝 ${latest.snippet}\n⏰ Recibido hace ${latest.time} min.\n\n_Recuerda que este ${deliveredLink ? 'enlace' : 'código'} vence pronto._`;
 
                     } else if (nameLower.includes('netflix')) {
                         // 2. NETFLIX (CÓDIGO DE 4 DÍGITOS + ENLACE DE HOGAR SHEERIT)
@@ -6089,7 +6096,21 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     const isDuplicateRecentCode = !message.isWebRequest && (nowMs - lastSentMs < RECENT_CODE_TTL_MS);
 
                     if (isDuplicateRecentCode) {
+                        const hintKey = `${dedupKey}:hint`;
+                        const lastHintMs = recentlySentCodes.get(hintKey) || 0;
                         console.log(`[Code Dedup] 🛑 Omitiendo envío duplicado de código/enlace (${dedupKey}) para @${String(userId).replace('@c.us', '')} (enviado hace ${Math.round((nowMs - lastSentMs) / 1000)}s).`);
+                        if (nowMs - lastHintMs >= 20000) {
+                            recentlySentCodes.set(hintKey, nowMs);
+                            let hintMsg = '';
+                            if (isClaude && deliveredLink) {
+                                hintMsg = `🤖 Tu código de 6 dígitos de *${streamingName}* está dentro del enlace que te acabamos de enviar:\n👉 ${deliveredLink}\n\nÁbrelo en tu navegador para ver el código o iniciar sesión. Si ya venció, presiona *"Reenviar código"* en Claude y vuelve a escribirme.`;
+                            } else if (deliveredLink) {
+                                hintMsg = `🤖 Ese enlace que te acabamos de enviar (${deliveredLink}) sigue siendo el más reciente para *${streamingName}*. Si necesitas uno nuevo, presiona *"Reenviar"* en tu pantalla y vuelve a escribirme.`;
+                            } else if (latest.code) {
+                                hintMsg = `🤖 El código más reciente recibido para *${streamingName}* sigue siendo *${latest.code}*. Si no te funciona o expiró, presiona *"Reenviar código"* en tu pantalla y vuelve a escribirme.`;
+                            }
+                            if (hintMsg) await safeReply(message, hintMsg, userId);
+                        }
                     } else {
                         if (!message.isWebRequest) {
                             recentlySentCodes.set(dedupKey, nowMs);
