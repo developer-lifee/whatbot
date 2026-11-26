@@ -69,7 +69,7 @@ const SEED_STREAMING_PRICES = [
   { platform: 'IPTV', normal_price: 10000 }
 ];
 
-const USD_CARD_FEE_PERCENT = 2;
+const USD_CARD_FEE_PERCENT = 1;
 const USD_PRICED_PLATFORMS = {
   'GPT': 20,
   'CHATGPT PLUS (4X A 6X)': 20,
@@ -85,7 +85,7 @@ let cachedUsdRate = null;
 let cachedUsdRateTimestamp = 0;
 
 /**
- * Obtiene la TRM oficial USD->COP (con caché de 12h) y suma la comisión de tarjeta internacional (2%).
+ * Obtiene la TRM oficial USD->COP (con caché de 12h) y suma la comisión de tarjeta internacional (1%).
  */
 async function getUsdToCopRate() {
   const now = Date.now();
@@ -851,7 +851,7 @@ async function calculateDailyAccounting() {
     }
   });
 
-  // Aplicar conversión TRM en vivo + 2% comisión de tarjeta a los planes facturados en USD
+  // Aplicar conversión TRM en vivo + 1% comisión de tarjeta a los planes facturados en USD
   Object.entries(USD_PRICED_PLATFORMS).forEach(([usdPlat, usdAmount]) => {
     const dynamicCopCost = Math.round(usdAmount * fxInfo.effective_rate);
     if (!costMap[usdPlat]) {
