@@ -2001,7 +2001,7 @@ const DEFAULT_PLAN_PROMPT = `El usuario está en el proceso de elegir un plan de
 El mensaje actual del usuario es: "{{MESSAGE_CONTENT}}"
 
 Analiza la intención del usuario y clasifícala en uno de los siguientes sub-intents:
-1. "plan_selection": El usuario está eligiendo o confirmando uno de los planes (ej. dice "la 1", "netflix 4k", "el de 17000" o escribe un número directamente).
+1. "plan_selection": El usuario está eligiendo o confirmando uno de los planes (ej. dice "la 1", "netflix 4k", "el de 18000" o escribe un número directamente).
 2. "service_doubt_or_ignorance": El usuario tiene dudas sobre los servicios, precios, características, expresa desconocimiento, no entiende qué está eligiendo, o tiene confusión/inquietudes sobre cómo funciona su combo o si incluye otras plataformas del carrito (por ejemplo, si pregunta "¿Y paramount?", "¿Este plan incluye ambos?", "¿Qué diferencia hay?", "pero es que no entiendo", etc.).
 3. "other": Cualquier otro tipo de mensaje.
 

@@ -55,7 +55,7 @@
     "id": 1,
     "name": "Netflix",
     "image": "/plataform/netflix.webp",
-    "price": 13000,
+    "price": 14000,
     "characteristics": [
       "Cuenta estable y renovable",
       "Alta definición 4K + HDR con su lista exclusiva",
@@ -65,7 +65,7 @@
       {
         "id": 101,
         "name": "Netflix 4K",
-        "price": 13000,
+        "price": 14000,
         "characteristics": [
           "Cuenta estable y renovable",
           "Alta definición 4K + HDR con su lista exclusiva",
@@ -76,7 +76,7 @@
       {
         "id": 102,
         "name": "Extra",
-        "price": 17000,
+        "price": 18000,
         "isPersonalEmail": true,
         "characteristics": [
           "Cuenta completa con un perfil",

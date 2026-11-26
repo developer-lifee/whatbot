@@ -1534,7 +1534,7 @@ async function loadAccountingPlatformConfigs() {
             platformConfigs['NETFLIX'].extraPlatform = 'NETFLIX EXTRA';
             platformConfigs['NETFLIX'].defaultExtraSlots = 2;
             platformConfigs['NETFLIX'].extraSlotCost = platformConfigs['NETFLIX EXTRA']?.defaultCost || 11900;
-            platformConfigs['NETFLIX'].extraSlotSalePrice = platformConfigs['NETFLIX EXTRA']?.defaultSalePrice || 17000;
+            platformConfigs['NETFLIX'].extraSlotSalePrice = platformConfigs['NETFLIX EXTRA']?.defaultSalePrice || 18000;
         }
     } catch (e) {
         console.warn('[Master Accounts] Error cargando configuración desde Contabilidad:', e.message);
@@ -1800,7 +1800,7 @@ app.post('/api/admin/accounts/add', express.json(), async (req, res) => {
         const resolvedExtraUnitCost = extraUnitCost !== '' && extraUnitCost !== null && extraUnitCost !== undefined
             ? Number(extraUnitCost)
             : (cleanExtraPlat.toUpperCase() === 'NETFLIX EXTRA' ? 11900 : 0);
-        const resolvedExtraSalePrice = cleanExtraPlat.toUpperCase() === 'NETFLIX EXTRA' ? 17000 : null;
+        const resolvedExtraSalePrice = cleanExtraPlat.toUpperCase() === 'NETFLIX EXTRA' ? 18000 : null;
         const expDateSql = vencimiento && /^\d{4}-\d{2}-\d{2}$/.test(String(vencimiento).trim()) ? String(vencimiento).trim() : null;
 
         const upsertMasterDbRow = async (platName, slotsCount, costVal, saleVal) => {

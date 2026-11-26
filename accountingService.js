@@ -36,8 +36,8 @@ const SEED_STREAMING_COSTS = [
 ];
 
 const SEED_STREAMING_PRICES = [
-  { platform: 'NETFLIX', normal_price: 13000 },
-  { platform: 'NETFLIX EXTRA', normal_price: 17000 },
+  { platform: 'NETFLIX', normal_price: 14000 },
+  { platform: 'NETFLIX EXTRA', normal_price: 18000 },
   { platform: 'DISNEY', normal_price: 14000 },
   { platform: 'HBO', normal_price: 8000 },
   { platform: 'HBO PLATINO', normal_price: 11000 },
