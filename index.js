@@ -10927,7 +10927,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         }
                         await safeReply(message, replyText, userId);
                     }
-                } else if (message.hasMedia || (mediaData && mediaData.length > 0)) {
+                } else if (isMedia || message.hasMedia || (mediaData && mediaData.length > 0)) {
                     // Flujo unificado: analizar la captura con Visión + RAG + Sentido Común antes de escalar a humano
                     const historyForFallback = await getChatHistoryText(message);
                     let accs = [];
@@ -10935,7 +10935,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                     const primaryMedia = (mediaData && mediaData.length > 0) ? mediaData[0] : null;
                     const precomputedDesc = (detection && detection.mediaDescription) ? detection.mediaDescription : null;
                     const fallbackResult = await generateEmpatheticFallback(
-                        message.body || "",
+                        message.combinedBody || message.body || "",
                         true,
                         historyForFallback,
                         primaryMedia,
@@ -11074,7 +11074,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
             userAccounts = [];
             try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
 
-            const fallbackResult = await generateEmpatheticFallback(message.body || "", message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
+            const fallbackResult = await generateEmpatheticFallback(message.combinedBody || message.body || "", isMedia || message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
             const fallbackMsg = typeof fallbackResult === 'string' ? fallbackResult : (fallbackResult?.replyMessage || "");
 
             const cleanFallback = fallbackMsg ? fallbackMsg.replace(/🤖|👍|👋|\s/g, '') : "";
