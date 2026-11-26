@@ -71,7 +71,11 @@ async function loadFormattedClientAccounts(cleanPhone, isDemo) {
     }
 
     const { getAccountsByPhone: fetchAccs, getJsDateFromExcel } = require('../apiService');
-    const userAccounts = await fetchAccs(cleanPhone, null, true);
+    const { getGuestsForOwner } = require('../guestPhoneService');
+    const [userAccounts, ownerGuests] = await Promise.all([
+        fetchAccs(cleanPhone, null, true),
+        getGuestsForOwner(cleanPhone).catch(() => [])
+    ]);
 
     const formattedAccounts = await Promise.all(userAccounts.map(async (acc) => {
         const pin = acc["pin perfil"] || acc["pin"] || acc["PIN"] || acc["Pin"] || "";
@@ -94,16 +98,33 @@ async function loadFormattedClientAccounts(cleanPhone, isDemo) {
         const deviceStatus = isAi ? getDeviceUsage(cleanPhone, acc.correo || acc.Streaming, maxAllowed, rawPerfil || pin) : null;
         const autoStatus = await checkAccountAutomationStatus(acc.correo, acc.Streaming);
 
+        const isGuestAccess = Boolean(acc._isGuestAccess);
+        let guestPhone = null;
+        if (!isGuestAccess && Array.isArray(ownerGuests) && ownerGuests.length > 0) {
+            const rowId = acc.id || acc._rowNumber;
+            const matchedGuest = ownerGuests.find(g => {
+                if (rowId && g.account_row_id && Number(g.account_row_id) === Number(rowId)) return true;
+                const samePlat = (g.platform || '').trim().toUpperCase() === (acc.Streaming || '').trim().toUpperCase();
+                const sameEmail = !accEmailNorm || !g.account_email || (g.account_email || '').trim().toLowerCase() === accEmailNorm;
+                const sameProf = !rawPerfil || !g.profile_name || (g.profile_name || '').trim().toLowerCase() === rawPerfil.trim().toLowerCase();
+                return samePlat && sameEmail && sameProf;
+            });
+            if (matchedGuest) guestPhone = matchedGuest.guest_phone;
+        }
+
         return {
             id: acc.id || acc._rowNumber,
             platform: (acc.Streaming || "").toUpperCase(),
             email: acc.correo || "",
             password: acc["contraseña"] || acc.contraseña || acc.clave || acc.Password || acc.password || "",
             profile: pin ? `${perfil} (PIN: ${pin})` : perfil,
+            rawProfile: rawPerfil,
             vencimiento: vencFormatted,
             isAutomated: autoStatus.isAutomated,
             automationType: autoStatus.type,
             automationLabel: autoStatus.label,
+            isGuestAccess,
+            guestPhone,
             isLimitedPlatform: isAi,
             devicesUsed: isAi && deviceStatus ? deviceStatus.devicesUsed : null,
             devicesRemaining: isAi && deviceStatus ? deviceStatus.devicesRemaining : null,
@@ -615,6 +636,88 @@ app.post('/api/client/set-password', express.json(), async (req, res) => {
     }
 });
 
+// POST Assign or Update Guest Phone for a specific owned account (max 1 per account)
+app.post('/api/client/guest-phone', express.json(), async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const headerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+        const token = headerToken || (req.body && req.body.sessionToken) || '';
+        const payload = verifySessionToken(token);
+
+        if (!payload || payload.role !== 'client' || !payload.phone) {
+            return res.status(401).json({ success: false, message: 'Tu sesión expiró. Vuelve a iniciar sesión para gestionar tu número invitado.' });
+        }
+
+        const { accountId, guestPhone, platform, email, rawProfile } = req.body || {};
+        if (!guestPhone) {
+            return res.status(400).json({ success: false, message: 'Ingresa el número invitado.' });
+        }
+
+        const ownerPhone = normalizeClientPhoneKey(payload.phone);
+        const ownerAccounts = await getAccountsByPhone(ownerPhone, null, false);
+        const ownedAcc = (ownerAccounts || []).find(a => {
+            if (a._isGuestAccess) return false;
+            const rowId = a.id || a._rowNumber || a.rowNumber;
+            if (accountId && rowId && String(rowId) === String(accountId)) return true;
+            const samePlat = platform && (a.Streaming || '').trim().toUpperCase() === String(platform).trim().toUpperCase();
+            const sameEmail = !email || (a.correo || '').trim().toLowerCase() === String(email).trim().toLowerCase();
+            return samePlat && sameEmail;
+        });
+
+        if (!ownedAcc) {
+            return res.status(403).json({ success: false, message: 'Solo el titular de la cuenta puede asignar un número invitado.' });
+        }
+
+        const { upsertGuestPhone } = require('../guestPhoneService');
+        const saved = await upsertGuestPhone({
+            ownerPhone,
+            guestPhone,
+            accountRowId: ownedAcc.id || ownedAcc._rowNumber || ownedAcc.rowNumber || null,
+            platform: ownedAcc.Streaming || platform || '',
+            accountEmail: ownedAcc.correo || email || '',
+            profileName: ownedAcc.Nombre || ownedAcc.nombre || rawProfile || '',
+            addedBy: 'client'
+        });
+
+        return res.json({
+            success: true,
+            guestPhone: saved.guestPhone,
+            message: 'Número invitado guardado. Ya puede consultar códigos desde la web o su WhatsApp.'
+        });
+    } catch (e) {
+        return res.status(400).json({ success: false, message: e.message || 'No se pudo guardar el número invitado.' });
+    }
+});
+
+// DELETE Remove Guest Phone for a specific owned account
+app.delete('/api/client/guest-phone', express.json(), async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization || '';
+        const headerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+        const token = headerToken || (req.body && req.body.sessionToken) || '';
+        const payload = verifySessionToken(token);
+
+        if (!payload || payload.role !== 'client' || !payload.phone) {
+            return res.status(401).json({ success: false, message: 'Tu sesión expiró. Vuelve a iniciar sesión.' });
+        }
+
+        const { accountId, platform, email, rawProfile } = req.body || {};
+        const ownerPhone = normalizeClientPhoneKey(payload.phone);
+        const { removeGuestPhone } = require('../guestPhoneService');
+        await removeGuestPhone({
+            ownerPhone,
+            accountRowId: accountId ? Number(accountId) : null,
+            platform: platform || '',
+            accountEmail: email || '',
+            profileName: rawProfile || ''
+        });
+
+        return res.json({ success: true, guestPhone: null, message: 'Número invitado eliminado.' });
+    } catch (e) {
+        return res.status(500).json({ success: false, message: e.message || 'Error al eliminar número invitado.' });
+    }
+});
+
 /**
  * Guarda registro de auditoría de cada solicitud 2FA (Web o WhatsApp) en la base de datos
  */
@@ -774,6 +877,10 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
             body: `código de ${(targetAccount.Streaming || '').toUpperCase()}`,
             reply: async (text) => {
                 console.log(`[Web OTP Request Reply]: ${text}`);
+                // Si la solicitud la hace un número invitado desde /mis-servicios, solo mostrar en pantalla (sin enviar copia por WhatsApp)
+                if (targetAccount._isGuestAccess) {
+                    return text;
+                }
                 // Solo enviar a WhatsApp si el mensaje contiene un código o enlace exitoso, nunca errores o "no encontré"
                 const isNotFoundOrError = text.includes('No encontré') || text.includes('inconveniente') || text.includes('Error') || text.includes('hubo un');
                 if (ctx.getClient() && !isNotFoundOrError) {
@@ -903,13 +1010,16 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
 // POST Reset Devices for a Customer / Account
 app.post('/api/admin/reset-devices', express.json(), async (req, res) => {
     try {
-        const { phone, email } = req.body;
+        const { phone, email, scope = 'client', agentName } = req.body || {};
         if (!phone) {
             return res.status(400).json({ success: false, message: 'Falta número de teléfono' });
         }
         const { resetDeviceUsage } = require('../deviceLimitService');
-        const reset = resetDeviceUsage(phone, email);
-        res.json({ success: true, message: 'Dispositivos reseteados exitosamente', reset });
+        const reset = resetDeviceUsage(phone, email || null, null, null, {
+            resetEntireAccount: scope === 'account'
+        });
+        console.log(`[Admin Reset Devices] phone=${phone}, email=${email || 'N/A'}, scope=${scope}, agent=${agentName || 'admin'}, reset=${reset}`);
+        res.json({ success: true, message: 'Contador de dispositivos/tokens reiniciado para el cliente.', reset, scope });
     } catch (e) {
         console.error('Error al resetear dispositivos:', e.message);
         res.status(500).json({ success: false, error: e.message });

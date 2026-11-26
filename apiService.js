@@ -622,6 +622,33 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
     // Filtrar filas huérfanas o vacías sin plataforma asignada (ej. fila con nombre/teléfono pero Streaming vacío)
     userAccounts = userAccounts.filter(acc => String(acc.Streaming || '').trim().length > 0);
 
+    // INVITADOS (Cuentas compartidas): Incluir cuentas donde este número esté registrado como invitado
+    if (isRealPhone && clientes && clientes.length > 0) {
+      try {
+        const { getGuestLinksByGuestPhone, matchesAccountRow } = require('./guestPhoneService');
+        const guestLinks = await getGuestLinksByGuestPhone(cleanInputPhone);
+        if (guestLinks && guestLinks.length > 0) {
+          const existingRowNums = new Set(userAccounts.map(a => a.rowNumber || a._rowNumber).filter(Boolean));
+          for (const link of guestLinks) {
+            const matchedRows = clientes.filter(c => String(c.Streaming || '').trim().length > 0 && matchesAccountRow(c, link));
+            for (const row of matchedRows) {
+              const rNum = row.rowNumber || row._rowNumber;
+              if (rNum && existingRowNums.has(rNum)) continue;
+              userAccounts.push({
+                ...row,
+                _isGuestAccess: true,
+                _guestOwnerPhone: link.owner_phone,
+                _guestLinkId: link.id
+              });
+              if (rNum) existingRowNums.add(rNum);
+            }
+          }
+        }
+      } catch (guestErr) {
+        console.warn('[getAccountsByPhone] Error consultando números invitados:', guestErr.message);
+      }
+    }
+
     return userAccounts;
   } catch (error) {
     console.error("[API Service] Error buscando cuentas por número:", error);

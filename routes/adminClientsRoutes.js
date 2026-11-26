@@ -1411,6 +1411,69 @@ app.get('/api/admin/match', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+// GET número invitado de una cuenta específica del cliente
+app.get('/api/admin/client/guest-phone', async (req, res) => {
+    try {
+        const { ownerPhone, rowNumber, platform, email, profile } = req.query;
+        if (!ownerPhone) return res.status(400).json({ success: false, message: 'Falta ownerPhone' });
+        const { findExistingGuestRecord } = require('../guestPhoneService');
+        const record = await findExistingGuestRecord({
+            ownerPhone,
+            accountRowId: rowNumber ? Number(rowNumber) : null,
+            platform: platform || '',
+            accountEmail: email || '',
+            profileName: profile || ''
+        });
+        return res.json({ success: true, guestPhone: record ? record.guest_phone : null, record: record || null });
+    } catch (e) {
+        return res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// POST asignar o actualizar número invitado desde el panel admin
+app.post('/api/admin/client/guest-phone', express.json(), async (req, res) => {
+    try {
+        const { ownerPhone, guestPhone, rowNumber, platform, email, profile } = req.body || {};
+        if (!ownerPhone || !platform) {
+            return res.status(400).json({ success: false, message: 'Faltan datos obligatorios (ownerPhone, platform)' });
+        }
+        const { upsertGuestPhone } = require('../guestPhoneService');
+        const saved = await upsertGuestPhone({
+            ownerPhone,
+            guestPhone,
+            accountRowId: rowNumber ? Number(rowNumber) : null,
+            platform,
+            accountEmail: email || '',
+            profileName: profile || '',
+            addedBy: 'admin'
+        });
+        return res.json({ success: true, guestPhone: saved.guestPhone, message: 'Número invitado guardado correctamente.' });
+    } catch (e) {
+        return res.status(400).json({ success: false, message: e.message || 'Error al guardar número invitado.' });
+    }
+});
+
+// DELETE eliminar número invitado desde el panel admin
+app.delete('/api/admin/client/guest-phone', express.json(), async (req, res) => {
+    try {
+        const { ownerPhone, rowNumber, platform, email, profile } = req.body || req.query || {};
+        if (!ownerPhone || !platform) {
+            return res.status(400).json({ success: false, message: 'Faltan datos obligatorios (ownerPhone, platform)' });
+        }
+        const { removeGuestPhone } = require('../guestPhoneService');
+        const removed = await removeGuestPhone({
+            ownerPhone,
+            accountRowId: rowNumber ? Number(rowNumber) : null,
+            platform,
+            accountEmail: email || '',
+            profileName: profile || ''
+        });
+        return res.json({ success: true, removed, message: removed ? 'Número invitado eliminado.' : 'No había número invitado registrado.' });
+    } catch (e) {
+        return res.status(500).json({ success: false, message: e.message || 'Error al eliminar número invitado.' });
+    }
+});
 }
 
 module.exports = { registerAdminClientsRoutes };

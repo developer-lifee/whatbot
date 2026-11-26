@@ -288,10 +288,11 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
  * Resetea el contador de dispositivos (para soporte, tras renovación o cuando se sacan todas las sesiones).
  * El límite de códigos no aplica cuando sacamos todas las sesiones.
  */
-function resetDeviceUsage(phone, emailOrPlatform = null, profile = null, slotId = null) {
+function resetDeviceUsage(phone, emailOrPlatform = null, profile = null, slotId = null, options = {}) {
     const usage = loadDeviceUsage();
     const cleanPhone = (phone || '').toString().replace(/\D/g, '');
     const normPhone = cleanPhone.length >= 10 ? cleanPhone.slice(-10) : cleanPhone;
+    const resetEntireAccount = options && options.resetEntireAccount !== undefined ? Boolean(options.resetEntireAccount) : true;
     let modified = false;
 
     // 1. Clave exacta por perfil / plataforma / cupo
@@ -324,7 +325,7 @@ function resetDeviceUsage(phone, emailOrPlatform = null, profile = null, slotId 
     }
 
     // 3. Si se pasa una cuenta de correo maestro y se sacaron todas las sesiones de esa cuenta completa
-    if (emailOrPlatform && emailOrPlatform.includes('@')) {
+    if (resetEntireAccount && emailOrPlatform && emailOrPlatform.includes('@')) {
         const cleanEmail = emailOrPlatform.toLowerCase().trim();
         Object.keys(usage).forEach(k => {
             if (k.includes(cleanEmail)) {
