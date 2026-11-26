@@ -3,9 +3,9 @@ const { fetchCustomersData, getJsDateFromExcel } = require('./apiService');
 
 const SEED_STREAMING_COSTS = [
   { platform: 'AMAZON', email: 'Alzap1479@gmail.com', total_cost: 14000, profile_slots: 6, duration_days: 30, expiration_date: '2024-06-15' },
-  { platform: 'CRUNCHY ROLL', email: 'gagwgwaggwf@spotinetshop.com', total_cost: 14900, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-16' },
-  { platform: 'DISNEY', email: 'combitds@spotinetonline.org', total_cost: 18000, profile_slots: 7, duration_days: 30, expiration_date: '2024-06-18' },
-  { platform: 'HBO', email: '2377eb6a@spotinetshop.com', total_cost: 15000, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-23' },
+  { platform: 'CRUNCHY ROLL', email: 'gagwgwaggwf@spotinetshop.com', total_cost: 19900, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-16' },
+  { platform: 'DISNEY', email: 'combitds@spotinetonline.org', total_cost: 28000, profile_slots: 7, duration_days: 30, expiration_date: '2024-06-18' },
+  { platform: 'HBO', email: '2377eb6a@spotinetshop.com', total_cost: 7000, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-23' },
   { platform: 'NETFLIX', email: 'bohrdavidaviladaza@gmail.com', total_cost: 50900, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-30' },
   { platform: 'SPOTIFY', email: 'alep2037@yopmail.com', total_cost: 30500, profile_slots: 5, duration_days: 30, expiration_date: '2024-07-18' },
   { platform: 'VIX', email: 'combitds@spotinetonline.org', total_cost: 5000, profile_slots: 7, duration_days: 30, expiration_date: '2024-08-03' },
@@ -15,13 +15,13 @@ const SEED_STREAMING_COSTS = [
   { platform: 'CHATGPT PLUS (4X A 6X)', email: 'sheeritdediagama@gmail.com', total_cost: 85000, profile_slots: 4, duration_days: 31, expiration_date: '2026-12-06' },
   { platform: 'CHATGPT PRO ($100 USD)', email: 'sheeritdediagama@gmail.com', total_cost: 420000, profile_slots: 5, duration_days: 31, expiration_date: null },
   { platform: 'CHATGPT PRO SCALE ($200 USD)', email: 'jordimemesmomazosdick@gmail.com', total_cost: 840000, profile_slots: 5, duration_days: 31, expiration_date: null },
-  { platform: 'YOUTUBE', email: 'Sheerstreaming@gmail.com', total_cost: 41900, profile_slots: 6, duration_days: 32, expiration_date: '2024-06-18' },
+  { platform: 'YOUTUBE', email: 'Sheerstreaming@gmail.com', total_cost: 47900, profile_slots: 6, duration_days: 32, expiration_date: '2024-06-18' },
   { platform: 'APPLE ONE', email: '', total_cost: 83900, profile_slots: 5, duration_days: 30, expiration_date: null },
   { platform: 'MICROSOFT', email: '', total_cost: 46000, profile_slots: 5, duration_days: 31, expiration_date: null },
   { platform: 'GEMINI', email: 'discoveryrelesbiana@gmail.com', total_cost: 79900, profile_slots: 5, duration_days: 32, expiration_date: null },
   { platform: 'PLATZI', email: '', total_cost: 169154, profile_slots: 3, duration_days: 90, expiration_date: null },
   { platform: 'NETFLIX EXTRA', email: '', total_cost: 11900, profile_slots: 1, duration_days: 30, expiration_date: null },
-  { platform: 'HBO PLATINO', email: '', total_cost: 30000, profile_slots: 5, duration_days: 30, expiration_date: null },
+  { platform: 'HBO PLATINO', email: '', total_cost: 40900, profile_slots: 5, duration_days: 30, expiration_date: null },
   { platform: 'APPLE TV', email: '', total_cost: 0, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'MICROSOFT COMPARTIDA', email: '', total_cost: 0, profile_slots: 1, duration_days: 31, expiration_date: null },
   { platform: 'GEMINI COMPARTIDA', email: '', total_cost: 0, profile_slots: 1, duration_days: 31, expiration_date: null },
@@ -747,6 +747,12 @@ async function calculateDailyAccounting() {
       if (rawPriceVal && !String(rawPriceVal).includes('#N/A')) {
         const rawP = String(rawPriceVal).replace(/[^\d.]/g, '');
         rowPrice = parseFloat(rawP) || 0;
+      }
+
+      // Guardia Paramount: en Excel la columna Ingreso Mensual2 trae fórmula errónea (~$18.000) cuando el precio real es $8.000
+      const paramountCatalogPrice = priceMap['PARAMOUNT'] || 8000;
+      if (platKey === 'PARAMOUNT' && rowPrice > paramountCatalogPrice * 1.4) {
+        rowPrice = 0;
       }
 
       let price = rowPrice;
