@@ -174,6 +174,28 @@ function loadSourceDocuments() {
           });
         }
       }
+      if (kbData.general_policies) {
+        for (const [key, val] of Object.entries(kbData.general_policies)) {
+          chunks.push({
+            id: `kb_general_policy_${key}`,
+            source: 'knowledge_base.json',
+            category: 'Políticas Generales',
+            title: `Política general: ${key}`,
+            content: typeof val === 'string' ? val : JSON.stringify(val)
+          });
+        }
+      }
+      if (kbData.support_protocol) {
+        const sp = kbData.support_protocol;
+        const content = typeof sp === 'string' ? sp : Object.entries(sp).map(([k, v]) => `${k}: ${v}`).join('\n');
+        chunks.push({
+          id: 'kb_support_protocol',
+          source: 'knowledge_base.json',
+          category: 'Protocolo de Soporte',
+          title: 'Protocolo de atención en fallas y credenciales',
+          content
+        });
+      }
     } catch (e) {
       console.warn('[RAG Loader] Error leyendo knowledge_base.json:', e.message);
     }
@@ -195,6 +217,30 @@ function loadSourceDocuments() {
             content: `POLÍTICA (${key}):\n${content}`
           });
         }
+      }
+      if (Array.isArray(polData.terms_and_conditions)) {
+        polData.terms_and_conditions.forEach((item, idx) => {
+          const paragraphs = Array.isArray(item.paragraphs) ? item.paragraphs.join('\n') : '';
+          chunks.push({
+            id: `policy_tc_${idx}`,
+            source: 'policies.json',
+            category: 'Términos y Condiciones',
+            title: item.title || `Términos ${idx + 1}`,
+            content: `${item.title || ''}\n${paragraphs}`.trim()
+          });
+        });
+      }
+      if (Array.isArray(polData.refund_policy)) {
+        polData.refund_policy.forEach((item, idx) => {
+          const paragraphs = Array.isArray(item.paragraphs) ? item.paragraphs.join('\n') : '';
+          chunks.push({
+            id: `policy_refund_${idx}`,
+            source: 'policies.json',
+            category: 'Política de Reembolsos',
+            title: item.title || `Reembolso ${idx + 1}`,
+            content: `${item.title || ''}\n${paragraphs}`.trim()
+          });
+        });
       }
     } catch (e) {
       console.warn('[RAG Loader] Error leyendo policies.json:', e.message);
@@ -249,15 +295,16 @@ function loadSourceDocuments() {
     id: 'master_claude_plans',
     source: 'system',
     category: 'Plataformas e IA',
-    title: 'Planes de Claude Pro y Claude Max (Modalidad y Características)',
-    content: `MODALIDAD Y CARACTERÍSTICAS DE CLAUDE PRO & CLAUDE MAX:
-1. Modalidad de cuenta: Todos los planes de Claude (Claude Pro, Claude Pro x2, Claude Max, Claude Max x5) son CUENTAS COMPARTIDAS asignadas por Sheerit (correo y clave o enlace de inicio), NO son individuales ni en correo personal.
+    title: 'Planes de Claude Pro y Claude Max (Modalidad, Acceso y Características)',
+    content: `MODALIDAD, ACCESO Y CARACTERÍSTICAS DE CLAUDE PRO & CLAUDE MAX:
+1. Modalidad de cuenta: Todos los planes de Claude (Pro Estándar, Pro x2 / 4x-6x, Max y Max x5) son CUENTAS COMPARTIDAS asignadas por Sheerit (no individuales en correo personal). Consulta siempre los precios vigentes directamente en el catálogo dinámico del sistema (no inventes ni uses precios estáticos).
 2. Capacidad y Distribución de uso:
-   - Claude Pro Estándar ($20.000/mes): Cuenta compartida estándar para uso moderado (15% a 25% de uso).
-   - Claude Pro x2 ($30.000/mes): Cuenta compartida con grupo reducido para alto uso (40% a 60% de uso de tokens).
-   - Claude Max ($60.000/mes): Cuenta compartida con grupo reducido de alto rendimiento con acceso prioritario a Claude 3.7 Sonnet y Opus.
-   - Claude Max x5 ($130.000/mes): Cuenta compartida con grupo muy reducido para trabajo pesado / intensivo (garantizando entre 40% y 60% o más de uso continuo sin saturación).
-3. Respuesta ante preguntas sobre si es compartida o individual: Indicar siempre con claridad que es una cuenta compartida pero gestionada con grupos reducidos según el plan para garantizar entre 40% y 60% de uso intensivo sin límites molestos.`
+   - Claude Pro Estándar: Cuenta compartida estándar para uso moderado (15% a 25% de uso).
+   - Claude Pro x2 (grupo reducido): Cuenta compartida con grupo reducido para mayor rendimiento (40% a 60% de uso).
+   - Claude Max: Cuenta compartida de alto rendimiento con grupo reducido y acceso prioritario a modelos avanzados.
+   - Claude Max x5: Cuenta compartida con grupo muy reducido para trabajo pesado / intensivo con amplia disponibilidad de uso continuo.
+3. Inicio de sesión y código de 6 dígitos: Anthropic envía un enlace de acceso al correo; si la app o pantalla del cliente pide un código de 6 dígitos, al abrir el enlace que envía el bot en el navegador se muestra el código temporal (o inicia sesión directamente).
+4. Respuesta ante preguntas sobre si es compartida o individual: Indicar siempre con claridad que es una cuenta compartida gestionada con grupos controlados según el plan elegido.`
   });
 
   chunks.push({
@@ -266,34 +313,35 @@ function loadSourceDocuments() {
     category: 'Plataformas y Modalidades',
     title: 'Modalidad de Cupo Individual en Cuentas Familiares (Apple One, Gemini, YouTube, Spotify)',
     content: `POLÍTICA DE CUPOS INDIVIDUALES EN GRUPOS FAMILIARES:
-1. En todos los servicios que se activan mediante invitación familiar a correo propio o Apple ID (Apple One $22.000, Gemini Correo Propio $22.000, YouTube Premium, Spotify, Microsoft 365, etc.), el cliente adquiere ÚNICAMENTE UN CUPO INDIVIDUAL PARA 1 SOLA PERSONA.
+1. En todos los servicios que se activan mediante invitación familiar a correo propio o Apple ID (Apple One, Gemini Correo Propio, YouTube Premium, Spotify Personal, Microsoft 365, etc.), el cliente adquiere ÚNICAMENTE UN CUPO INDIVIDUAL PARA 1 SOLA PERSONA al precio vigente del catálogo.
 2. Sheerit Store administra el grupo familiar y agrega al cliente como miembro invitado individual.
 3. El cliente NO es el administrador del grupo familiar y NO puede agregar a sus familiares, ni invitar a 6 personas, ni compartir el plan con otros por ese mismo valor.
 4. Si el cliente pregunta si puede compartirlo con su grupo familiar o meter a sus familiares sin costo adicional, la respuesta debe ser:
-   "No, el valor de $22.000 COP corresponde a 1 cupo individual para tu cuenta personal. Te unimos a nuestro grupo mediante invitación para que disfrutes de todos los beneficios con total privacidad e independencia en tu propio correo/Apple ID, pero no incluye cupos adicionales para compartir con familiares. Si algún familiar también desea el servicio, debe adquirir su propio cupo individual."`
+   "No, el valor del catálogo corresponde a 1 cupo individual para tu cuenta personal. Te unimos a nuestro grupo mediante invitación para que disfrutes de todos los beneficios con total privacidad e independencia en tu propio correo/Apple ID, pero no incluye cupos adicionales para compartir con familiares. Si algún familiar también desea el servicio, debe adquirir su propio cupo individual."`
+  });
+
+  chunks.push({
+    id: 'master_youtube_sales_suspended',
+    source: 'system',
+    category: 'Plataformas y Disponibilidad',
+    title: 'YouTube Premium: Ventas Nuevas Suspendidas (Solo Garantías y Renovaciones)',
+    content: `POLÍTICA ACTUAL DE YOUTUBE PREMIUM:
+1. Actualmente las ventas nuevas de YouTube Premium están SUSPENDIDAS indefinidamente (no hay stock para clientes nuevos).
+2. Queda prohibido cotizar, prometer o enviar medios de pago para compras nuevas de YouTube Premium.
+3. Únicamente se brinda soporte técnico, garantías (reposición gratis si está vigente) y renovaciones a clientes antiguos que ya tengan YouTube Premium activo.`
   });
 
   return chunks;
 }
 
 /**
- * Calculates hash of all source knowledge files to detect changes.
+ * Calculates hash of all source knowledge files and built-in system guides to detect changes.
  */
 function getKnowledgeSourceHash() {
-  const files = [
-    path.join(__dirname, 'support.json'),
-    path.join(__dirname, 'knowledge_base.json'),
-    path.join(__dirname, 'policies.json'),
-    path.join(__dirname, 'platforms.json')
-  ];
-
-  let combined = '';
-  for (const f of files) {
-    if (fs.existsSync(f)) {
-      combined += fs.readFileSync(f, 'utf8');
-    }
-  }
-  return crypto.createHash('md5').update(combined).digest('hex');
+  const docsPayload = JSON.stringify(loadSourceDocuments());
+  const platformsPath = path.join(__dirname, 'platforms.json');
+  const platformsRaw = fs.existsSync(platformsPath) ? fs.readFileSync(platformsPath, 'utf8') : '';
+  return crypto.createHash('md5').update(docsPayload + platformsRaw).digest('hex');
 }
 
 /**
