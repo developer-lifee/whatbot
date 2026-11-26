@@ -675,18 +675,23 @@ async function calculateDailyAccounting() {
       let price = rowPrice;
       let paymentSource = rowPrice > 0 ? 'Excel' : 'Catálogo';
 
-      // Prioridad 2: En subplanes de Claude y ChatGPT (donde Excel tiene #N/A), cruzar con el pago real del cliente
+      // Prioridad 2: En subplanes de Claude y ChatGPT (donde Excel tiene #N/A), cruzar con el pago web reciente del cliente (<= 45 días) o notas explícitas
       const isAiSubplan = ['CLAUDE', 'CLAUDE X2', 'CLAUDE MAX X5', 'CLAUDE MAX', 'GPT', 'CHATGPT PLUS (4X A 6X)', 'CHATGPT PRO ($100 USD)', 'CHATGPT PRO SCALE ($200 USD)'].includes(platKey);
       if (price <= 0 && isAiSubplan) {
         const clientSales = phoneDigits.length >= 7 ? (webSalesByPhone[phoneDigits] || []) : [];
         const isClaudePlat = platKey.includes('CLAUDE');
+        const cutoffMs = Date.now() - 45 * 86400000;
         const matchingSale = clientSales.find(s => {
           const pName = (s.platformName || '').toUpperCase();
-          return isClaudePlat ? pName.includes('CLAUDE') : (pName.includes('GPT') || pName.includes('CHATGPT'));
+          const matchesPlat = isClaudePlat ? pName.includes('CLAUDE') : (pName.includes('GPT') || pName.includes('CHATGPT'));
+          if (!matchesPlat) return false;
+          const approvedMs = s.approvedAt ? new Date(s.approvedAt).getTime() : 0;
+          return approvedMs >= cutoffMs;
         });
 
+        const obsStr = String(c.observaciones || '');
         if (matchingSale) {
-          // Si fue un combo en una sola orden (ej. YouTube + Claude Max = 74821), descontar el otro servicio
+          // Si fue un combo en una sola orden (ej. YouTube + Claude Max), descontar el otro servicio
           const pNameUpper = (matchingSale.platformName || '').toUpperCase();
           if (pNameUpper.includes(',') && matchingSale.amount > 65000 && matchingSale.amount < 80000) {
             price = 60000;
@@ -694,20 +699,9 @@ async function calculateDailyAccounting() {
             price = normalizeWebSaleToPlanPrice(matchingSale.amount);
           }
           paymentSource = `Pago Web ($${Number(matchingSale.amount).toLocaleString('es-CO')})`;
-        } else if (platKey === 'CLAUDE MAX' || platKey === 'CLAUDE MAX X5') {
-          // Sebastián Sánchez (3105721054) pagó $250.000 COP el 28 de octubre por Claude Max Scale
-          const isSebastian = clientNameLower.includes('sebastian') && clientNameLower.includes('sanchez') || phoneDigits.includes('3105721054');
-          if (isSebastian) {
-            price = 250000;
-            paymentSource = 'Pago $250k (Claude Max Scale)';
-          } else if (platKey === 'CLAUDE MAX') {
-            price = 60000;
-            paymentSource = 'Tarifa estándar ($60k)';
-          } else {
-            // Tarifa estándar anterior para Claude Max X5
-            price = 45000;
-            paymentSource = 'Tarifa anterior WhatsApp ($45k)';
-          }
+        } else if (platKey === 'CLAUDE MAX X5' && /paga\s+(la\s+)?max\b/i.test(obsStr) && !/x5|5x/i.test(obsStr)) {
+          price = priceMap['CLAUDE MAX'] || 120000;
+          paymentSource = 'Catálogo por nota (Claude Max)';
         }
       }
 
@@ -718,6 +712,7 @@ async function calculateDailyAccounting() {
         } else {
           price = basePrice;
         }
+        paymentSource = 'Catálogo Contabilidad';
       }
 
       if (!dailyAccounting[platKey]) {
@@ -842,14 +837,14 @@ async function calculateDailyAccounting() {
     // Marcar como Red Flag si la cuenta da pérdida (netBalance < 0), cuesta >= $100 USD, o tiene clientes alojados de un tier inferior
     if (netBalance < 0 || costInfo.total_cost >= 350000 || underpayingClients.length > 0) {
       let alertReason = '';
-      if (inv.platform === 'CLAUDE MAX X5') {
-        alertReason = `Cuenta de $200 USD ($${costInfo.total_cost.toLocaleString('es-CO')} COP/mes) con 5 cupos donde los clientes alojados pagan tarifa estándar ($20.000 - $60.000 COP) en lugar de $190.000 COP, generando una pérdida crítica mensual.`;
-      } else if (inv.platform === 'CLAUDE MAX') {
-        alertReason = `Cuenta de $100 USD ($${costInfo.total_cost.toLocaleString('es-CO')} COP/mes) donde 1 cliente pagó $250.000 COP pero tiene ${inv.total_slots - inv.occupied_slots} cupos vacíos + clientes con tarifa de $60.000 COP.`;
+      if (underpayingClients.length > 0 && netBalance < 0) {
+        alertReason = `Cuenta ${usdTier} ($${monthlyAccountCost.toLocaleString('es-CO')} COP/mes) con ${inv.occupied_slots}/${inv.total_slots} cupos ocupados: recaudo de $${realMonthlyIncome.toLocaleString('es-CO')} (incluye ${underpayingClients.length} cupo(s) por debajo de $${expectedPricePerSlot.toLocaleString('es-CO')}) no cubre el costo mensual.`;
       } else if (underpayingClients.length > 0) {
         alertReason = `Tiene ${underpayingClients.length} cliente(s) que pagaron tarifa de plan inferior ($${underpayingClients[0].paid_amount.toLocaleString('es-CO')}) en cuenta de $${expectedPricePerSlot.toLocaleString('es-CO')}/cupo.`;
+      } else if (netBalance < 0) {
+        alertReason = `Ingresos actuales ($${realMonthlyIncome.toLocaleString('es-CO')} con ${inv.occupied_slots}/${inv.total_slots} cupos) no cubren el costo de la cuenta matriz ($${monthlyAccountCost.toLocaleString('es-CO')}).`;
       } else {
-        alertReason = `Ingresos actuales ($${realMonthlyIncome.toLocaleString('es-CO')}) no cubren el costo de la cuenta matriz ($${monthlyAccountCost.toLocaleString('es-CO')}).`;
+        alertReason = `Cuenta de alto costo (${usdTier}, $${monthlyAccountCost.toLocaleString('es-CO')}/mes) en seguimiento: recaudo actual $${realMonthlyIncome.toLocaleString('es-CO')} (${inv.occupied_slots}/${inv.total_slots} cupos).`;
       }
 
       redFlags.push({
