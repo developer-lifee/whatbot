@@ -1066,7 +1066,10 @@ app.get('/api/admin/system-health', async (req, res) => {
                 ...tokenInfo
             },
             whatsapp: {
-                status: (typeof client !== 'undefined' && client) ? 'READY' : 'DISCONNECTED'
+                status: (typeof currentWhatsappStatus !== 'undefined' && currentWhatsappStatus) ? currentWhatsappStatus : 'DISCONNECTED',
+                isConnected: (typeof currentWhatsappStatus !== 'undefined') && currentWhatsappStatus === 'CONNECTED',
+                hasQr: (typeof latestQrCode !== 'undefined') && Boolean(latestQrCode),
+                sessionBackupAt: (typeof getSessionBackupMeta === 'function' && getSessionBackupMeta()?.savedAt) || null
             },
             agyCli: {
                 installed: true,
@@ -4671,9 +4674,9 @@ server.listen(port, () => {
                     console.log(`⏳ [ESPERANDO VINCULACIÓN] Cliente esperando escaneo de QR o código en el panel (${qrReadyHeartbeatCount * 2} min). Manteniendo proceso vivo...`);
                     nonConnectedHeartbeatCount = 0;
 
-                    // Si lleva más de 6 minutos en espera sin vincular, forzar reinicio limpio para regenerar una sesión fresca
-                    if (qrReadyHeartbeatCount >= 3) {
-                        await safeAntiZombieExit('El proceso lleva más de 6 minutos en espera de vinculación. Regenerando sesión fresca...');
+                    // Si lleva más de 30 minutos en espera sin vincular, forzar reinicio limpio para regenerar una sesión fresca
+                    if (qrReadyHeartbeatCount >= 15) {
+                        await safeAntiZombieExit('El proceso lleva más de 30 minutos en espera de vinculación. Regenerando sesión fresca...');
                     }
                     return;
                 } else {
@@ -4779,6 +4782,7 @@ async function safeAntiZombieExit(reason) {
                 client.destroy().catch(() => {}),
                 new Promise(resolve => setTimeout(resolve, 8000))
             ]);
+            await new Promise(resolve => setTimeout(resolve, 1500));
         }
     } catch (e) {
         console.warn('[ANTI-ZOMBIE] Advertencia cerrando cliente:', e.message);
@@ -4828,6 +4832,7 @@ async function shutdown() {
                 client.destroy().catch(() => {}),
                 new Promise(resolve => setTimeout(resolve, 12000))
             ]);
+            await new Promise(resolve => setTimeout(resolve, 1500));
         }
         if (server) server.close();
     } catch (e) {
@@ -4883,6 +4888,150 @@ function killOrphanChromiumForProfile() {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
+// Respaldo rodante y auto-restauración de sesión de WhatsApp Web ante caídas/corrupción de IndexedDB
+const SESSION_LIVE_DIR = path.join(__dirname, 'wwebjs_auth', 'session');
+const SESSION_BACKUP_ROOT = path.join(__dirname, 'wwebjs_auth_backup');
+const SESSION_BACKUP_DIR = path.join(SESSION_BACKUP_ROOT, 'session');
+const SESSION_BACKUP_META = path.join(SESSION_BACKUP_ROOT, 'backup_meta.json');
+const SESSION_RESTORE_GUARD = path.join(SESSION_BACKUP_ROOT, 'last_restore_attempt.json');
+const EXPLICIT_LOGOUT_FLAG = path.join(SESSION_BACKUP_ROOT, 'explicit_logout.json');
+let sessionBackupIntervalStarted = false;
+let isAutoRestoringSession = false;
+
+function getSessionBackupMeta() {
+    try {
+        if (!fs.existsSync(SESSION_BACKUP_META)) return null;
+        return JSON.parse(fs.readFileSync(SESSION_BACKUP_META, 'utf8'));
+    } catch (_) {
+        return null;
+    }
+}
+
+function shouldCopySessionEntry(src) {
+    const base = path.basename(src);
+    if (
+        base === 'SingletonLock' ||
+        base === 'SingletonSocket' ||
+        base === 'SingletonCookie' ||
+        base === 'Cache' ||
+        base === 'Code Cache' ||
+        base === 'GPUCache' ||
+        base === 'GrShaderCache' ||
+        base === 'ShaderCache'
+    ) {
+        return false;
+    }
+    const normalized = src.replace(/\\/g, '/');
+    if (normalized.endsWith('/Service Worker/CacheStorage') || normalized.includes('/Service Worker/CacheStorage/')) {
+        return false;
+    }
+    return true;
+}
+
+function backupHealthyWhatsappSession() {
+    if (currentWhatsappStatus !== 'CONNECTED' || isShuttingDown || isAntiZombieExiting) return false;
+    if (!fs.existsSync(SESSION_LIVE_DIR)) return false;
+
+    const tempDir = path.join(SESSION_BACKUP_ROOT, 'session_tmp');
+    try {
+        fs.mkdirSync(SESSION_BACKUP_ROOT, { recursive: true });
+        if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+
+        fs.cpSync(SESSION_LIVE_DIR, tempDir, {
+            recursive: true,
+            force: true,
+            filter: shouldCopySessionEntry
+        });
+
+        if (fs.existsSync(SESSION_BACKUP_DIR)) fs.rmSync(SESSION_BACKUP_DIR, { recursive: true, force: true });
+        fs.renameSync(tempDir, SESSION_BACKUP_DIR);
+
+        const meta = {
+            savedAt: new Date().toISOString(),
+            wid: (client && client.info && client.info.wid && client.info.wid._serialized) || null
+        };
+        fs.writeFileSync(SESSION_BACKUP_META, JSON.stringify(meta, null, 2));
+        if (fs.existsSync(EXPLICIT_LOGOUT_FLAG)) {
+            try { fs.unlinkSync(EXPLICIT_LOGOUT_FLAG); } catch (_) {}
+        }
+        console.log(`💾 [Session Backup] Respaldo saludable de sesión WhatsApp guardado (${meta.savedAt}).`);
+        return true;
+    } catch (err) {
+        console.warn('[Session Backup] No se pudo respaldar la sesión:', err.message);
+        try {
+            if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch (_) {}
+        return false;
+    }
+}
+
+async function tryAutoRestoreSessionOnUnexpectedQr() {
+    if (isAutoRestoringSession || isShuttingDown || isAntiZombieExiting) return false;
+    isAutoRestoringSession = true;
+
+    try {
+        if (!fs.existsSync(SESSION_BACKUP_DIR)) return false;
+        const meta = getSessionBackupMeta();
+        if (!meta || !meta.savedAt) return false;
+
+        const savedMs = new Date(meta.savedAt).getTime();
+        if (!savedMs || isNaN(savedMs) || (Date.now() - savedMs) > 7 * 24 * 60 * 60 * 1000) {
+            return false;
+        }
+
+        if (fs.existsSync(EXPLICIT_LOGOUT_FLAG)) {
+            try {
+                const logoutInfo = JSON.parse(fs.readFileSync(EXPLICIT_LOGOUT_FLAG, 'utf8'));
+                if (logoutInfo && logoutInfo.at && (Date.now() - logoutInfo.at) < 15 * 60 * 1000) {
+                    console.log('ℹ️ [Session Restore] Omitiendo auto-restauración porque hubo cierre de sesión explícito (LOGOUT) reciente.');
+                    return false;
+                }
+            } catch (_) {}
+        }
+
+        if (fs.existsSync(SESSION_RESTORE_GUARD)) {
+            try {
+                const guard = JSON.parse(fs.readFileSync(SESSION_RESTORE_GUARD, 'utf8'));
+                if (guard && guard.attemptedAt && (Date.now() - guard.attemptedAt) < 15 * 60 * 1000) {
+                    console.log('ℹ️ [Session Restore] Ya se intentó restaurar la sesión en los últimos 15 min. Manteniendo QR_READY.');
+                    return false;
+                }
+            } catch (_) {}
+        }
+
+        console.warn(`🛟 [Session Restore] QR inesperado detectado con respaldo saludable de ${meta.savedAt}. Restaurando sesión antes de pedir escaneo...`);
+        fs.mkdirSync(SESSION_BACKUP_ROOT, { recursive: true });
+        fs.writeFileSync(SESSION_RESTORE_GUARD, JSON.stringify({ attemptedAt: Date.now(), backupSavedAt: meta.savedAt }, null, 2));
+
+        isAntiZombieExiting = true;
+        try {
+            if (client && typeof client.destroy === 'function') {
+                await Promise.race([
+                    client.destroy().catch(() => {}),
+                    new Promise(resolve => setTimeout(resolve, 8000))
+                ]);
+                await new Promise(resolve => setTimeout(resolve, 1500));
+            }
+        } catch (_) {}
+
+        if (fs.existsSync(SESSION_LIVE_DIR)) fs.rmSync(SESSION_LIVE_DIR, { recursive: true, force: true });
+        fs.mkdirSync(path.dirname(SESSION_LIVE_DIR), { recursive: true });
+        fs.cpSync(SESSION_BACKUP_DIR, SESSION_LIVE_DIR, {
+            recursive: true,
+            force: true,
+            filter: shouldCopySessionEntry
+        });
+
+        console.log('🔄 [Session Restore] Sesión restaurada desde respaldo saludable. Reiniciando proceso para reconectar...');
+        process.exit(1);
+        return true;
+    } catch (err) {
+        console.warn('[Session Restore] Error intentando auto-restaurar sesión:', err.message);
+        isAntiZombieExiting = false;
+        return false;
+    }
+}
+
 // Generar QR para conexión
 client.on('qr', (qr) => {
     if (qr === latestQrCode) return;
@@ -4893,6 +5042,7 @@ client.on('qr', (qr) => {
     currentWhatsappStatus = 'QR_READY';
     broadcastSseEvent('status', { status: currentWhatsappStatus, qr: qr });
     notifyExternalSessionAlert('QR_READY - Se requiere escanear QR').catch(() => {});
+    tryAutoRestoreSessionOnUnexpectedQr().catch(() => {});
 });
 
 // Auto-recargador de código QR si expira en WhatsApp Web (WhatsApp Web detiene la rotación y muestra botón de recargar tras ~120s)
@@ -4990,8 +5140,16 @@ client.on('ready', () => {
         console.error('❌ Error inicializando motor de recordatorios:', remErr.message);
     }
 
-    // Procesar chats que quedaron sin leer mientras el bot estuvo apagado
+    // Respaldo rodante de sesión saludable (90s después de conectar y luego cada 6 horas)
+    setTimeout(() => backupHealthyWhatsappSession(), 90000);
+    if (!sessionBackupIntervalStarted) {
+        sessionBackupIntervalStarted = true;
+        setInterval(() => backupHealthyWhatsappSession(), 6 * 60 * 60 * 1000);
+    }
+
+    // Procesar chats que quedaron sin leer mientras el bot estuvo apagado (25s de gracia para estabilizar IndexedDB y Chromium)
     setTimeout(async () => {
+        if (currentWhatsappStatus !== 'CONNECTED' || isShuttingDown || isAntiZombieExiting) return;
         console.log('⏳ Escaneando chats con mensajes no leídos desde el arranque inicial...');
         try {
             const { processPendingChats } = require('./adminService');
@@ -5007,12 +5165,18 @@ client.on('ready', () => {
                 console.warn('⚠️ [ANTI-ZOMBIE] Ignorando error de escaneo durante el período de calentamiento inicial (primeros 2 min). El bot seguirá corriendo.');
             }
         }
-    }, 4000); // 4 segundos de gracia inicial
+    }, 25000);
 });
 
 client.on('disconnected', async (reason) => {
     console.error('❌ El cliente se desconectó. Razón:', reason);
     const wasConnected = currentWhatsappStatus === 'CONNECTED';
+    if (String(reason || '').toUpperCase().includes('LOGOUT')) {
+        try {
+            fs.mkdirSync(SESSION_BACKUP_ROOT, { recursive: true });
+            fs.writeFileSync(EXPLICIT_LOGOUT_FLAG, JSON.stringify({ at: Date.now(), reason: String(reason) }, null, 2));
+        } catch (_) {}
+    }
     currentWhatsappStatus = 'DISCONNECTED';
     latestQrCode = null;
     latestPairingCode = null;
