@@ -4,6 +4,9 @@ const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
+const { buildTurnContext } = require('./pipeline/contextBuilder');
+const { orchestrateDecision } = require('./pipeline/intentOrchestrator');
+const { dispatchOpenOrSupportTurn } = require('./pipeline/actionDispatcher');
 
 // Sobrescribir consola para añadir timestamps y desacoplar los logs por origen
 const fs = require('fs');
@@ -9773,7 +9776,7 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
         'cual perfil', 'cuál perfil'
     ].some(kw => inputLower.includes(kw));
 
-    if (isProfileQuery) {
+    if (isProfileQuery && !isMedia && !message.hasMedia) {
         console.log(`[Fast-Track Profile Query] Interceptada duda de perfil por texto para @${userId}`);
         await message.reply(`🤖 ¡Hola! En tu pantalla puedes seleccionar la opción **"Añadir perfil"** (o el botón **"+"**). 📺\n\n` +
             `Crea tu perfil colocándole **tu nombre** para que tengas tu propio espacio y lista personal. 😊\n\n` +
@@ -9825,6 +9828,24 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
 
     const timedHist = `[ESTE MENSAJE LLEGÓ HACE ${messageAgeMinutes} MINUTOS]\n${hist}`;
     const detection = await detectInitialIntent(inputToUse, timedHist, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts);
+
+    // CAPA 1 + CAPA 2: Contexto unificado (texto completo + media + historial + cuentas + perfiles hermanos) y Decisor abierto
+    const turnContext = await buildTurnContext({
+        userId,
+        realPhone,
+        foundName,
+        message,
+        validMessages,
+        isMedia,
+        mediaData,
+        userStates,
+        existingAccounts: userAccounts,
+        existingHistory: hist
+    });
+    const turnDecision = orchestrateDecision(turnContext, detection);
+    if (turnDecision && turnDecision.isUnmeasuredScenario) {
+        console.log(`[Pipeline Capa 2] Escenario abierto/no medido detectado (${turnDecision.unmeasuredTag}) para @${userId}`);
+    }
 
     // --- OCR/IMAGE CODE REQUEST INTERCEPTOR via Gemini ---
     // Solo intercepta pantallas donde YA se envió un código 2FA/verificación y el usuario necesita extraerlo de Gmail.
@@ -10928,24 +10949,22 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         await safeReply(message, replyText, userId);
                     }
                 } else if (isMedia || message.hasMedia || (mediaData && mediaData.length > 0)) {
-                    // Flujo unificado: analizar la captura con Visión + RAG + Sentido Común antes de escalar a humano
-                    const historyForFallback = await getChatHistoryText(message);
-                    let accs = [];
-                    try { accs = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
-                    const primaryMedia = (mediaData && mediaData.length > 0) ? mediaData[0] : null;
+                    // Flujo unificado (Capa 3): analizar la captura con Visión + RAG + Mapa de Perfiles Hermanos
                     const precomputedDesc = (detection && detection.mediaDescription) ? detection.mediaDescription : null;
-                    const fallbackResult = await generateEmpatheticFallback(
-                        message.combinedBody || message.body || "",
-                        true,
-                        historyForFallback,
-                        primaryMedia,
-                        accs,
+                    const dispatchRes = await dispatchOpenOrSupportTurn({
+                        turnContext,
+                        decision: turnDecision,
+                        message,
                         userId,
                         userStates,
-                        precomputedDesc
-                    );
-                    const fallbackMsg = typeof fallbackResult === 'string' ? fallbackResult : (fallbackResult?.replyMessage || "");
-                    const needsEscalation = typeof fallbackResult === 'object' ? Boolean(fallbackResult?.needsEscalation) : false;
+                        generateEmpatheticFallback,
+                        safeReply,
+                        precomputedDesc,
+                        branch: 'support_media',
+                        sendReply: false
+                    });
+                    const fallbackMsg = dispatchRes.replyMessage || "";
+                    const needsEscalation = dispatchRes.needsEscalation;
 
                     if (fallbackMsg && fallbackMsg.replace(/🤖|👍|👋|\s/g, '').length >= 3) {
                         console.log(`[Support Media RAG] Respondiendo captura de pantalla con Visión+RAG a @${userId} (needsEscalation=${needsEscalation})`);
@@ -10998,21 +11017,28 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                         'tiempo', 'siempre', 'pide'
                     ].some(kw => cleanText.includes(kw));
 
-                    if (hasDescriptiveContent) {
-                        const historyForFallback = await getChatHistoryText(message);
-                        let accs = [];
-                        try { accs = await getAccountsByPhone(realPhone, foundName); } catch (e) {}
-                        const fallbackResult = await generateEmpatheticFallback(message.body || "", false, historyForFallback, null, accs, userId, userStates);
-                        if (fallbackResult && fallbackResult.silent === true) {
+                    if (hasDescriptiveContent || (turnDecision && turnDecision.isUnmeasuredScenario)) {
+                        const dispatchRes = await dispatchOpenOrSupportTurn({
+                            turnContext,
+                            decision: turnDecision,
+                            message,
+                            userId,
+                            userStates,
+                            generateEmpatheticFallback,
+                            safeReply,
+                            branch: 'support_text',
+                            sendReply: false
+                        });
+                        if (dispatchRes.silent) {
                             console.log(`[Support Direct Answer] 🤫 Fallback IA solicitó silencio intencional por asesor humano activo para @${userId}.`);
                             return;
                         }
-                        const fallbackMsg = typeof fallbackResult === 'string' ? fallbackResult : (fallbackResult?.replyMessage || "");
+                        const fallbackMsg = dispatchRes.replyMessage || "";
 
                         if (fallbackMsg && fallbackMsg.replace(/🤖|👍|👋|\s/g, '').length >= 3) {
                             console.log(`[Support Direct Answer] Respondiendo duda técnica/soporte directamente con IA a @${userId}`);
                             await safeReply(message, fallbackMsg, userId);
-                            if (typeof fallbackResult === 'object' && fallbackResult.needsEscalation) {
+                            if (dispatchRes.needsEscalation) {
                                 userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', nombre: foundName });
                             }
                             return;
@@ -11037,11 +11063,11 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 return;
             }
 
-            // 6. FLUJO POR DEFECTO (Más sutil y conversacional)
-            const historyForFallback = await getChatHistoryText(message);
+            // 6. FLUJO POR DEFECTO Y ESCENARIOS NO MEDIDOS (Capa 3)
+            const historyForFallback = turnContext.chatHistory || await getChatHistoryText(message);
 
             // Si el cliente envió una imagen en el flujo libre/por defecto, verificar si es un comprobante de pago antes de hacer fallback
-            if (message.hasMedia && mediaData && mediaData.length > 0) {
+            if ((isMedia || message.hasMedia) && mediaData && mediaData.length > 0) {
                 try {
                     const { isPaymentReceipt } = require('./aiService');
                     const check = await isPaymentReceipt(mediaData[0], historyForFallback);
@@ -11071,18 +11097,26 @@ Un asesor ya está notificado y revisará tu transferencia lo más pronto posibl
                 }
             }
 
-            userAccounts = [];
-            try { userAccounts = await getAccountsByPhone(realPhone, foundName); } catch (e) { }
-
-            const fallbackResult = await generateEmpatheticFallback(message.combinedBody || message.body || "", isMedia || message.hasMedia, historyForFallback, (mediaData && mediaData.length > 0) ? mediaData[0] : null, userAccounts, userId, userStates);
-            const fallbackMsg = typeof fallbackResult === 'string' ? fallbackResult : (fallbackResult?.replyMessage || "");
-
+            const precomputedDefaultDesc = (detection && detection.mediaDescription) ? detection.mediaDescription : null;
+            const dispatchDefault = await dispatchOpenOrSupportTurn({
+                turnContext,
+                decision: turnDecision,
+                message,
+                userId,
+                userStates,
+                generateEmpatheticFallback,
+                safeReply,
+                precomputedDesc: precomputedDefaultDesc,
+                branch: turnDecision?.isUnmeasuredScenario ? 'unmeasured_open_case' : 'default_fallback',
+                sendReply: false
+            });
+            const fallbackMsg = dispatchDefault.replyMessage || "";
             const cleanFallback = fallbackMsg ? fallbackMsg.replace(/🤖|👍|👋|\s/g, '') : "";
 
             if (cleanFallback.length >= 3) {
                 console.log(`[Fallback Conversacional] Enviando respuesta empática de Gemini a @${userId}`);
                 await safeReply(message, fallbackMsg, userId);
-                if (typeof fallbackResult === 'object' && fallbackResult.needsEscalation) {
+                if (dispatchDefault.needsEscalation) {
                     userStates.set(userId, { state: 'waiting_human', waitingCount: 0, waiting_human_mode: 'bot', nombre: foundName });
                 }
             } else {

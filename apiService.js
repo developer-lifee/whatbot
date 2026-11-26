@@ -656,13 +656,76 @@ async function getAccountsByPhone(phoneNumber, contactName = null, force = false
   }
 }
 
-async function fetchHistoricoData(retries = 3, delay = 2000) {
+function colNumberToExcelLetter(colNum) {
+  let letter = '';
+  let n = colNum;
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    n = Math.floor((n - 1) / 26);
+  }
+  return letter;
+}
+
+async function fetchHistoricoFromGraph() {
+  const accessToken = await getGraphAccessToken();
+  if (!accessToken) return null;
+
+  const baseUrl = "https://graph.microsoft.com/v1.0/me/drive/root:/Documentos/neflis_negro.xlsx:/workbook/worksheets('historico')";
+  const metaRes = await fetch(`${baseUrl}/usedRange(valuesOnly=true)?$select=rowCount,columnCount,address`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(15000)
+  });
+  const metaJson = await metaRes.json();
+  if (!metaRes.ok || !metaJson.rowCount || !metaJson.columnCount) {
+    const err = metaJson?.error?.message || `HTTP ${metaRes.status}`;
+    console.warn('[MS Graph Historico] Error consultando dimensiones:', err);
+    return null;
+  }
+
+  const rowCount = metaJson.rowCount;
+  const colCount = metaJson.columnCount;
+  const CHUNK_COLS = 150;
+  const matriz2D = Array.from({ length: rowCount }, () => []);
+
+  for (let startCol = 1; startCol <= colCount; startCol += CHUNK_COLS) {
+    const endCol = Math.min(colCount, startCol + CHUNK_COLS - 1);
+    const startLetter = colNumberToExcelLetter(startCol);
+    const endLetter = colNumberToExcelLetter(endCol);
+    const rangeUrl = `${baseUrl}/range(address='${startLetter}1:${endLetter}${rowCount}')?$select=values`;
+
+    const chunkRes = await fetch(rangeUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(20000)
+    });
+    const chunkJson = await chunkRes.json();
+    if (!chunkRes.ok || !Array.isArray(chunkJson.values)) {
+      const err = chunkJson?.error?.message || `HTTP ${chunkRes.status}`;
+      console.warn(`[MS Graph Historico] Error leyendo chunk ${startLetter}1:${endLetter}${rowCount}:`, err);
+      return null;
+    }
+
+    for (let r = 0; r < rowCount; r++) {
+      const chunkRow = chunkJson.values[r] || [];
+      matriz2D[r].push(...chunkRow);
+    }
+  }
+
+  console.log(`[MS Graph Historico] ✅ Hoja 'historico' descargada en vivo (${rowCount} filas x ${colCount} cols).`);
+  return matriz2D;
+}
+
+async function fetchHistoricoData(retries = 2, delay = 1500, force = false) {
+  if (typeof retries === 'boolean') {
+    force = retries;
+    retries = 2;
+  }
   const now = Date.now();
-  if (historicoCache && (now - historicoCacheTime < CACHE_DURATION)) {
+  if (!force && historicoCache && (now - historicoCacheTime < CACHE_DURATION)) {
     return procesarHistoricoArray(historicoCache);
   }
   
-  if (global.activeHistoricoPromise) {
+  if (!force && global.activeHistoricoPromise) {
     const raw = await global.activeHistoricoPromise;
     return procesarHistoricoArray(raw);
   }
@@ -672,16 +735,18 @@ async function fetchHistoricoData(retries = 3, delay = 2000) {
   global.activeHistoricoPromise = (async () => {
     for (let i = 0; i < retries; i++) {
       try {
-        const response = await fetch(AZURE_HISTORICO_API_URL);
-        if (!response.ok) {
-          throw new Error(`HTTP Error! Status: ${response.status}`);
+        let matriz2D = await fetchHistoricoFromGraph();
+
+        if (!matriz2D && typeof AZURE_HISTORICO_API_URL !== 'undefined' && AZURE_HISTORICO_API_URL) {
+          const response = await fetch(AZURE_HISTORICO_API_URL, { signal: AbortSignal.timeout(6500) });
+          if (response.ok) {
+            const json = await response.json();
+            if (json && Array.isArray(json.data)) matriz2D = json.data;
+          }
         }
-        
-        const json = await response.json();
-        const matriz2D = json.data;
 
         if (!matriz2D || !Array.isArray(matriz2D)) {
-          throw new Error("Formato de datos no válido desde Azure Histórico");
+          throw new Error("No se pudo obtener la matriz de Histórico desde Microsoft Graph");
         }
 
         try {
@@ -696,8 +761,7 @@ async function fetchHistoricoData(retries = 3, delay = 2000) {
 
       } catch (error) {
         if (i === retries - 1) {
-          console.error(`[API Service] Error al obtener datos históricos (Intento final ${i + 1}/${retries}):`, error.message);
-          console.warn('[API Service] La API de Azure Histórico no responde. Intentando fallback a historico_cache.json...');
+          console.warn('[API Service] Microsoft Graph Histórico no respondió. Intentando fallback a historico_cache.json...', error.message);
           try {
             if (fs.existsSync(localCachePath)) {
               const cachedData = fs.readFileSync(localCachePath, 'utf8');
@@ -709,9 +773,7 @@ async function fetchHistoricoData(retries = 3, delay = 2000) {
           } catch (cacheError) {
             console.error('[API Service] Error crítico cargando historico_cache.json:', cacheError.message);
           }
-          throw new Error("Fallaron todos los intentos de conexión a la API de Azure Histórico.");
-        } else {
-          console.warn(`[API Service] Advertencia al obtener datos históricos (Intento ${i + 1}/${retries}):`, error.message);
+          throw new Error("Fallaron todos los intentos de conexión al Histórico (Graph y caché).");
         }
         await new Promise(res => setTimeout(res, delay));
       }
@@ -885,6 +947,135 @@ function procesarHistoricoArray(matriz2D) {
     }
     
     return datosGenerales;
+}
+
+/**
+ * Extrae filas planas normalizadas con banderas de calidad desde matriz2D de la hoja 'historico' para procesos ETL.
+ */
+function extractHistoricoFlatRows(matriz2D) {
+    if (!matriz2D || matriz2D.length === 0) {
+        return { rows: [], blocksSummary: [] };
+    }
+
+    const filaTitulos = matriz2D[0];
+    const bloques = [];
+    let startIndex = 0;
+
+    for (let i = 0; i < filaTitulos.length; i++) {
+        const valor = filaTitulos[i] ? filaTitulos[i].toString().trim().toLowerCase() : "";
+        if (valor === "streaming" && i !== 0) {
+            bloques.push({ start: startIndex, end: i - 1 });
+            startIndex = i;
+        }
+    }
+    bloques.push({ start: startIndex, end: filaTitulos.length - 1 });
+
+    const monthsList = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ];
+
+    const blockDates = bloques.map((bloque, idx) => {
+        const detected = detectBlockMonth(matriz2D, bloque.start, bloque.end);
+        if (detected) return formatToMonthYear(detected);
+        const bogotaStr = new Date().toLocaleString("en-US", { timeZone: "America/Bogota" });
+        const bog = new Date(bogotaStr);
+        bog.setMonth(bog.getMonth() - idx);
+        return `${monthsList[bog.getMonth()]} de ${bog.getFullYear()}`;
+    });
+
+    const rows = [];
+    const blocksSummary = bloques.map((b, idx) => ({
+        blockIndex: idx,
+        blockMonth: blockDates[idx],
+        startCol: colNumberToExcelLetter(b.start + 1),
+        endCol: colNumberToExcelLetter(b.end + 1),
+        rowCount: 0
+    }));
+
+    for (let rowIndex = 1; rowIndex < matriz2D.length; rowIndex++) {
+        const fila = matriz2D[rowIndex];
+        if (!fila || fila.length === 0) continue;
+
+        for (let bIdx = 0; bIdx < bloques.length; bIdx++) {
+            const bloque = bloques[bIdx];
+            const blockMonth = blockDates[bIdx];
+
+            let itemStreaming = "";
+            let itemNumero = "";
+            let itemNombre = "";
+            let itemApellido = "";
+            let itemCorreo = "";
+            let itemVencimiento = "";
+            let itemMetodoPago = "";
+            let itemDeben = "";
+            let itemPinPerfil = "";
+
+            for (let i = bloque.start; i <= bloque.end; i++) {
+                const rawTitulo = filaTitulos[i] ? filaTitulos[i].toString().trim() : "";
+                const titulo = rawTitulo.toLowerCase();
+                const valor = fila[i] !== undefined && fila[i] !== null ? fila[i] : "";
+
+                if (titulo === "streaming") itemStreaming = valor;
+                else if (titulo.includes("numero") || titulo.includes("tel") || titulo === "número" || titulo.includes("whatsapp")) itemNumero = valor;
+                else if (titulo.includes("nombbre") || titulo === "nombre") itemNombre = valor;
+                else if (titulo === "apellido") itemApellido = valor;
+                else if (titulo.includes("correo")) itemCorreo = valor;
+                else if (titulo.includes("vencimiento")) itemVencimiento = valor;
+                else if (titulo.includes("metodo") || titulo.includes("medio") || titulo.includes("pago")) itemMetodoPago = valor;
+                else if (titulo.includes("deben")) itemDeben = valor;
+                else if (titulo.includes("pin") || titulo.includes("perfil")) itemPinPerfil = valor;
+            }
+
+            const streamingRaw = String(itemStreaming || '').trim();
+            const rawPhoneStr = String(itemNumero || '').trim();
+            if (!streamingRaw && !rawPhoneStr) continue;
+
+            let cleanPhone = rawPhoneStr.replace(/\D/g, '');
+            if (cleanPhone.length === 10 && cleanPhone.startsWith('3')) {
+                cleanPhone = '57' + cleanPhone;
+            }
+            const phoneIssue = (!cleanPhone || cleanPhone.length < 10 || cleanPhone.length > 13) ? 1 : 0;
+
+            let vencSql = null;
+            let dateIssue = 0;
+            const vencRawStr = itemVencimiento !== undefined && itemVencimiento !== null ? String(itemVencimiento).trim() : '';
+            if (vencRawStr) {
+                const parsed = getJsDateFromExcel(itemVencimiento);
+                if (parsed && !isNaN(parsed.getTime()) && parsed.getFullYear() >= 2020 && parsed.getFullYear() <= 2035) {
+                    vencSql = parsed.toISOString().split('T')[0];
+                } else {
+                    dateIssue = 1;
+                }
+            }
+
+            const platNorm = streamingRaw.replace(/\s+/g, ' ').replace(/\b(WONER|ONWER)\b/gi, 'OWNER').toUpperCase();
+            const fullName = `${String(itemNombre || '').trim()} ${String(itemApellido || '').trim()}`.trim();
+            const amountNum = parseInt(String(itemDeben || '').replace(/[^\d]/g, ''), 10) || 0;
+
+            blocksSummary[bIdx].rowCount++;
+            rows.push({
+                block_index: bIdx,
+                block_month: blockMonth,
+                excel_row: rowIndex + 1,
+                customer_phone_raw: rawPhoneStr.slice(0, 80),
+                customer_phone: cleanPhone.slice(0, 50),
+                streaming_raw: streamingRaw.slice(0, 100),
+                streaming_platform: platNorm.slice(0, 100),
+                account_email: String(itemCorreo || '').trim().slice(0, 255),
+                profile_name: fullName.slice(0, 255),
+                profile_pin: String(itemPinPerfil || '').trim().slice(0, 255),
+                vencimiento_raw: vencRawStr.slice(0, 80),
+                vencimiento: vencSql,
+                payment_method: String(itemMetodoPago || '').trim().slice(0, 255),
+                amount_paid: amountNum,
+                phone_issue: phoneIssue,
+                date_issue: dateIssue
+            });
+        }
+    }
+
+    return { rows, blocksSummary };
 }
 
 /**
@@ -1177,6 +1368,8 @@ module.exports = {
   fetchCustomersData,
   getAccountsByPhone,
   fetchHistoricoData,
+  fetchHistoricoFromGraph,
+  extractHistoricoFlatRows,
   procesarHistoricoArray,
   updateExcelData,
   writeRowToGraphDirect,

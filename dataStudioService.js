@@ -30,6 +30,7 @@ const TABLE_DOMAINS = {
     user_states: 'Mensajería & Tickets',
     rpa_recipes: 'Automatización & RPA',
     excel_historical_records: 'Histórico & Migración',
+    etl_historico_staging: 'Histórico & Migración',
     web_sales_approved: 'Clientes & Ventas',
     web_sales_pending: 'Clientes & Ventas',
     page_visits: 'Métricas Web',
@@ -100,60 +101,193 @@ async function getTablesOverview() {
     return detailedTables;
 }
 
+function stripLeadingSqlComments(sql) {
+    let s = (sql || '').trim();
+    while (s.length > 0) {
+        if (s.startsWith('--')) {
+            const nl = s.indexOf('\n');
+            s = nl === -1 ? '' : s.slice(nl + 1).trim();
+        } else if (s.startsWith('/*')) {
+            const end = s.indexOf('*/');
+            s = end === -1 ? '' : s.slice(end + 2).trim();
+        } else {
+            break;
+        }
+    }
+    return s;
+}
+
+function splitSqlStatements(sql) {
+    const stmts = [];
+    let current = '';
+    let inSingle = false;
+    let inDouble = false;
+    let inBacktick = false;
+    let inLineComment = false;
+    let inBlockComment = false;
+
+    for (let i = 0; i < sql.length; i++) {
+        const ch = sql[i];
+        const next = sql[i + 1] || '';
+
+        if (inLineComment) {
+            current += ch;
+            if (ch === '\n') inLineComment = false;
+            continue;
+        }
+        if (inBlockComment) {
+            current += ch;
+            if (ch === '*' && next === '/') {
+                current += '/';
+                i++;
+                inBlockComment = false;
+            }
+            continue;
+        }
+        if (!inSingle && !inDouble && !inBacktick) {
+            if (ch === '-' && next === '-') {
+                inLineComment = true;
+                current += ch;
+                continue;
+            }
+            if (ch === '/' && next === '*') {
+                inBlockComment = true;
+                current += ch;
+                continue;
+            }
+        }
+        if (ch === "'" && !inDouble && !inBacktick && sql[i - 1] !== '\\') {
+            inSingle = !inSingle;
+        } else if (ch === '"' && !inSingle && !inBacktick && sql[i - 1] !== '\\') {
+            inDouble = !inDouble;
+        } else if (ch === '`' && !inSingle && !inDouble) {
+            inBacktick = !inBacktick;
+        } else if (ch === ';' && !inSingle && !inDouble && !inBacktick) {
+            const trimmed = stripLeadingSqlComments(current);
+            if (trimmed) stmts.push(trimmed);
+            current = '';
+            continue;
+        }
+        current += ch;
+    }
+    const tail = stripLeadingSqlComments(current);
+    if (tail) stmts.push(tail);
+    return stmts;
+}
+
 /**
- * 2. Ejecutar consulta SQL de forma controlada y segura
+ * 2. Ejecutar consulta SQL de forma controlada y segura (soporta CTEs, multi-sentencia transaccional y Dry-Run)
  */
 async function executeStudioQuery(sql, options = {}) {
-    const trimmed = (sql || '').trim();
-    if (!trimmed) throw new Error('La consulta SQL no puede estar vacía.');
+    const raw = (sql || '').trim();
+    if (!raw) throw new Error('La consulta SQL no puede estar vacía.');
 
-    // Validar sentencias peligrosas para evitar destrucciones accidentales
-    const upper = trimmed.toUpperCase();
-    const isDangerous = /^(DROP|TRUNCATE|ALTER|RENAME)\b/i.test(upper);
-    if (isDangerous) {
-        throw new Error('Las operaciones DDL estructurales (DROP, TRUNCATE, ALTER) están restringidas en este módulo por seguridad operativa.');
+    const statements = splitSqlStatements(raw);
+    if (statements.length === 0) {
+        throw new Error('La consulta SQL no contiene sentencias ejecutables.');
     }
 
-    const isWrite = /^(UPDATE|INSERT|DELETE|REPLACE)\b/i.test(upper);
-    if (isWrite && !options.allowWrite) {
-        throw new Error('Operación de escritura detectada. Debes habilitar la casilla "Permitir Modificaciones" antes de ejecutar esta consulta.');
-    }
+    const dryRun = Boolean(options.dryRun);
+    const allowWrite = Boolean(options.allowWrite) || dryRun;
+    const maxLimit = Math.min(Math.max(parseInt(options.limit, 10) || 100, 1), 2000);
 
-    // Si es SELECT y no tiene LIMIT, agregar un límite de seguridad
-    let finalSql = trimmed;
-    if (/^SELECT\b/i.test(upper) && !/\bLIMIT\b/i.test(upper)) {
-        const defaultLimit = Math.min(options.limit || 100, 500);
-        finalSql += ` LIMIT ${defaultLimit}`;
-    }
+    const parsedStmts = statements.map(stmt => {
+        const clean = stripLeadingSqlComments(stmt);
+        const upper = clean.toUpperCase();
 
+        const isSafeEtlDdl = /^(CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS|TRUNCATE\s+TABLE|DROP\s+TABLE\s+IF\s+EXISTS)\s+`?etl_[a-z0-9_]+`?/i.test(clean);
+        const isDangerousDdl = /^(DROP|TRUNCATE|ALTER|RENAME|CREATE)\b/i.test(upper);
+        if (isDangerousDdl && !isSafeEtlDdl) {
+            throw new Error('Las operaciones DDL estructurales (DROP, TRUNCATE, ALTER) están restringidas salvo en tablas temporales con prefijo etl_.');
+        }
+
+        const isWrite = /^(UPDATE|INSERT|DELETE|REPLACE)\b/i.test(upper) || isSafeEtlDdl;
+        if (isWrite && !allowWrite) {
+            throw new Error('Operación de escritura detectada. Debes habilitar la casilla "Permitir DML" o usar "Simular (Dry-Run)".');
+        }
+        if (dryRun && isSafeEtlDdl) {
+            throw new Error('Las sentencias DDL (CREATE/TRUNCATE/DROP sobre etl_*) no se pueden simular con ROLLBACK porque MySQL hace commit implícito.');
+        }
+
+        const isSelectLike = /^(SELECT|WITH)\b/i.test(upper);
+        let finalSql = clean;
+        if (isSelectLike && !/\bLIMIT\b/i.test(upper)) {
+            finalSql += ` LIMIT ${maxLimit}`;
+        }
+        return { finalSql, isWrite, isSelectLike };
+    });
+
+    const needsTx = dryRun || parsedStmts.some(s => s.isWrite);
     const startTime = Date.now();
-    const [result, fields] = await pool.query(finalSql);
+    const conn = await pool.getConnection();
+
+    let totalAffected = 0;
+    let totalChanged = 0;
+    let lastInsertId = null;
+    let lastRows = null;
+    let lastFields = null;
+
+    try {
+        if (needsTx) await conn.beginTransaction();
+
+        for (const item of parsedStmts) {
+            const [result, fields] = await conn.query(item.finalSql);
+            if (Array.isArray(result)) {
+                lastRows = result;
+                lastFields = fields || [];
+            } else {
+                totalAffected += Number(result.affectedRows || 0);
+                totalChanged += Number(result.changedRows || 0);
+                if (result.insertId) lastInsertId = result.insertId;
+            }
+        }
+
+        if (needsTx) {
+            if (dryRun) {
+                await conn.rollback();
+            } else {
+                await conn.commit();
+            }
+        }
+    } catch (err) {
+        if (needsTx) {
+            await conn.rollback().catch(() => {});
+        }
+        throw err;
+    } finally {
+        conn.release();
+    }
+
     const executionTimeMs = Date.now() - startTime;
 
-    if (Array.isArray(result)) {
-        const columns = (fields || []).map(f => ({
+    if (lastRows !== null) {
+        const columns = (lastFields || []).map(f => ({
             name: f.name,
             type: f.type
         }));
         return {
             success: true,
             isResultSet: true,
+            dryRun,
+            statementsCount: parsedStmts.length,
             columns,
-            rows: result,
-            rowCount: result.length,
-            executionTimeMs
-        };
-    } else {
-        // Resultado de INSERT, UPDATE o DELETE
-        return {
-            success: true,
-            isResultSet: false,
-            affectedRows: result.affectedRows,
-            insertId: result.insertId,
-            changedRows: result.changedRows,
+            rows: lastRows,
+            rowCount: lastRows.length,
+            affectedRows: totalAffected,
             executionTimeMs
         };
     }
+
+    return {
+        success: true,
+        isResultSet: false,
+        dryRun,
+        statementsCount: parsedStmts.length,
+        affectedRows: totalAffected,
+        insertId: lastInsertId,
+        changedRows: totalChanged,
+        executionTimeMs
+    };
 }
 
 /**
@@ -1053,6 +1187,212 @@ async function getKnimeScenarioSimulation(scenarioId) {
     }
 }
 
+let historicoStagingReady = false;
+async function ensureHistoricoStagingTable() {
+    if (historicoStagingReady) return;
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS etl_historico_staging (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            block_index INT NOT NULL DEFAULT 0,
+            block_month VARCHAR(80) NOT NULL DEFAULT '',
+            excel_row INT NOT NULL DEFAULT 0,
+            customer_phone_raw VARCHAR(80) NULL,
+            customer_phone VARCHAR(50) NOT NULL DEFAULT '',
+            streaming_raw VARCHAR(100) NULL,
+            streaming_platform VARCHAR(100) NOT NULL DEFAULT '',
+            account_email VARCHAR(255) NOT NULL DEFAULT '',
+            profile_name VARCHAR(255) NOT NULL DEFAULT '',
+            profile_pin VARCHAR(255) NOT NULL DEFAULT '',
+            vencimiento_raw VARCHAR(80) NULL,
+            vencimiento DATE NULL,
+            payment_method VARCHAR(255) NOT NULL DEFAULT '',
+            amount_paid INT NOT NULL DEFAULT 0,
+            phone_issue TINYINT(1) NOT NULL DEFAULT 0,
+            date_issue TINYINT(1) NOT NULL DEFAULT 0,
+            is_duplicate TINYINT(1) NOT NULL DEFAULT 0,
+            etl_status ENUM('pending', 'clean', 'promoted', 'discarded') NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_etl_phone (customer_phone),
+            INDEX idx_etl_month (block_month),
+            INDEX idx_etl_dup (is_duplicate),
+            INDEX idx_etl_status (etl_status)
+        )
+    `);
+    historicoStagingReady = true;
+}
+
+async function syncHistoricoToStaging({ forceGraph = true } = {}) {
+    const fs = require('fs');
+    const path = require('path');
+    await ensureHistoricoStagingTable();
+
+    const { fetchHistoricoFromGraph, extractHistoricoFlatRows } = require('./apiService');
+    let matriz2D = null;
+    let source = 'microsoft_graph';
+
+    if (forceGraph) {
+        try {
+            matriz2D = await fetchHistoricoFromGraph();
+        } catch (err) {
+            console.warn('[ETL Historico] Fallo leyendo Graph:', err.message);
+        }
+    }
+
+    const cachePath = path.join(__dirname, 'historico_cache.json');
+    if (matriz2D && Array.isArray(matriz2D)) {
+        try {
+            fs.writeFileSync(cachePath, JSON.stringify(matriz2D, null, 2), 'utf8');
+        } catch (_) {}
+    } else if (fs.existsSync(cachePath)) {
+        matriz2D = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+        source = 'historico_cache';
+    }
+
+    if (!matriz2D || !Array.isArray(matriz2D) || matriz2D.length === 0) {
+        throw new Error('No se pudo obtener la hoja historico desde Microsoft Graph ni desde caché local.');
+    }
+
+    const { rows, blocksSummary } = extractHistoricoFlatRows(matriz2D);
+    await pool.query('TRUNCATE TABLE etl_historico_staging');
+
+    const BATCH_SIZE = 500;
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        const batch = rows.slice(i, i + BATCH_SIZE);
+        const values = batch.map(r => [
+            r.block_index,
+            r.block_month,
+            r.excel_row,
+            r.customer_phone_raw,
+            r.customer_phone,
+            r.streaming_raw,
+            r.streaming_platform,
+            r.account_email,
+            r.profile_name,
+            r.profile_pin,
+            r.vencimiento_raw,
+            r.vencimiento,
+            r.payment_method,
+            r.amount_paid,
+            r.phone_issue,
+            r.date_issue
+        ]);
+        await pool.query(
+            `INSERT INTO etl_historico_staging
+             (block_index, block_month, excel_row, customer_phone_raw, customer_phone, streaming_raw, streaming_platform, account_email, profile_name, profile_pin, vencimiento_raw, vencimiento, payment_method, amount_paid, phone_issue, date_issue)
+             VALUES ?`,
+            [values]
+        );
+    }
+
+    // Marcar duplicados comparando contra excel_historical_records
+    await pool.query(`
+        UPDATE etl_historico_staging s
+        INNER JOIN excel_historical_records h
+          ON LENGTH(s.customer_phone) >= 10
+         AND RIGHT(s.customer_phone, 10) = RIGHT(h.customer_phone, 10)
+         AND UPPER(TRIM(s.streaming_platform)) = UPPER(TRIM(h.streaming_platform))
+         AND LOWER(TRIM(s.account_email)) = LOWER(TRIM(h.account_email))
+         AND TRIM(s.block_month) = TRIM(COALESCE(h.fecha_corte, ''))
+        SET s.is_duplicate = 1
+    `);
+
+    const status = await getHistoricoEtlStatus();
+    return {
+        success: true,
+        source,
+        totalExtracted: rows.length,
+        blocksCount: blocksSummary.length,
+        blocksSummary,
+        ...status
+    };
+}
+
+async function getHistoricoEtlStatus() {
+    await ensureHistoricoStagingTable();
+    const [[stagingAgg]] = await pool.query(`
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN etl_status IN ('pending', 'clean') AND is_duplicate = 0 THEN 1 ELSE 0 END) AS newRows,
+            SUM(CASE WHEN is_duplicate = 1 THEN 1 ELSE 0 END) AS duplicateRows,
+            SUM(CASE WHEN phone_issue = 1 AND etl_status != 'discarded' THEN 1 ELSE 0 END) AS phoneIssues,
+            SUM(CASE WHEN date_issue = 1 AND etl_status != 'discarded' THEN 1 ELSE 0 END) AS dateIssues,
+            SUM(CASE WHEN etl_status = 'promoted' THEN 1 ELSE 0 END) AS promotedRows,
+            SUM(CASE WHEN etl_status = 'discarded' THEN 1 ELSE 0 END) AS discardedRows,
+            COUNT(DISTINCT block_month) AS distinctMonths
+        FROM etl_historico_staging
+    `);
+    const [[prodAgg]] = await pool.query(`SELECT COUNT(*) AS productionTotal FROM excel_historical_records`);
+
+    return {
+        stagingTotal: Number(stagingAgg?.total || 0),
+        newRows: Number(stagingAgg?.newRows || 0),
+        duplicateRows: Number(stagingAgg?.duplicateRows || 0),
+        phoneIssues: Number(stagingAgg?.phoneIssues || 0),
+        dateIssues: Number(stagingAgg?.dateIssues || 0),
+        promotedRows: Number(stagingAgg?.promotedRows || 0),
+        discardedRows: Number(stagingAgg?.discardedRows || 0),
+        distinctMonths: Number(stagingAgg?.distinctMonths || 0),
+        productionTotal: Number(prodAgg?.productionTotal || 0)
+    };
+}
+
+async function promoteHistoricoStaging({ onlyClean = true, includePhoneIssues = false } = {}) {
+    await ensureHistoricoStagingTable();
+    const conn = await pool.getConnection();
+    try {
+        await conn.beginTransaction();
+
+        // Re-evaluar phone_issue antes de promover por si el usuario limpió teléfonos vía SQL Studio
+        await conn.query(`
+            UPDATE etl_historico_staging
+            SET phone_issue = CASE WHEN LENGTH(REGEXP_REPLACE(customer_phone, '[^0-9]', '')) BETWEEN 10 AND 13 THEN 0 ELSE 1 END
+            WHERE etl_status IN ('pending', 'clean')
+        `).catch(() => {});
+
+        const phoneCondition = (onlyClean && !includePhoneIssues) ? 'AND phone_issue = 0' : '';
+
+        const [insertRes] = await conn.query(`
+            INSERT INTO excel_historical_records
+                (customer_phone, streaming_platform, account_email, profile_name, profile_pin, fecha_corte, vencimiento, payment_method, amount_paid)
+            SELECT
+                customer_phone,
+                streaming_platform,
+                account_email,
+                NULLIF(profile_name, ''),
+                NULLIF(profile_pin, ''),
+                block_month,
+                vencimiento,
+                NULLIF(payment_method, ''),
+                amount_paid
+            FROM etl_historico_staging
+            WHERE etl_status IN ('pending', 'clean')
+              AND is_duplicate = 0
+              ${phoneCondition}
+        `);
+
+        await conn.query(`
+            UPDATE etl_historico_staging
+            SET etl_status = 'promoted'
+            WHERE etl_status IN ('pending', 'clean')
+              AND is_duplicate = 0
+              ${phoneCondition}
+        `);
+
+        await conn.commit();
+        const status = await getHistoricoEtlStatus();
+        return {
+            success: true,
+            promotedCount: Number(insertRes?.affectedRows || 0),
+            ...status
+        };
+    } catch (e) {
+        await conn.rollback().catch(() => {});
+        throw e;
+    } finally {
+        conn.release();
+    }
+}
+
 module.exports = {
     getTablesOverview,
     executeStudioQuery,
@@ -1063,7 +1403,10 @@ module.exports = {
     askTutor,
     getSqlTutorials,
     getKnimeDataQualityAudit,
-    getKnimeScenarioSimulation
+    getKnimeScenarioSimulation,
+    syncHistoricoToStaging,
+    getHistoricoEtlStatus,
+    promoteHistoricoStaging
 };
 
 

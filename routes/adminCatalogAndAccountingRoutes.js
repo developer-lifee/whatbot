@@ -1189,11 +1189,41 @@ app.get('/api/admin/database/tables', async (req, res) => {
 
 app.post('/api/admin/database/query', async (req, res) => {
     try {
-        const { sql, allowWrite, limit } = req.body;
-        const result = await dataStudioService.executeStudioQuery(sql, { allowWrite, limit });
+        const { sql, allowWrite, limit, dryRun } = req.body;
+        const result = await dataStudioService.executeStudioQuery(sql, { allowWrite, limit, dryRun });
         res.json(result);
     } catch (e) {
         res.status(400).json({ success: false, error: e.message });
+    }
+});
+
+// Endpoints ETL Histórico (OneDrive Microsoft Graph -> Staging SQL -> excel_historical_records)
+app.get('/api/admin/database/etl/historico/status', async (req, res) => {
+    try {
+        const status = await dataStudioService.getHistoricoEtlStatus();
+        res.json({ success: true, ...status });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/database/etl/historico/extract', async (req, res) => {
+    try {
+        const { forceGraph = true } = req.body || {};
+        const result = await dataStudioService.syncHistoricoToStaging({ forceGraph });
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/database/etl/historico/promote', async (req, res) => {
+    try {
+        const { onlyClean = true, includePhoneIssues = false } = req.body || {};
+        const result = await dataStudioService.promoteHistoricoStaging({ onlyClean, includePhoneIssues });
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
@@ -1365,36 +1395,752 @@ app.post('/api/admin/gpt-accounts/delete', (req, res) => {
     }
 });
 
-app.post('/api/admin/accounts/add', async (req, res) => {
+const FALLBACK_PLATFORM_DEFAULT_SLOTS = {
+    NETFLIX: 5,
+    'NETFLIX EXTRA': 1,
+    DISNEY: 7,
+    'DISNEY+': 7,
+    HBO: 5,
+    'HBO PLATINO': 5,
+    MAX: 5,
+    'MAX (HBO)': 5,
+    AMAZON: 6,
+    'PRIME VIDEO': 6,
+    SPOTIFY: 6,
+    YOUTUBE: 5,
+    'APPLE ONE': 6,
+    'APPLE TV': 5,
+    'CRUNCHY ROLL': 5,
+    CRUNCHYROLL: 5,
+    PARAMOUNT: 6,
+    'PARAMOUNT+': 6,
+    VIX: 4,
+    GPT: 5,
+    CHATGPT: 5,
+    'CHATGPT (GPT)': 5,
+    CLAUDE: 5,
+    CANVA: 5,
+    MICROSOFT: 6,
+    OFFICE: 6
+};
+
+let masterColsReady = false;
+async function ensureMasterAccountColumns() {
+    if (masterColsReady) return;
     try {
-        const { streaming, correo, contraseña, perfiles, password } = req.body;
-        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
-        if (!streaming || !correo || !contraseña || !perfiles) {
-            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios' });
+        const [cols] = await pool.query('SHOW COLUMNS FROM stream_accounts');
+        const existing = new Set((cols || []).map(c => String(c.Field || '').toLowerCase()));
+        const needed = [
+            ['max_profiles', 'INT NULL'],
+            ['expiration_date', 'DATE NULL'],
+            ['cost_price', 'DECIMAL(12,2) NULL'],
+            ['sale_price', 'DECIMAL(12,2) NULL'],
+            ['payment_method', 'VARCHAR(150) NULL'],
+            ['guide_notes', 'TEXT NULL']
+        ];
+        for (const [colName, colDef] of needed) {
+            if (!existing.has(colName)) {
+                await pool.query(`ALTER TABLE stream_accounts ADD COLUMN ${colName} ${colDef}`);
+            }
+        }
+        masterColsReady = true;
+    } catch (e) {
+        console.warn('[Master Accounts] Error asegurando columnas en stream_accounts:', e.message);
+    }
+}
+
+function formatDateIsoSafe(val, getJsDateFromExcel) {
+    if (!val) return '';
+    if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}/.test(val.trim())) {
+        return val.trim().slice(0, 10);
+    }
+    const parsed = getJsDateFromExcel ? getJsDateFromExcel(val) : null;
+    if (parsed && !isNaN(parsed.getTime())) {
+        return parsed.toISOString().split('T')[0];
+    }
+    return '';
+}
+
+function isExcelSlotFree(row) {
+    const whatsapp = String(row.whatsapp || '').trim();
+    const nombre = String(row.Nombre || row.nombre || '').trim().toLowerCase();
+    const numero = String(row.numero || row.Numero || row.celular || '').replace(/\D/g, '');
+    return !whatsapp && !numero && (!nombre || nombre === 'libre' || nombre === 'disponible');
+}
+
+async function loadAccountingPlatformConfigs() {
+    const platformConfigs = {};
+    const platformDefaultSlots = { ...FALLBACK_PLATFORM_DEFAULT_SLOTS };
+
+    const isVariableSharedPlat = (platName) => /gpt|chatgpt|claude|compartid|canva|platzi/i.test(String(platName || ''));
+
+    Object.entries(FALLBACK_PLATFORM_DEFAULT_SLOTS).forEach(([plat, slots]) => {
+        platformConfigs[plat] = {
+            profileSlots: slots,
+            defaultCost: null,
+            defaultSalePrice: null,
+            durationDays: 30,
+            isVariableShared: isVariableSharedPlat(plat),
+            source: 'fallback'
+        };
+    });
+
+    try {
+        const [costRows] = await pool.query(
+            'SELECT platform, total_cost, profile_slots, duration_days, provider FROM streaming_costs ORDER BY (provider IS NULL) DESC, id ASC'
+        ).catch(() => [[]]);
+
+        for (const row of (costRows || [])) {
+            const pKey = String(row.platform || '').trim().toUpperCase();
+            if (!pKey) continue;
+            // Priorizar la primera fila base (provider IS NULL, id más bajo)
+            if (platformConfigs[pKey] && platformConfigs[pKey].source === 'contabilidad') continue;
+            const slots = Math.max(1, Number(row.profile_slots) || FALLBACK_PLATFORM_DEFAULT_SLOTS[pKey] || 1);
+            const costVal = Number(row.total_cost);
+            platformDefaultSlots[pKey] = slots;
+            platformConfigs[pKey] = {
+                profileSlots: slots,
+                defaultCost: costVal > 0 ? costVal : null,
+                defaultSalePrice: platformConfigs[pKey]?.defaultSalePrice || null,
+                durationDays: Math.max(1, Number(row.duration_days) || 30),
+                isVariableShared: isVariableSharedPlat(pKey),
+                source: 'contabilidad'
+            };
         }
 
-        const { fetchRawData, updateExcelData } = require('../apiService');
+        const [priceRows] = await pool.query(
+            'SELECT platform, normal_price FROM streaming_prices'
+        ).catch(() => [[]]);
+
+        for (const pr of (priceRows || [])) {
+            const pKey = String(pr.platform || '').trim().toUpperCase();
+            if (!pKey) continue;
+            const saleVal = Number(pr.normal_price) || null;
+            if (!platformConfigs[pKey]) {
+                platformConfigs[pKey] = {
+                    profileSlots: FALLBACK_PLATFORM_DEFAULT_SLOTS[pKey] || 5,
+                    defaultCost: null,
+                    defaultSalePrice: saleVal,
+                    durationDays: 30,
+                    isVariableShared: isVariableSharedPlat(pKey),
+                    source: 'contabilidad'
+                };
+            } else if (saleVal) {
+                platformConfigs[pKey].defaultSalePrice = saleVal;
+            }
+        }
+    } catch (e) {
+        console.warn('[Master Accounts] Error cargando configuración desde Contabilidad:', e.message);
+    }
+
+    return { platformConfigs, platformDefaultSlots };
+}
+
+app.get('/api/admin/master-accounts/platform-defaults', async (req, res) => {
+    try {
+        const { platformConfigs, platformDefaultSlots } = await loadAccountingPlatformConfigs();
+        res.json({ success: true, platformConfigs, platformDefaultSlots });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.get('/api/admin/master-accounts', async (req, res) => {
+    try {
+        await ensureMasterAccountColumns();
+        const { fetchRawData, getJsDateFromExcel, getTodayInBogota } = require('../apiService');
+        const force = req.query.force === '1' || req.query.force === 'true';
+
+        const [rawRows, dbRes, renRes] = await Promise.all([
+            fetchRawData(3, 2000, force),
+            pool.query('SELECT * FROM stream_accounts ORDER BY id DESC'),
+            pool.query('SELECT * FROM account_renewals ORDER BY id DESC').catch(() => [[]])
+        ]);
+
+        const dbAccounts = dbRes[0] || [];
+        const renewals = renRes[0] || [];
+
+        const dbMap = new Map();
+        for (const dbRow of dbAccounts) {
+            const key = `${String(dbRow.streaming_platform || '').trim().toUpperCase()}:::${String(dbRow.account_email || '').trim().toLowerCase()}`;
+            if (!dbMap.has(key)) dbMap.set(key, dbRow);
+        }
+
+        const renewalMap = new Map();
+        for (const r of renewals) {
+            const key = `${String(r.platform || '').trim().toUpperCase()}:::${String(r.account_email || '').trim().toLowerCase()}`;
+            if (!renewalMap.has(key)) renewalMap.set(key, r);
+        }
+
+        const grouped = new Map();
+        (rawRows || []).forEach((row, idx) => {
+            const platform = String(row.Streaming || row.Plataforma || '').trim();
+            const email = String(row.correo || row.Correo || '').trim();
+            if (!platform || !email) return;
+
+            const key = `${platform.toUpperCase()}:::${email.toLowerCase()}`;
+            const rowNum = row._rowNumber || (idx + 2);
+            const isFree = isExcelSlotFree(row);
+            const rowPass = String(row['contraseña'] || row.contraseña || row.clave || row.password || '').trim();
+            const rowVenc = formatDateIsoSafe(row.vencimiento || row.Vencimiento, getJsDateFromExcel);
+            const rowPayMethod = String(row['Metodo de pago'] || row['metodo de pago'] || row.metodoPago || '').trim();
+
+            if (!grouped.has(key)) {
+                grouped.set(key, {
+                    key,
+                    platform: platform.toUpperCase(),
+                    rawPlatform: platform,
+                    email,
+                    password: rowPass,
+                    totalSlots: 0,
+                    occupiedSlots: 0,
+                    freeSlots: 0,
+                    rowNumbers: [],
+                    freeRowNumbers: [],
+                    expirationDate: rowVenc,
+                    paymentMethod: rowPayMethod
+                });
+            }
+
+            const entry = grouped.get(key);
+            entry.totalSlots++;
+            if (isFree) {
+                entry.freeSlots++;
+                entry.freeRowNumbers.push(rowNum);
+            } else {
+                entry.occupiedSlots++;
+            }
+            entry.rowNumbers.push(rowNum);
+            if (!entry.password && rowPass) entry.password = rowPass;
+            if (rowVenc && (!entry.expirationDate || rowVenc > entry.expirationDate)) entry.expirationDate = rowVenc;
+            if (!entry.paymentMethod && rowPayMethod) entry.paymentMethod = rowPayMethod;
+        });
+
+        // Incluir cuentas registradas en DB aunque aún no tengan filas en Excel
+        for (const dbRow of dbAccounts) {
+            const plat = String(dbRow.streaming_platform || '').trim();
+            const email = String(dbRow.account_email || '').trim();
+            if (!plat || !email) continue;
+            const key = `${plat.toUpperCase()}:::${email.toLowerCase()}`;
+            if (!grouped.has(key)) {
+                grouped.set(key, {
+                    key,
+                    platform: plat.toUpperCase(),
+                    rawPlatform: plat,
+                    email,
+                    password: dbRow.account_password || '',
+                    totalSlots: 0,
+                    occupiedSlots: 0,
+                    freeSlots: 0,
+                    rowNumbers: [],
+                    freeRowNumbers: [],
+                    expirationDate: '',
+                    paymentMethod: dbRow.payment_method || ''
+                });
+            }
+        }
+
+        const today = getTodayInBogota ? getTodayInBogota() : new Date();
+        today.setHours(0, 0, 0, 0);
+
+        let expiringSoon = 0;
+        let totalSlots = 0;
+        let occupiedSlots = 0;
+        let freeSlots = 0;
+
+        const accounts = Array.from(grouped.values()).map(acc => {
+            const dbRow = dbMap.get(acc.key) || null;
+            const latestRen = renewalMap.get(acc.key) || null;
+
+            const dbExp = dbRow?.expiration_date ? new Date(dbRow.expiration_date).toISOString().split('T')[0] : '';
+            const renExp = latestRen?.expiration_date ? new Date(latestRen.expiration_date).toISOString().split('T')[0] : '';
+            const expirationDate = dbExp || acc.expirationDate || renExp || '';
+
+            let daysLeft = null;
+            if (expirationDate) {
+                const expD = new Date(`${expirationDate}T00:00:00`);
+                if (!isNaN(expD.getTime())) {
+                    daysLeft = Math.ceil((expD.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                    if (daysLeft <= 5 && (dbRow?.status || 'active') !== 'inactive') {
+                        expiringSoon++;
+                    }
+                }
+            }
+
+            const status = dbRow?.status || 'active';
+            if (status !== 'inactive') {
+                totalSlots += acc.totalSlots;
+                occupiedSlots += acc.occupiedSlots;
+                freeSlots += acc.freeSlots;
+            }
+
+            return {
+                ...acc,
+                dbId: dbRow?.id || null,
+                password: acc.password || dbRow?.account_password || '',
+                providerName: dbRow?.provider_name || latestRen?.provider || '',
+                paymentMethod: dbRow?.payment_method || acc.paymentMethod || latestRen?.payment_method || '',
+                costPrice: dbRow?.cost_price != null ? Number(dbRow.cost_price) : (latestRen?.amount_paid != null ? Number(latestRen.amount_paid) : null),
+                salePrice: dbRow?.sale_price != null ? Number(dbRow.sale_price) : null,
+                guideNotes: dbRow?.guide_notes || dbRow?.notes || '',
+                maxProfiles: dbRow?.max_profiles != null ? Number(dbRow.max_profiles) : acc.totalSlots,
+                expirationDate,
+                daysLeft,
+                status
+            };
+        }).sort((a, b) => a.platform.localeCompare(b.platform) || a.email.localeCompare(b.email));
+
+        const { platformConfigs, platformDefaultSlots } = await loadAccountingPlatformConfigs();
+
+        res.json({
+            success: true,
+            accounts,
+            platformConfigs,
+            platformDefaultSlots,
+            summary: {
+                totalAccounts: accounts.filter(a => a.status !== 'inactive').length,
+                totalSlots,
+                occupiedSlots,
+                freeSlots,
+                expiringSoon
+            }
+        });
+    } catch (e) {
+        console.error('[Master Accounts GET Error]:', e);
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/accounts/add', express.json(), async (req, res) => {
+    try {
+        await ensureMasterAccountColumns();
+        const {
+            streaming,
+            correo,
+            contraseña,
+            perfiles,
+            vencimiento,
+            proveedor,
+            paymentMethod,
+            costPrice,
+            salePrice,
+            guideNotes,
+            recordExpense = false,
+            password
+        } = req.body || {};
+
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!streaming || !correo || !contraseña || !perfiles) {
+            return res.status(400).json({ success: false, message: 'Faltan campos obligatorios (plataforma, correo, contraseña, cupos)' });
+        }
+
+        const cleanPlat = String(streaming).trim();
+        const cleanEmail = String(correo).trim();
+        const cleanPass = String(contraseña).trim();
+        const numPerfiles = Math.max(1, Math.min(30, parseInt(perfiles, 10) || 1));
+
+        const { fetchRawData, updateExcelData, getTodayInBogota } = require('../apiService');
         const allRows = await fetchRawData();
         const startRow = allRows.length + 2;
 
-        const numPerfiles = parseInt(perfiles) || 1;
+        const combinedPayMethod = proveedor
+            ? `${String(proveedor).trim()}${paymentMethod ? ` - ${String(paymentMethod).trim()}` : ''}`
+            : (paymentMethod ? String(paymentMethod).trim() : '');
+
         for (let i = 0; i < numPerfiles; i++) {
             const rowNumber = startRow + i;
             const updates = {
-                "Streaming": streaming,
-                "correo": correo,
-                "contraseña": contraseña,
+                "Streaming": cleanPlat,
+                "correo": cleanEmail,
+                "contraseña": cleanPass,
                 "Nombre": "",
                 "whatsapp": "",
                 "numero": "",
                 "deben": ""
             };
+            if (vencimiento) updates["vencimiento"] = String(vencimiento).trim();
+            if (combinedPayMethod) updates["Metodo de pago"] = combinedPayMethod;
             await updateExcelData(rowNumber, updates);
         }
 
-        res.json({ success: true, message: `Se agregaron ${numPerfiles} perfiles para la cuenta de ${streaming} (${correo}) en el inventario.` });
+        // UPSERT en stream_accounts
+        const [existingDb] = await pool.query(
+            'SELECT id FROM stream_accounts WHERE LOWER(account_email) = ? AND LOWER(streaming_platform) = ? LIMIT 1',
+            [cleanEmail.toLowerCase(), cleanPlat.toLowerCase()]
+        );
+
+        const parsedCost = costPrice !== '' && costPrice !== null && costPrice !== undefined ? Number(costPrice) : null;
+        const parsedSale = salePrice !== '' && salePrice !== null && salePrice !== undefined ? Number(salePrice) : null;
+        const expDateSql = vencimiento && /^\d{4}-\d{2}-\d{2}$/.test(String(vencimiento).trim()) ? String(vencimiento).trim() : null;
+
+        if (existingDb.length > 0) {
+            await pool.query(
+                `UPDATE stream_accounts
+                 SET account_password = ?, provider_name = ?, max_profiles = ?, expiration_date = COALESCE(?, expiration_date),
+                     cost_price = COALESCE(?, cost_price), sale_price = COALESCE(?, sale_price),
+                     payment_method = COALESCE(?, payment_method), guide_notes = COALESCE(?, guide_notes), status = 'active'
+                 WHERE id = ?`,
+                [
+                    cleanPass,
+                    proveedor ? String(proveedor).trim() : null,
+                    numPerfiles,
+                    expDateSql,
+                    parsedCost,
+                    parsedSale,
+                    paymentMethod ? String(paymentMethod).trim() : null,
+                    guideNotes ? String(guideNotes).trim() : null,
+                    existingDb[0].id
+                ]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO stream_accounts
+                 (account_email, streaming_platform, account_password, is_provider, provider_name, max_profiles, expiration_date, cost_price, sale_price, payment_method, guide_notes, status)
+                 VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+                [
+                    cleanEmail,
+                    cleanPlat.toLowerCase(),
+                    cleanPass,
+                    proveedor ? String(proveedor).trim() : null,
+                    numPerfiles,
+                    expDateSql,
+                    parsedCost,
+                    parsedSale,
+                    paymentMethod ? String(paymentMethod).trim() : null,
+                    guideNotes ? String(guideNotes).trim() : null
+                ]
+            );
+        }
+
+        if (recordExpense && parsedCost && parsedCost > 0) {
+            try {
+                const today = getTodayInBogota ? getTodayInBogota() : new Date();
+                const todayStr = today.toISOString().split('T')[0];
+                const fallbackExp = expDateSql || new Date(today.getTime() + 30 * 86400000).toISOString().split('T')[0];
+                await accountingService.recordAccountRenewal({
+                    platform: cleanPlat.toUpperCase(),
+                    account_email: cleanEmail,
+                    provider: proveedor ? String(proveedor).trim() : 'Directo',
+                    payment_method: paymentMethod ? String(paymentMethod).trim() : 'Compra Inicial',
+                    amount_paid: parsedCost,
+                    renewal_date: todayStr,
+                    expiration_date: fallbackExp,
+                    duration_days: 30,
+                    profile_slots: numPerfiles,
+                    notes: guideNotes ? String(guideNotes).trim() : 'Compra inicial de cuenta matriz',
+                    registered_by: 'Admin',
+                    sync_to_cash_flow: true,
+                    sync_to_excel: false
+                });
+            } catch (renErr) {
+                console.warn('[Master Accounts Add] Error asentando egreso contable:', renErr.message);
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Cuenta matriz ${cleanPlat} (${cleanEmail}) creada con ${numPerfiles} cupos en Excel y MariaDB.`
+        });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        console.error('[Master Accounts Add Error]:', e);
+        res.status(500).json({ success: false, message: e.message, error: e.message });
+    }
+});
+
+app.post('/api/admin/master-accounts/update', express.json(), async (req, res) => {
+    try {
+        await ensureMasterAccountColumns();
+        const {
+            platform,
+            email,
+            account_password,
+            expiration_date,
+            provider_name,
+            payment_method,
+            cost_price,
+            sale_price,
+            guide_notes,
+            status = 'active',
+            syncToExcel = true,
+            password
+        } = req.body || {};
+
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!platform || !email) {
+            return res.status(400).json({ success: false, message: 'Faltan platform y email' });
+        }
+
+        const cleanPlat = String(platform).trim();
+        const cleanEmail = String(email).trim();
+        const expSql = expiration_date && /^\d{4}-\d{2}-\d{2}$/.test(String(expiration_date).trim())
+            ? String(expiration_date).trim()
+            : null;
+        const parsedCost = cost_price !== '' && cost_price !== null && cost_price !== undefined ? Number(cost_price) : null;
+        const parsedSale = sale_price !== '' && sale_price !== null && sale_price !== undefined ? Number(sale_price) : null;
+
+        const [existing] = await pool.query(
+            'SELECT id FROM stream_accounts WHERE LOWER(account_email) = ? AND LOWER(streaming_platform) = ? LIMIT 1',
+            [cleanEmail.toLowerCase(), cleanPlat.toLowerCase()]
+        );
+
+        if (existing.length > 0) {
+            await pool.query(
+                `UPDATE stream_accounts
+                 SET account_password = ?, expiration_date = ?, provider_name = ?, payment_method = ?,
+                     cost_price = ?, sale_price = ?, guide_notes = ?, status = ?
+                 WHERE id = ?`,
+                [
+                    account_password ? String(account_password).trim() : null,
+                    expSql,
+                    provider_name ? String(provider_name).trim() : null,
+                    payment_method ? String(payment_method).trim() : null,
+                    parsedCost,
+                    parsedSale,
+                    guide_notes ? String(guide_notes).trim() : null,
+                    status === 'inactive' ? 'inactive' : 'active',
+                    existing[0].id
+                ]
+            );
+        } else {
+            await pool.query(
+                `INSERT INTO stream_accounts
+                 (account_email, streaming_platform, account_password, is_provider, provider_name, expiration_date, cost_price, sale_price, payment_method, guide_notes, status)
+                 VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    cleanEmail,
+                    cleanPlat.toLowerCase(),
+                    account_password ? String(account_password).trim() : null,
+                    provider_name ? String(provider_name).trim() : null,
+                    expSql,
+                    parsedCost,
+                    parsedSale,
+                    payment_method ? String(payment_method).trim() : null,
+                    guide_notes ? String(guide_notes).trim() : null,
+                    status === 'inactive' ? 'inactive' : 'active'
+                ]
+            );
+        }
+
+        let excelUpdatedRows = 0;
+        if (syncToExcel) {
+            const { fetchRawData, updateExcelData } = require('../apiService');
+            const allRows = await fetchRawData(3, 2000, true);
+            const targetPlatUpper = cleanPlat.toUpperCase();
+            const targetEmailLower = cleanEmail.toLowerCase();
+
+            const updates = {};
+            if (account_password !== undefined && String(account_password).trim() !== '') {
+                updates['contraseña'] = String(account_password).trim();
+            }
+            if (expSql) updates['vencimiento'] = expSql;
+            const combinedPay = provider_name
+                ? `${String(provider_name).trim()}${payment_method ? ` - ${String(payment_method).trim()}` : ''}`
+                : (payment_method ? String(payment_method).trim() : '');
+            if (combinedPay) updates['Metodo de pago'] = combinedPay;
+
+            if (Object.keys(updates).length > 0) {
+                for (let i = 0; i < allRows.length; i++) {
+                    const row = allRows[i];
+                    const rPlat = String(row.Streaming || row.Plataforma || '').trim().toUpperCase();
+                    const rEmail = String(row.correo || row.Correo || '').trim().toLowerCase();
+                    if (rPlat === targetPlatUpper && rEmail === targetEmailLower) {
+                        const rNum = row._rowNumber || (i + 2);
+                        await updateExcelData(rNum, updates);
+                        excelUpdatedRows++;
+                    }
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            excelUpdatedRows,
+            message: `Cuenta matriz actualizada${excelUpdatedRows > 0 ? ` (${excelUpdatedRows} cupos sincronizados en Excel)` : ''}.`
+        });
+    } catch (e) {
+        console.error('[Master Accounts Update Error]:', e);
+        res.status(500).json({ success: false, message: e.message, error: e.message });
+    }
+});
+
+app.post('/api/admin/master-accounts/adjust-slots', express.json(), async (req, res) => {
+    try {
+        await ensureMasterAccountColumns();
+        const { platform, email, delta, password } = req.body || {};
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+        const deltaInt = parseInt(delta, 10);
+        if (!platform || !email || !deltaInt || deltaInt < -20 || deltaInt > 20) {
+            return res.status(400).json({ success: false, message: 'Parámetros inválidos (delta entre -20 y +20, distinto de 0)' });
+        }
+
+        const { fetchRawData, updateExcelData, getJsDateFromExcel } = require('../apiService');
+        const allRows = await fetchRawData(3, 2000, true);
+        const targetPlatUpper = String(platform).trim().toUpperCase();
+        const targetEmailLower = String(email).trim().toLowerCase();
+
+        const matching = [];
+        allRows.forEach((row, i) => {
+            const rPlat = String(row.Streaming || row.Plataforma || '').trim().toUpperCase();
+            const rEmail = String(row.correo || row.Correo || '').trim().toLowerCase();
+            if (rPlat === targetPlatUpper && rEmail === targetEmailLower) {
+                matching.push({ row, rowNumber: row._rowNumber || (i + 2) });
+            }
+        });
+
+        let newTotal = matching.length;
+
+        if (deltaInt > 0) {
+            const sample = matching[0]?.row || {};
+            const [dbRows] = await pool.query(
+                'SELECT * FROM stream_accounts WHERE LOWER(account_email) = ? AND LOWER(streaming_platform) = ? LIMIT 1',
+                [targetEmailLower, targetPlatUpper.toLowerCase()]
+            );
+            const dbAcc = dbRows[0] || {};
+            const passVal = String(sample['contraseña'] || sample.contraseña || sample.clave || dbAcc.account_password || '').trim();
+            const vencVal = formatDateIsoSafe(sample.vencimiento || sample.Vencimiento || dbAcc.expiration_date, getJsDateFromExcel);
+            const payVal = String(sample['Metodo de pago'] || sample['metodo de pago'] || dbAcc.payment_method || '').trim();
+
+            const startRow = allRows.length + 2;
+            for (let i = 0; i < deltaInt; i++) {
+                const updates = {
+                    "Streaming": sample.Streaming || platform,
+                    "correo": email.trim(),
+                    "contraseña": passVal,
+                    "Nombre": "",
+                    "whatsapp": "",
+                    "numero": "",
+                    "deben": ""
+                };
+                if (vencVal) updates["vencimiento"] = vencVal;
+                if (payVal) updates["Metodo de pago"] = payVal;
+                await updateExcelData(startRow + i, updates);
+            }
+            newTotal = matching.length + deltaInt;
+        } else {
+            const toRemove = Math.abs(deltaInt);
+            const freeMatches = matching.filter(m => isExcelSlotFree(m.row));
+            if (freeMatches.length < toRemove) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Solo hay ${freeMatches.length} cupo(s) libre(s) para eliminar sin afectar clientes activos.`
+                });
+            }
+            for (let i = 0; i < toRemove; i++) {
+                await updateExcelData(freeMatches[i].rowNumber, {
+                    "Streaming": "",
+                    "correo": "",
+                    "contraseña": "",
+                    "Nombre": "",
+                    "apellido": "",
+                    "whatsapp": "",
+                    "numero": "",
+                    "vencimiento": "",
+                    "deben": "",
+                    "Metodo de pago": "",
+                    "observaciones": ""
+                });
+            }
+            newTotal = matching.length - toRemove;
+        }
+
+        await pool.query(
+            'UPDATE stream_accounts SET max_profiles = ? WHERE LOWER(account_email) = ? AND LOWER(streaming_platform) = ?',
+            [Math.max(0, newTotal), targetEmailLower, targetPlatUpper.toLowerCase()]
+        );
+
+        res.json({
+            success: true,
+            newTotalSlots: newTotal,
+            message: deltaInt > 0
+                ? `Se agregaron ${deltaInt} cupo(s) libre(s). Total actual: ${newTotal}.`
+                : `Se eliminaron ${Math.abs(deltaInt)} cupo(s) vacío(s). Total actual: ${newTotal}.`
+        });
+    } catch (e) {
+        console.error('[Master Accounts Adjust Slots Error]:', e);
+        res.status(500).json({ success: false, message: e.message, error: e.message });
+    }
+});
+
+app.delete('/api/admin/master-accounts', express.json(), async (req, res) => {
+    try {
+        await ensureMasterAccountColumns();
+        const payload = (req.body && Object.keys(req.body).length > 0) ? req.body : req.query;
+        const { platform, email, clearFreeRows = false, forceDeactivate = false, password } = payload || {};
+
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        if (!platform || !email) {
+            return res.status(400).json({ success: false, message: 'Faltan platform y email' });
+        }
+
+        const { fetchRawData, updateExcelData } = require('../apiService');
+        const allRows = await fetchRawData(3, 2000, true);
+        const targetPlatUpper = String(platform).trim().toUpperCase();
+        const targetEmailLower = String(email).trim().toLowerCase();
+
+        const matching = [];
+        allRows.forEach((row, i) => {
+            const rPlat = String(row.Streaming || row.Plataforma || '').trim().toUpperCase();
+            const rEmail = String(row.correo || row.Correo || '').trim().toLowerCase();
+            if (rPlat === targetPlatUpper && rEmail === targetEmailLower) {
+                matching.push({ row, rowNumber: row._rowNumber || (i + 2) });
+            }
+        });
+
+        const occupiedCount = matching.filter(m => !isExcelSlotFree(m.row)).length;
+        if (occupiedCount > 0 && !forceDeactivate) {
+            return res.status(409).json({
+                success: false,
+                hasOccupied: true,
+                occupiedCount,
+                message: `Esta cuenta tiene ${occupiedCount} cliente(s) activo(s). Confirma si deseas desactivarla (los clientes ocupados no se borrarán).`
+            });
+        }
+
+        let clearedRows = 0;
+        if (clearFreeRows === true || clearFreeRows === 'true') {
+            const freeMatches = matching.filter(m => isExcelSlotFree(m.row));
+            for (const m of freeMatches) {
+                await updateExcelData(m.rowNumber, {
+                    "Streaming": "",
+                    "correo": "",
+                    "contraseña": "",
+                    "Nombre": "",
+                    "apellido": "",
+                    "whatsapp": "",
+                    "numero": "",
+                    "vencimiento": "",
+                    "deben": "",
+                    "Metodo de pago": "",
+                    "observaciones": ""
+                });
+                clearedRows++;
+            }
+        }
+
+        if (matching.length === 0 || (occupiedCount === 0 && clearedRows === matching.length)) {
+            await pool.query(
+                'DELETE FROM stream_accounts WHERE LOWER(account_email) = ? AND LOWER(streaming_platform) = ?',
+                [targetEmailLower, targetPlatUpper.toLowerCase()]
+            );
+        } else {
+            await pool.query(
+                `UPDATE stream_accounts SET status = 'inactive' WHERE LOWER(account_email) = ? AND LOWER(streaming_platform) = ?`,
+                [targetEmailLower, targetPlatUpper.toLowerCase()]
+            );
+        }
+
+        res.json({
+            success: true,
+            clearedRows,
+            occupiedCount,
+            message: occupiedCount > 0
+                ? `Cuenta marcada como inactiva (${clearedRows} cupos vacíos limpiados; se preservaron ${occupiedCount} clientes activos).`
+                : `Cuenta matriz eliminada/desactivada (${clearedRows} filas vacías limpiadas en Excel).`
+        });
+    } catch (e) {
+        console.error('[Master Accounts Delete Error]:', e);
+        res.status(500).json({ success: false, message: e.message, error: e.message });
     }
 });
 

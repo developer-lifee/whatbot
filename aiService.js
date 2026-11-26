@@ -1387,12 +1387,17 @@ function cleanWhatsAppFormatting(text) {
   return formatted;
 }
 
-async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = [], userId = null, userStates = null, precomputedMediaDescription = null) {
+async function generateEmpatheticFallback(messageContent, isMedia, chatHistory = "", mediaData = null, userAccounts = [], userId = null, userStates = null, precomputedMediaDescription = null, extraContext = null) {
   const trimmedMsg = (messageContent || "").trim();
   const lowerMsg = (messageContent || "").toLowerCase();
+  const hasVisualOrMedia = Boolean(
+    isMedia ||
+    (mediaData && (Array.isArray(mediaData) ? mediaData.length > 0 : mediaData.data)) ||
+    precomputedMediaDescription
+  );
   const isOnlySymbols = trimmedMsg.length > 0 && /^[?¿!¡\s\-_.,*#@]+$/.test(trimmedMsg);
 
-  if (isOnlySymbols) {
+  if (isOnlySymbols && !hasVisualOrMedia) {
     let namePrompt = "";
     if (userStates && userId) {
       const stateData = userStates.get(userId);
@@ -1477,6 +1482,12 @@ async function generateEmpatheticFallback(messageContent, isMedia, chatHistory =
   }
 
   let accountSummary = summarizeAccounts(userAccounts);
+
+  if (extraContext && extraContext.siblingProfilesText) {
+    accountSummary += `\n\n${extraContext.siblingProfilesText}\n` +
+      `⚠️ REGLA ESTRICTA DE PERFILES EN PANTALLA: Nunca recomiendes al cliente entrar a un perfil con nombre de otro usuario activo listado arriba (aunque no tenga candado). ` +
+      `Si el perfil asignado del cliente no aparece en la foto, o el perfil DISPONIBLE/Nuevo tiene candado sin PIN registrado en el sistema, indica exactamente lo que ves en la foto y marca needsEscalation: true para que un asesor confirme el PIN o qué perfil renombrar.`;
+  }
 
   if (userAccounts && userAccounts.length > 0) {
     const platNames = userAccounts.map(a => a.Streaming || a.streaming_platform || a.platform || '').filter(Boolean);

@@ -1470,6 +1470,14 @@ async function handleAdvisorErrorReport(message, client, userStates) {
                     diagnosticNotes.push(`📌 *Turno en cola en memoria:* #${queueIdx + 1} de ${global.supportQueue.length} turnos registrados en caché.`);
                 }
             }
+
+            try {
+                const { getRecentTracesForPhone, formatTracesForErrorsBot } = require('./pipeline/decisionTraceService');
+                const traces = getRecentTracesForPhone(cleanPhone, 3);
+                if (traces && traces.length > 0) {
+                    diagnosticNotes.push(formatTracesForErrorsBot(traces));
+                }
+            } catch (traceErr) {}
         }
 
         if (extractedInfo.problemType === 'no_entrega_credenciales' || /no entrega|cupos|asignación manual/i.test(extractedInfo.summary || '')) {
