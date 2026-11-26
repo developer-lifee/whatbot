@@ -157,13 +157,13 @@
         "whatsappMessage": "Hola, no encuentro mi perfil en la cuenta de Netflix.",
         "steps": [
           {
-            "text": "Si al ingresar a la cuenta no ves un perfil con tu nombre, presiona 'Añadir perfil' (o '+')."
+            "text": "Si al ingresar a la cuenta ves un perfil llamado 'DISPONIBLE' o 'LIBRE', úsalo y cámbiale el nombre por el tuyo exacto registrado."
           },
           {
-            "text": "Crea tu perfil colocándole exactamente tu nombre registrado en nuestro sistema. NUNCA tomes ni modifiques perfiles existentes de otros usuarios."
+            "text": "Si no hay perfil 'DISPONIBLE', presiona 'Añadir perfil' (o '+') y crea tu perfil con tu nombre exacto registrado. NUNCA tomes ni modifiques perfiles de otros clientes activos."
           },
           {
-            "text": "Si la plataforma no te permite crear un perfil nuevo por límite de perfiles, avísanos para reasignarte una cuenta inmediatamente."
+            "text": "Si la plataforma no te permite crear un perfil nuevo por límite de perfiles, envíanos una foto de la pantalla de perfiles para indicarte exactamente cuál perfil anterior puedes editar y renombrar."
           }
         ]
       },

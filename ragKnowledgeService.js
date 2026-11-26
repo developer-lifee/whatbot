@@ -220,9 +220,9 @@ function loadSourceDocuments() {
     category: 'Soporte Crítico',
     title: 'Creación y Asignación de Perfiles',
     content: `GUÍA DE PERFILES:
-1. Si el cliente indica que no ve su nombre ("no sale mi nombre", "cuál perfil es el mío", "no está mi perfil"), debe presionar el botón "Añadir perfil" (o "+") en su pantalla y crearlo con su nombre exacto registrado.
-2. Está estrictamente PROHIBIDO modificar o tomar perfiles de otros compañeros para no cruzar pantallas.
-3. Si la cuenta ya alcanzó el límite máximo de perfiles y no deja crear uno nuevo, soporte le reasignará una cuenta nueva de inmediato.`
+1. Si en pantalla aparece un perfil llamado "DISPONIBLE" o "LIBRE", el cliente puede entrar a ese y renombrarlo con su nombre exacto registrado.
+2. Si no aparece "DISPONIBLE" o "LIBRE" y no ve su nombre, debe presionar "Añadir perfil" (o "+") y crearlo con su nombre exacto registrado. Está estrictamente PROHIBIDO tomar o modificar perfiles de otros clientes activos.
+3. Si la cuenta ya alcanzó el límite máximo de perfiles y no deja crear uno nuevo, NO prometer cambio de cuenta nueva: pedirle una foto de la pantalla de perfiles para identificar qué perfil de un ex-cliente ya inactivo puede editar y renombrar con su nombre.`
   });
 
   chunks.push({
