@@ -1533,7 +1533,7 @@ async function loadAccountingPlatformConfigs() {
         if (platformConfigs['NETFLIX']) {
             platformConfigs['NETFLIX'].extraPlatform = 'NETFLIX EXTRA';
             platformConfigs['NETFLIX'].defaultExtraSlots = 2;
-            platformConfigs['NETFLIX'].extraSlotCost = platformConfigs['NETFLIX EXTRA']?.defaultCost || 9900;
+            platformConfigs['NETFLIX'].extraSlotCost = platformConfigs['NETFLIX EXTRA']?.defaultCost || 11900;
             platformConfigs['NETFLIX'].extraSlotSalePrice = platformConfigs['NETFLIX EXTRA']?.defaultSalePrice || 17000;
         }
     } catch (e) {
@@ -1799,7 +1799,7 @@ app.post('/api/admin/accounts/add', express.json(), async (req, res) => {
         const parsedSale = salePrice !== '' && salePrice !== null && salePrice !== undefined ? Number(salePrice) : null;
         const resolvedExtraUnitCost = extraUnitCost !== '' && extraUnitCost !== null && extraUnitCost !== undefined
             ? Number(extraUnitCost)
-            : (cleanExtraPlat.toUpperCase() === 'NETFLIX EXTRA' ? 9900 : 0);
+            : (cleanExtraPlat.toUpperCase() === 'NETFLIX EXTRA' ? 11900 : 0);
         const resolvedExtraSalePrice = cleanExtraPlat.toUpperCase() === 'NETFLIX EXTRA' ? 17000 : null;
         const expDateSql = vencimiento && /^\d{4}-\d{2}-\d{2}$/.test(String(vencimiento).trim()) ? String(vencimiento).trim() : null;
 

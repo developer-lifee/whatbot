@@ -6,7 +6,7 @@ const SEED_STREAMING_COSTS = [
   { platform: 'CRUNCHY ROLL', email: 'gagwgwaggwf@spotinetshop.com', total_cost: 14900, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-16' },
   { platform: 'DISNEY', email: 'combitds@spotinetonline.org', total_cost: 18000, profile_slots: 7, duration_days: 30, expiration_date: '2024-06-18' },
   { platform: 'HBO', email: '2377eb6a@spotinetshop.com', total_cost: 15000, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-23' },
-  { platform: 'NETFLIX', email: 'bohrdavidaviladaza@gmail.com', total_cost: 54900, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-30' },
+  { platform: 'NETFLIX', email: 'bohrdavidaviladaza@gmail.com', total_cost: 50900, profile_slots: 5, duration_days: 30, expiration_date: '2024-06-30' },
   { platform: 'SPOTIFY', email: 'alep2037@yopmail.com', total_cost: 30500, profile_slots: 5, duration_days: 30, expiration_date: '2024-07-18' },
   { platform: 'VIX', email: 'combitds@spotinetonline.org', total_cost: 5000, profile_slots: 7, duration_days: 30, expiration_date: '2024-08-03' },
   { platform: 'PARAMOUNT', email: 'spotinetparamoun919822@spotinetshop.com', total_cost: 23900, profile_slots: 3, duration_days: 30, expiration_date: '2024-07-05' },
@@ -20,7 +20,7 @@ const SEED_STREAMING_COSTS = [
   { platform: 'MICROSOFT', email: '', total_cost: 46000, profile_slots: 5, duration_days: 31, expiration_date: null },
   { platform: 'GEMINI', email: 'discoveryrelesbiana@gmail.com', total_cost: 79900, profile_slots: 5, duration_days: 32, expiration_date: null },
   { platform: 'PLATZI', email: '', total_cost: 169154, profile_slots: 3, duration_days: 90, expiration_date: null },
-  { platform: 'NETFLIX EXTRA', email: '', total_cost: 9900, profile_slots: 1, duration_days: 30, expiration_date: null },
+  { platform: 'NETFLIX EXTRA', email: '', total_cost: 11900, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'HBO PLATINO', email: '', total_cost: 30000, profile_slots: 5, duration_days: 30, expiration_date: null },
   { platform: 'APPLE TV', email: '', total_cost: 0, profile_slots: 1, duration_days: 30, expiration_date: null },
   { platform: 'MICROSOFT COMPARTIDA', email: '', total_cost: 0, profile_slots: 1, duration_days: 31, expiration_date: null },
@@ -68,6 +68,82 @@ const SEED_STREAMING_PRICES = [
   { platform: 'PLATZI COMPARTIDA', normal_price: 20000 },
   { platform: 'IPTV', normal_price: 10000 }
 ];
+
+const USD_CARD_FEE_PERCENT = 2;
+const USD_PRICED_PLATFORMS = {
+  'GPT': 20,
+  'CHATGPT PLUS (4X A 6X)': 20,
+  'CHATGPT PRO ($100 USD)': 100,
+  'CHATGPT PRO SCALE ($200 USD)': 200,
+  'CLAUDE': 20,
+  'CLAUDE X2': 20,
+  'CLAUDE MAX': 100,
+  'CLAUDE MAX X5': 200
+};
+const FX_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+let cachedUsdRate = null;
+let cachedUsdRateTimestamp = 0;
+
+/**
+ * Obtiene la TRM oficial USD->COP (con caché de 12h) y suma la comisión de tarjeta internacional (2%).
+ */
+async function getUsdToCopRate() {
+  const now = Date.now();
+  if (cachedUsdRate && (now - cachedUsdRateTimestamp) < FX_CACHE_TTL_MS) {
+    return cachedUsdRate;
+  }
+
+  let trm = null;
+  let source = 'fallback';
+
+  try {
+    const resGov = await fetch('https://www.datos.gov.co/resource/32sa-8pi3.json?$limit=1&$order=vigenciadesde%20DESC', {
+      signal: AbortSignal.timeout(6000)
+    });
+    if (resGov.ok) {
+      const govData = await resGov.json();
+      const parsed = Array.isArray(govData) && govData[0] ? parseFloat(govData[0].valor) : NaN;
+      if (parsed > 2000 && parsed < 10000) {
+        trm = parsed;
+        source = 'datos.gov.co (TRM oficial)';
+      }
+    }
+  } catch (_) {}
+
+  if (!trm) {
+    try {
+      const resEr = await fetch('https://open.er-api.com/v6/latest/USD', {
+        signal: AbortSignal.timeout(6000)
+      });
+      if (resEr.ok) {
+        const erData = await resEr.json();
+        const parsed = erData && erData.rates ? parseFloat(erData.rates.COP) : NaN;
+        if (parsed > 2000 && parsed < 10000) {
+          trm = parsed;
+          source = 'open.er-api.com';
+        }
+      }
+    } catch (_) {}
+  }
+
+  if (!trm) {
+    if (cachedUsdRate) return cachedUsdRate;
+    trm = 3650;
+  }
+
+  const effectiveRate = Math.round(trm * (1 + USD_CARD_FEE_PERCENT / 100) * 100) / 100;
+  const result = {
+    trm: Math.round(trm * 100) / 100,
+    card_fee_percent: USD_CARD_FEE_PERCENT,
+    effective_rate: effectiveRate,
+    source,
+    updated_at: new Date().toISOString()
+  };
+
+  cachedUsdRate = result;
+  cachedUsdRateTimestamp = now;
+  return result;
+}
 
 let tablesInitialized = false;
 async function initAccountingTables() {
@@ -538,6 +614,7 @@ async function calculateDailyAccounting() {
   const prices = await getPrices();
   const costs = await getCosts();
   const clients = await fetchCustomersData();
+  const fxInfo = await getUsdToCopRate();
   const now = new Date();
   now.setHours(0, 0, 0, 0);
 
@@ -774,6 +851,23 @@ async function calculateDailyAccounting() {
     }
   });
 
+  // Aplicar conversión TRM en vivo + 2% comisión de tarjeta a los planes facturados en USD
+  Object.entries(USD_PRICED_PLATFORMS).forEach(([usdPlat, usdAmount]) => {
+    const dynamicCopCost = Math.round(usdAmount * fxInfo.effective_rate);
+    if (!costMap[usdPlat]) {
+      costMap[usdPlat] = {
+        total_cost: dynamicCopCost,
+        profile_slots: 5,
+        duration_days: 31,
+        email: '',
+        usd_price: usdAmount
+      };
+    } else {
+      costMap[usdPlat].total_cost = dynamicCopCost;
+      costMap[usdPlat].usd_price = usdAmount;
+    }
+  });
+
   // Lista de plataformas cuyo costo ya está implícito en la cuenta matriz principal
   const IMPLICIT_COST_PLATFORMS = new Set([
     'SPOTIFY OWNER',
@@ -829,13 +923,15 @@ async function calculateDailyAccounting() {
     // Ignorar descuentos normales de combo ($500 - $5.000 COP); marcar solo cuando pagaron el precio de un tier inferior en subplanes IA
     const underpayingClients = isAiPlat ? inv.clients.filter(cl => cl.paid_amount < (expectedPricePerSlot - 6000)) : [];
 
+    const usdPrice = USD_PRICED_PLATFORMS[inv.platform] || 0;
     let usdTier = 'COP Matriz';
-    if (costInfo.total_cost >= 700000) usdTier = '$200 USD';
+    if (usdPrice > 0) usdTier = `$${usdPrice} USD`;
+    else if (costInfo.total_cost >= 700000) usdTier = '$200 USD';
     else if (costInfo.total_cost >= 350000) usdTier = '$100 USD';
     else if (isAiPlat) usdTier = '$20 USD';
 
     // Marcar como Red Flag si la cuenta da pérdida (netBalance < 0), cuesta >= $100 USD, o tiene clientes alojados de un tier inferior
-    if (netBalance < 0 || costInfo.total_cost >= 350000 || underpayingClients.length > 0) {
+    if (netBalance < 0 || usdPrice >= 100 || costInfo.total_cost >= 350000 || underpayingClients.length > 0) {
       let alertReason = '';
       if (underpayingClients.length > 0 && netBalance < 0) {
         alertReason = `Cuenta ${usdTier} ($${monthlyAccountCost.toLocaleString('es-CO')} COP/mes) con ${inv.occupied_slots}/${inv.total_slots} cupos ocupados: recaudo de $${realMonthlyIncome.toLocaleString('es-CO')} (incluye ${underpayingClients.length} cupo(s) por debajo de $${expectedPricePerSlot.toLocaleString('es-CO')}) no cubre el costo mensual.`;
@@ -967,6 +1063,7 @@ async function calculateDailyAccounting() {
   return {
     rows: rows.filter(r => r.ingreso_total > 0 || r.egreso_total > 0),
     red_flags: redFlags,
+    fx_rate: fxInfo,
     totals: {
       ingreso_total: globalIngresoTotal,
       egreso_total: globalEgresoTotal,
@@ -1205,5 +1302,6 @@ module.exports = {
   calculateRealCashFlow,
   recordAccountRenewal,
   getAccountRenewals,
-  deleteAccountRenewal
+  deleteAccountRenewal,
+  getUsdToCopRate
 };
