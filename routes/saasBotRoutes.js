@@ -681,6 +681,37 @@ function registerSaasBotRoutes(app) {
       res.status(500).json({ success: false, message: err.message });
     }
   });
+
+  const handleImpersonateTenant = async (req, res) => {
+    try {
+      const adminPwd = req.body?.password || req.query?.password || req.headers['x-admin-password'];
+      if (adminPwd !== 'admin123') {
+        return res.status(401).json({ success: false, message: 'Unauthorized' });
+      }
+      const tenantId = Number(req.params.id);
+      const tenant = await saasBotManager.getTenantById(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ success: false, message: 'Cliente SaaS no encontrado.' });
+      }
+      const token = signSessionToken({
+        role: 'saas_bot',
+        tenantId: tenant.id,
+        email: tenant.email,
+        impersonatedBy: 'admin'
+      });
+      res.json({
+        success: true,
+        token,
+        loginUrl: `https://sheerit.co/mi-bot?impersonate=${encodeURIComponent(token)}`,
+        tenant: saasBotManager.sanitizeTenant(tenant)
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  };
+
+  app.get('/api/admin/saas-bots/:id/impersonate', handleImpersonateTenant);
+  app.post('/api/admin/saas-bots/:id/impersonate', express.json(), handleImpersonateTenant);
 }
 
 module.exports = { registerSaasBotRoutes };

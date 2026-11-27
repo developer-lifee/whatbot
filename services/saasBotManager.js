@@ -1,14 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const pino = require('pino');
 const qrcode = require('qrcode');
-const {
-  default: makeWASocket,
-  useMultiFileAuthState,
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  Browsers
-} = require('@whiskeysockets/baileys');
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const { pool } = require('../database');
 const elevenLabsService = require('./elevenLabsService');
 
@@ -17,9 +10,9 @@ if (!fs.existsSync(SESSIONS_ROOT)) {
   fs.mkdirSync(SESSIONS_ROOT, { recursive: true });
 }
 
-const sessions = new Map(); // tenantId -> { sock, status, qrDataUrl, phone, lastError, isStarting, manualStop }
-const chatHistories = new Map(); // `${tenantId}:${jid}` -> [{ role, content }]
-const incomingBatches = new Map(); // `${tenantId}:${jid}` -> { msgs: [], keys: [], timer: Timeout }
+const sessions = new Map(); // tenantId -> { client, status, qrDataUrl, phone, lastError, isStarting, manualStop }
+const chatHistories = new Map(); // `${tenantId}:${chatId}` -> [{ role, content }]
+const incomingBatches = new Map(); // `${tenantId}:${chatId}` -> { items: [], timer: Timeout }
 const tenantQueues = new Map(); // tenantId -> Promise chain
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -327,32 +320,40 @@ Reglas para decidir:
 /**
  * Envía nota de voz nativa PTT simulando grabación humana proporcional a la duración (sin marca de reenviado).
  */
-async function sendHumanVoiceNote(sock, remoteJid, oggBuffer, durationSec = 5) {
+async function sendHumanVoiceNote(client, chatId, oggBuffer, durationSec = 5) {
   const recMs = Math.min(Math.max(3500, (Number(durationSec) || 5) * 650), 14000) + randomBetween(200, 900);
-  await sock.sendPresenceUpdate('recording', remoteJid).catch(() => {});
+  const chat = await client.getChatById(chatId).catch(() => null);
+  if (chat) await chat.sendStateRecording().catch(() => {});
   await sleep(recMs);
-  await sock.sendPresenceUpdate('paused', remoteJid).catch(() => {});
-  await sock.sendMessage(remoteJid, {
-    audio: oggBuffer,
-    mimetype: 'audio/ogg; codecs=opus',
-    ptt: true,
-    ...(durationSec ? { seconds: Number(durationSec) } : {})
-  });
+  const media = new MessageMedia('audio/ogg; codecs=opus', oggBuffer.toString('base64'), 'voice.ogg');
+  await client.sendMessage(chatId, media, { sendAudioAsVoice: true });
+  if (chat) await chat.clearState().catch(() => {});
 }
 
 /**
  * Envía texto simulando escritura humana proporcional al largo del mensaje.
  */
-async function sendHumanText(sock, remoteJid, text) {
-  const compMs = Math.min(Math.max(1800, String(text || '').length * 32), 4800) + randomBetween(150, 600);
-  await sock.sendPresenceUpdate('composing', remoteJid).catch(() => {});
-  await sleep(compMs);
-  await sock.sendPresenceUpdate('paused', remoteJid).catch(() => {});
-  await sock.sendMessage(remoteJid, { text });
+async function sendHumanText(client, chatId, text) {
+  const typeMs = Math.min(Math.max(1500, String(text || '').length * 38), 7500) + randomBetween(200, 700);
+  const chat = await client.getChatById(chatId).catch(() => null);
+  if (chat) await chat.sendStateTyping().catch(() => {});
+  await sleep(typeMs);
+  await client.sendMessage(chatId, text);
+  if (chat) await chat.clearState().catch(() => {});
 }
 
 function getTenantSessionDir(tenantId) {
-  return path.join(SESSIONS_ROOT, `tenant_${tenantId}`);
+  return path.join(SESSIONS_ROOT, `session-saas-tenant-${tenantId}`);
+}
+
+function cleanChromiumLocks(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const file of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    const target = path.join(dir, file);
+    if (fs.existsSync(target)) {
+      try { fs.rmSync(target, { force: true }); } catch {}
+    }
+  }
 }
 
 function getTenantSessionState(tenantId) {
@@ -379,10 +380,10 @@ async function logTenantMessage(tenantId, customerJid, direction, messageType, b
   }
 }
 
-function enqueueTenantBatch(tenantId, remoteJid, msgs, keys) {
+function enqueueTenantBatch(tenantId, remoteJid, items) {
   const prev = tenantQueues.get(tenantId) || Promise.resolve();
   const next = prev
-    .then(() => processHumanTenantBatch(tenantId, remoteJid, msgs, keys))
+    .then(() => processHumanTenantBatch(tenantId, remoteJid, items))
     .catch(err => {
       console.error(`[SaaS Bot #${tenantId}] Error en cola humana:`, err.message);
     })
@@ -391,7 +392,7 @@ function enqueueTenantBatch(tenantId, remoteJid, msgs, keys) {
   tenantQueues.set(tenantId, next);
 }
 
-async function processHumanTenantBatch(tenantId, remoteJid, batchItems, keys) {
+async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
   const tenant = await getTenantById(tenantId);
   if (!tenant || tenant.status !== 'active' || !tenant.is_bot_active) return;
 
@@ -406,7 +407,7 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems, keys) {
   }
 
   const sess = sessions.get(Number(tenantId));
-  if (!sess || !sess.sock || sess.status !== 'CONNECTED') return;
+  if (!sess || !sess.client || sess.status !== 'CONNECTED') return;
 
   const isVoiceMsg = batchItems.some(x => x.isVoice);
   const combinedText = batchItems.map(x => x.text).filter(Boolean).join('\n').trim();
@@ -414,10 +415,11 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems, keys) {
 
   await logTenantMessage(tenantId, remoteJid, 'in', isVoiceMsg ? 'audio' : 'text', incomingText);
 
-  // Pausa humana antes de marcar mensajes como leídos
+  // Pausa humana antes de marcar mensajes como leídos en WhatsApp Web
   await sleep(randomBetween(1200, 2800));
-  if (keys.length > 0) {
-    await sess.sock.readMessages(keys).catch(() => {});
+  const chat = await sess.client.getChatById(remoteJid).catch(() => null);
+  if (chat) {
+    await chat.sendSeen().catch(() => {});
   }
 
   const histKey = `${tenantId}:${remoteJid}`;
@@ -444,28 +446,28 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems, keys) {
       try {
         const audioPaths = decision.pickedAudios.map(a => a.file_path);
         const built = await elevenLabsService.buildFreshWhatsAppVoiceNoteFromFiles(audioPaths, { pauseMs: 350 });
-        await sendHumanVoiceNote(sess.sock, remoteJid, built.oggBuffer, built.durationSec);
+        await sendHumanVoiceNote(sess.client, remoteJid, built.oggBuffer, built.durationSec);
         const titles = decision.pickedAudios.map(a => a.title).join(' + ');
         sentType = 'audio';
         logSummary = `[Nota de voz: ${titles} (${built.durationSec}s)]`;
 
         if (decision.mode === 'audio_and_text' && decision.replyText) {
           await sleep(randomBetween(1000, 2200));
-          await sendHumanText(sess.sock, remoteJid, decision.replyText);
+          await sendHumanText(sess.client, remoteJid, decision.replyText);
           sentType = 'audio+text';
           logSummary += `\n${decision.replyText}`;
         }
       } catch (audioErr) {
         console.warn(`[SaaS Bot #${tenantId}] Error armando nota de voz de biblioteca:`, audioErr.message);
         if (decision.replyText) {
-          await sendHumanText(sess.sock, remoteJid, decision.replyText);
+          await sendHumanText(sess.client, remoteJid, decision.replyText);
           logSummary = decision.replyText;
         } else {
           return;
         }
       }
     } else if (decision.replyText) {
-      await sendHumanText(sess.sock, remoteJid, decision.replyText);
+      await sendHumanText(sess.client, remoteJid, decision.replyText);
       logSummary = decision.replyText;
     } else {
       return;
@@ -516,14 +518,14 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems, keys) {
         });
         const oggBuf = await elevenLabsService.convertMp3ToWhatsAppOgg(mp3Buf);
         const approxSec = Math.max(4, Math.round(replyText.length / 15));
-        await sendHumanVoiceNote(sess.sock, remoteJid, oggBuf, approxSec);
+        await sendHumanVoiceNote(sess.client, remoteJid, oggBuf, approxSec);
         sentType = 'audio';
       } catch (voiceErr) {
         console.warn(`[SaaS Bot #${tenantId}] Falló voz ElevenLabs, enviando texto:`, voiceErr.message);
-        await sendHumanText(sess.sock, remoteJid, replyText);
+        await sendHumanText(sess.client, remoteJid, replyText);
       }
     } else {
-      await sendHumanText(sess.sock, remoteJid, replyText);
+      await sendHumanText(sess.client, remoteJid, replyText);
     }
     logSummary = replyText;
   }
@@ -536,22 +538,13 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems, keys) {
 }
 
 function handleIncomingTenantMessage(tenantId, msg) {
-  const remoteJid = msg?.key?.remoteJid;
-  if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast' || remoteJid.includes('@newsletter')) {
+  const remoteJid = msg?.from;
+  if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast' || remoteJid.includes('@newsletter') || msg.fromMe) {
     return;
   }
 
-  const m = msg.message;
-  if (!m) return;
-
-  const isVoiceMsg = Boolean(m.audioMessage);
-  const rawText = (
-    m.conversation ||
-    m.extendedTextMessage?.text ||
-    m.imageMessage?.caption ||
-    m.videoMessage?.caption ||
-    ''
-  ).trim();
+  const isVoiceMsg = msg.type === 'ptt' || msg.type === 'audio';
+  const rawText = String(msg.body || '').trim();
 
   if (!rawText && !isVoiceMsg) return;
 
@@ -559,38 +552,41 @@ function handleIncomingTenantMessage(tenantId, msg) {
   const batchKey = `${tenantId}:${remoteJid}`;
   let batch = incomingBatches.get(batchKey);
   if (!batch) {
-    batch = { items: [], keys: [], timer: null };
+    batch = { items: [], timer: null };
     incomingBatches.set(batchKey, batch);
   }
   batch.items.push({ text: rawText, isVoice: isVoiceMsg });
-  if (msg.key) batch.keys.push(msg.key);
 
   if (batch.timer) clearTimeout(batch.timer);
   batch.timer = setTimeout(() => {
     const done = incomingBatches.get(batchKey);
     incomingBatches.delete(batchKey);
     if (done && done.items.length > 0) {
-      enqueueTenantBatch(tenantId, remoteJid, done.items, done.keys);
+      enqueueTenantBatch(tenantId, remoteJid, done.items);
     }
   }, 5500);
 }
 
 /**
- * Inicia o recupera la sesión WhatsApp (Baileys sin Chromium) de un cliente SaaS.
+ * Inicia o recupera la sesión WhatsApp Web real (whatsapp-web.js + LocalAuth) de un cliente SaaS.
  */
 async function startTenantSession(tenantId) {
   await ensureSaasBotTables();
   const id = Number(tenantId);
   const existing = sessions.get(id);
-  if (existing && (existing.isStarting || existing.status === 'CONNECTED')) {
+  if (existing && (existing.isStarting || existing.status === 'CONNECTED' || existing.status === 'QR_READY')) {
     return getTenantSessionState(id);
   }
 
+  if (existing && existing.client) {
+    try { await existing.client.destroy(); } catch {}
+  }
+
   const sessionDir = getTenantSessionDir(id);
-  fs.mkdirSync(sessionDir, { recursive: true });
+  cleanChromiumLocks(sessionDir);
 
   const stateObj = {
-    sock: null,
+    client: null,
     status: 'CONNECTING',
     qrDataUrl: null,
     phone: null,
@@ -601,91 +597,110 @@ async function startTenantSession(tenantId) {
   sessions.set(id, stateObj);
 
   try {
-    const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
-    const { version } = await fetchLatestBaileysVersion().catch(() => ({ version: [2, 3000, 1015901307] }));
-
-    const sock = makeWASocket({
-      version,
-      auth: state,
-      logger: pino({ level: 'silent' }),
-      browser: Browsers.ubuntu('SheeritBot'),
-      printQRInTerminal: false,
-      markOnlineOnConnect: false
+    const client = new Client({
+      authStrategy: new LocalAuth({
+        clientId: `saas-tenant-${id}`,
+        dataPath: SESSIONS_ROOT
+      }),
+      puppeteer: {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--disable-gpu',
+          '--disable-extensions',
+          '--disable-blink-features=AutomationControlled',
+          '--disable-features=IsolateOrigins,site-per-process',
+          '--disable-site-isolation-trials'
+        ],
+        timeout: 60000
+      }
     });
 
-    stateObj.sock = sock;
-    stateObj.isStarting = false;
+    stateObj.client = client;
 
-    sock.ev.on('creds.update', saveCreds);
-
-    sock.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
-
-      if (qr) {
-        try {
-          stateObj.qrDataUrl = await qrcode.toDataURL(qr);
-          stateObj.status = 'QR_READY';
-          stateObj.lastError = null;
-          await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['QR_READY', id]).catch(() => {});
-        } catch (qrErr) {
-          stateObj.lastError = qrErr.message;
-        }
-      }
-
-      if (connection === 'open') {
-        const rawUser = sock.user?.id || '';
-        const phone = rawUser.split(':')[0].split('@')[0].replace(/\D/g, '') || null;
-        stateObj.status = 'CONNECTED';
-        stateObj.qrDataUrl = null;
-        stateObj.phone = phone;
+    client.on('qr', async (qr) => {
+      try {
+        stateObj.qrDataUrl = await qrcode.toDataURL(qr);
+        stateObj.status = 'QR_READY';
+        stateObj.isStarting = false;
         stateObj.lastError = null;
-        await pool.query(
-          'UPDATE saas_bot_tenants SET wa_status = ?, wa_phone = ?, last_connected_at = NOW() WHERE id = ?',
-          ['CONNECTED', phone, id]
-        ).catch(() => {});
-        console.log(`[SaaS Bot #${id}] ✅ WhatsApp conectado (${phone || 'OK'})`);
-      }
-
-      if (connection === 'close') {
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const loggedOut = statusCode === DisconnectReason.loggedOut;
-        stateObj.qrDataUrl = null;
-
-        if (stateObj.manualStop || loggedOut) {
-          stateObj.status = 'DISCONNECTED';
-          stateObj.phone = null;
-          if (loggedOut) {
-            try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
-          }
-          await pool.query('UPDATE saas_bot_tenants SET wa_status = ?, wa_phone = NULL WHERE id = ?', ['DISCONNECTED', id]).catch(() => {});
-          console.log(`[SaaS Bot #${id}] Sesión cerrada (${loggedOut ? 'loggedOut' : 'manual'}).`);
-        } else {
-          stateObj.status = 'CONNECTING';
-          stateObj.lastError = lastDisconnect?.error?.message || 'Reconectando...';
-          setTimeout(() => {
-            const cur = sessions.get(id);
-            if (cur && !cur.manualStop) {
-              cur.status = 'DISCONNECTED';
-              cur.isStarting = false;
-              startTenantSession(id).catch(() => {});
-            }
-          }, 4000);
-        }
+        await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['QR_READY', id]).catch(() => {});
+        console.log(`[SaaS Bot #${id}] 📷 QR de WhatsApp Web generado`);
+      } catch (qrErr) {
+        stateObj.lastError = qrErr.message;
       }
     });
 
-    sock.ev.on('messages.upsert', (upsert) => {
-      if (upsert.type !== 'notify' || !Array.isArray(upsert.messages)) return;
-      for (const msg of upsert.messages) {
-        if (msg?.key?.fromMe) continue;
-        handleIncomingTenantMessage(id, msg);
+    client.on('ready', async () => {
+      const phone = client.info?.wid?.user ? String(client.info.wid.user).replace(/\D/g, '') : null;
+      stateObj.status = 'CONNECTED';
+      stateObj.isStarting = false;
+      stateObj.qrDataUrl = null;
+      stateObj.phone = phone;
+      stateObj.lastError = null;
+      await pool.query(
+        'UPDATE saas_bot_tenants SET wa_status = ?, wa_phone = ?, last_connected_at = NOW() WHERE id = ?',
+        ['CONNECTED', phone, id]
+      ).catch(() => {});
+      console.log(`[SaaS Bot #${id}] ✅ WhatsApp Web conectado (${phone || 'OK'})`);
+    });
+
+    client.on('auth_failure', async (msg) => {
+      stateObj.isStarting = false;
+      stateObj.status = 'DISCONNECTED';
+      stateObj.qrDataUrl = null;
+      stateObj.lastError = msg || 'Error de autenticación de WhatsApp Web';
+      await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['DISCONNECTED', id]).catch(() => {});
+      console.error(`[SaaS Bot #${id}] Error auth_failure:`, msg);
+    });
+
+    client.on('disconnected', async (reason) => {
+      stateObj.isStarting = false;
+      stateObj.qrDataUrl = null;
+      const loggedOut = String(reason || '').toUpperCase().includes('LOGOUT');
+      if (stateObj.manualStop || loggedOut) {
+        stateObj.status = 'DISCONNECTED';
+        stateObj.phone = null;
+        if (loggedOut) {
+          try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
+        }
+        await pool.query('UPDATE saas_bot_tenants SET wa_status = ?, wa_phone = NULL WHERE id = ?', ['DISCONNECTED', id]).catch(() => {});
+        console.log(`[SaaS Bot #${id}] Sesión cerrada (${reason || 'manual'}).`);
+      } else {
+        stateObj.status = 'CONNECTING';
+        stateObj.lastError = `Reconectando (${reason || 'desconexión'})...`;
+        setTimeout(() => {
+          const cur = sessions.get(id);
+          if (cur && !cur.manualStop) {
+            cur.status = 'DISCONNECTED';
+            cur.isStarting = false;
+            startTenantSession(id).catch(() => {});
+          }
+        }, 5000);
       }
+    });
+
+    client.on('message', (msg) => {
+      handleIncomingTenantMessage(id, msg);
+    });
+
+    await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['CONNECTING', id]).catch(() => {});
+    client.initialize().catch(async (initErr) => {
+      stateObj.isStarting = false;
+      stateObj.status = 'DISCONNECTED';
+      stateObj.lastError = initErr?.message || 'No se pudo iniciar WhatsApp Web';
+      await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['DISCONNECTED', id]).catch(() => {});
+      console.error(`[SaaS Bot #${id}] Error en client.initialize():`, initErr?.message);
     });
   } catch (err) {
     stateObj.isStarting = false;
     stateObj.status = 'DISCONNECTED';
     stateObj.lastError = err.message;
-    console.error(`[SaaS Bot #${id}] Error iniciando sesión Baileys:`, err.message);
+    console.error(`[SaaS Bot #${id}] Error iniciando sesión whatsapp-web.js:`, err.message);
   }
 
   return getTenantSessionState(id);
@@ -695,19 +710,21 @@ async function disconnectTenantSession(tenantId) {
   const id = Number(tenantId);
   const mem = sessions.get(id);
   const sessionDir = getTenantSessionDir(id);
+  const legacyDir = path.join(SESSIONS_ROOT, `tenant_${id}`);
 
   if (mem) {
     mem.manualStop = true;
     mem.status = 'DISCONNECTED';
     mem.qrDataUrl = null;
-    if (mem.sock) {
-      try { await mem.sock.logout(); } catch {}
-      try { mem.sock.end(); } catch {}
+    if (mem.client) {
+      try { await mem.client.logout(); } catch {}
+      try { await mem.client.destroy(); } catch {}
     }
     sessions.delete(id);
   }
 
   try { fs.rmSync(sessionDir, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(legacyDir, { recursive: true, force: true }); } catch {}
   await ensureSaasBotTables();
   await pool.query('UPDATE saas_bot_tenants SET wa_status = ?, wa_phone = NULL WHERE id = ?', ['DISCONNECTED', id]);
   return { status: 'DISCONNECTED', qrDataUrl: null, phone: null };
@@ -716,7 +733,7 @@ async function disconnectTenantSession(tenantId) {
 async function sendTenantAudioOrText(tenantId, targetPhone, { text, oggBuffer, durationSec = 5 } = {}) {
   const id = Number(tenantId);
   const mem = sessions.get(id);
-  if (!mem || !mem.sock || mem.status !== 'CONNECTED') {
+  if (!mem || !mem.client || mem.status !== 'CONNECTED') {
     throw new Error('Tu WhatsApp no está conectado. Escanea el código QR primero.');
   }
 
@@ -725,14 +742,15 @@ async function sendTenantAudioOrText(tenantId, targetPhone, { text, oggBuffer, d
     throw new Error('Número de destino inválido (mínimo 10 dígitos).');
   }
   const normalized = digits.length === 10 && digits.startsWith('3') ? `57${digits}` : digits;
-  const jid = `${normalized}@s.whatsapp.net`;
+  const numberId = await mem.client.getNumberId(normalized).catch(() => null);
+  const chatId = numberId?._serialized || `${normalized}@c.us`;
 
   if (oggBuffer) {
-    await sendHumanVoiceNote(mem.sock, jid, oggBuffer, durationSec);
-    await logTenantMessage(id, jid, 'out', 'audio', text || '[Nota de voz enviada]');
+    await sendHumanVoiceNote(mem.client, chatId, oggBuffer, durationSec);
+    await logTenantMessage(id, chatId, 'out', 'audio', text || '[Nota de voz enviada]');
   } else if (text) {
-    await sendHumanText(mem.sock, jid, text);
-    await logTenantMessage(id, jid, 'out', 'text', text);
+    await sendHumanText(mem.client, chatId, text);
+    await logTenantMessage(id, chatId, 'out', 'text', text);
   }
 }
 
@@ -741,9 +759,8 @@ async function autoRestoreSavedSessions() {
     await ensureSaasBotTables();
     const [rows] = await pool.query("SELECT id FROM saas_bot_tenants WHERE status = 'active' AND wa_status = 'CONNECTED'");
     for (const row of rows) {
-      const credsFile = path.join(getTenantSessionDir(row.id), 'creds.json');
-      if (fs.existsSync(credsFile)) {
-        console.log(`[SaaS Bot] 🔄 Restaurando sesión guardada del cliente #${row.id}...`);
+      if (fs.existsSync(getTenantSessionDir(row.id))) {
+        console.log(`[SaaS Bot] 🔄 Restaurando sesión WhatsApp Web guardada del cliente #${row.id}...`);
         startTenantSession(row.id).catch(err => {
           console.warn(`[SaaS Bot] No se pudo restaurar cliente #${row.id}:`, err.message);
         });
