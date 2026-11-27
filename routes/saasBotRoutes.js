@@ -869,6 +869,20 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     }
   });
 
+  app.post('/api/saas-bot/simulate', requireSaasTenant, express.json(), async (req, res) => {
+    try {
+      const { messages, history, humanPaused } = req.body || {};
+      const simulation = await saasBotManager.simulateTenantChatTurn(req.tenantId, {
+        messages,
+        history,
+        humanPaused: Boolean(humanPaused)
+      });
+      res.json({ success: true, simulation });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message || 'No se pudo simular la conversación.' });
+    }
+  });
+
   app.get('/api/saas-bot/audios/:id/stream', requireSaasTenant, async (req, res) => {
     try {
       await saasBotManager.ensureSaasBotTables();

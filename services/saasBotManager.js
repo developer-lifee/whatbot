@@ -764,7 +764,7 @@ async function startTenantSession(tenantId) {
         timeout: 60000,
         protocolTimeout: 180000
       },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
       webVersionCache: {
         type: 'none'
       },
@@ -789,6 +789,23 @@ async function startTenantSession(tenantId) {
         console.log(`[SaaS Bot #${id}] 📷 QR de WhatsApp Web generado`);
       } catch (qrErr) {
         stateObj.lastError = qrErr.message;
+      }
+    });
+
+    client.on('code', async (code) => {
+      try {
+        const cleanCode = String(code || '').trim();
+        if (!cleanCode) return;
+        stateObj.pairingCode = cleanCode;
+        stateObj.qrDataUrl = null;
+        stateObj.qrUpdatedAt = Date.now();
+        stateObj.isStarting = false;
+        stateObj.status = 'PAIRING_CODE_READY';
+        stateObj.lastError = null;
+        await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['PAIRING_CODE_READY', id]).catch(() => {});
+        console.log(`[SaaS Bot #${id}] 🔢 Código de vinculación actualizado: ${cleanCode}`);
+      } catch (codeErr) {
+        stateObj.lastError = codeErr.message;
       }
     });
 
@@ -1348,6 +1365,120 @@ async function handleEscalateCoreCommand(improvementIdRaw, client, replyFn) {
   }
 }
 
+/**
+ * Simula un turno completo en el Modo Prueba usando el mismo decididor e instrucciones reales
+ * sin requerir WhatsApp conectado, sin enviar mensajes reales ni consumir cuota mensual.
+ */
+async function simulateTenantChatTurn(tenantId, { messages = [], history = [], humanPaused = false } = {}) {
+  await ensureSaasBotTables();
+  const tenant = await getTenantById(tenantId);
+  if (!tenant) throw new Error('Cuenta de bot no encontrada.');
+
+  const cleanMessages = (Array.isArray(messages) ? messages : [messages])
+    .map(m => String(m || '').trim())
+    .filter(Boolean);
+  if (cleanMessages.length === 0) {
+    throw new Error('Escribe al menos un mensaje de prueba.');
+  }
+  const incomingText = cleanMessages.join('\n');
+
+  if (humanPaused) {
+    return {
+      pausedByHuman: true,
+      mode: 'paused',
+      incomingText,
+      pickedAudios: [],
+      replyText: '',
+      reason: `Chat en control manual (${tenant.human_pause_minutes ?? 30} min): el bot permanece en silencio mientras el asesor atiende.`,
+      assistantHistorySummary: ''
+    };
+  }
+
+  const safeHistory = (Array.isArray(history) ? history : [])
+    .filter(h => h && (h.role === 'user' || h.role === 'assistant') && String(h.content || '').trim())
+    .map(h => ({ role: h.role, content: String(h.content) }))
+    .slice(-12);
+
+  const [activeAudios] = await pool.query(
+    'SELECT id, title, trigger_description, file_path, image_path, image_filename, followup_text, duration_sec FROM saas_bot_audios WHERE tenant_id = ? AND is_active = 1 ORDER BY id ASC',
+    [tenant.id]
+  );
+
+  if (activeAudios.length > 0) {
+    const decision = await decideTenantReplyWithAudioLibrary(tenant, activeAudios, safeHistory, incomingText);
+    const pickedAudios = decision.pickedAudios.map(a => ({
+      id: Number(a.id),
+      title: a.title,
+      duration_sec: Number(a.duration_sec || 5),
+      hasImage: Boolean(a.image_path && fs.existsSync(a.image_path)),
+      image_filename: a.image_filename || null,
+      followup_text: a.followup_text ? String(a.followup_text).trim() : ''
+    }));
+
+    let assistantHistorySummary = '';
+    if ((decision.mode === 'audio' || decision.mode === 'audio_and_text') && pickedAudios.length > 0) {
+      const titles = pickedAudios.map(a => a.title).join(' + ');
+      const totalDur = pickedAudios.reduce((acc, a) => acc + (Number(a.duration_sec) || 5), 0);
+      assistantHistorySummary = `[Nota de voz: ${titles} (${totalDur}s)]`;
+      const sentFollowups = new Set();
+      for (const picked of pickedAudios) {
+        if (picked.hasImage) {
+          assistantHistorySummary += `\n[Imagen: ${picked.image_filename || 'adjunta'}]`;
+          if (picked.followup_text) {
+            assistantHistorySummary += `\n${picked.followup_text}`;
+            sentFollowups.add(picked.followup_text);
+          }
+        } else if (picked.followup_text && !sentFollowups.has(picked.followup_text)) {
+          assistantHistorySummary += `\n${picked.followup_text}`;
+          sentFollowups.add(picked.followup_text);
+        }
+      }
+      if (decision.mode === 'audio_and_text' && decision.replyText && !sentFollowups.has(decision.replyText.trim())) {
+        assistantHistorySummary += `\n${decision.replyText}`;
+      }
+    } else if (decision.replyText) {
+      assistantHistorySummary = decision.replyText;
+    }
+
+    return {
+      pausedByHuman: false,
+      mode: decision.mode,
+      incomingText,
+      pickedAudios,
+      replyText: decision.replyText || '',
+      reason: decision.reason || '',
+      assistantHistorySummary
+    };
+  }
+
+  const systemInstruction = [
+    tenant.system_prompt || `Eres el asistente virtual oficial de ${tenant.business_name}.`,
+    `Tono de atención: ${tenant.bot_tone || 'amigable'}.`,
+    tenant.business_description ? `Descripción del negocio: ${tenant.business_description}` : '',
+    tenant.knowledge_base ? `BASE DE CONOCIMIENTO:\n${tenant.knowledge_base}` : '',
+    'Regla de WhatsApp: responde claro, conciso y natural en español sin inventar datos no confirmados.'
+  ].filter(Boolean).join('\n\n');
+
+  const replyText = await callLlmCompletion(
+    [
+      { role: 'system', content: systemInstruction },
+      ...safeHistory.slice(-8),
+      { role: 'user', content: incomingText }
+    ],
+    { temperature: 0.5, maxTokens: 550 }
+  );
+
+  return {
+    pausedByHuman: false,
+    mode: 'text',
+    incomingText,
+    pickedAudios: [],
+    replyText: String(replyText || '').trim(),
+    reason: 'Respuesta en texto generada con tus instrucciones (sin audios activos).',
+    assistantHistorySummary: String(replyText || '').trim()
+  };
+}
+
 module.exports = {
   ensureSaasBotTables,
   getTenantById,
@@ -1359,6 +1490,7 @@ module.exports = {
   getTenantSessionState,
   sendTenantAudioOrText,
   sendManualFlowToChat,
+  simulateTenantChatTurn,
   getChatPauseState,
   setChatPauseState,
   autoRestoreSavedSessions,
