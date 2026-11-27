@@ -1815,6 +1815,7 @@ const { registerAdminClientsRoutes } = require('./routes/adminClientsRoutes');
 const { registerAdminCatalogAndAccountingRoutes, checkAccountAutomationStatus } = require('./routes/adminCatalogAndAccountingRoutes');
 const { registerAdminAgentsAndPayrollRoutes, runRpaRecipe } = require('./routes/adminAgentsAndPayrollRoutes');
 const { registerClientPortalRoutes, DEMO_ACCOUNTS_LIST, isDemoClientPhone, ADMIN_DEMO_RECIPIENT_PHONE } = require('./routes/clientPortalRoutes');
+const { registerSaasBotRoutes } = require('./routes/saasBotRoutes');
 
 const routeContext = {
     getClient: () => (typeof client !== 'undefined' ? client : null),
@@ -4486,6 +4487,9 @@ registerAdminAgentsAndPayrollRoutes(app, routeContext);
 // Rutas del portal de clientes (OTP, auto-sesión, 2FA web y diagnóstico WWebJS) desacopladas
 registerClientPortalRoutes(app, routeContext);
 
+// Rutas SaaS Bot Multi-Tenant (QR propio, generador IA y ElevenLabs TTS/unificador)
+registerSaasBotRoutes(app);
+
 async function ensureClientReady() {
     if (!client || !client.pupPage) return false;
     try {
@@ -4600,6 +4604,9 @@ const port = process.env.PORT || 3000;
 
 server.listen(port, () => {
     console.log(`Servidor Express corriendo en el puerto ${port}`);
+    setTimeout(() => {
+        require('./services/saasBotManager').autoRestoreSavedSessions().catch(() => {});
+    }, 8000);
 
     // Heartbeat cada 2 minutos (con detector anti-zombie de estados atascados OPENING / DISCONNECTED)
     let nonConnectedHeartbeatCount = 0;
