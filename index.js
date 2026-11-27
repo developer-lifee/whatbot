@@ -7169,7 +7169,8 @@ REGLAS:
         return;
     }
 
-    if (hasRecentHuman && !message.body?.toLowerCase().includes('@bot') && message.body?.trim().toLowerCase() !== 'menu') {
+    const isAwaitingNetflixOperator = currentState === 'awaiting_netflix_operator_post_payment' && !message.hasMedia && Boolean((message.body || '').trim());
+    if (hasRecentHuman && !isAwaitingNetflixOperator && !message.body?.toLowerCase().includes('@bot') && message.body?.trim().toLowerCase() !== 'menu') {
         // En lugar de una lista de keywords frágil, usamos la IA para decidir si el mensaje
         // es algo que el bot puede resolver solo (credenciales, código 2FA, etc.)
         // Si la intención es claramente resoluble, el bot responde aunque haya un asesor activo.
@@ -13264,9 +13265,10 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
 
                             if (hasNetflix && !stateData.isRenewal) {
                                 await message.reply("🤖 ¡Gracias! He verificado tu pago ✅\n\nListo, me confirmas por favor localidad o municipio donde se va a usar y operador de internet\n\nEj. suba-movistar");
-                                userStates.set(userId, {
+                                const postPayState = {
                                     ...stateData,
                                     state: 'awaiting_netflix_operator_post_payment',
+                                    timestamp: Date.now(),
                                     paymentMethod: check.bank || 'Transferencia',
                                     checkAmount: totalPaidSoFar,
                                     gmailMatchId: gmailMatch.id,
@@ -13276,7 +13278,13 @@ async function handleAwaitingPaymentConfirmation(message, userId, isMedia = fals
                                     ocrReference: (receiptCheck && receiptCheck.ref) || check.transactionReference || null,
                                     ocrReceiptDate: (receiptCheck && receiptCheck.receiptDateISO) || check.receiptDate || null,
                                     ocrExtractedDetails: check.extractedDetails || null
-                                });
+                                };
+                                userStates.set(userId, postPayState);
+                                const syncPhone = String(stateData.realPhone || '').replace(/\D/g, '');
+                                if (syncPhone) {
+                                    userStates.set(syncPhone, postPayState);
+                                    userStates.set(`${syncPhone}@c.us`, postPayState);
+                                }
                                 return;
                             }
 
