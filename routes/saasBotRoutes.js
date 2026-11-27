@@ -533,6 +533,10 @@ function registerSaasBotRoutes(app, routeContext = {}) {
             ? String(b.elevenlabs_api_key).trim()
             : tenant.elevenlabs_api_key);
 
+      const nextPauseMins = b.human_pause_minutes !== undefined
+        ? Math.min(1440, Math.max(0, Number(b.human_pause_minutes) || 0))
+        : (tenant.human_pause_minutes ?? 30);
+
       await pool.query(
         `UPDATE saas_bot_tenants SET
           business_name = ?,
@@ -541,6 +545,7 @@ function registerSaasBotRoutes(app, routeContext = {}) {
           knowledge_base = ?,
           bot_tone = ?,
           is_bot_active = ?,
+          human_pause_minutes = ?,
           elevenlabs_enabled = ?,
           elevenlabs_api_key = ?,
           elevenlabs_voice_id = ?,
@@ -554,6 +559,7 @@ function registerSaasBotRoutes(app, routeContext = {}) {
           b.knowledge_base !== undefined ? String(b.knowledge_base) : tenant.knowledge_base,
           b.bot_tone !== undefined ? String(b.bot_tone) : tenant.bot_tone,
           b.is_bot_active !== undefined ? (b.is_bot_active ? 1 : 0) : tenant.is_bot_active,
+          nextPauseMins,
           b.elevenlabs_enabled !== undefined ? (b.elevenlabs_enabled ? 1 : 0) : tenant.elevenlabs_enabled,
           nextApiKey,
           b.elevenlabs_voice_id !== undefined ? String(b.elevenlabs_voice_id || '').trim() : tenant.elevenlabs_voice_id,
@@ -634,12 +640,17 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     }
   });
 
-  // ==================== BIBLIOTECA DE AUDIOS PREGRABADOS + DECIDIDOR ====================
+  // ==================== BIBLIOTECA DE AUDIOS PREGRABADOS + FLUJOS (IMAGEN/TEXTO) ====================
   app.get('/api/saas-bot/audios', requireSaasTenant, async (req, res) => {
     try {
       await saasBotManager.ensureSaasBotTables();
       const [rows] = await pool.query(
-        'SELECT id, tenant_id, title, trigger_description, original_filename, duration_sec, is_active, created_at FROM saas_bot_audios WHERE tenant_id = ? ORDER BY id ASC',
+        `SELECT id, tenant_id, title, trigger_description, original_filename,
+                image_filename, followup_text, (image_path IS NOT NULL AND image_path <> '') AS has_image,
+                duration_sec, is_active, created_at
+         FROM saas_bot_audios
+         WHERE tenant_id = ?
+         ORDER BY id ASC`,
         [req.tenantId]
       );
       res.json({ success: true, audios: rows });
@@ -648,15 +659,19 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     }
   });
 
-  app.post('/api/saas-bot/audios/upload', requireSaasTenant, audioUpload.single('audio'), async (req, res) => {
-    const tmpFile = req.file ? req.file.path : null;
+  app.post('/api/saas-bot/audios/upload', requireSaasTenant, audioUpload.fields([{ name: 'audio', maxCount: 1 }, { name: 'image', maxCount: 1 }]), async (req, res) => {
+    const audioFile = req.files?.audio?.[0] || null;
+    const imageFile = req.files?.image?.[0] || null;
+    const tmpAudio = audioFile ? audioFile.path : null;
+    const tmpImage = imageFile ? imageFile.path : null;
     try {
       await saasBotManager.ensureSaasBotTables();
-      if (!req.file) {
+      if (!audioFile) {
         return res.status(400).json({ success: false, message: 'Debes adjuntar un archivo de audio.' });
       }
       const title = String(req.body?.title || '').trim();
       const triggerDesc = String(req.body?.trigger_description || '').trim();
+      const followupText = String(req.body?.followup_text || '').trim() || null;
       if (!title || !triggerDesc) {
         return res.status(400).json({ success: false, message: 'Indica el título del audio y cuándo debe enviarlo el bot.' });
       }
@@ -665,24 +680,40 @@ function registerSaasBotRoutes(app, routeContext = {}) {
       fs.mkdirSync(tenantDir, { recursive: true });
       const finalPath = path.join(tenantDir, `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.mp3`);
 
-      const durationSec = await elevenLabsService.normalizeUploadedAudioToMp3(tmpFile, finalPath);
+      const durationSec = await elevenLabsService.normalizeUploadedAudioToMp3(tmpAudio, finalPath);
+
+      let finalImagePath = null;
+      let originalImageName = null;
+      if (imageFile && tmpImage && fs.existsSync(tmpImage)) {
+        const ext = (path.extname(imageFile.originalname || '.jpg') || '.jpg').toLowerCase().slice(0, 10);
+        finalImagePath = path.join(tenantDir, `img_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`);
+        fs.copyFileSync(tmpImage, finalImagePath);
+        originalImageName = imageFile.originalname || `imagen${ext}`;
+      }
+
       const [ins] = await pool.query(
-        `INSERT INTO saas_bot_audios (tenant_id, title, trigger_description, file_path, original_filename, duration_sec, is_active)
-         VALUES (?, ?, ?, ?, ?, ?, 1)`,
-        [req.tenantId, title, triggerDesc, finalPath, req.file.originalname || 'audio.mp3', durationSec]
+        `INSERT INTO saas_bot_audios
+         (tenant_id, title, trigger_description, file_path, original_filename, image_path, image_filename, followup_text, duration_sec, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [req.tenantId, title, triggerDesc, finalPath, audioFile.originalname || 'audio.mp3', finalImagePath, originalImageName, followupText, durationSec]
       );
 
       const [[created]] = await pool.query(
-        'SELECT id, tenant_id, title, trigger_description, original_filename, duration_sec, is_active, created_at FROM saas_bot_audios WHERE id = ?',
+        `SELECT id, tenant_id, title, trigger_description, original_filename,
+                image_filename, followup_text, (image_path IS NOT NULL AND image_path <> '') AS has_image,
+                duration_sec, is_active, created_at
+         FROM saas_bot_audios WHERE id = ?`,
         [ins.insertId]
       );
       res.json({ success: true, audio: created });
     } catch (err) {
       console.error('[SaaS Audio Upload Error]:', err.message);
-      res.status(400).json({ success: false, message: err.message || 'No se pudo procesar el archivo de audio.' });
+      res.status(400).json({ success: false, message: err.message || 'No se pudo procesar el archivo.' });
     } finally {
-      if (tmpFile) {
-        try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch {}
+      for (const f of [tmpAudio, tmpImage]) {
+        if (f) {
+          try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {}
+        }
       }
     }
   });
@@ -698,10 +729,11 @@ function registerSaasBotRoutes(app, routeContext = {}) {
 
       const b = req.body || {};
       await pool.query(
-        'UPDATE saas_bot_audios SET title = ?, trigger_description = ?, is_active = ? WHERE id = ? AND tenant_id = ?',
+        'UPDATE saas_bot_audios SET title = ?, trigger_description = ?, followup_text = ?, is_active = ? WHERE id = ? AND tenant_id = ?',
         [
           b.title !== undefined ? String(b.title).trim() : existing.title,
           b.trigger_description !== undefined ? String(b.trigger_description).trim() : existing.trigger_description,
+          b.followup_text !== undefined ? (String(b.followup_text).trim() || null) : existing.followup_text,
           b.is_active !== undefined ? (b.is_active ? 1 : 0) : existing.is_active,
           audioId,
           req.tenantId
@@ -709,7 +741,10 @@ function registerSaasBotRoutes(app, routeContext = {}) {
       );
 
       const [[updated]] = await pool.query(
-        'SELECT id, tenant_id, title, trigger_description, original_filename, duration_sec, is_active, created_at FROM saas_bot_audios WHERE id = ?',
+        `SELECT id, tenant_id, title, trigger_description, original_filename,
+                image_filename, followup_text, (image_path IS NOT NULL AND image_path <> '') AS has_image,
+                duration_sec, is_active, created_at
+         FROM saas_bot_audios WHERE id = ?`,
         [audioId]
       );
       res.json({ success: true, audio: updated });
@@ -722,17 +757,115 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     try {
       await saasBotManager.ensureSaasBotTables();
       const audioId = Number(req.params.id);
-      const [[existing]] = await pool.query('SELECT file_path FROM saas_bot_audios WHERE id = ? AND tenant_id = ? LIMIT 1', [audioId, req.tenantId]);
+      const [[existing]] = await pool.query('SELECT file_path, image_path FROM saas_bot_audios WHERE id = ? AND tenant_id = ? LIMIT 1', [audioId, req.tenantId]);
       if (!existing) {
         return res.status(404).json({ success: false, message: 'Audio no encontrado.' });
       }
       await pool.query('DELETE FROM saas_bot_audios WHERE id = ? AND tenant_id = ?', [audioId, req.tenantId]);
-      if (existing.file_path) {
-        try { if (fs.existsSync(existing.file_path)) fs.unlinkSync(existing.file_path); } catch {}
+      for (const p of [existing.file_path, existing.image_path]) {
+        if (p) {
+          try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
+        }
       }
       res.json({ success: true });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/saas-bot/audios/:id/image', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const audioId = Number(req.params.id);
+      const [[existing]] = await pool.query('SELECT image_path FROM saas_bot_audios WHERE id = ? AND tenant_id = ? LIMIT 1', [audioId, req.tenantId]);
+      if (!existing || !existing.image_path || !fs.existsSync(existing.image_path)) {
+        return res.status(404).json({ success: false, message: 'Imagen no encontrada.' });
+      }
+      return res.sendFile(path.resolve(existing.image_path));
+    } catch (err) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ==================== CHATS EN VIVO & CONTROL MANUAL (MODO SEMIAUTOMÁTICO) ====================
+  app.get('/api/saas-bot/chats', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const [rows] = await pool.query(
+        `SELECT l.customer_jid AS chatId, l.body AS lastBody, l.direction AS lastDirection,
+                l.message_type AS lastType, l.created_at AS lastAt
+         FROM saas_bot_messages_log l
+         INNER JOIN (
+           SELECT MAX(id) AS max_id
+           FROM saas_bot_messages_log
+           WHERE tenant_id = ?
+           GROUP BY customer_jid
+         ) latest ON l.id = latest.max_id
+         ORDER BY l.id DESC
+         LIMIT 35`,
+        [req.tenantId]
+      );
+
+      const chats = rows.map(r => {
+        const pauseState = saasBotManager.getChatPauseState(req.tenantId, r.chatId);
+        return {
+          ...r,
+          phone: String(r.chatId || '').replace(/@.*/, ''),
+          isPaused: pauseState.isPaused,
+          pausedUntil: pauseState.pausedUntil,
+          pauseReason: pauseState.reason
+        };
+      });
+      res.json({ success: true, chats });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/saas-bot/chats/:chatId/messages', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const chatId = decodeURIComponent(String(req.params.chatId || ''));
+      const [rows] = await pool.query(
+        `SELECT id, customer_jid, direction, message_type, body, decision_meta, created_at
+         FROM saas_bot_messages_log
+         WHERE tenant_id = ? AND customer_jid = ?
+         ORDER BY id DESC
+         LIMIT 50`,
+        [req.tenantId, chatId]
+      );
+      const messages = rows.reverse().map(m => ({
+        ...m,
+        decision_meta: saasBotManager.parseDecisionMeta(m.decision_meta)
+      }));
+      const pauseState = saasBotManager.getChatPauseState(req.tenantId, chatId);
+      res.json({ success: true, messages, pauseState });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/chats/:chatId/pause', requireSaasTenant, express.json(), async (req, res) => {
+    try {
+      const chatId = decodeURIComponent(String(req.params.chatId || ''));
+      const paused = Boolean(req.body?.paused);
+      const minutes = req.body?.minutes !== undefined ? Number(req.body.minutes) : 30;
+      const pauseState = saasBotManager.setChatPauseState(req.tenantId, chatId, paused ? minutes : 0, 'manual');
+      res.json({ success: true, pauseState });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/chats/:chatId/send-manual', requireSaasTenant, express.json(), async (req, res) => {
+    try {
+      const chatId = decodeURIComponent(String(req.params.chatId || ''));
+      const audioIds = Array.isArray(req.body?.audioIds) ? req.body.audioIds.map(Number).filter(n => n > 0) : [];
+      const text = String(req.body?.text || '').trim();
+      const result = await saasBotManager.sendManualFlowToChat(req.tenantId, chatId, { audioIds, text });
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
     }
   });
 

@@ -15,6 +15,38 @@ const sessions = new Map(); // tenantId -> { client, status, qrDataUrl, phone, l
 const chatHistories = new Map(); // `${tenantId}:${chatId}` -> [{ role, content }]
 const incomingBatches = new Map(); // `${tenantId}:${chatId}` -> { items: [], timer: Timeout }
 const tenantQueues = new Map(); // tenantId -> Promise chain
+const humanPausedChats = new Map(); // `${tenantId}:${chatId}` -> { pausedUntil, reason, updatedAt }
+const botSentMessageIds = new Set();
+
+function markBotSentMessage(sentMsg) {
+  const id = sentMsg?.id?._serialized;
+  if (!id) return;
+  botSentMessageIds.add(id);
+  setTimeout(() => botSentMessageIds.delete(id), 60000);
+}
+
+function getChatPauseState(tenantId, chatId) {
+  const key = `${Number(tenantId)}:${chatId}`;
+  const entry = humanPausedChats.get(key);
+  if (!entry) return { isPaused: false, pausedUntil: null, reason: null };
+  if (entry.pausedUntil && Date.now() >= entry.pausedUntil) {
+    humanPausedChats.delete(key);
+    return { isPaused: false, pausedUntil: null, reason: null };
+  }
+  return { isPaused: true, pausedUntil: entry.pausedUntil, reason: entry.reason };
+}
+
+function setChatPauseState(tenantId, chatId, pauseMinutes = 30, reason = 'manual') {
+  const key = `${Number(tenantId)}:${chatId}`;
+  const mins = Number(pauseMinutes) || 0;
+  if (mins <= 0) {
+    humanPausedChats.delete(key);
+    return { isPaused: false, pausedUntil: null, reason: null };
+  }
+  const pausedUntil = Date.now() + mins * 60 * 1000;
+  humanPausedChats.set(key, { pausedUntil, reason, updatedAt: Date.now() });
+  return { isPaused: true, pausedUntil, reason };
+}
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const randomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
@@ -107,6 +139,21 @@ async function ensureSaasBotTables() {
   }
   if (!colNames.has('expires_at')) {
     await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN expires_at DATETIME NULL AFTER amount_paid');
+  }
+  if (!colNames.has('human_pause_minutes')) {
+    await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN human_pause_minutes INT DEFAULT 30 AFTER is_bot_active');
+  }
+
+  const [audioCols] = await pool.query('SHOW COLUMNS FROM saas_bot_audios');
+  const audioColNames = new Set(audioCols.map(c => c.Field));
+  if (!audioColNames.has('image_path')) {
+    await pool.query('ALTER TABLE saas_bot_audios ADD COLUMN image_path VARCHAR(500) NULL AFTER original_filename');
+  }
+  if (!audioColNames.has('image_filename')) {
+    await pool.query('ALTER TABLE saas_bot_audios ADD COLUMN image_filename VARCHAR(255) NULL AFTER image_path');
+  }
+  if (!audioColNames.has('followup_text')) {
+    await pool.query('ALTER TABLE saas_bot_audios ADD COLUMN followup_text TEXT NULL AFTER image_filename');
   }
 
   const [logCols] = await pool.query('SHOW COLUMNS FROM saas_bot_messages_log');
@@ -361,8 +408,21 @@ async function sendHumanVoiceNote(client, chatId, oggBuffer, durationSec = 5) {
   if (chat) await chat.sendStateRecording().catch(() => {});
   await sleep(recMs);
   const media = new MessageMedia('audio/ogg; codecs=opus', oggBuffer.toString('base64'), 'voice.ogg');
-  await client.sendMessage(chatId, media, { sendAudioAsVoice: true });
+  const sent = await client.sendMessage(chatId, media, { sendAudioAsVoice: true });
+  markBotSentMessage(sent);
   if (chat) await chat.clearState().catch(() => {});
+}
+
+/**
+ * Envía imagen adjunta (por flujo de producto/oferta) con pausa natural y caption opcional.
+ */
+async function sendHumanImage(client, chatId, imagePath, caption = '') {
+  if (!imagePath || !fs.existsSync(imagePath)) return false;
+  await sleep(randomBetween(1100, 2100));
+  const media = MessageMedia.fromFilePath(imagePath);
+  const sent = await client.sendMessage(chatId, media, caption ? { caption } : {});
+  markBotSentMessage(sent);
+  return true;
 }
 
 /**
@@ -373,7 +433,8 @@ async function sendHumanText(client, chatId, text) {
   const chat = await client.getChatById(chatId).catch(() => null);
   if (chat) await chat.sendStateTyping().catch(() => {});
   await sleep(typeMs);
-  await client.sendMessage(chatId, text);
+  const sent = await client.sendMessage(chatId, text);
+  markBotSentMessage(sent);
   if (chat) await chat.clearState().catch(() => {});
 }
 
@@ -463,6 +524,12 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
 
   await logTenantMessage(tenantId, remoteJid, 'in', isVoiceMsg ? 'audio' : 'text', incomingText);
 
+  const pauseState = getChatPauseState(tenantId, remoteJid);
+  if (pauseState.isPaused) {
+    console.log(`[SaaS Bot #${tenantId}] ⏸️ Chat ${remoteJid} en control manual hasta ${new Date(pauseState.pausedUntil).toLocaleTimeString('es-CO')} — bot pausado.`);
+    return;
+  }
+
   // Pausa humana antes de marcar mensajes como leídos en WhatsApp Web
   await sleep(randomBetween(1200, 2800));
   const chat = await sess.client.getChatById(remoteJid).catch(() => null);
@@ -474,7 +541,7 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
   const history = chatHistories.get(histKey) || [];
 
   const [activeAudios] = await pool.query(
-    'SELECT id, title, trigger_description, file_path, duration_sec FROM saas_bot_audios WHERE tenant_id = ? AND is_active = 1 ORDER BY id ASC',
+    'SELECT id, title, trigger_description, file_path, image_path, image_filename, followup_text, duration_sec FROM saas_bot_audios WHERE tenant_id = ? AND is_active = 1 ORDER BY id ASC',
     [tenantId]
   );
 
@@ -507,10 +574,30 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
         sentType = 'audio';
         logSummary = `[Nota de voz: ${titles} (${built.durationSec}s)]`;
 
-        if (decision.mode === 'audio_and_text' && decision.replyText) {
+        const sentFollowups = new Set();
+        for (const picked of decision.pickedAudios) {
+          const cleanFollowup = picked.followup_text ? String(picked.followup_text).trim() : '';
+          if (picked.image_path && fs.existsSync(picked.image_path)) {
+            await sendHumanImage(sess.client, remoteJid, picked.image_path, cleanFollowup);
+            sentType = 'flow';
+            logSummary += `\n[Imagen: ${picked.image_filename || 'adjunta'}]`;
+            if (cleanFollowup) {
+              logSummary += `\n${cleanFollowup}`;
+              sentFollowups.add(cleanFollowup);
+            }
+          } else if (cleanFollowup && !sentFollowups.has(cleanFollowup)) {
+            await sleep(randomBetween(900, 1800));
+            await sendHumanText(sess.client, remoteJid, cleanFollowup);
+            sentType = 'audio+text';
+            logSummary += `\n${cleanFollowup}`;
+            sentFollowups.add(cleanFollowup);
+          }
+        }
+
+        if (decision.mode === 'audio_and_text' && decision.replyText && !sentFollowups.has(decision.replyText.trim())) {
           await sleep(randomBetween(1000, 2200));
           await sendHumanText(sess.client, remoteJid, decision.replyText);
-          sentType = 'audio+text';
+          sentType = sentType === 'flow' ? 'flow' : 'audio+text';
           logSummary += `\n${decision.replyText}`;
         }
       } catch (audioErr) {
@@ -760,6 +847,31 @@ async function startTenantSession(tenantId) {
       handleIncomingTenantMessage(id, msg);
     });
 
+    client.on('message_create', async (msg) => {
+      try {
+        if (!msg || !msg.fromMe) return;
+        const msgId = msg.id?._serialized;
+        if (msgId && botSentMessageIds.has(msgId)) return;
+
+        const targetChat = msg.to || msg.from;
+        if (!targetChat || targetChat.endsWith('@g.us') || targetChat === 'status@broadcast' || targetChat.includes('@newsletter')) {
+          return;
+        }
+
+        const tenant = await getTenantById(id).catch(() => null);
+        const pauseMins = tenant && tenant.human_pause_minutes !== undefined ? Number(tenant.human_pause_minutes) : 30;
+        if (pauseMins > 0) {
+          setChatPauseState(id, targetChat, pauseMins, 'human');
+          console.log(`[SaaS Bot #${id}] 👤 Intervención humana detectada en ${targetChat} -> bot pausado ${pauseMins} min.`);
+        }
+
+        const manualBody = String(msg.body || '').trim() || (msg.hasMedia ? '[Archivo enviado manualmente]' : '[Mensaje manual]');
+        await logTenantMessage(id, targetChat, 'out', 'human', manualBody);
+      } catch (e) {
+        console.warn(`[SaaS Bot #${id}] Error en listener message_create:`, e.message);
+      }
+    });
+
     await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['CONNECTING', id]).catch(() => {});
     client.initialize().catch(async (initErr) => {
       stateObj.isStarting = false;
@@ -887,6 +999,78 @@ async function sendTenantAudioOrText(tenantId, targetPhone, { text, oggBuffer, d
     await sendHumanText(mem.client, chatId, text);
     await logTenantMessage(id, chatId, 'out', 'text', text);
   }
+}
+
+async function sendManualFlowToChat(tenantId, chatId, { audioIds = [], text = '' } = {}) {
+  const id = Number(tenantId);
+  const mem = sessions.get(id);
+  if (!mem || !mem.client || mem.status !== 'CONNECTED') {
+    throw new Error('Tu WhatsApp no está conectado. Vincula tu línea primero.');
+  }
+
+  const cleanIds = Array.isArray(audioIds) ? audioIds.map(Number).filter(n => n > 0) : [];
+  const cleanText = String(text || '').trim();
+  if (cleanIds.length === 0 && !cleanText) {
+    throw new Error('Selecciona un audio/flujo o escribe un mensaje.');
+  }
+
+  let logSummary = '';
+  let msgType = 'human';
+
+  if (cleanIds.length > 0) {
+    const [rows] = await pool.query(
+      `SELECT id, title, file_path, image_path, image_filename, followup_text
+       FROM saas_bot_audios
+       WHERE tenant_id = ? AND id IN (${cleanIds.map(() => '?').join(',')})`,
+      [id, ...cleanIds]
+    );
+    const byId = new Map(rows.map(r => [Number(r.id), r]));
+    const ordered = cleanIds.map(aid => byId.get(aid)).filter(Boolean);
+    if (ordered.length === 0) {
+      throw new Error('Audio o flujo no encontrado.');
+    }
+
+    const built = await elevenLabsService.buildFreshWhatsAppVoiceNoteFromFiles(
+      ordered.map(r => r.file_path),
+      { pauseMs: 350 }
+    );
+    await sendHumanVoiceNote(mem.client, chatId, built.oggBuffer, built.durationSec);
+    logSummary = `[Envío rápido: ${ordered.map(r => r.title).join(' + ')} (${built.durationSec}s)]`;
+    msgType = 'manual_flow';
+
+    const sentFollowups = new Set();
+    for (const item of ordered) {
+      const followup = item.followup_text ? String(item.followup_text).trim() : '';
+      if (item.image_path && fs.existsSync(item.image_path)) {
+        await sendHumanImage(mem.client, chatId, item.image_path, followup);
+        logSummary += `\n[Imagen: ${item.image_filename || 'adjunta'}]`;
+        if (followup) {
+          logSummary += `\n${followup}`;
+          sentFollowups.add(followup);
+        }
+      } else if (followup && !sentFollowups.has(followup)) {
+        await sleep(randomBetween(900, 1700));
+        await sendHumanText(mem.client, chatId, followup);
+        logSummary += `\n${followup}`;
+        sentFollowups.add(followup);
+      }
+    }
+  }
+
+  if (cleanText) {
+    if (cleanIds.length > 0) await sleep(randomBetween(800, 1500));
+    await sendHumanText(mem.client, chatId, cleanText);
+    logSummary = logSummary ? `${logSummary}\n${cleanText}` : cleanText;
+  }
+
+  const tenant = await getTenantById(id).catch(() => null);
+  const pauseMins = tenant && tenant.human_pause_minutes !== undefined ? Number(tenant.human_pause_minutes) : 30;
+  if (pauseMins > 0) {
+    setChatPauseState(id, chatId, pauseMins, 'manual');
+  }
+
+  await logTenantMessage(id, chatId, 'out', msgType, logSummary);
+  return { sent: true, summary: logSummary, pauseState: getChatPauseState(id, chatId) };
 }
 
 async function autoRestoreSavedSessions() {
@@ -1174,6 +1358,9 @@ module.exports = {
   requestTenantPairingCode,
   getTenantSessionState,
   sendTenantAudioOrText,
+  sendManualFlowToChat,
+  getChatPauseState,
+  setChatPauseState,
   autoRestoreSavedSessions,
   getCurrentMonthKey,
   parseDecisionMeta,
