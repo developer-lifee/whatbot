@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -900,6 +901,13 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
         const reqUserAgent = String(req.headers['user-agent'] || '');
         const { parseDeviceLabelFromUserAgent } = require('../deviceLimitService');
         const reqDeviceLabel = parseDeviceLabelFromUserAgent(reqUserAgent) || 'Web';
+        const cookieMatch = String(req.headers.cookie || '').match(/(?:^|;\s*)sheerit_device_id=([^;]+)/);
+        const rawIncomingToken = String(req.body?.deviceToken || (cookieMatch ? cookieMatch[1] : '') || '')
+            .trim()
+            .replace(/[^a-zA-Z0-9_-]/g, '')
+            .slice(0, 80);
+        const resolvedDeviceToken = rawIncomingToken.length >= 8 ? rawIncomingToken : crypto.randomUUID();
+        res.setHeader('Set-Cookie', `sheerit_device_id=${resolvedDeviceToken}; Path=/; Max-Age=31536000; SameSite=Lax; Secure`);
         const deviceTag = reqClientIp ? ` (${reqDeviceLabel} • IP: ${reqClientIp})` : ` (${reqDeviceLabel})`;
 
         // Ejecutar extractor automático y obtener el resultado estructurado
@@ -910,7 +918,7 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
             isDemo ? ADMIN_DEMO_RECIPIENT_PHONE : cleanPhone,
             ctx.getClient(),
             userStates,
-            { clientIp: reqClientIp, userAgent: reqUserAgent, deviceLabel: reqDeviceLabel }
+            { clientIp: reqClientIp, userAgent: reqUserAgent, deviceLabel: reqDeviceLabel, deviceToken: resolvedDeviceToken }
         );
 
         if (extractionResult && extractionResult.limitReached) {
@@ -977,6 +985,7 @@ app.post('/api/client/request-2fa', express.json(), async (req, res) => {
                 isNewDevice: Boolean(extractionResult.isNewDevice),
                 deviceAlreadyRegistered: Boolean(extractionResult.deviceAlreadyRegistered),
                 deviceLabel: extractionResult.deviceLabel || reqDeviceLabel,
+                deviceToken: resolvedDeviceToken,
                 registeredDevices: extractionResult.registeredDevices || []
             });
         }

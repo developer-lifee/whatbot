@@ -57,6 +57,7 @@ function parseDeviceLabelFromUserAgent(ua) {
     let os = 'Equipo';
     if (/iphone/i.test(raw)) os = 'iPhone';
     else if (/ipad/i.test(raw)) os = 'iPad';
+    else if (/android/i.test(raw) && !/mobile/i.test(raw)) os = 'Android Tablet';
     else if (/android/i.test(raw)) os = 'Android';
     else if (/windows/i.test(raw)) os = 'Windows';
     else if (/macintosh|mac os x/i.test(raw)) os = 'Mac';
@@ -116,7 +117,7 @@ function getDeviceUsage(phone, emailOrPlatform, maxAllowed = 3, profile = null, 
 
 /**
  * Registra un intento de acceso / código.
- * Si llega con huella web (IP + SO/navegador), reconoce dispositivos ya vinculados sin gastar cupo extra
+ * Si llega con deviceToken persistente o huella web (IP + SO/navegador), reconoce equipos ya vinculados sin gastar cupo extra
  * y descuenta de inmediato si entra desde un equipo diferente.
  * Sin huella web (ej. WhatsApp), concede máximo 1 reintento en una ventana corta de 3 minutos.
  */
@@ -124,6 +125,10 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
     const effectiveMax = (typeof maxAllowed === 'number' && maxAllowed > 0) ? maxAllowed : 3;
     const deviceLabel = (deviceInfo && deviceInfo.deviceLabel) ||
         (deviceInfo && deviceInfo.userAgent ? parseDeviceLabelFromUserAgent(deviceInfo.userAgent) : null);
+    const rawToken = (deviceInfo && deviceInfo.deviceToken)
+        ? String(deviceInfo.deviceToken).trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80)
+        : '';
+    const cleanDeviceToken = rawToken.length >= 8 ? rawToken : null;
     const cleanIp = clientIp ? String(clientIp).replace('::ffff:', '').trim() : null;
     const fingerprint = (cleanIp && deviceLabel) ? `${cleanIp}|${deviceLabel}` : null;
 
@@ -164,6 +169,7 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
                     timestamp: now,
                     ip: cleanIp || 'unknown',
                     deviceLabel: entryLabel,
+                    ...(cleanDeviceToken ? { deviceToken: cleanDeviceToken } : {}),
                     ...(fingerprint ? { fingerprint } : {})
                 }
             ]
@@ -194,12 +200,25 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
         record.sessions = [];
     }
 
-    // Caso A: Viene desde Web con huella exacta (IP + dispositivo)
-    if (fingerprint) {
-        const existingSession = record.sessions.find(s => s && s.fingerprint === fingerprint);
+    // Caso A: Viene desde Web con deviceToken persistente o huella exacta (IP + dispositivo)
+    if (cleanDeviceToken || fingerprint) {
+        let existingSession = cleanDeviceToken
+            ? record.sessions.find(s => s && s.deviceToken === cleanDeviceToken)
+            : null;
+        if (!existingSession && fingerprint) {
+            existingSession = record.sessions.find(s => s && s.fingerprint === fingerprint);
+        }
+
         if (existingSession) {
             record.lastRequestAt = now;
             existingSession.lastSeenAt = now;
+            if (cleanIp) existingSession.ip = cleanIp;
+            if (cleanDeviceToken && !existingSession.deviceToken) {
+                existingSession.deviceToken = cleanDeviceToken;
+            }
+            if (fingerprint && !existingSession.fingerprint) {
+                existingSession.fingerprint = fingerprint;
+            }
             usage[key] = record;
             saveDeviceUsage(usage);
 
@@ -210,11 +229,11 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
                 maxDevices: effectiveMax,
                 isNewDevice: false,
                 deviceAlreadyRegistered: true,
-                deviceLabel,
+                deviceLabel: existingSession.deviceLabel || deviceLabel,
                 registeredDevices: extractRegisteredDevices(record)
             };
         }
-        // Huella web distinta: verificar límite y registrar de inmediato como dispositivo nuevo
+        // Token / huella web distinta: verificar límite y registrar de inmediato como dispositivo nuevo
     } else {
         // Caso B: Solicitud sin huella (WhatsApp) -> máximo 1 reintento dentro de ventana corta (3 min por defecto)
         const timeSinceLastSession = now - (record.lastSessionAt || 0);
@@ -266,6 +285,7 @@ function registerDeviceRequest(phone, emailOrPlatform, clientIp = null, maxAllow
         timestamp: now,
         ip: cleanIp || 'unknown',
         deviceLabel: entryLabel,
+        ...(cleanDeviceToken ? { deviceToken: cleanDeviceToken } : {}),
         ...(fingerprint ? { fingerprint } : {})
     });
 

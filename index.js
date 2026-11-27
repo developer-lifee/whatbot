@@ -5776,8 +5776,8 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
     const isEmailCodeRequest = Boolean(options.isEmailCodeScreen) || /busca en tu bandeja de entrada|check your inbox|c[oó]digo de verificaci[oó]n que acabamos de enviar|reenviar correo electr[oó]nico/i.test(ocrContextText);
     const isFailureReport = Boolean(options.forceGmailFallback) || isEmailCodeRequest || isCodeFailureReport(incomingText);
     const clientIp = options.clientIp || null;
-    const deviceInfo = (options.deviceLabel || options.userAgent)
-        ? { deviceLabel: options.deviceLabel || null, userAgent: options.userAgent || null }
+    const deviceInfo = (options.deviceLabel || options.userAgent || options.deviceToken)
+        ? { deviceLabel: options.deviceLabel || null, userAgent: options.userAgent || null, deviceToken: options.deviceToken || null }
         : null;
 
     if (accountEmail && !isNetflixExtra) {
@@ -5837,10 +5837,13 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                     const profileIdent = targetAccount ? (targetAccount.Nombre || targetAccount.nombre || targetAccount["pin perfil"] || targetAccount.perfil || "") : "";
                     deviceStatus = checkAndIncrementUsage(realPhone, accountEmail, 3, 3 * 60 * 1000, profileIdent, clientIp, deviceInfo);
                     if (!deviceStatus.canRequest) {
+                        const webHint = !message.isWebRequest
+                            ? `\n\n💡 *¿Estás en uno de tus equipos habituales?* Pide el código abriendo https://sheerit.co/mis-servicios desde ese mismo equipo para reconocerlo automáticamente sin descontar cupo.`
+                            : '';
                         const limitMsg = `🤖 *Límite de dispositivos alcanzado (3/3)*\n\n` +
                             `Has alcanzado el límite de *3 dispositivos permitidos* para tu perfil de *${streamingName}*.\n\n` +
                             `Por políticas del servicio y seguridad, no es posible autorizar más dispositivos.\n\n` +
-                            `Si cambiaste de equipo o necesitas transferir tu perfil, por favor comunícate con un asesor para ayudarte. 😊`;
+                            `Si cambiaste de equipo o necesitas transferir tu perfil, por favor comunícate con un asesor para ayudarte. 😊${webHint}`;
                         await message.reply(limitMsg);
                         return {
                             success: false,
@@ -5941,10 +5944,13 @@ async function processAccountVerificationCode(message, userId, targetAccount, re
                         const profileIdent = targetAccount ? (targetAccount.Nombre || targetAccount.nombre || targetAccount["pin perfil"] || targetAccount.perfil || "") : "";
                         deviceStatus = registerDeviceRequest(realPhone, accountEmail || streamingName, clientIp, 3, 3 * 60 * 1000, profileIdent, null, deviceInfo);
                         if (!deviceStatus.canRequest) {
+                            const webHint = !message.isWebRequest
+                                ? `\n\n💡 *¿Estás en uno de tus equipos habituales?* Pide el código abriendo https://sheerit.co/mis-servicios desde ese mismo equipo para reconocerlo automáticamente sin descontar cupo.`
+                                : '';
                             const limitMsg = `🤖 *Límite de dispositivos alcanzado (3/3)*\n\n` +
                                 `Has alcanzado el límite de *3 dispositivos permitidos* para tu perfil de *${streamingName}*.\n\n` +
                                 `Por políticas del servicio y seguridad, no es posible autorizar más dispositivos.\n\n` +
-                                `Si cambiaste de equipo o necesitas transferir tu perfil, por favor comunícate con un asesor para ayudarte. 😊`;
+                                `Si cambiaste de equipo o necesitas transferir tu perfil, por favor comunícate con un asesor para ayudarte. 😊${webHint}`;
                             await safeReply(message, limitMsg, userId);
                             userStates.delete(userId);
                             return {
@@ -6475,9 +6481,20 @@ async function baseProcessIncomingMessage(messages) {
         return;
     }
 
-    const message = validMessages[validMessages.length - 1];
-    let isMedia = validMessages.some(m => m.hasMedia);
-    const combinedBody = validMessages.map(m => m.body || "").filter(b => b !== "").join("\n");
+    // Evitar que un evento vacío adicional de WhatsApp oculte una imagen o mensaje válido dentro del mismo lote
+    const nonEmptyMessages = validMessages.filter(m =>
+        (m.body && m.body.trim() !== '') ||
+        m.hasMedia ||
+        m.type === 'image' ||
+        m.type === 'document' ||
+        m.type === 'audio' ||
+        m.type === 'ptt'
+    );
+    const effectiveMessages = nonEmptyMessages.length > 0 ? nonEmptyMessages : validMessages;
+
+    const message = effectiveMessages[effectiveMessages.length - 1];
+    let isMedia = effectiveMessages.some(m => m.hasMedia || m.type === 'image' || m.type === 'document');
+    const combinedBody = effectiveMessages.map(m => m.body || "").filter(b => b !== "").join("\n");
     message.combinedBody = combinedBody;
 
     // --- REINICIO DIRECTO ULTRA RÁPIDO PARA ADMINS ---
@@ -6883,9 +6900,9 @@ async function baseProcessIncomingMessage(messages) {
         }
     }
 
-    // Ignorar mensajes vacíos (sin texto ni archivos multimedia) para evitar clasificar intenciones inexistentes y responder spam
-    const hasText = message.body && message.body.trim() !== "";
-    if (!hasText && !message.hasMedia) {
+    // Ignorar mensajes vacíos (sin texto ni archivos multimedia en todo el lote) para evitar clasificar intenciones inexistentes y responder spam
+    const hasText = (combinedBody && combinedBody.trim() !== "") || (message.body && message.body.trim() !== "");
+    if (!hasText && !isMedia && !message.hasMedia) {
         console.log(`[Ignorado] Mensaje vacío (sin texto ni multimedia) de ${userId}.`);
         return;
     }
