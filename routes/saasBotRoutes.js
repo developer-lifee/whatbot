@@ -50,6 +50,12 @@ function requireSaasTenant(req, res, next) {
   next();
 }
 
+function generateRandomInviteCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const pickBlock = (len) => Array.from(crypto.randomBytes(len), (b) => alphabet[b % alphabet.length]).join('');
+  return `SH-${pickBlock(4)}-${pickBlock(4)}`;
+}
+
 function registerSaasBotRoutes(app) {
   // Inicialización diferida segura al primer tráfico o arranque
   saasBotManager.ensureSaasBotTables().catch(err => {
@@ -629,7 +635,7 @@ function registerSaasBotRoutes(app) {
       if (adminPwd !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
 
       await saasBotManager.ensureSaasBotTables();
-      const rawCode = b.code ? String(b.code) : `BOT-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      const rawCode = b.code ? String(b.code) : generateRandomInviteCode();
       const cleanCode = rawCode.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
       if (!cleanCode) {
         return res.status(400).json({ success: false, message: 'Código de activación inválido.' });
