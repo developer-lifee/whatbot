@@ -1,10 +1,24 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const multer = require('multer');
 const { pool } = require('../database');
 const { hashPassword, signSessionToken, verifySessionToken } = require('../authService');
 const elevenLabsService = require('../services/elevenLabsService');
 const saasBotManager = require('../services/saasBotManager');
+
+const AUDIO_UPLOADS_ROOT = path.join(__dirname, '..', 'uploads', 'saas_audios');
+const AUDIO_TMP_DIR = path.join(AUDIO_UPLOADS_ROOT, 'tmp');
+if (!fs.existsSync(AUDIO_TMP_DIR)) {
+  fs.mkdirSync(AUDIO_TMP_DIR, { recursive: true });
+}
+
+const audioUpload = multer({
+  dest: AUDIO_TMP_DIR,
+  limits: { fileSize: 15 * 1024 * 1024 }
+});
 
 function toCleanSlug(text) {
   const base = String(text || '')
@@ -26,7 +40,8 @@ async function resolveUniqueSlug(businessName) {
 
 function requireSaasTenant(req, res, next) {
   const authHeader = String(req.headers.authorization || '');
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const headerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const token = headerToken || String(req.query?.token || '').trim();
   const payload = verifySessionToken(token);
   if (!payload || payload.role !== 'saas_bot' || !payload.tenantId) {
     return res.status(401).json({ success: false, message: 'Sesión expirada o no autorizada.' });
@@ -325,6 +340,173 @@ function registerSaasBotRoutes(app) {
       });
     } catch (err) {
       console.error('[SaaS Bot Merge Error]:', err.message);
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
+  // ==================== BIBLIOTECA DE AUDIOS PREGRABADOS + DECIDIDOR ====================
+  app.get('/api/saas-bot/audios', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const [rows] = await pool.query(
+        'SELECT id, tenant_id, title, trigger_description, original_filename, duration_sec, is_active, created_at FROM saas_bot_audios WHERE tenant_id = ? ORDER BY id ASC',
+        [req.tenantId]
+      );
+      res.json({ success: true, audios: rows });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/audios/upload', requireSaasTenant, audioUpload.single('audio'), async (req, res) => {
+    const tmpFile = req.file ? req.file.path : null;
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'Debes adjuntar un archivo de audio.' });
+      }
+      const title = String(req.body?.title || '').trim();
+      const triggerDesc = String(req.body?.trigger_description || '').trim();
+      if (!title || !triggerDesc) {
+        return res.status(400).json({ success: false, message: 'Indica el título del audio y cuándo debe enviarlo el bot.' });
+      }
+
+      const tenantDir = path.join(AUDIO_UPLOADS_ROOT, `tenant_${req.tenantId}`);
+      fs.mkdirSync(tenantDir, { recursive: true });
+      const finalPath = path.join(tenantDir, `${Date.now()}_${crypto.randomBytes(4).toString('hex')}.mp3`);
+
+      const durationSec = await elevenLabsService.normalizeUploadedAudioToMp3(tmpFile, finalPath);
+      const [ins] = await pool.query(
+        `INSERT INTO saas_bot_audios (tenant_id, title, trigger_description, file_path, original_filename, duration_sec, is_active)
+         VALUES (?, ?, ?, ?, ?, ?, 1)`,
+        [req.tenantId, title, triggerDesc, finalPath, req.file.originalname || 'audio.mp3', durationSec]
+      );
+
+      const [[created]] = await pool.query(
+        'SELECT id, tenant_id, title, trigger_description, original_filename, duration_sec, is_active, created_at FROM saas_bot_audios WHERE id = ?',
+        [ins.insertId]
+      );
+      res.json({ success: true, audio: created });
+    } catch (err) {
+      console.error('[SaaS Audio Upload Error]:', err.message);
+      res.status(400).json({ success: false, message: err.message || 'No se pudo procesar el archivo de audio.' });
+    } finally {
+      if (tmpFile) {
+        try { if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile); } catch {}
+      }
+    }
+  });
+
+  app.put('/api/saas-bot/audios/:id', requireSaasTenant, express.json(), async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const audioId = Number(req.params.id);
+      const [[existing]] = await pool.query('SELECT * FROM saas_bot_audios WHERE id = ? AND tenant_id = ? LIMIT 1', [audioId, req.tenantId]);
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Audio no encontrado.' });
+      }
+
+      const b = req.body || {};
+      await pool.query(
+        'UPDATE saas_bot_audios SET title = ?, trigger_description = ?, is_active = ? WHERE id = ? AND tenant_id = ?',
+        [
+          b.title !== undefined ? String(b.title).trim() : existing.title,
+          b.trigger_description !== undefined ? String(b.trigger_description).trim() : existing.trigger_description,
+          b.is_active !== undefined ? (b.is_active ? 1 : 0) : existing.is_active,
+          audioId,
+          req.tenantId
+        ]
+      );
+
+      const [[updated]] = await pool.query(
+        'SELECT id, tenant_id, title, trigger_description, original_filename, duration_sec, is_active, created_at FROM saas_bot_audios WHERE id = ?',
+        [audioId]
+      );
+      res.json({ success: true, audio: updated });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.delete('/api/saas-bot/audios/:id', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const audioId = Number(req.params.id);
+      const [[existing]] = await pool.query('SELECT file_path FROM saas_bot_audios WHERE id = ? AND tenant_id = ? LIMIT 1', [audioId, req.tenantId]);
+      if (!existing) {
+        return res.status(404).json({ success: false, message: 'Audio no encontrado.' });
+      }
+      await pool.query('DELETE FROM saas_bot_audios WHERE id = ? AND tenant_id = ?', [audioId, req.tenantId]);
+      if (existing.file_path) {
+        try { if (fs.existsSync(existing.file_path)) fs.unlinkSync(existing.file_path); } catch {}
+      }
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/saas-bot/audios/:id/stream', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const audioId = Number(req.params.id);
+      const [[existing]] = await pool.query('SELECT file_path FROM saas_bot_audios WHERE id = ? AND tenant_id = ? LIMIT 1', [audioId, req.tenantId]);
+      if (!existing || !existing.file_path || !fs.existsSync(existing.file_path)) {
+        return res.status(404).json({ success: false, message: 'Archivo de audio no encontrado.' });
+      }
+      res.setHeader('Content-Type', 'audio/mpeg');
+      return res.sendFile(path.resolve(existing.file_path));
+    } catch (err) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/audios/merge-library', requireSaasTenant, express.json(), async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const audioIds = Array.isArray(req.body?.audioIds) ? req.body.audioIds.map(Number).filter(n => n > 0) : [];
+      if (audioIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'Selecciona al menos 1 audio de tu biblioteca.' });
+      }
+
+      const [rows] = await pool.query(
+        `SELECT id, title, file_path FROM saas_bot_audios WHERE tenant_id = ? AND id IN (${audioIds.map(() => '?').join(',')})`,
+        [req.tenantId, ...audioIds]
+      );
+      const byId = new Map(rows.map(r => [Number(r.id), r]));
+      const ordered = audioIds.map(id => byId.get(id)).filter(Boolean);
+      if (ordered.length === 0) {
+        return res.status(404).json({ success: false, message: 'Audios seleccionados no encontrados.' });
+      }
+
+      const pauseMs = req.body?.pauseMs !== undefined ? Number(req.body.pauseMs) : 350;
+      const result = await elevenLabsService.buildFreshWhatsAppVoiceNoteFromFiles(
+        ordered.map(r => r.file_path),
+        { pauseMs }
+      );
+
+      const sendToPhone = String(req.body?.sendToPhone || '').trim();
+      let sentToWhatsApp = false;
+      if (sendToPhone) {
+        const titles = ordered.map(r => r.title).join(' + ');
+        await saasBotManager.sendTenantAudioOrText(req.tenantId, sendToPhone, {
+          oggBuffer: result.oggBuffer,
+          durationSec: result.durationSec,
+          text: `[Nota de voz unida: ${titles}]`
+        });
+        sentToWhatsApp = true;
+      }
+
+      res.json({
+        success: true,
+        audioBase64: result.mp3Buffer.toString('base64'),
+        mimeType: 'audio/mpeg',
+        filesCount: result.filesCount,
+        durationSec: result.durationSec,
+        sentToWhatsApp
+      });
+    } catch (err) {
+      console.error('[SaaS Library Merge Error]:', err.message);
       res.status(400).json({ success: false, message: err.message });
     }
   });

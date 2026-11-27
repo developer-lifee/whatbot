@@ -19,6 +19,11 @@ if (!fs.existsSync(SESSIONS_ROOT)) {
 
 const sessions = new Map(); // tenantId -> { sock, status, qrDataUrl, phone, lastError, isStarting, manualStop }
 const chatHistories = new Map(); // `${tenantId}:${jid}` -> [{ role, content }]
+const incomingBatches = new Map(); // `${tenantId}:${jid}` -> { msgs: [], keys: [], timer: Timeout }
+const tenantQueues = new Map(); // tenantId -> Promise chain
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+const randomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 let saasTablesReady = false;
 async function ensureSaasBotTables() {
@@ -64,6 +69,21 @@ async function ensureSaasBotTables() {
       body TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_tenant_created (tenant_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS saas_bot_audios (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      tenant_id INT NOT NULL,
+      title VARCHAR(150) NOT NULL,
+      trigger_description TEXT NOT NULL,
+      file_path VARCHAR(500) NOT NULL,
+      original_filename VARCHAR(255) NULL,
+      duration_sec INT DEFAULT 5,
+      is_active TINYINT(1) DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_tenant_audio (tenant_id, is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
@@ -221,6 +241,88 @@ Responde ÚNICAMENTE con el objeto JSON.`;
   };
 }
 
+/**
+ * Decididor IA: evalúa si debe responder con 1 o más audios pregrabados (unidos en una sola nota de voz),
+ * con texto, o con audio + dato puntual en texto.
+ */
+async function decideTenantReplyWithAudioLibrary(tenant, activeAudios, history, incomingText) {
+  const audioCatalog = activeAudios.map(a => (
+    `- ID ${a.id} | Título: "${a.title}" (${a.duration_sec || 5}s) | Cuándo usarlo: ${a.trigger_description}`
+  )).join('\n');
+
+  const systemInstruction = [
+    tenant.system_prompt || `Eres el asistente virtual oficial de ${tenant.business_name}.`,
+    `Tono de atención: ${tenant.bot_tone || 'amigable'}.`,
+    tenant.business_description ? `Descripción del negocio: ${tenant.business_description}` : '',
+    tenant.knowledge_base ? `BASE DE CONOCIMIENTO:\n${tenant.knowledge_base}` : '',
+    `\nBIBLIOTECA DE AUDIOS PREGRABADOS DISPONIBLES:\n${audioCatalog}`,
+    `\nINSTRUCCIONES DEL DECIDIDOR DE RESPUESTA (OBLIGATORIO):
+Responde ÚNICAMENTE con un JSON válido con este formato exacto:
+{
+  "mode": "audio" | "text" | "audio_and_text",
+  "audio_ids": [1, 2],
+  "reply_text": ""
+}
+Reglas para decidir:
+1. Si la intención del cliente encaja con uno o más audios disponibles (ej. saludo + precios, o explicación + medios de pago), elige "mode": "audio" y pon en "audio_ids" los IDs en el orden lógico en que deben unirse en una sola nota de voz fluida (máximo 4 audios).
+2. Usa "mode": "audio_and_text" solo si además del audio hace falta dejar por escrito un dato puntual (un número de cuenta, un enlace o un valor exacto que esté en la base de conocimiento).
+3. Si ningún audio aplica a lo que preguntó el cliente, usa "mode": "text", deja "audio_ids": [] y redacta en "reply_text" una respuesta humana, natural y breve para WhatsApp.`
+  ].filter(Boolean).join('\n\n');
+
+  const raw = await callLlmCompletion(
+    [
+      { role: 'system', content: systemInstruction },
+      ...history.slice(-8),
+      { role: 'user', content: incomingText }
+    ],
+    { temperature: 0.35, maxTokens: 600, jsonMode: true }
+  );
+
+  const cleaned = raw.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+  const parsed = JSON.parse(cleaned);
+  const validMap = new Map(activeAudios.map(a => [Number(a.id), a]));
+  const pickedIds = Array.isArray(parsed.audio_ids)
+    ? parsed.audio_ids.map(n => Number(n)).filter(id => validMap.has(id)).slice(0, 4)
+    : [];
+
+  let mode = parsed.mode;
+  if (pickedIds.length === 0) mode = 'text';
+  else if (mode !== 'audio' && mode !== 'audio_and_text') mode = 'audio';
+
+  return {
+    mode,
+    pickedAudios: pickedIds.map(id => validMap.get(id)),
+    replyText: String(parsed.reply_text || '').trim()
+  };
+}
+
+/**
+ * Envía nota de voz nativa PTT simulando grabación humana proporcional a la duración (sin marca de reenviado).
+ */
+async function sendHumanVoiceNote(sock, remoteJid, oggBuffer, durationSec = 5) {
+  const recMs = Math.min(Math.max(3500, (Number(durationSec) || 5) * 650), 14000) + randomBetween(200, 900);
+  await sock.sendPresenceUpdate('recording', remoteJid).catch(() => {});
+  await sleep(recMs);
+  await sock.sendPresenceUpdate('paused', remoteJid).catch(() => {});
+  await sock.sendMessage(remoteJid, {
+    audio: oggBuffer,
+    mimetype: 'audio/ogg; codecs=opus',
+    ptt: true,
+    ...(durationSec ? { seconds: Number(durationSec) } : {})
+  });
+}
+
+/**
+ * Envía texto simulando escritura humana proporcional al largo del mensaje.
+ */
+async function sendHumanText(sock, remoteJid, text) {
+  const compMs = Math.min(Math.max(1800, String(text || '').length * 32), 4800) + randomBetween(150, 600);
+  await sock.sendPresenceUpdate('composing', remoteJid).catch(() => {});
+  await sleep(compMs);
+  await sock.sendPresenceUpdate('paused', remoteJid).catch(() => {});
+  await sock.sendMessage(remoteJid, { text });
+}
+
 function getTenantSessionDir(tenantId) {
   return path.join(SESSIONS_ROOT, `tenant_${tenantId}`);
 }
@@ -249,7 +351,158 @@ async function logTenantMessage(tenantId, customerJid, direction, messageType, b
   }
 }
 
-async function handleIncomingTenantMessage(tenantId, msg) {
+function enqueueTenantBatch(tenantId, remoteJid, msgs, keys) {
+  const prev = tenantQueues.get(tenantId) || Promise.resolve();
+  const next = prev
+    .then(() => processHumanTenantBatch(tenantId, remoteJid, msgs, keys))
+    .catch(err => {
+      console.error(`[SaaS Bot #${tenantId}] Error en cola humana:`, err.message);
+    })
+    .then(() => sleep(randomBetween(2500, 5500)));
+
+  tenantQueues.set(tenantId, next);
+}
+
+async function processHumanTenantBatch(tenantId, remoteJid, batchItems, keys) {
+  const tenant = await getTenantById(tenantId);
+  if (!tenant || tenant.status !== 'active' || !tenant.is_bot_active) return;
+
+  if (tenant.monthly_message_limit > 0 && tenant.messages_used_month >= tenant.monthly_message_limit) {
+    console.warn(`[SaaS Bot #${tenantId}] Límite mensual alcanzado (${tenant.messages_used_month}/${tenant.monthly_message_limit}).`);
+    return;
+  }
+
+  const sess = sessions.get(Number(tenantId));
+  if (!sess || !sess.sock || sess.status !== 'CONNECTED') return;
+
+  const isVoiceMsg = batchItems.some(x => x.isVoice);
+  const combinedText = batchItems.map(x => x.text).filter(Boolean).join('\n').trim();
+  const incomingText = combinedText || 'Hola, te envié una nota de voz. ¿Me puedes ayudar?';
+
+  await logTenantMessage(tenantId, remoteJid, 'in', isVoiceMsg ? 'audio' : 'text', incomingText);
+
+  // Pausa humana antes de marcar mensajes como leídos
+  await sleep(randomBetween(1200, 2800));
+  if (keys.length > 0) {
+    await sess.sock.readMessages(keys).catch(() => {});
+  }
+
+  const histKey = `${tenantId}:${remoteJid}`;
+  const history = chatHistories.get(histKey) || [];
+
+  const [activeAudios] = await pool.query(
+    'SELECT id, title, trigger_description, file_path, duration_sec FROM saas_bot_audios WHERE tenant_id = ? AND is_active = 1 ORDER BY id ASC',
+    [tenantId]
+  );
+
+  let sentType = 'text';
+  let logSummary = '';
+
+  if (activeAudios.length > 0) {
+    let decision;
+    try {
+      decision = await decideTenantReplyWithAudioLibrary(tenant, activeAudios, history, incomingText);
+    } catch (err) {
+      console.error(`[SaaS Bot #${tenantId}] Error en decididor de audios:`, err.message);
+      return;
+    }
+
+    if ((decision.mode === 'audio' || decision.mode === 'audio_and_text') && decision.pickedAudios.length > 0) {
+      try {
+        const audioPaths = decision.pickedAudios.map(a => a.file_path);
+        const built = await elevenLabsService.buildFreshWhatsAppVoiceNoteFromFiles(audioPaths, { pauseMs: 350 });
+        await sendHumanVoiceNote(sess.sock, remoteJid, built.oggBuffer, built.durationSec);
+        const titles = decision.pickedAudios.map(a => a.title).join(' + ');
+        sentType = 'audio';
+        logSummary = `[Nota de voz: ${titles} (${built.durationSec}s)]`;
+
+        if (decision.mode === 'audio_and_text' && decision.replyText) {
+          await sleep(randomBetween(1000, 2200));
+          await sendHumanText(sess.sock, remoteJid, decision.replyText);
+          sentType = 'audio+text';
+          logSummary += `\n${decision.replyText}`;
+        }
+      } catch (audioErr) {
+        console.warn(`[SaaS Bot #${tenantId}] Error armando nota de voz de biblioteca:`, audioErr.message);
+        if (decision.replyText) {
+          await sendHumanText(sess.sock, remoteJid, decision.replyText);
+          logSummary = decision.replyText;
+        } else {
+          return;
+        }
+      }
+    } else if (decision.replyText) {
+      await sendHumanText(sess.sock, remoteJid, decision.replyText);
+      logSummary = decision.replyText;
+    } else {
+      return;
+    }
+
+    history.push({ role: 'user', content: incomingText });
+    history.push({ role: 'assistant', content: logSummary });
+    chatHistories.set(histKey, history.slice(-12));
+  } else {
+    // Flujo clásico (texto o ElevenLabs TTS) si el cliente no ha subido audios pregrabados
+    const systemInstruction = [
+      tenant.system_prompt || `Eres el asistente virtual oficial de ${tenant.business_name}.`,
+      `Tono de atención: ${tenant.bot_tone || 'amigable'}.`,
+      tenant.business_description ? `Descripción del negocio: ${tenant.business_description}` : '',
+      tenant.knowledge_base ? `BASE DE CONOCIMIENTO:\n${tenant.knowledge_base}` : '',
+      'Regla de WhatsApp: responde claro, conciso y natural en español sin inventar datos no confirmados.'
+    ].filter(Boolean).join('\n\n');
+
+    let replyText;
+    try {
+      replyText = await callLlmCompletion([
+        { role: 'system', content: systemInstruction },
+        ...history.slice(-8),
+        { role: 'user', content: incomingText }
+      ], { temperature: 0.5, maxTokens: 550 });
+    } catch (err) {
+      console.error(`[SaaS Bot #${tenantId}] Error generando respuesta IA:`, err.message);
+      return;
+    }
+
+    history.push({ role: 'user', content: incomingText });
+    history.push({ role: 'assistant', content: replyText });
+    chatHistories.set(histKey, history.slice(-12));
+
+    const shouldReplyVoice = Boolean(
+      tenant.elevenlabs_enabled &&
+      tenant.elevenlabs_api_key &&
+      tenant.elevenlabs_voice_id &&
+      (tenant.reply_mode === 'voice' || (tenant.reply_mode === 'auto_match' && isVoiceMsg))
+    );
+
+    if (shouldReplyVoice) {
+      try {
+        const mp3Buf = await elevenLabsService.textToSpeechMp3(replyText, {
+          apiKey: tenant.elevenlabs_api_key,
+          voiceId: tenant.elevenlabs_voice_id,
+          modelId: tenant.elevenlabs_model_id || 'eleven_multilingual_v2'
+        });
+        const oggBuf = await elevenLabsService.convertMp3ToWhatsAppOgg(mp3Buf);
+        const approxSec = Math.max(4, Math.round(replyText.length / 15));
+        await sendHumanVoiceNote(sess.sock, remoteJid, oggBuf, approxSec);
+        sentType = 'audio';
+      } catch (voiceErr) {
+        console.warn(`[SaaS Bot #${tenantId}] Falló voz ElevenLabs, enviando texto:`, voiceErr.message);
+        await sendHumanText(sess.sock, remoteJid, replyText);
+      }
+    } else {
+      await sendHumanText(sess.sock, remoteJid, replyText);
+    }
+    logSummary = replyText;
+  }
+
+  await pool.query(
+    'UPDATE saas_bot_tenants SET messages_used_month = messages_used_month + 1, usage_reset_month = ? WHERE id = ?',
+    [getCurrentMonthKey(), tenantId]
+  );
+  await logTenantMessage(tenantId, remoteJid, 'out', sentType, logSummary);
+}
+
+function handleIncomingTenantMessage(tenantId, msg) {
   const remoteJid = msg?.key?.remoteJid;
   if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast' || remoteJid.includes('@newsletter')) {
     return;
@@ -269,86 +522,24 @@ async function handleIncomingTenantMessage(tenantId, msg) {
 
   if (!rawText && !isVoiceMsg) return;
 
-  const tenant = await getTenantById(tenantId);
-  if (!tenant || tenant.status !== 'active' || !tenant.is_bot_active) {
-    return;
+  // Agrupa ráfagas de mensajes del mismo cliente durante 5.5s antes de procesar en la cola humana
+  const batchKey = `${tenantId}:${remoteJid}`;
+  let batch = incomingBatches.get(batchKey);
+  if (!batch) {
+    batch = { items: [], keys: [], timer: null };
+    incomingBatches.set(batchKey, batch);
   }
+  batch.items.push({ text: rawText, isVoice: isVoiceMsg });
+  if (msg.key) batch.keys.push(msg.key);
 
-  if (tenant.monthly_message_limit > 0 && tenant.messages_used_month >= tenant.monthly_message_limit) {
-    console.warn(`[SaaS Bot #${tenantId}] Límite mensual alcanzado (${tenant.messages_used_month}/${tenant.monthly_message_limit}).`);
-    return;
-  }
-
-  const incomingText = rawText || 'Hola, te envié una nota de voz. ¿Me puedes ayudar?';
-  await logTenantMessage(tenantId, remoteJid, 'in', isVoiceMsg ? 'audio' : 'text', incomingText);
-
-  const histKey = `${tenantId}:${remoteJid}`;
-  const history = chatHistories.get(histKey) || [];
-
-  const systemInstruction = [
-    tenant.system_prompt || `Eres el asistente virtual oficial de ${tenant.business_name}.`,
-    `Tono de atención: ${tenant.bot_tone || 'amigable'}.`,
-    tenant.business_description ? `Descripción del negocio: ${tenant.business_description}` : '',
-    tenant.knowledge_base ? `BASE DE CONOCIMIENTO:\n${tenant.knowledge_base}` : '',
-    'Regla de WhatsApp: responde claro, conciso y natural en español sin inventar datos no confirmados.'
-  ].filter(Boolean).join('\n\n');
-
-  const llmMessages = [
-    { role: 'system', content: systemInstruction },
-    ...history.slice(-8),
-    { role: 'user', content: incomingText }
-  ];
-
-  let replyText;
-  try {
-    replyText = await callLlmCompletion(llmMessages, { temperature: 0.5, maxTokens: 550 });
-  } catch (err) {
-    console.error(`[SaaS Bot #${tenantId}] Error generando respuesta IA:`, err.message);
-    return;
-  }
-
-  history.push({ role: 'user', content: incomingText });
-  history.push({ role: 'assistant', content: replyText });
-  chatHistories.set(histKey, history.slice(-12));
-
-  const sess = sessions.get(Number(tenantId));
-  if (!sess || !sess.sock || sess.status !== 'CONNECTED') return;
-
-  const shouldReplyVoice = Boolean(
-    tenant.elevenlabs_enabled &&
-    tenant.elevenlabs_api_key &&
-    tenant.elevenlabs_voice_id &&
-    (tenant.reply_mode === 'voice' || (tenant.reply_mode === 'auto_match' && isVoiceMsg))
-  );
-
-  let sentType = 'text';
-  if (shouldReplyVoice) {
-    try {
-      const mp3Buf = await elevenLabsService.textToSpeechMp3(replyText, {
-        apiKey: tenant.elevenlabs_api_key,
-        voiceId: tenant.elevenlabs_voice_id,
-        modelId: tenant.elevenlabs_model_id || 'eleven_multilingual_v2'
-      });
-      const oggBuf = await elevenLabsService.convertMp3ToWhatsAppOgg(mp3Buf);
-      await sess.sock.sendMessage(remoteJid, {
-        audio: oggBuf,
-        mimetype: 'audio/ogg; codecs=opus',
-        ptt: true
-      });
-      sentType = 'audio';
-    } catch (voiceErr) {
-      console.warn(`[SaaS Bot #${tenantId}] Falló voz ElevenLabs, enviando texto:`, voiceErr.message);
-      await sess.sock.sendMessage(remoteJid, { text: replyText });
+  if (batch.timer) clearTimeout(batch.timer);
+  batch.timer = setTimeout(() => {
+    const done = incomingBatches.get(batchKey);
+    incomingBatches.delete(batchKey);
+    if (done && done.items.length > 0) {
+      enqueueTenantBatch(tenantId, remoteJid, done.items, done.keys);
     }
-  } else {
-    await sess.sock.sendMessage(remoteJid, { text: replyText });
-  }
-
-  await pool.query(
-    'UPDATE saas_bot_tenants SET messages_used_month = messages_used_month + 1, usage_reset_month = ? WHERE id = ?',
-    [getCurrentMonthKey(), tenantId]
-  );
-  await logTenantMessage(tenantId, remoteJid, 'out', sentType, replyText);
+  }, 5500);
 }
 
 /**
@@ -450,13 +641,11 @@ async function startTenantSession(tenantId) {
       }
     });
 
-    sock.ev.on('messages.upsert', async (upsert) => {
+    sock.ev.on('messages.upsert', (upsert) => {
       if (upsert.type !== 'notify' || !Array.isArray(upsert.messages)) return;
       for (const msg of upsert.messages) {
         if (msg?.key?.fromMe) continue;
-        handleIncomingTenantMessage(id, msg).catch(err => {
-          console.error(`[SaaS Bot #${id}] Error procesando mensaje:`, err.message);
-        });
+        handleIncomingTenantMessage(id, msg);
       }
     });
   } catch (err) {
@@ -491,7 +680,7 @@ async function disconnectTenantSession(tenantId) {
   return { status: 'DISCONNECTED', qrDataUrl: null, phone: null };
 }
 
-async function sendTenantAudioOrText(tenantId, targetPhone, { text, oggBuffer } = {}) {
+async function sendTenantAudioOrText(tenantId, targetPhone, { text, oggBuffer, durationSec = 5 } = {}) {
   const id = Number(tenantId);
   const mem = sessions.get(id);
   if (!mem || !mem.sock || mem.status !== 'CONNECTED') {
@@ -506,14 +695,10 @@ async function sendTenantAudioOrText(tenantId, targetPhone, { text, oggBuffer } 
   const jid = `${normalized}@s.whatsapp.net`;
 
   if (oggBuffer) {
-    await mem.sock.sendMessage(jid, {
-      audio: oggBuffer,
-      mimetype: 'audio/ogg; codecs=opus',
-      ptt: true
-    });
-    await logTenantMessage(id, jid, 'out', 'audio', text || '[Audio unido de ElevenLabs]');
+    await sendHumanVoiceNote(mem.sock, jid, oggBuffer, durationSec);
+    await logTenantMessage(id, jid, 'out', 'audio', text || '[Nota de voz enviada]');
   } else if (text) {
-    await mem.sock.sendMessage(jid, { text });
+    await sendHumanText(mem.sock, jid, text);
     await logTenantMessage(id, jid, 'out', 'text', text);
   }
 }
