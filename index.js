@@ -12618,7 +12618,11 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
     }
 
     const lowerText = text.toLowerCase();
-    const isQrRequest = lowerText.includes('qr') || lowerText.includes('código') || lowerText.includes('codigo') || lowerText.includes('consignar') || lowerText.includes('cuenta para');
+    const normalizedPaymentText = lowerText
+        .replace(/\bneki\b/g, 'nequi')
+        .replace(/\bdabiplata\b/g, 'daviplata')
+        .replace(/\bbancolobia\b/g, 'bancolombia');
+    const isQrRequest = /\bqr\b/.test(lowerText) || lowerText.includes('código qr') || lowerText.includes('codigo qr');
 
     if (isQrRequest && enabledDetails['qr negocios']) {
         const { MessageMedia } = require('whatsapp-web.js');
@@ -12635,13 +12639,21 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
             await message.reply("🤖 Aún no tengo configurada la imagen del QR oficial, pero puedes usar estos datos para transferir (recuerda que el QR agiliza tu entrega):");
         }
     } else if (isQrRequest && !enabledDetails['qr negocios']) {
-        const activeLabels = Object.keys(enabledDetails).map(k => k.toUpperCase());
-        await message.reply(`🤖 El *QR de Negocios* no está activo en este momento. Por favor utiliza uno de los siguientes medios activos: *${activeLabels.join(', ')}*.`);
+        const hasActiveMethodMention = Object.keys(enabledDetails).some(k => k !== 'qr negocios' && normalizedPaymentText.includes(k)) ||
+            (method && method !== 'qr negocios' && enabledDetails[method]);
+        if (!hasActiveMethodMention) {
+            const activeLabels = Object.keys(enabledDetails).map(k => k.toUpperCase());
+            await message.reply(`🤖 El *QR de Negocios* no está activo en este momento. Por favor utiliza uno de los siguientes medios activos: *${activeLabels.join(', ')}*.`);
+        }
     }
 
-    // Mapeo dinámico para manejar 'llave' o 'llaves'
+    // Mapeo dinámico para manejar 'llave', 'llaves' y alias ortográficos
     let methodToUse = method;
-    if (!methodToUse && (lowerText.includes('llave') || lowerText.includes('bre-v') || lowerText.includes('brev') || lowerText.includes('bre v') || lowerText.includes('bre-b') || lowerText.includes('breb') || lowerText.includes('bre b'))) methodToUse = 'llave';
+    if (!methodToUse && (normalizedPaymentText.includes('llave') || normalizedPaymentText.includes('bre-v') || normalizedPaymentText.includes('brev') || normalizedPaymentText.includes('bre v') || normalizedPaymentText.includes('bre-b') || normalizedPaymentText.includes('breb') || normalizedPaymentText.includes('bre b'))) {
+        methodToUse = 'llave';
+    } else if (!methodToUse) {
+        methodToUse = Object.keys(enabledDetails).find(key => normalizedPaymentText.includes(key)) || null;
+    }
 
     if (methodToUse && enabledDetails[methodToUse]) {
         const state = userStates.get(userId) || {};
@@ -12656,7 +12668,7 @@ async function processPaymentSelection(message, userId, text, isMedia = false, s
         await message.reply(`🤖 El método de pago *${methodToUse.toUpperCase()}* no está disponible temporalmente. Puedes realizar la transferencia por: *${activeLabels.join(', ')}*.`);
     } else {
         // Fallback manual check
-        let foundKey = Object.keys(enabledDetails).find(key => lowerText.includes(key));
+        let foundKey = Object.keys(enabledDetails).find(key => normalizedPaymentText.includes(key));
         if (foundKey) {
             const state = userStates.get(userId) || {};
             let finalMsg = enabledDetails[foundKey];
