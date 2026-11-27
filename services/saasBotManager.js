@@ -146,6 +146,9 @@ async function ensureSaasBotTables() {
   if (!colNames.has('dashboard_prefs')) {
     await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN dashboard_prefs LONGTEXT NULL');
   }
+  if (!colNames.has('enabled_modules')) {
+    await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN enabled_modules LONGTEXT NULL');
+  }
 
   const [audioCols] = await pool.query('SHOW COLUMNS FROM saas_bot_audios');
   const audioColNames = new Set(audioCols.map(c => c.Field));
@@ -194,6 +197,24 @@ async function ensureSaasBotTables() {
   await pool.query(
     "ALTER TABLE saas_bot_improvements MODIFY COLUMN status ENUM('proposed','accepted','applied','reverted','escalated_core','queued_restart','dismissed') DEFAULT 'proposed'"
   ).catch(() => {});
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS saas_bot_data_sources (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      tenant_id INT NOT NULL,
+      name VARCHAR(140) NOT NULL,
+      source_type ENUM('google_sheets','uploaded_table') DEFAULT 'google_sheets',
+      sheet_url VARCHAR(600) NULL,
+      headers_json LONGTEXT NULL,
+      rows_json LONGTEXT NULL,
+      row_count INT DEFAULT 0,
+      last_synced_at DATETIME NULL,
+      is_active TINYINT(1) DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_ds_tenant (tenant_id, is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 
   saasTablesReady = true;
 }
@@ -257,12 +278,348 @@ async function updateTenantDashboardPrefs(tenantId, patch = {}) {
   return merged;
 }
 
+function parseEnabledModules(raw) {
+  let list = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) list = parsed;
+    } catch {}
+  }
+  return Array.from(new Set(list.map(x => String(x || '').trim().toLowerCase()).filter(Boolean)));
+}
+
+async function setTenantEnabledModules(tenantId, modulesArray = []) {
+  await ensureSaasBotTables();
+  const normalized = parseEnabledModules(modulesArray);
+  await pool.query('UPDATE saas_bot_tenants SET enabled_modules = ? WHERE id = ?', [
+    JSON.stringify(normalized),
+    Number(tenantId)
+  ]);
+  return normalized;
+}
+
+function toGoogleSheetsCsvUrl(rawUrl) {
+  const input = String(rawUrl || '').trim();
+  let parsed;
+  try {
+    parsed = new URL(input);
+  } catch {
+    throw new Error('Ingresa una URL válida de Google Sheets o CSV.');
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('La URL debe empezar por http:// o https://');
+  }
+
+  if (parsed.hostname.includes('docs.google.com') && parsed.pathname.includes('/spreadsheets/d/')) {
+    if (parsed.pathname.includes('/export') && parsed.searchParams.get('format') === 'csv') {
+      return parsed.toString();
+    }
+    if (parsed.pathname.includes('/pub') && parsed.searchParams.get('output') === 'csv') {
+      return parsed.toString();
+    }
+    const match = parsed.pathname.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+    if (!match) throw new Error('No se encontró el ID del documento de Google Sheets.');
+    const sheetId = match[1];
+    let gid = parsed.searchParams.get('gid') || '';
+    if (!gid && parsed.hash && parsed.hash.includes('gid=')) {
+      const hMatch = parsed.hash.match(/gid=(\d+)/);
+      if (hMatch) gid = hMatch[1];
+    }
+    return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv${gid ? `&gid=${gid}` : ''}`;
+  }
+
+  return parsed.toString();
+}
+
+function parseCsvTable(csvText) {
+  const text = String(csvText || '').replace(/^\uFEFF/, '');
+  const firstLine = (text.split(/\r?\n/)[0] || '');
+  const delimiter = !firstLine.includes(',') && firstLine.includes(';') ? ';' : ',';
+
+  const matrix = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === delimiter) {
+      row.push(field.trim());
+      field = '';
+    } else if (ch === '\r') {
+      if (text[i + 1] === '\n') i++;
+      row.push(field.trim());
+      if (row.some(c => c !== '')) matrix.push(row);
+      row = [];
+      field = '';
+    } else if (ch === '\n') {
+      row.push(field.trim());
+      if (row.some(c => c !== '')) matrix.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += ch;
+    }
+  }
+  row.push(field.trim());
+  if (row.some(c => c !== '')) matrix.push(row);
+
+  if (matrix.length === 0) return { headers: [], rows: [] };
+
+  const headers = matrix[0].map((h, idx) => h || `Columna_${idx + 1}`);
+  const rows = [];
+  for (let r = 1; r < matrix.length && rows.length < 1500; r++) {
+    const rawRow = matrix[r];
+    if (!rawRow.some(c => c !== '')) continue;
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = rawRow[idx] !== undefined ? String(rawRow[idx]).trim() : '';
+    });
+    rows.push(obj);
+  }
+  return { headers, rows };
+}
+
+function formatDataSourceSummary(row) {
+  let headers = [];
+  let rows = [];
+  try { headers = JSON.parse(row.headers_json || '[]'); } catch {}
+  try { rows = JSON.parse(row.rows_json || '[]'); } catch {}
+  return {
+    id: row.id,
+    tenant_id: row.tenant_id,
+    name: row.name,
+    source_type: row.source_type,
+    sheet_url: row.sheet_url,
+    headers: Array.isArray(headers) ? headers : [],
+    previewRows: Array.isArray(rows) ? rows.slice(0, 15) : [],
+    row_count: Number(row.row_count || rows.length || 0),
+    last_synced_at: row.last_synced_at,
+    is_active: Boolean(row.is_active)
+  };
+}
+
+async function listTenantDataSources(tenantId) {
+  await ensureSaasBotTables();
+  const [rows] = await pool.query(
+    'SELECT * FROM saas_bot_data_sources WHERE tenant_id = ? AND is_active = 1 ORDER BY id DESC',
+    [Number(tenantId)]
+  );
+  return rows.map(formatDataSourceSummary);
+}
+
+async function syncGoogleSheetSource(tenantId, { id = null, name = '', sheetUrl = '' } = {}) {
+  await ensureSaasBotTables();
+  let targetId = id ? Number(id) : null;
+  let finalName = String(name || '').trim();
+  let finalUrl = String(sheetUrl || '').trim();
+
+  if (targetId) {
+    const [[existing]] = await pool.query(
+      'SELECT * FROM saas_bot_data_sources WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [targetId, Number(tenantId)]
+    );
+    if (!existing) throw new Error('Fuente de datos no encontrada.');
+    if (!finalName) finalName = existing.name;
+    if (!finalUrl) finalUrl = existing.sheet_url || '';
+  }
+
+  if (!finalUrl) throw new Error('Ingresa el enlace de tu Google Sheets.');
+  const csvUrl = toGoogleSheetsCsvUrl(finalUrl);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  let csvText = '';
+  try {
+    const res = await fetch(csvUrl, { redirect: 'follow', signal: controller.signal });
+    if (!res.ok) {
+      throw new Error(`Google Sheets respondió HTTP ${res.status}. Verifica que sea pública en lectura.`);
+    }
+    csvText = await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const lowerHead = csvText.slice(0, 400).toLowerCase();
+  if (lowerHead.includes('<!doctype html') || lowerHead.includes('<html') || lowerHead.includes('servicelogin')) {
+    throw new Error("Asegúrate de que tu hoja esté compartida como 'Cualquier persona con el enlace (Lector)' o 'Publicada en la web'.");
+  }
+
+  const { headers, rows } = parseCsvTable(csvText);
+  if (headers.length === 0) {
+    throw new Error('La hoja está vacía o no tiene encabezados válidos.');
+  }
+
+  const safeName = finalName || 'Hoja Google Sheets';
+  if (targetId) {
+    await pool.query(
+      'UPDATE saas_bot_data_sources SET name = ?, sheet_url = ?, headers_json = ?, rows_json = ?, row_count = ?, last_synced_at = NOW() WHERE id = ? AND tenant_id = ?',
+      [safeName, finalUrl, JSON.stringify(headers), JSON.stringify(rows), rows.length, targetId, Number(tenantId)]
+    );
+  } else {
+    const [ins] = await pool.query(
+      `INSERT INTO saas_bot_data_sources
+       (tenant_id, name, source_type, sheet_url, headers_json, rows_json, row_count, last_synced_at, is_active)
+       VALUES (?, ?, 'google_sheets', ?, ?, ?, ?, NOW(), 1)`,
+      [Number(tenantId), safeName, finalUrl, JSON.stringify(headers), JSON.stringify(rows), rows.length]
+    );
+    targetId = ins.insertId;
+  }
+
+  const [[saved]] = await pool.query('SELECT * FROM saas_bot_data_sources WHERE id = ? LIMIT 1', [targetId]);
+  return formatDataSourceSummary(saved);
+}
+
+async function importUploadedTableSource(tenantId, { name = '', headers = [], rows = [] } = {}) {
+  await ensureSaasBotTables();
+  const safeName = String(name || '').trim() || 'Tabla Excel / CSV';
+  if (!Array.isArray(headers) || headers.length === 0 || !Array.isArray(rows) || rows.length === 0) {
+    throw new Error('La tabla no contiene encabezados o filas válidas.');
+  }
+  const cleanHeaders = headers.map((h, idx) => String(h || '').trim() || `Columna_${idx + 1}`).slice(0, 40);
+  const cleanRows = [];
+  for (const r of rows) {
+    if (cleanRows.length >= 1500) break;
+    if (!r || typeof r !== 'object') continue;
+    const obj = {};
+    let hasVal = false;
+    for (const h of cleanHeaders) {
+      const v = r[h] !== undefined && r[h] !== null ? String(r[h]).trim() : '';
+      if (v) hasVal = true;
+      obj[h] = v;
+    }
+    if (hasVal) cleanRows.push(obj);
+  }
+  if (cleanRows.length === 0) {
+    throw new Error('No se encontraron filas con contenido válido en el archivo.');
+  }
+
+  const [ins] = await pool.query(
+    `INSERT INTO saas_bot_data_sources
+     (tenant_id, name, source_type, sheet_url, headers_json, rows_json, row_count, last_synced_at, is_active)
+     VALUES (?, ?, 'uploaded_table', NULL, ?, ?, ?, NOW(), 1)`,
+    [Number(tenantId), safeName, JSON.stringify(cleanHeaders), JSON.stringify(cleanRows), cleanRows.length]
+  );
+  const [[saved]] = await pool.query('SELECT * FROM saas_bot_data_sources WHERE id = ? LIMIT 1', [ins.insertId]);
+  return formatDataSourceSummary(saved);
+}
+
+async function deleteTenantDataSource(tenantId, sourceId) {
+  await ensureSaasBotTables();
+  const [res] = await pool.query('DELETE FROM saas_bot_data_sources WHERE id = ? AND tenant_id = ?', [
+    Number(sourceId),
+    Number(tenantId)
+  ]);
+  if (!res.affectedRows) throw new Error('Fuente de datos no encontrada.');
+  return { deleted: true };
+}
+
+const normDataText = (s) =>
+  String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+async function buildLiveDataContextForMessage(tenant, incomingText) {
+  if (!tenant || !parseEnabledModules(tenant.enabled_modules).includes('crm_sheets')) {
+    return '';
+  }
+  const [sources] = await pool.query(
+    'SELECT * FROM saas_bot_data_sources WHERE tenant_id = ? AND is_active = 1 ORDER BY id DESC',
+    [Number(tenant.id)]
+  );
+  if (!sources || sources.length === 0) return '';
+
+  const fiveMinAgo = Date.now() - 5 * 60 * 1000;
+  for (let i = 0; i < sources.length; i++) {
+    const src = sources[i];
+    if (src.source_type === 'google_sheets' && src.sheet_url) {
+      const syncedMs = src.last_synced_at ? new Date(src.last_synced_at).getTime() : 0;
+      if (!syncedMs || syncedMs < fiveMinAgo) {
+        try {
+          await syncGoogleSheetSource(tenant.id, { id: src.id });
+          const [[refreshed]] = await pool.query('SELECT * FROM saas_bot_data_sources WHERE id = ? LIMIT 1', [src.id]);
+          if (refreshed) sources[i] = refreshed;
+        } catch {}
+      }
+    }
+  }
+
+  const tokens = Array.from(
+    new Set(
+      normDataText(incomingText)
+        .split(/[^a-z0-9]+/)
+        .filter(t => t.length >= 3)
+    )
+  );
+
+  const scoredRows = [];
+  const fallbackRows = [];
+
+  for (const src of sources) {
+    let rows = [];
+    try { rows = JSON.parse(src.rows_json || '[]'); } catch {}
+    if (!Array.isArray(rows) || rows.length === 0) continue;
+
+    for (let idx = 0; idx < rows.length; idx++) {
+      const r = rows[idx];
+      if (fallbackRows.length < 5) fallbackRows.push({ sourceName: src.name, row: r });
+      if (tokens.length === 0) continue;
+
+      const rowVals = Object.values(r).map(normDataText);
+      const joined = rowVals.join(' ');
+      let score = 0;
+      for (const tok of tokens) {
+        if (rowVals.some(v => v === tok || v.split(/\s+/).includes(tok))) {
+          score += 3;
+        } else if (joined.includes(tok)) {
+          score += 1;
+        }
+      }
+      if (score > 0) {
+        scoredRows.push({ score, sourceName: src.name, row: r });
+      }
+    }
+  }
+
+  scoredRows.sort((a, b) => b.score - a.score);
+  const picked = scoredRows.length > 0 ? scoredRows.slice(0, 8) : fallbackRows.slice(0, 5);
+  if (picked.length === 0) return '';
+
+  const lines = picked.map((item, i) => {
+    const kv = Object.entries(item.row)
+      .filter(([, v]) => String(v || '').trim() !== '')
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(' | ');
+    return `${i + 1}. [${item.sourceName}] ${kv}`;
+  });
+
+  return `DATOS EN VIVO DE TU HOJA / TABLA CONECTADA (ÚSALOS COMO FUENTE VERIFICADA DE VERDAD):\n${lines.join('\n')}`;
+}
+
 function sanitizeTenant(tenant) {
   if (!tenant) return null;
-  const { password_hash, elevenlabs_api_key, dashboard_prefs, ...rest } = tenant;
+  const { password_hash, elevenlabs_api_key, dashboard_prefs, enabled_modules, ...rest } = tenant;
   return {
     ...rest,
     dashboard_prefs: parseDashboardPrefs(dashboard_prefs),
+    enabled_modules: parseEnabledModules(enabled_modules),
     has_elevenlabs_key: Boolean(elevenlabs_api_key && String(elevenlabs_api_key).trim()),
     elevenlabs_api_key_masked: elevenlabs_api_key
       ? `${String(elevenlabs_api_key).slice(0, 6)}...${String(elevenlabs_api_key).slice(-4)}`
@@ -389,7 +746,7 @@ Responde ÚNICAMENTE con el objeto JSON.`;
  * Decididor IA: evalúa si debe responder con 1 o más audios pregrabados (unidos en una sola nota de voz),
  * con texto, o con audio + dato puntual en texto.
  */
-async function decideTenantReplyWithAudioLibrary(tenant, activeAudios, history, incomingText) {
+async function decideTenantReplyWithAudioLibrary(tenant, activeAudios, history, incomingText, liveDataContext = '') {
   const audioCatalog = activeAudios.map(a => (
     `- ID ${a.id} | Título: "${a.title}" (${a.duration_sec || 5}s) | Cuándo usarlo: ${a.trigger_description}`
   )).join('\n');
@@ -399,6 +756,7 @@ async function decideTenantReplyWithAudioLibrary(tenant, activeAudios, history, 
     `Tono de atención: ${tenant.bot_tone || 'amigable'}.`,
     tenant.business_description ? `Descripción del negocio: ${tenant.business_description}` : '',
     tenant.knowledge_base ? `BASE DE CONOCIMIENTO:\n${tenant.knowledge_base}` : '',
+    liveDataContext || '',
     `\nBIBLIOTECA DE AUDIOS PREGRABADOS DISPONIBLES:\n${audioCatalog}`,
     `\nINSTRUCCIONES DEL DECIDIDOR DE RESPUESTA (OBLIGATORIO):
 Responde ÚNICAMENTE con un JSON válido con este formato exacto:
@@ -588,6 +946,8 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
     [tenantId]
   );
 
+  const liveDataContext = await buildLiveDataContextForMessage(tenant, incomingText).catch(() => '');
+
   let sentType = 'text';
   let logSummary = '';
   let decisionMeta = null;
@@ -595,7 +955,7 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
   if (activeAudios.length > 0) {
     let decision;
     try {
-      decision = await decideTenantReplyWithAudioLibrary(tenant, activeAudios, history, incomingText);
+      decision = await decideTenantReplyWithAudioLibrary(tenant, activeAudios, history, incomingText, liveDataContext);
     } catch (err) {
       console.error(`[SaaS Bot #${tenantId}] Error en decididor de audios:`, err.message);
       return;
@@ -669,6 +1029,7 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
       `Tono de atención: ${tenant.bot_tone || 'amigable'}.`,
       tenant.business_description ? `Descripción del negocio: ${tenant.business_description}` : '',
       tenant.knowledge_base ? `BASE DE CONOCIMIENTO:\n${tenant.knowledge_base}` : '',
+      liveDataContext || '',
       'Regla de WhatsApp: responde claro, conciso y natural en español sin inventar datos no confirmados.'
     ].filter(Boolean).join('\n\n');
 
@@ -1506,8 +1867,10 @@ async function simulateTenantChatTurn(tenantId, { messages = [], history = [], h
     [tenant.id]
   );
 
+  const liveDataContext = await buildLiveDataContextForMessage(tenant, incomingText).catch(() => '');
+
   if (activeAudios.length > 0) {
-    const decision = await decideTenantReplyWithAudioLibrary(tenant, activeAudios, safeHistory, incomingText);
+    const decision = await decideTenantReplyWithAudioLibrary(tenant, activeAudios, safeHistory, incomingText, liveDataContext);
     const pickedAudios = decision.pickedAudios.map(a => ({
       id: Number(a.id),
       title: a.title,
@@ -1558,6 +1921,7 @@ async function simulateTenantChatTurn(tenantId, { messages = [], history = [], h
     `Tono de atención: ${tenant.bot_tone || 'amigable'}.`,
     tenant.business_description ? `Descripción del negocio: ${tenant.business_description}` : '',
     tenant.knowledge_base ? `BASE DE CONOCIMIENTO:\n${tenant.knowledge_base}` : '',
+    liveDataContext || '',
     'Regla de WhatsApp: responde claro, conciso y natural en español sin inventar datos no confirmados.'
   ].filter(Boolean).join('\n\n');
 
@@ -1587,6 +1951,12 @@ module.exports = {
   sanitizeTenant,
   parseDashboardPrefs,
   updateTenantDashboardPrefs,
+  parseEnabledModules,
+  setTenantEnabledModules,
+  syncGoogleSheetSource,
+  importUploadedTableSource,
+  listTenantDataSources,
+  deleteTenantDataSource,
   generateSaasBotConfig,
   startTenantSession,
   disconnectTenantSession,

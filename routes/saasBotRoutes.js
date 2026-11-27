@@ -741,6 +741,81 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     }
   });
 
+  app.get('/api/saas-bot/data-sources', requireSaasTenant, async (req, res) => {
+    try {
+      const tenant = await saasBotManager.getTenantById(req.tenantId);
+      const enabled = saasBotManager.parseEnabledModules(tenant?.enabled_modules).includes('crm_sheets');
+      const sources = await saasBotManager.listTenantDataSources(req.tenantId);
+      res.json({ success: true, enabled, sources });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/data-sources/google-sheet', requireSaasTenant, express.json(), async (req, res) => {
+    try {
+      const tenant = await saasBotManager.getTenantById(req.tenantId);
+      if (!saasBotManager.parseEnabledModules(tenant?.enabled_modules).includes('crm_sheets')) {
+        return res.status(403).json({
+          success: false,
+          message: 'El módulo Base de Datos & Hojas Conectadas no está activo en tu cuenta.'
+        });
+      }
+      const source = await saasBotManager.syncGoogleSheetSource(req.tenantId, {
+        name: req.body?.name,
+        sheetUrl: req.body?.sheetUrl
+      });
+      res.json({ success: true, source });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message || 'No se pudo conectar la hoja.' });
+    }
+  });
+
+  app.post('/api/saas-bot/data-sources/:id/sync', requireSaasTenant, async (req, res) => {
+    try {
+      const tenant = await saasBotManager.getTenantById(req.tenantId);
+      if (!saasBotManager.parseEnabledModules(tenant?.enabled_modules).includes('crm_sheets')) {
+        return res.status(403).json({
+          success: false,
+          message: 'El módulo Base de Datos & Hojas Conectadas no está activo en tu cuenta.'
+        });
+      }
+      const source = await saasBotManager.syncGoogleSheetSource(req.tenantId, { id: Number(req.params.id) });
+      res.json({ success: true, source });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message || 'No se pudo sincronizar la hoja.' });
+    }
+  });
+
+  app.post('/api/saas-bot/data-sources/import', requireSaasTenant, express.json({ limit: '6mb' }), async (req, res) => {
+    try {
+      const tenant = await saasBotManager.getTenantById(req.tenantId);
+      if (!saasBotManager.parseEnabledModules(tenant?.enabled_modules).includes('crm_sheets')) {
+        return res.status(403).json({
+          success: false,
+          message: 'El módulo Base de Datos & Hojas Conectadas no está activo en tu cuenta.'
+        });
+      }
+      const source = await saasBotManager.importUploadedTableSource(req.tenantId, {
+        name: req.body?.name,
+        headers: req.body?.headers,
+        rows: req.body?.rows
+      });
+      res.json({ success: true, source });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message || 'No se pudo importar la tabla.' });
+    }
+  });
+
+  app.delete('/api/saas-bot/data-sources/:id', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.deleteTenantDataSource(req.tenantId, Number(req.params.id));
+      res.json({ success: true });
+    } catch (err) {
+      res.status(404).json({ success: false, message: err.message });
+    }
+  });
+
   app.put(
     '/api/saas-bot/audios/:id',
     requireSaasTenant,
@@ -1035,6 +1110,18 @@ function registerSaasBotRoutes(app, routeContext = {}) {
       });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.put('/api/admin/saas-bots/:id/modules', express.json(), async (req, res) => {
+    try {
+      const pwd = req.headers['x-admin-password'] || req.body?.password || req.query.password;
+      if (pwd !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+      const modules = Array.isArray(req.body?.modules) ? req.body.modules : [];
+      const enabled_modules = await saasBotManager.setTenantEnabledModules(Number(req.params.id), modules);
+      res.json({ success: true, tenantId: Number(req.params.id), enabled_modules });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
     }
   });
 
