@@ -732,40 +732,97 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     }
   });
 
-  app.put('/api/saas-bot/audios/:id', requireSaasTenant, express.json(), async (req, res) => {
+  app.put('/api/saas-bot/dashboard-prefs', requireSaasTenant, express.json(), async (req, res) => {
     try {
-      await saasBotManager.ensureSaasBotTables();
-      const audioId = Number(req.params.id);
-      const [[existing]] = await pool.query('SELECT * FROM saas_bot_audios WHERE id = ? AND tenant_id = ? LIMIT 1', [audioId, req.tenantId]);
-      if (!existing) {
-        return res.status(404).json({ success: false, message: 'Audio no encontrado.' });
-      }
-
-      const b = req.body || {};
-      await pool.query(
-        'UPDATE saas_bot_audios SET title = ?, trigger_description = ?, followup_text = ?, is_active = ? WHERE id = ? AND tenant_id = ?',
-        [
-          b.title !== undefined ? String(b.title).trim() : existing.title,
-          b.trigger_description !== undefined ? String(b.trigger_description).trim() : existing.trigger_description,
-          b.followup_text !== undefined ? (String(b.followup_text).trim() || null) : existing.followup_text,
-          b.is_active !== undefined ? (b.is_active ? 1 : 0) : existing.is_active,
-          audioId,
-          req.tenantId
-        ]
-      );
-
-      const [[updated]] = await pool.query(
-        `SELECT id, tenant_id, title, trigger_description, original_filename,
-                image_filename, followup_text, (image_path IS NOT NULL AND image_path <> '') AS has_image,
-                duration_sec, is_active, created_at
-         FROM saas_bot_audios WHERE id = ?`,
-        [audioId]
-      );
-      res.json({ success: true, audio: updated });
+      const dashboard_prefs = await saasBotManager.updateTenantDashboardPrefs(req.tenantId, req.body || {});
+      res.json({ success: true, dashboard_prefs });
     } catch (err) {
-      res.status(500).json({ success: false, message: err.message });
+      res.status(400).json({ success: false, message: err.message });
     }
   });
+
+  app.put(
+    '/api/saas-bot/audios/:id',
+    requireSaasTenant,
+    (req, res, next) => {
+      if (req.is('multipart/form-data')) {
+        return audioUpload.fields([{ name: 'image', maxCount: 1 }])(req, res, next);
+      }
+      return express.json()(req, res, next);
+    },
+    async (req, res) => {
+      const imageFile = req.files?.image?.[0] || null;
+      const tmpImage = imageFile ? imageFile.path : null;
+      try {
+        await saasBotManager.ensureSaasBotTables();
+        const audioId = Number(req.params.id);
+        const [[existing]] = await pool.query(
+          'SELECT * FROM saas_bot_audios WHERE id = ? AND tenant_id = ? LIMIT 1',
+          [audioId, req.tenantId]
+        );
+        if (!existing) {
+          return res.status(404).json({ success: false, message: 'Audio no encontrado.' });
+        }
+
+        const b = req.body || {};
+        const nextTitle = b.title !== undefined ? String(b.title).trim() : existing.title;
+        const nextTrigger = b.trigger_description !== undefined ? String(b.trigger_description).trim() : existing.trigger_description;
+        if (!nextTitle || !nextTrigger) {
+          return res.status(400).json({ success: false, message: 'El nombre y cuándo enviarlo son obligatorios.' });
+        }
+
+        const nextFollowup = b.followup_text !== undefined ? (String(b.followup_text).trim() || null) : existing.followup_text;
+        const nextActive = b.is_active !== undefined
+          ? (b.is_active === true || b.is_active === 1 || b.is_active === '1' || b.is_active === 'true' ? 1 : 0)
+          : existing.is_active;
+
+        const removeImage = b.remove_image === true || b.remove_image === 1 || b.remove_image === '1' || b.remove_image === 'true';
+        let nextImagePath = existing.image_path;
+        let nextImageFilename = existing.image_filename;
+
+        if (removeImage) {
+          if (existing.image_path) {
+            try { if (fs.existsSync(existing.image_path)) fs.unlinkSync(existing.image_path); } catch {}
+          }
+          nextImagePath = null;
+          nextImageFilename = null;
+        }
+
+        if (imageFile && tmpImage && fs.existsSync(tmpImage)) {
+          const tenantDir = path.join(AUDIO_UPLOADS_ROOT, `tenant_${req.tenantId}`);
+          fs.mkdirSync(tenantDir, { recursive: true });
+          const ext = (path.extname(imageFile.originalname || '.jpg') || '.jpg').toLowerCase().slice(0, 10);
+          const finalImagePath = path.join(tenantDir, `img_${Date.now()}_${crypto.randomBytes(4).toString('hex')}${ext}`);
+          fs.copyFileSync(tmpImage, finalImagePath);
+          if (existing.image_path && existing.image_path !== finalImagePath) {
+            try { if (fs.existsSync(existing.image_path)) fs.unlinkSync(existing.image_path); } catch {}
+          }
+          nextImagePath = finalImagePath;
+          nextImageFilename = imageFile.originalname || `imagen${ext}`;
+        }
+
+        await pool.query(
+          'UPDATE saas_bot_audios SET title = ?, trigger_description = ?, followup_text = ?, is_active = ?, image_path = ?, image_filename = ? WHERE id = ? AND tenant_id = ?',
+          [nextTitle, nextTrigger, nextFollowup, nextActive, nextImagePath, nextImageFilename, audioId, req.tenantId]
+        );
+
+        const [[updated]] = await pool.query(
+          `SELECT id, tenant_id, title, trigger_description, original_filename,
+                  image_filename, followup_text, (image_path IS NOT NULL AND image_path <> '') AS has_image,
+                  duration_sec, is_active, created_at
+           FROM saas_bot_audios WHERE id = ?`,
+          [audioId]
+        );
+        res.json({ success: true, audio: updated });
+      } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+      } finally {
+        if (tmpImage) {
+          try { if (fs.existsSync(tmpImage)) fs.unlinkSync(tmpImage); } catch {}
+        }
+      }
+    }
+  );
 
   app.delete('/api/saas-bot/audios/:id', requireSaasTenant, async (req, res) => {
     try {

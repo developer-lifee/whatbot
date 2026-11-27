@@ -143,6 +143,9 @@ async function ensureSaasBotTables() {
   if (!colNames.has('human_pause_minutes')) {
     await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN human_pause_minutes INT DEFAULT 30 AFTER is_bot_active');
   }
+  if (!colNames.has('dashboard_prefs')) {
+    await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN dashboard_prefs LONGTEXT NULL');
+  }
 
   const [audioCols] = await pool.query('SHOW COLUMNS FROM saas_bot_audios');
   const audioColNames = new Set(audioCols.map(c => c.Field));
@@ -219,11 +222,47 @@ async function getTenantById(tenantId) {
   return tenant;
 }
 
+function parseDashboardPrefs(raw) {
+  let obj = {};
+  if (raw && typeof raw === 'object') {
+    obj = { ...raw };
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        obj = parsed;
+      }
+    } catch {}
+  }
+  const favs = Array.isArray(obj.favoriteAudioIds)
+    ? Array.from(new Set(obj.favoriteAudioIds.map(n => Number(n)).filter(n => Number.isInteger(n) && n > 0)))
+    : [];
+  return {
+    ...obj,
+    favoriteAudioIds: favs
+  };
+}
+
+async function updateTenantDashboardPrefs(tenantId, patch = {}) {
+  await ensureSaasBotTables();
+  const [[row]] = await pool.query('SELECT dashboard_prefs FROM saas_bot_tenants WHERE id = ? LIMIT 1', [Number(tenantId)]);
+  if (!row) throw new Error('Cuenta no encontrada.');
+  const current = parseDashboardPrefs(row.dashboard_prefs);
+  const safePatch = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {};
+  const merged = parseDashboardPrefs({ ...current, ...safePatch });
+  await pool.query('UPDATE saas_bot_tenants SET dashboard_prefs = ? WHERE id = ?', [
+    JSON.stringify(merged),
+    Number(tenantId)
+  ]);
+  return merged;
+}
+
 function sanitizeTenant(tenant) {
   if (!tenant) return null;
-  const { password_hash, elevenlabs_api_key, ...rest } = tenant;
+  const { password_hash, elevenlabs_api_key, dashboard_prefs, ...rest } = tenant;
   return {
     ...rest,
+    dashboard_prefs: parseDashboardPrefs(dashboard_prefs),
     has_elevenlabs_key: Boolean(elevenlabs_api_key && String(elevenlabs_api_key).trim()),
     elevenlabs_api_key_masked: elevenlabs_api_key
       ? `${String(elevenlabs_api_key).slice(0, 6)}...${String(elevenlabs_api_key).slice(-4)}`
@@ -1546,6 +1585,8 @@ module.exports = {
   ensureSaasBotTables,
   getTenantById,
   sanitizeTenant,
+  parseDashboardPrefs,
+  updateTenantDashboardPrefs,
   generateSaasBotConfig,
   startTenantSession,
   disconnectTenantSession,
