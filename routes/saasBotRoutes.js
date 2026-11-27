@@ -405,13 +405,27 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     }
   });
 
+  app.post('/api/saas-bot/improvements/:id/accept', requireSaasTenant, async (req, res) => {
+    try {
+      const result = await saasBotManager.acceptTenantImprovement(req.tenantId, Number(req.params.id));
+      res.json({
+        success: true,
+        improvement: result.improvement
+      });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
   app.post('/api/saas-bot/improvements/:id/apply', requireSaasTenant, async (req, res) => {
     try {
-      const result = await saasBotManager.applyTenantImprovement(req.tenantId, Number(req.params.id));
+      const waClient = typeof routeContext?.getClient === 'function' ? routeContext.getClient() : null;
+      const result = await saasBotManager.applyTenantImprovement(req.tenantId, Number(req.params.id), { waClient });
       res.json({
         success: true,
         improvement: result.improvement,
-        tenant: saasBotManager.sanitizeTenant(result.tenant)
+        tenant: result.tenant ? saasBotManager.sanitizeTenant(result.tenant) : undefined,
+        queuedForRestart: Boolean(result.queuedForRestart)
       });
     } catch (err) {
       res.status(400).json({ success: false, message: err.message });
@@ -435,7 +449,7 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     try {
       await saasBotManager.ensureSaasBotTables();
       await pool.query(
-        "UPDATE saas_bot_improvements SET status = 'dismissed' WHERE id = ? AND tenant_id = ? AND status = 'proposed'",
+        "UPDATE saas_bot_improvements SET status = 'dismissed' WHERE id = ? AND tenant_id = ? AND status IN ('proposed', 'accepted')",
         [Number(req.params.id), req.tenantId]
       );
       res.json({ success: true });

@@ -179,7 +179,7 @@ async function ensureSaasBotTables() {
       proposed_audio_trigger TEXT NULL,
       technical_summary TEXT NULL,
       agy_conversation_id VARCHAR(120) NULL,
-      status ENUM('proposed','applied','reverted','escalated_core','dismissed') DEFAULT 'proposed',
+      status ENUM('proposed','accepted','applied','reverted','escalated_core','queued_restart','dismissed') DEFAULT 'proposed',
       previous_snapshot MEDIUMTEXT NULL,
       applied_at DATETIME NULL,
       reverted_at DATETIME NULL,
@@ -187,6 +187,10 @@ async function ensureSaasBotTables() {
       INDEX idx_imp_tenant (tenant_id, status, id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await pool.query(
+    "ALTER TABLE saas_bot_improvements MODIFY COLUMN status ENUM('proposed','accepted','applied','reverted','escalated_core','queued_restart','dismissed') DEFAULT 'proposed'"
+  ).catch(() => {});
 
   saasTablesReady = true;
 }
@@ -1210,7 +1214,7 @@ Responde ÚNICAMENTE con un objeto JSON válido con esta estructura exacta:
   };
 }
 
-async function applyTenantImprovement(tenantId, improvementId) {
+async function acceptTenantImprovement(tenantId, improvementId) {
   await ensureSaasBotTables();
   const [rows] = await pool.query(
     'SELECT * FROM saas_bot_improvements WHERE id = ? AND tenant_id = ? LIMIT 1',
@@ -1219,15 +1223,66 @@ async function applyTenantImprovement(tenantId, improvementId) {
   if (rows.length === 0) throw new Error('Ajuste de mejora no encontrado.');
   const imp = rows[0];
 
-  if (imp.scope === 'core_engine') {
-    throw new Error('Esta mejora corresponde al motor general y será revisada por el equipo de Sheerit.');
+  if (imp.status === 'applied' || imp.status === 'queued_restart') {
+    return { improvement: imp };
   }
-  if (imp.status === 'applied') {
-    throw new Error('Este ajuste ya está aplicado en tu bot.');
-  }
+
+  await pool.query(
+    "UPDATE saas_bot_improvements SET status = 'accepted' WHERE id = ? AND tenant_id = ?",
+    [imp.id, Number(tenantId)]
+  );
+
+  const [updatedRows] = await pool.query(
+    `SELECT id, tenant_id, message_log_id, customer_jid, incoming_text, bot_reply, client_question,
+            explanation_plain, scope, practical_proposal, proposed_prompt_addition,
+            proposed_audio_id, proposed_audio_trigger, status, applied_at, reverted_at, created_at
+     FROM saas_bot_improvements WHERE id = ? LIMIT 1`,
+    [imp.id]
+  );
+  return { improvement: updatedRows[0] };
+}
+
+async function applyTenantImprovement(tenantId, improvementId, { waClient = null } = {}) {
+  await ensureSaasBotTables();
+  const [rows] = await pool.query(
+    'SELECT * FROM saas_bot_improvements WHERE id = ? AND tenant_id = ? LIMIT 1',
+    [Number(improvementId), Number(tenantId)]
+  );
+  if (rows.length === 0) throw new Error('Ajuste de mejora no encontrado.');
+  const imp = rows[0];
 
   const tenant = await getTenantById(tenantId);
   if (!tenant) throw new Error('Cuenta no encontrada.');
+
+  if (imp.scope === 'core_engine' || imp.status === 'escalated_core') {
+    if (imp.status !== 'queued_restart') {
+      await pool.query(
+        "UPDATE saas_bot_improvements SET status = 'queued_restart', applied_at = NOW() WHERE id = ? AND tenant_id = ?",
+        [imp.id, tenant.id]
+      );
+      if (waClient && typeof waClient.sendMessage === 'function') {
+        const queueMsg =
+          `⏳ *[MEJORA EN FILA PARA REINICIO #${imp.id}]*\n\n` +
+          `🏢 *Negocio:* ${tenant.business_name} (${tenant.owner_name})\n` +
+          `💬 *Solicitud:* "${String(imp.client_question || '').slice(0, 220)}"\n` +
+          `⚙️ *Estado:* Aceptada por el cliente y puesta en fila (NO se reinició el servidor global).\n` +
+          `🔗 *Sesión agy:* ${imp.agy_conversation_id || 'sin sesión'}`;
+        waClient.sendMessage('120363102144405222@g.us', queueMsg, { sendSeen: false }).catch(() => {});
+      }
+    }
+    const [updatedQueuedRows] = await pool.query(
+      `SELECT id, tenant_id, message_log_id, customer_jid, incoming_text, bot_reply, client_question,
+              explanation_plain, scope, practical_proposal, proposed_prompt_addition,
+              proposed_audio_id, proposed_audio_trigger, status, applied_at, reverted_at, created_at
+       FROM saas_bot_improvements WHERE id = ? LIMIT 1`,
+      [imp.id]
+    );
+    return { improvement: updatedQueuedRows[0], tenant, queuedForRestart: true };
+  }
+
+  if (imp.status === 'applied') {
+    throw new Error('Este ajuste ya está aplicado en tu bot.');
+  }
 
   let prevAudioTrigger = null;
   if (imp.proposed_audio_id) {
@@ -1259,6 +1314,14 @@ async function applyTenantImprovement(tenantId, improvementId) {
     );
   }
 
+  // Recargar únicamente la instancia de chats en memoria de este cliente sin reiniciar el servidor global
+  const tenantPrefix = `${tenant.id}:`;
+  for (const key of chatHistories.keys()) {
+    if (String(key).startsWith(tenantPrefix)) {
+      chatHistories.delete(key);
+    }
+  }
+
   await pool.query(
     "UPDATE saas_bot_improvements SET status = 'applied', applied_at = NOW(), previous_snapshot = ? WHERE id = ?",
     [JSON.stringify(snapshot), imp.id]
@@ -1272,7 +1335,7 @@ async function applyTenantImprovement(tenantId, improvementId) {
     [imp.id]
   );
   const updatedTenant = await getTenantById(tenant.id);
-  return { improvement: updatedImpRows[0], tenant: updatedTenant };
+  return { improvement: updatedImpRows[0], tenant: updatedTenant, queuedForRestart: false };
 }
 
 async function revertTenantImprovement(tenantId, improvementId) {
@@ -1497,6 +1560,7 @@ module.exports = {
   getCurrentMonthKey,
   parseDecisionMeta,
   analyzeTenantImprovement,
+  acceptTenantImprovement,
   applyTenantImprovement,
   revertTenantImprovement,
   handleEscalateCoreCommand
