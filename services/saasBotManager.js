@@ -4,6 +4,7 @@ const qrcode = require('qrcode');
 const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const { pool } = require('../database');
 const elevenLabsService = require('./elevenLabsService');
+const { callAgyCli, extractJsonFromAgyOutput } = require('../cliAgentService');
 
 const SESSIONS_ROOT = path.join(__dirname, '..', 'saas_wa_sessions');
 if (!fs.existsSync(SESSIONS_ROOT)) {
@@ -107,6 +108,38 @@ async function ensureSaasBotTables() {
   if (!colNames.has('expires_at')) {
     await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN expires_at DATETIME NULL AFTER amount_paid');
   }
+
+  const [logCols] = await pool.query('SHOW COLUMNS FROM saas_bot_messages_log');
+  const logColNames = new Set(logCols.map(c => c.Field));
+  if (!logColNames.has('decision_meta')) {
+    await pool.query('ALTER TABLE saas_bot_messages_log ADD COLUMN decision_meta TEXT NULL AFTER body');
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS saas_bot_improvements (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      tenant_id INT NOT NULL,
+      message_log_id INT NULL,
+      customer_jid VARCHAR(120) NULL,
+      incoming_text TEXT NULL,
+      bot_reply TEXT NULL,
+      client_question TEXT NOT NULL,
+      explanation_plain TEXT NULL,
+      scope ENUM('tenant_config','core_engine') DEFAULT 'tenant_config',
+      practical_proposal TEXT NULL,
+      proposed_prompt_addition TEXT NULL,
+      proposed_audio_id INT NULL,
+      proposed_audio_trigger TEXT NULL,
+      technical_summary TEXT NULL,
+      agy_conversation_id VARCHAR(120) NULL,
+      status ENUM('proposed','applied','reverted','escalated_core','dismissed') DEFAULT 'proposed',
+      previous_snapshot MEDIUMTEXT NULL,
+      applied_at DATETIME NULL,
+      reverted_at DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_imp_tenant (tenant_id, status, id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
 
   saasTablesReady = true;
 }
@@ -282,7 +315,8 @@ Responde ÚNICAMENTE con un JSON válido con este formato exacto:
 {
   "mode": "audio" | "text" | "audio_and_text",
   "audio_ids": [1, 2],
-  "reply_text": ""
+  "reply_text": "",
+  "reason": "Explicación breve en español sencillo (1 frase) de por qué elegiste este audio o respuesta."
 }
 Reglas para decidir:
 1. Si la intención del cliente encaja con uno o más audios disponibles (ej. saludo + precios, o explicación + medios de pago), elige "mode": "audio" y pon en "audio_ids" los IDs en el orden lógico en que deben unirse en una sola nota de voz fluida (máximo 4 audios).
@@ -313,7 +347,8 @@ Reglas para decidir:
   return {
     mode,
     pickedAudios: pickedIds.map(id => validMap.get(id)),
-    replyText: String(parsed.reply_text || '').trim()
+    replyText: String(parsed.reply_text || '').trim(),
+    reason: String(parsed.reason || '').trim()
   };
 }
 
@@ -369,11 +404,22 @@ function getTenantSessionState(tenantId) {
   };
 }
 
-async function logTenantMessage(tenantId, customerJid, direction, messageType, body) {
+function parseDecisionMeta(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
   try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function logTenantMessage(tenantId, customerJid, direction, messageType, body, decisionMeta = null) {
+  try {
+    const metaJson = decisionMeta ? JSON.stringify(decisionMeta).slice(0, 4000) : null;
     await pool.query(
-      'INSERT INTO saas_bot_messages_log (tenant_id, customer_jid, direction, message_type, body) VALUES (?, ?, ?, ?, ?)',
-      [tenantId, customerJid, direction, messageType, String(body || '').slice(0, 4000)]
+      'INSERT INTO saas_bot_messages_log (tenant_id, customer_jid, direction, message_type, body, decision_meta) VALUES (?, ?, ?, ?, ?, ?)',
+      [tenantId, customerJid, direction, messageType, String(body || '').slice(0, 4000), metaJson]
     );
   } catch (err) {
     console.warn(`[SaaS Bot #${tenantId}] Error guardando log:`, err.message);
@@ -432,6 +478,7 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
 
   let sentType = 'text';
   let logSummary = '';
+  let decisionMeta = null;
 
   if (activeAudios.length > 0) {
     let decision;
@@ -441,6 +488,13 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
       console.error(`[SaaS Bot #${tenantId}] Error en decididor de audios:`, err.message);
       return;
     }
+
+    decisionMeta = {
+      mode: decision.mode,
+      audioIds: decision.pickedAudios.map(a => Number(a.id)),
+      audioTitles: decision.pickedAudios.map(a => a.title),
+      reason: decision.reason || ''
+    };
 
     if ((decision.mode === 'audio' || decision.mode === 'audio_and_text') && decision.pickedAudios.length > 0) {
       try {
@@ -534,7 +588,7 @@ async function processHumanTenantBatch(tenantId, remoteJid, batchItems) {
     'UPDATE saas_bot_tenants SET messages_used_month = messages_used_month + 1, usage_reset_month = ? WHERE id = ?',
     [getCurrentMonthKey(), tenantId]
   );
-  await logTenantMessage(tenantId, remoteJid, 'out', sentType, logSummary);
+  await logTenantMessage(tenantId, remoteJid, 'out', sentType, logSummary, decisionMeta);
 }
 
 function handleIncomingTenantMessage(tenantId, msg) {
@@ -771,6 +825,264 @@ async function autoRestoreSavedSessions() {
   }
 }
 
+/**
+ * Analiza una duda o propuesta de ajuste de mejora usando la sesión oficial de Antigravity CLI (agy),
+ * respondiendo al cliente en lenguaje cercano y práctico (sin tecnicismos) y clasificando internamente
+ * si aplica solo a la capa del cliente o a la clase madre.
+ */
+async function analyzeTenantImprovement(tenant, { messageLog = null, previousInMsg = null, activeAudios = [], clientQuestion = '' } = {}) {
+  const audioCatalog = activeAudios.length > 0
+    ? activeAudios.map(a => `- ID ${a.id} | "${a.title}" (${a.duration_sec || 5}s) | Cuándo usarlo: ${a.trigger_description}`).join('\n')
+    : '(El cliente aún no tiene audios pregrabados configurados)';
+
+  const [lastConvRows] = await pool.query(
+    "SELECT agy_conversation_id FROM saas_bot_improvements WHERE tenant_id = ? AND agy_conversation_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+    [tenant.id]
+  );
+  const prevAgyConvId = lastConvRows.length > 0 ? lastConvRows[0].agy_conversation_id : null;
+
+  const systemInstruction = 'Eres el asistente consultor de Sheerit Bot Studio conectado con el motor de mejora continua. Analizas comportamientos de bots de WhatsApp para explicar de forma amable y CERO técnica por qué el bot actuó así y qué ajuste práctico conviene hacer.';
+
+  const prompt = `Analiza esta duda o solicitud de ajuste de mejora de un cliente de Sheerit Bot Studio.
+
+DATOS DEL NEGOCIO:
+- Negocio: ${tenant.business_name} (${tenant.owner_name})
+- Descripción: ${tenant.business_description || 'No especificada'}
+- Instrucciones actuales (system_prompt): ${tenant.system_prompt || '(vacío)'}
+- Base de conocimiento: ${tenant.knowledge_base || '(vacía)'}
+
+BIBLIOTECA DE AUDIOS DEL CLIENTE:
+${audioCatalog}
+
+CONVERSACIÓN ESPECÍFICA CONSULTADA:
+- Mensaje del cliente final: ${previousInMsg?.body || '(consulta general sin mensaje específico)'}
+- Respuesta enviada por el bot: ${messageLog?.body || '(no aplica)'}
+- Motivo interno registrado: ${messageLog?.decision_meta ? JSON.stringify(messageLog.decision_meta) : 'sin traza previa'}
+
+PREGUNTA O MEJORA QUE PIDE EL DUEÑO DEL BOT:
+"${clientQuestion}"
+
+REGLAS CRÍTICAS DE RESPUESTA:
+1. "explanation_plain" y "practical_proposal" son PARA EL CLIENTE FINAL (dueño del negocio):
+   - Tono positivo, cercano, práctico y **100% libre de palabras técnicas** (prohibido hablar de prompts, JSON, regex, tokens, Baileys, Puppeteer, API, backend, base de datos, etc.).
+   - Si el cliente preguntó "¿por qué envió este audio o esta respuesta?", explica claramente qué frase o contexto del cliente activó ese audio/respuesta y cómo evitar confusiones si quiere cambiarlo.
+2. Clasifica "scope":
+   - "tenant_config": si se resuelve ajustando las reglas del negocio o cuándo usar un audio específico de su biblioteca.
+   - "core_engine": solo si requiere cambiar el motor general del sistema para todos los clientes (por ejemplo: reproducir o transcribir notas de voz entrantes de clientes finales, manejo global de tiempos de espera, formato de archivos o fallos del motor).
+3. Si "scope" es "tenant_config" y aplica un ajuste:
+   - Pon en "proposed_prompt_addition" una regla breve y clara en español para agregar a las instrucciones de su bot (si es solo una pregunta explicativa sin cambios necesarios, déjalo vacío "").
+   - Si conviene ajustar la descripción de cuándo usar uno de sus audios, indica "proposed_audio_id" (número exacto del ID de su lista, o null) y "proposed_audio_trigger" (la nueva descripción clara de cuándo usarlo).
+
+Responde ÚNICAMENTE con un objeto JSON válido con esta estructura exacta:
+{
+  "explanation_plain": "...",
+  "scope": "tenant_config",
+  "practical_proposal": "...",
+  "proposed_prompt_addition": "...",
+  "proposed_audio_id": null,
+  "proposed_audio_trigger": "",
+  "technical_summary": "Resumen técnico breve para el equipo de Sheerit General."
+}`;
+
+  let parsed = null;
+  let agyConvId = prevAgyConvId || null;
+
+  try {
+    const rawAgy = await callAgyCli(prompt, systemInstruction, prevAgyConvId, { timeoutMs: 45000 });
+    if (rawAgy) {
+      const extracted = extractJsonFromAgyOutput(rawAgy);
+      if (extracted && (extracted.explanation_plain || extracted.practical_proposal)) {
+        parsed = extracted;
+        if (extracted.conversationId) agyConvId = extracted.conversationId;
+      }
+    }
+  } catch (agyErr) {
+    console.warn('[SaaS Improvement] Falló llamada a agy, usando fallback LLM:', agyErr.message);
+  }
+
+  if (!parsed) {
+    const rawLlm = await callLlmCompletion(
+      [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: prompt }
+      ],
+      { temperature: 0.3, maxTokens: 900, jsonMode: true }
+    );
+    const cleaned = rawLlm.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+    parsed = JSON.parse(cleaned);
+  }
+
+  const validAudioIds = new Set(activeAudios.map(a => Number(a.id)));
+  const candidateAudioId = parsed.proposed_audio_id ? Number(parsed.proposed_audio_id) : null;
+  const safeAudioId = candidateAudioId && validAudioIds.has(candidateAudioId) ? candidateAudioId : null;
+
+  return {
+    explanation_plain: String(parsed.explanation_plain || 'Revisamos tu consulta y analizamos cómo respondió tu bot según tus instrucciones actuales.').trim(),
+    scope: parsed.scope === 'core_engine' ? 'core_engine' : 'tenant_config',
+    practical_proposal: String(parsed.practical_proposal || 'Podemos reforzar esta indicación en la configuración de tu bot para mayor precisión.').trim(),
+    proposed_prompt_addition: String(parsed.proposed_prompt_addition || '').trim(),
+    proposed_audio_id: safeAudioId,
+    proposed_audio_trigger: safeAudioId ? String(parsed.proposed_audio_trigger || '').trim() : '',
+    technical_summary: String(parsed.technical_summary || '').trim(),
+    agy_conversation_id: agyConvId
+  };
+}
+
+async function applyTenantImprovement(tenantId, improvementId) {
+  await ensureSaasBotTables();
+  const [rows] = await pool.query(
+    'SELECT * FROM saas_bot_improvements WHERE id = ? AND tenant_id = ? LIMIT 1',
+    [Number(improvementId), Number(tenantId)]
+  );
+  if (rows.length === 0) throw new Error('Ajuste de mejora no encontrado.');
+  const imp = rows[0];
+
+  if (imp.scope === 'core_engine') {
+    throw new Error('Esta mejora corresponde al motor general y será revisada por el equipo de Sheerit.');
+  }
+  if (imp.status === 'applied') {
+    throw new Error('Este ajuste ya está aplicado en tu bot.');
+  }
+
+  const tenant = await getTenantById(tenantId);
+  if (!tenant) throw new Error('Cuenta no encontrada.');
+
+  let prevAudioTrigger = null;
+  if (imp.proposed_audio_id) {
+    const [aRows] = await pool.query(
+      'SELECT id, trigger_description FROM saas_bot_audios WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [imp.proposed_audio_id, tenant.id]
+    );
+    if (aRows.length > 0) prevAudioTrigger = aRows[0].trigger_description;
+  }
+
+  const snapshot = {
+    system_prompt: tenant.system_prompt || '',
+    audio_id: imp.proposed_audio_id || null,
+    audio_trigger_description: prevAudioTrigger
+  };
+
+  if (imp.proposed_prompt_addition && String(imp.proposed_prompt_addition).trim()) {
+    const addition = `[Ajuste #${imp.id}] ${String(imp.proposed_prompt_addition).trim()}`;
+    const nextPrompt = tenant.system_prompt && tenant.system_prompt.trim()
+      ? `${tenant.system_prompt.trim()}\n\n${addition}`
+      : addition;
+    await pool.query('UPDATE saas_bot_tenants SET system_prompt = ? WHERE id = ?', [nextPrompt, tenant.id]);
+  }
+
+  if (imp.proposed_audio_id && imp.proposed_audio_trigger && String(imp.proposed_audio_trigger).trim()) {
+    await pool.query(
+      'UPDATE saas_bot_audios SET trigger_description = ? WHERE id = ? AND tenant_id = ?',
+      [String(imp.proposed_audio_trigger).trim(), imp.proposed_audio_id, tenant.id]
+    );
+  }
+
+  await pool.query(
+    "UPDATE saas_bot_improvements SET status = 'applied', applied_at = NOW(), previous_snapshot = ? WHERE id = ?",
+    [JSON.stringify(snapshot), imp.id]
+  );
+
+  const [updatedImpRows] = await pool.query(
+    `SELECT id, tenant_id, message_log_id, customer_jid, incoming_text, bot_reply, client_question,
+            explanation_plain, scope, practical_proposal, proposed_prompt_addition,
+            proposed_audio_id, proposed_audio_trigger, status, applied_at, reverted_at, created_at
+     FROM saas_bot_improvements WHERE id = ? LIMIT 1`,
+    [imp.id]
+  );
+  const updatedTenant = await getTenantById(tenant.id);
+  return { improvement: updatedImpRows[0], tenant: updatedTenant };
+}
+
+async function revertTenantImprovement(tenantId, improvementId) {
+  await ensureSaasBotTables();
+  const [rows] = await pool.query(
+    'SELECT * FROM saas_bot_improvements WHERE id = ? AND tenant_id = ? LIMIT 1',
+    [Number(improvementId), Number(tenantId)]
+  );
+  if (rows.length === 0) throw new Error('Ajuste de mejora no encontrado.');
+  const imp = rows[0];
+
+  if (imp.status !== 'applied') {
+    throw new Error('Solo puedes deshacer ajustes que estén actualmente aplicados.');
+  }
+
+  let snapshot = null;
+  try {
+    snapshot = imp.previous_snapshot ? JSON.parse(imp.previous_snapshot) : null;
+  } catch {}
+
+  if (!snapshot) {
+    throw new Error('No se encontró el respaldo previo para deshacer este ajuste.');
+  }
+
+  if (typeof snapshot.system_prompt === 'string') {
+    await pool.query('UPDATE saas_bot_tenants SET system_prompt = ? WHERE id = ?', [snapshot.system_prompt, tenantId]);
+  }
+
+  if (snapshot.audio_id && typeof snapshot.audio_trigger_description === 'string') {
+    await pool.query(
+      'UPDATE saas_bot_audios SET trigger_description = ? WHERE id = ? AND tenant_id = ?',
+      [snapshot.audio_trigger_description, snapshot.audio_id, tenantId]
+    );
+  }
+
+  await pool.query(
+    "UPDATE saas_bot_improvements SET status = 'reverted', reverted_at = NOW() WHERE id = ?",
+    [imp.id]
+  );
+
+  const [updatedImpRows] = await pool.query(
+    `SELECT id, tenant_id, message_log_id, customer_jid, incoming_text, bot_reply, client_question,
+            explanation_plain, scope, practical_proposal, proposed_prompt_addition,
+            proposed_audio_id, proposed_audio_trigger, status, applied_at, reverted_at, created_at
+     FROM saas_bot_improvements WHERE id = ? LIMIT 1`,
+    [imp.id]
+  );
+  const updatedTenant = await getTenantById(tenantId);
+  return { improvement: updatedImpRows[0], tenant: updatedTenant };
+}
+
+async function handleEscalateCoreCommand(improvementIdRaw, client, replyFn) {
+  await ensureSaasBotTables();
+  const improvementId = Number(improvementIdRaw);
+  const [rows] = await pool.query(
+    `SELECT i.*, t.business_name, t.owner_name, t.email
+     FROM saas_bot_improvements i
+     JOIN saas_bot_tenants t ON i.tenant_id = t.id
+     WHERE i.id = ? LIMIT 1`,
+    [improvementId]
+  );
+
+  if (rows.length === 0) {
+    if (replyFn) await replyFn(`⚠️ No encontré el ajuste de mejora #${improvementId}.`).catch(() => {});
+    return;
+  }
+
+  const imp = rows[0];
+  await pool.query("UPDATE saas_bot_improvements SET status = 'escalated_core' WHERE id = ?", [imp.id]);
+
+  const errorsGroupId = '120363427163636523@g.us';
+  const msgForErrorsBot =
+    `🧠 *[ESCALADO DESDE SHEERIT GENERAL — CLASE MADRE BOT SAAS #${imp.id}]*\n\n` +
+    `🏢 *Negocio origen:* ${imp.business_name} (${imp.owner_name})\n` +
+    `💬 *Solicitud del cliente:* "${imp.client_question}"\n` +
+    (imp.incoming_text ? `📥 *Cliente final:* "${String(imp.incoming_text).slice(0, 220)}"\n` : '') +
+    (imp.bot_reply ? `🤖 *Respuesta bot:* "${String(imp.bot_reply).slice(0, 220)}"\n` : '') +
+    `⚙️ *Diagnóstico técnico (agy):* ${imp.technical_summary || imp.practical_proposal}\n` +
+    (imp.agy_conversation_id ? `🔗 *Sesión agy:* ${imp.agy_conversation_id}\n` : '') +
+    `\n📂 *Módulo objetivo:* \`services/saasBotManager.js\` / \`routes/saasBotRoutes.js\``;
+
+  if (client && typeof client.sendMessage === 'function') {
+    await client.sendMessage(errorsGroupId, msgForErrorsBot, { sendSeen: false }).catch(e => {
+      console.error('[Escalate Core] Error enviando a Errors bot:', e.message);
+    });
+  }
+
+  if (replyFn) {
+    await replyFn(`✅ Ajuste *#${imp.id}* escalado a *Errors bot* para revisión e implementación en la clase madre.`).catch(() => {});
+  }
+}
+
 module.exports = {
   ensureSaasBotTables,
   getTenantById,
@@ -781,5 +1093,10 @@ module.exports = {
   getTenantSessionState,
   sendTenantAudioOrText,
   autoRestoreSavedSessions,
-  getCurrentMonthKey
+  getCurrentMonthKey,
+  parseDecisionMeta,
+  analyzeTenantImprovement,
+  applyTenantImprovement,
+  revertTenantImprovement,
+  handleEscalateCoreCommand
 };

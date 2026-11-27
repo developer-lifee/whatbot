@@ -56,7 +56,7 @@ function generateRandomInviteCode() {
   return `SH-${pickBlock(4)}-${pickBlock(4)}`;
 }
 
-function registerSaasBotRoutes(app) {
+function registerSaasBotRoutes(app, routeContext = {}) {
   // Inicialización diferida segura al primer tráfico o arranque
   saasBotManager.ensureSaasBotTables().catch(err => {
     console.warn('[SaaS Bot Routes] Error inicializando tablas:', err.message);
@@ -196,25 +196,251 @@ function registerSaasBotRoutes(app) {
     }
   });
 
-  // Perfil completo, consumo y logs recientes
+  // Perfil completo, consumo, logs recientes y ajustes de mejora
   app.get('/api/saas-bot/me', requireSaasTenant, async (req, res) => {
     try {
       const tenant = await saasBotManager.getTenantById(req.tenantId);
       if (!tenant) {
         return res.status(404).json({ success: false, message: 'Cuenta no encontrada.' });
       }
-      const [logs] = await pool.query(
-        'SELECT id, customer_jid, direction, message_type, body, created_at FROM saas_bot_messages_log WHERE tenant_id = ? ORDER BY id DESC LIMIT 25',
+      const [rawLogs] = await pool.query(
+        'SELECT id, customer_jid, direction, message_type, body, decision_meta, created_at FROM saas_bot_messages_log WHERE tenant_id = ? ORDER BY id DESC LIMIT 40',
+        [tenant.id]
+      );
+      const logs = rawLogs.map(l => ({
+        ...l,
+        decision_meta: saasBotManager.parseDecisionMeta(l.decision_meta)
+      }));
+      const [improvements] = await pool.query(
+        `SELECT id, tenant_id, message_log_id, customer_jid, incoming_text, bot_reply, client_question,
+                explanation_plain, scope, practical_proposal, proposed_prompt_addition,
+                proposed_audio_id, proposed_audio_trigger, status, applied_at, reverted_at, created_at
+         FROM saas_bot_improvements
+         WHERE tenant_id = ?
+         ORDER BY id DESC
+         LIMIT 40`,
         [tenant.id]
       );
       res.json({
         success: true,
         tenant: saasBotManager.sanitizeTenant(tenant),
         session: saasBotManager.getTenantSessionState(tenant.id),
-        logs
+        logs,
+        improvements
       });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Historial paginado con búsqueda
+  app.get('/api/saas-bot/logs', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const limit = Math.min(100, Math.max(10, Number(req.query?.limit) || 40));
+      const beforeId = Number(req.query?.beforeId) || 0;
+      const search = String(req.query?.search || '').trim();
+
+      const params = [req.tenantId];
+      let whereSql = 'WHERE tenant_id = ?';
+      if (beforeId > 0) {
+        whereSql += ' AND id < ?';
+        params.push(beforeId);
+      }
+      if (search) {
+        whereSql += ' AND (body LIKE ? OR customer_jid LIKE ?)';
+        params.push(`%${search}%`, `%${search}%`);
+      }
+
+      params.push(limit + 1);
+      const [rows] = await pool.query(
+        `SELECT id, customer_jid, direction, message_type, body, decision_meta, created_at
+         FROM saas_bot_messages_log
+         ${whereSql}
+         ORDER BY id DESC
+         LIMIT ?`,
+        params
+      );
+
+      const hasMore = rows.length > limit;
+      const sliced = (hasMore ? rows.slice(0, limit) : rows).map(l => ({
+        ...l,
+        decision_meta: saasBotManager.parseDecisionMeta(l.decision_meta)
+      }));
+      const nextBeforeId = sliced.length > 0 ? sliced[sliced.length - 1].id : null;
+
+      res.json({ success: true, logs: sliced, hasMore, nextBeforeId });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Listar ajustes de mejora del cliente (sin exponer campos técnicos internos)
+  app.get('/api/saas-bot/improvements', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const [improvements] = await pool.query(
+        `SELECT id, tenant_id, message_log_id, customer_jid, incoming_text, bot_reply, client_question,
+                explanation_plain, scope, practical_proposal, proposed_prompt_addition,
+                proposed_audio_id, proposed_audio_trigger, status, applied_at, reverted_at, created_at
+         FROM saas_bot_improvements
+         WHERE tenant_id = ?
+         ORDER BY id DESC
+         LIMIT 50`,
+        [req.tenantId]
+      );
+      res.json({ success: true, improvements });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // Crear consulta o ajuste de mejora conectado a agy + reporte previo a Sheerit General
+  app.post('/api/saas-bot/improvements', requireSaasTenant, express.json(), async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const tenant = await saasBotManager.getTenantById(req.tenantId);
+      if (!tenant) {
+        return res.status(404).json({ success: false, message: 'Cuenta no encontrada.' });
+      }
+
+      const clientQuestion = String(req.body?.clientQuestion || '').trim();
+      const messageLogId = req.body?.messageLogId ? Number(req.body.messageLogId) : null;
+      if (clientQuestion.length < 4) {
+        return res.status(400).json({ success: false, message: 'Cuéntanos brevemente qué quieres entender o mejorar.' });
+      }
+
+      let messageLog = null;
+      let previousInMsg = null;
+      if (messageLogId) {
+        const [msgRows] = await pool.query(
+          'SELECT id, customer_jid, direction, message_type, body, decision_meta, created_at FROM saas_bot_messages_log WHERE id = ? AND tenant_id = ? LIMIT 1',
+          [messageLogId, tenant.id]
+        );
+        if (msgRows.length > 0) {
+          messageLog = {
+            ...msgRows[0],
+            decision_meta: saasBotManager.parseDecisionMeta(msgRows[0].decision_meta)
+          };
+          const [inRows] = await pool.query(
+            `SELECT id, body, created_at FROM saas_bot_messages_log
+             WHERE tenant_id = ? AND customer_jid = ? AND direction = 'in' AND id < ?
+             ORDER BY id DESC LIMIT 1`,
+            [tenant.id, messageLog.customer_jid, messageLog.id]
+          );
+          if (inRows.length > 0) previousInMsg = inRows[0];
+        }
+      }
+
+      const [activeAudios] = await pool.query(
+        'SELECT id, title, trigger_description, duration_sec FROM saas_bot_audios WHERE tenant_id = ? AND is_active = 1 ORDER BY id ASC',
+        [tenant.id]
+      );
+
+      const analysis = await saasBotManager.analyzeTenantImprovement(tenant, {
+        messageLog,
+        previousInMsg,
+        activeAudios,
+        clientQuestion
+      });
+
+      const [ins] = await pool.query(
+        `INSERT INTO saas_bot_improvements
+         (tenant_id, message_log_id, customer_jid, incoming_text, bot_reply, client_question,
+          explanation_plain, scope, practical_proposal, proposed_prompt_addition,
+          proposed_audio_id, proposed_audio_trigger, technical_summary, agy_conversation_id, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'proposed')`,
+        [
+          tenant.id,
+          messageLog ? messageLog.id : null,
+          messageLog ? messageLog.customer_jid : null,
+          previousInMsg ? previousInMsg.body : null,
+          messageLog ? messageLog.body : null,
+          clientQuestion,
+          analysis.explanation_plain,
+          analysis.scope,
+          analysis.practical_proposal,
+          analysis.proposed_prompt_addition || null,
+          analysis.proposed_audio_id || null,
+          analysis.proposed_audio_trigger || null,
+          analysis.technical_summary || null,
+          analysis.agy_conversation_id || null
+        ]
+      );
+
+      const [savedRows] = await pool.query(
+        `SELECT id, tenant_id, message_log_id, customer_jid, incoming_text, bot_reply, client_question,
+                explanation_plain, scope, practical_proposal, proposed_prompt_addition,
+                proposed_audio_id, proposed_audio_trigger, status, applied_at, reverted_at, created_at
+         FROM saas_bot_improvements WHERE id = ? LIMIT 1`,
+        [ins.insertId]
+      );
+      const improvement = savedRows[0];
+
+      // Notificar a Sheerit General en segundo plano para decidir si queda en capa cliente o escala a Errors bot
+      const waClient = typeof routeContext?.getClient === 'function' ? routeContext.getClient() : null;
+      if (waClient && typeof waClient.sendMessage === 'function') {
+        const scopeLabel = analysis.scope === 'core_engine'
+          ? '🔴 CLASE MADRE (motor global)'
+          : '🟡 CAPA CLIENTE (solo su bot)';
+        const reportMsg =
+          `✨ *[AJUSTE DE MEJORA BOT SAAS #${improvement.id}]*\n\n` +
+          `🏢 *Negocio:* ${tenant.business_name} (${tenant.owner_name})\n` +
+          `🏷️ *Clasificación IA (agy):* ${scopeLabel}\n` +
+          `💬 *Consulta del cliente:* "${clientQuestion}"\n` +
+          (previousInMsg?.body ? `📥 *Cliente final preguntó:* "${String(previousInMsg.body).slice(0, 180)}"\n` : '') +
+          (messageLog?.body ? `🤖 *Bot respondió:* "${String(messageLog.body).slice(0, 180)}"\n` : '') +
+          `\n💡 *Propuesta práctica:* ${analysis.practical_proposal}\n` +
+          `⚙️ *Resumen técnico:* ${analysis.technical_summary || 'Ajuste de configuración en capa cliente.'}\n\n` +
+          `👉 Si aplica para mejora global del motor, escribe aquí:\n*@escalar-madre #${improvement.id}*`;
+        waClient.sendMessage('120363102144405222@g.us', reportMsg, { sendSeen: false }).catch(e => {
+          console.warn('[SaaS Improvement] No se pudo enviar aviso a Sheerit General:', e.message);
+        });
+      }
+
+      res.json({ success: true, improvement });
+    } catch (err) {
+      console.error('[SaaS Improvement Create Error]:', err.message);
+      res.status(500).json({ success: false, message: err.message || 'No se pudo analizar el ajuste.' });
+    }
+  });
+
+  app.post('/api/saas-bot/improvements/:id/apply', requireSaasTenant, async (req, res) => {
+    try {
+      const result = await saasBotManager.applyTenantImprovement(req.tenantId, Number(req.params.id));
+      res.json({
+        success: true,
+        improvement: result.improvement,
+        tenant: saasBotManager.sanitizeTenant(result.tenant)
+      });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/improvements/:id/revert', requireSaasTenant, async (req, res) => {
+    try {
+      const result = await saasBotManager.revertTenantImprovement(req.tenantId, Number(req.params.id));
+      res.json({
+        success: true,
+        improvement: result.improvement,
+        tenant: saasBotManager.sanitizeTenant(result.tenant)
+      });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/improvements/:id/dismiss', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      await pool.query(
+        "UPDATE saas_bot_improvements SET status = 'dismissed' WHERE id = ? AND tenant_id = ? AND status = 'proposed'",
+        [Number(req.params.id), req.tenantId]
+      );
+      res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
     }
   });
 

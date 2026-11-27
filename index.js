@@ -4487,8 +4487,8 @@ registerAdminAgentsAndPayrollRoutes(app, routeContext);
 // Rutas del portal de clientes (OTP, auto-sesión, 2FA web y diagnóstico WWebJS) desacopladas
 registerClientPortalRoutes(app, routeContext);
 
-// Rutas SaaS Bot Multi-Tenant (QR propio, generador IA y ElevenLabs TTS/unificador)
-registerSaasBotRoutes(app);
+// Rutas SaaS Bot Multi-Tenant (QR propio, generador IA, Ajustes de Mejora y ElevenLabs TTS)
+registerSaasBotRoutes(app, routeContext);
 
 async function ensureClientReady() {
     if (!client || !client.pupPage) return false;
@@ -5356,6 +5356,12 @@ client.on('message_create', async (msg) => {
         }
 
         if (groupJid) {
+            const escalateMatch = effectiveMsgText.match(/^@escalar-madre\s+#?(\d+)/i);
+            if (escalateMatch) {
+                const { handleEscalateCoreCommand } = require('./services/saasBotManager');
+                handleEscalateCoreCommand(escalateMatch[1], client, (txt) => msg.reply(txt)).catch(err => console.error('[Escalate Core fromMe] Error:', err.message));
+                return;
+            }
             if (effectiveMsgText && (lowerBody.includes('@bot') || lowerBody.startsWith('!bot'))) {
                 processIncomingMessage([msg]).catch(err => console.error('Error procesando comando @bot de grupo en message_create:', err));
                 return;
@@ -12184,7 +12190,13 @@ client.on('message', async (message) => {
             return;
         }
 
-        // Los mensajes de grupo se procesan si contienen comando @bot o confirmaciones
+        // Los mensajes de grupo se procesan si contienen comando @bot, @escalar-madre o confirmaciones
+        const escalateMatch = (message.body || '').trim().match(/^@escalar-madre\s+#?(\d+)/i);
+        if (escalateMatch && (message.from === GROUP_ID || ADMIN_GROUP_IDS.includes(message.from))) {
+            const { handleEscalateCoreCommand } = require('./services/saasBotManager');
+            await handleEscalateCoreCommand(escalateMatch[1], client, (txt) => message.reply(txt));
+            return;
+        }
         const b = message.body ? message.body.toLowerCase().trim() : '';
         const isBotCommand = b.startsWith('@bot') || b.startsWith('!bot') || b.includes('@bot') || b === '@restart' || b === '!restart' || b === '@reiniciar' || b.startsWith('@bot restart') || b.startsWith('@bot reiniciar');
         let groupState = userStates.get(message.from);
