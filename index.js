@@ -8988,7 +8988,7 @@ REGLAS:
         return false;
     }
 
-    if (await tryHandleVerificationCodeRequest(cleanBody, Boolean(message.hasMedia))) {
+    if (!isMedia && await tryHandleVerificationCodeRequest(cleanBody, Boolean(message.hasMedia))) {
         return;
     }
 
@@ -9047,12 +9047,24 @@ REGLAS:
             }
         }
 
+        if (mediaData.length === 0 && !messages.some(m => m.isAudioNote) && cleanBody) {
+            if (await tryHandleVerificationCodeRequest(cleanBody, false)) {
+                return;
+            }
+        }
+
         // --- INTERCEPTOR GLOBAL DE PAGOS ---
         if (mediaData.length > 0) {
             // Tomamos la primera imagen para el interceptor de pagos (normalmente el usuario manda el recibo solo)
             const batchText = messages.map(m => m.body).filter(b => b).join('\n');
             const check = await isPaymentReceipt(mediaData[0], `[TEXTO EN ESTE LOTE: ${batchText}]\n\n${history}`);
             console.log(`[PAYMENT INTERCEPTOR DEBUG] Result check: isReceipt=${check.isReceipt}, amount=${check.amount}, bank=${check.bank}, platform=${check.inferredPlatform}`);
+
+            if (!check.isReceipt && cleanBody) {
+                if (await tryHandleVerificationCodeRequest(cleanBody, true)) {
+                    return;
+                }
+            }
 
             if (check.isReceipt) {
                 const receiptCheck = await validatePaymentReceiptFreshnessAndRef(check, userId);
@@ -9064,6 +9076,14 @@ REGLAS:
                     return;
                 }
                 console.log(`[PAYMENT INTERCEPTOR] ✅ Comprobante detectado (${check.bank || 'Banco'}) para @${userId}`);
+
+                if (cleanBody && cleanBody.trim()) {
+                    setTimeout(() => {
+                        tryHandleVerificationCodeRequest(cleanBody, false).catch(e =>
+                            console.error('[PAYMENT + CODE] Error atendiendo solicitud de código en el mismo lote:', e.message)
+                        );
+                    }, 3500);
+                }
 
                 const cleanPhoneDigits = realPhone ? String(realPhone).replace(/\D/g, '') : '';
                 const realPhoneJid = cleanPhoneDigits ? `${cleanPhoneDigits}@c.us` : null;
