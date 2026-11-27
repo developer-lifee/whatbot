@@ -394,11 +394,13 @@ function cleanChromiumLocks(dir) {
 function getTenantSessionState(tenantId) {
   const mem = sessions.get(Number(tenantId));
   if (!mem) {
-    return { status: 'DISCONNECTED', qrDataUrl: null, phone: null, lastError: null };
+    return { status: 'DISCONNECTED', qrDataUrl: null, pairingCode: null, qrUpdatedAt: null, phone: null, lastError: null };
   }
   return {
     status: mem.status || 'DISCONNECTED',
     qrDataUrl: mem.qrDataUrl || null,
+    pairingCode: mem.pairingCode || null,
+    qrUpdatedAt: mem.qrUpdatedAt || null,
     phone: mem.phone || null,
     lastError: mem.lastError || null
   };
@@ -628,7 +630,7 @@ async function startTenantSession(tenantId) {
   await ensureSaasBotTables();
   const id = Number(tenantId);
   const existing = sessions.get(id);
-  if (existing && (existing.isStarting || existing.status === 'CONNECTED' || existing.status === 'QR_READY')) {
+  if (existing && (existing.isStarting || existing.status === 'CONNECTED' || existing.status === 'QR_READY' || existing.status === 'PAIRING_CODE_READY')) {
     return getTenantSessionState(id);
   }
 
@@ -643,6 +645,8 @@ async function startTenantSession(tenantId) {
     client: null,
     status: 'CONNECTING',
     qrDataUrl: null,
+    pairingCode: null,
+    qrUpdatedAt: null,
     phone: null,
     lastError: null,
     isStarting: true,
@@ -670,18 +674,30 @@ async function startTenantSession(tenantId) {
           '--disable-features=IsolateOrigins,site-per-process',
           '--disable-site-isolation-trials'
         ],
-        timeout: 60000
-      }
+        timeout: 60000,
+        protocolTimeout: 180000
+      },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      webVersionCache: {
+        type: 'none'
+      },
+      markOnlineAvailable: false,
+      takeoverOnConflict: true,
+      takeoverTimeoutMs: 15000
     });
 
     stateObj.client = client;
 
     client.on('qr', async (qr) => {
       try {
-        stateObj.qrDataUrl = await qrcode.toDataURL(qr);
-        stateObj.status = 'QR_READY';
+        stateObj.qrUpdatedAt = Date.now();
         stateObj.isStarting = false;
         stateObj.lastError = null;
+        if (stateObj.status === 'PAIRING_CODE_READY' && stateObj.pairingCode) {
+          return;
+        }
+        stateObj.qrDataUrl = await qrcode.toDataURL(qr);
+        stateObj.status = 'QR_READY';
         await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['QR_READY', id]).catch(() => {});
         console.log(`[SaaS Bot #${id}] 📷 QR de WhatsApp Web generado`);
       } catch (qrErr) {
@@ -694,6 +710,8 @@ async function startTenantSession(tenantId) {
       stateObj.status = 'CONNECTED';
       stateObj.isStarting = false;
       stateObj.qrDataUrl = null;
+      stateObj.pairingCode = null;
+      stateObj.qrUpdatedAt = null;
       stateObj.phone = phone;
       stateObj.lastError = null;
       await pool.query(
@@ -781,7 +799,70 @@ async function disconnectTenantSession(tenantId) {
   try { fs.rmSync(legacyDir, { recursive: true, force: true }); } catch {}
   await ensureSaasBotTables();
   await pool.query('UPDATE saas_bot_tenants SET wa_status = ?, wa_phone = NULL WHERE id = ?', ['DISCONNECTED', id]);
-  return { status: 'DISCONNECTED', qrDataUrl: null, phone: null };
+  return { status: 'DISCONNECTED', qrDataUrl: null, pairingCode: null, qrUpdatedAt: null, phone: null };
+}
+
+async function requestTenantPairingCode(tenantId, rawPhone) {
+  const id = Number(tenantId);
+  let cleanPhone = String(rawPhone || '').replace(/\D/g, '');
+  if (cleanPhone.length === 10 && cleanPhone.startsWith('3')) {
+    cleanPhone = `57${cleanPhone}`;
+  }
+  if (cleanPhone.length < 10) {
+    throw new Error('Ingresa un número de WhatsApp válido (mínimo 10 dígitos, ej. 3001234567 o 573001234567).');
+  }
+
+  let mem = sessions.get(id);
+  if (!mem || mem.status === 'DISCONNECTED' || !mem.client) {
+    await startTenantSession(id);
+    mem = sessions.get(id);
+  }
+
+  if (mem && mem.status === 'CONNECTED') {
+    throw new Error('Tu WhatsApp ya está conectado.');
+  }
+
+  // Esperar hasta 25s a que WhatsApp Web inicialice la página antes de pedir el código de 8 dígitos
+  const deadline = Date.now() + 25000;
+  while (Date.now() < deadline) {
+    mem = sessions.get(id);
+    if (mem && mem.status === 'CONNECTED') {
+      throw new Error('Tu WhatsApp ya está conectado.');
+    }
+    if (mem && mem.client && (mem.status === 'QR_READY' || mem.status === 'PAIRING_CODE_READY' || mem.client.pupPage)) {
+      break;
+    }
+    await sleep(500);
+  }
+
+  mem = sessions.get(id);
+  if (!mem || !mem.client) {
+    throw new Error('WhatsApp Web aún está iniciando. Intenta nuevamente en unos segundos.');
+  }
+
+  try {
+    const code = await mem.client.requestPairingCode(cleanPhone);
+    if (!code) {
+      throw new Error('WhatsApp no devolvió código numérico en este intento.');
+    }
+    mem.pairingCode = String(code).trim();
+    mem.qrDataUrl = null;
+    mem.status = 'PAIRING_CODE_READY';
+    mem.isStarting = false;
+    mem.lastError = null;
+    await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['PAIRING_CODE_READY', id]).catch(() => {});
+    console.log(`[SaaS Bot #${id}] 🔢 Código de vinculación generado para ${cleanPhone}: ${mem.pairingCode}`);
+    return { pairingCode: mem.pairingCode, session: getTenantSessionState(id) };
+  } catch (err) {
+    let msg = err?.message || String(err);
+    let serialized = '';
+    try { serialized = JSON.stringify(err); } catch {}
+    if (msg === 't' || serialized.includes('rate-overlimit') || serialized.includes('429') || err?.name === 'CompanionHelloError') {
+      msg = 'WhatsApp limitó temporalmente las solicitudes para este número (429). Espera 3 a 5 minutos o intenta con el código QR.';
+    }
+    mem.lastError = msg;
+    throw new Error(msg);
+  }
 }
 
 async function sendTenantAudioOrText(tenantId, targetPhone, { text, oggBuffer, durationSec = 5 } = {}) {
@@ -1090,6 +1171,7 @@ module.exports = {
   generateSaasBotConfig,
   startTenantSession,
   disconnectTenantSession,
+  requestTenantPairingCode,
   getTenantSessionState,
   sendTenantAudioOrText,
   autoRestoreSavedSessions,

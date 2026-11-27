@@ -454,6 +454,20 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     }
   });
 
+  // Vincular WhatsApp por código numérico de 8 dígitos (pairing code)
+  app.post('/api/saas-bot/whatsapp/pairing-code', requireSaasTenant, express.json(), async (req, res) => {
+    try {
+      const phone = String(req.body?.phone || '').trim();
+      if (!phone) {
+        return res.status(400).json({ success: false, message: 'Ingresa tu número de WhatsApp (ej. 3001234567).' });
+      }
+      const result = await saasBotManager.requestTenantPairingCode(req.tenantId, phone);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
   app.get('/api/saas-bot/whatsapp/status', requireSaasTenant, async (req, res) => {
     try {
       const session = saasBotManager.getTenantSessionState(req.tenantId);
