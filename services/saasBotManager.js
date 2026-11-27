@@ -38,6 +38,8 @@ async function ensureSaasBotTables() {
       password_hash VARCHAR(255) NOT NULL,
       plan_name VARCHAR(80) DEFAULT 'Plan Básico 30K',
       monthly_message_limit INT DEFAULT 500,
+      amount_paid DECIMAL(12,2) DEFAULT 0,
+      expires_at DATETIME NULL,
       messages_used_month INT DEFAULT 0,
       usage_reset_month VARCHAR(7) DEFAULT '',
       status VARCHAR(30) DEFAULT 'active',
@@ -86,6 +88,32 @@ async function ensureSaasBotTables() {
       INDEX idx_tenant_audio (tenant_id, is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS saas_bot_invite_codes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      code VARCHAR(60) UNIQUE NOT NULL,
+      plan_name VARCHAR(80) DEFAULT 'Plan Básico 30K',
+      amount_paid DECIMAL(12,2) DEFAULT 30000,
+      monthly_message_limit INT DEFAULT 500,
+      duration_days INT DEFAULT 30,
+      client_hint VARCHAR(150) NULL,
+      used_by_tenant_id INT NULL,
+      used_at DATETIME NULL,
+      cash_flow_entry_id INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_code_used (code, used_by_tenant_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  const [cols] = await pool.query('SHOW COLUMNS FROM saas_bot_tenants');
+  const colNames = new Set(cols.map(c => c.Field));
+  if (!colNames.has('amount_paid')) {
+    await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN amount_paid DECIMAL(12,2) DEFAULT 0 AFTER monthly_message_limit');
+  }
+  if (!colNames.has('expires_at')) {
+    await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN expires_at DATETIME NULL AFTER amount_paid');
+  }
 
   saasTablesReady = true;
 }
@@ -366,6 +394,11 @@ function enqueueTenantBatch(tenantId, remoteJid, msgs, keys) {
 async function processHumanTenantBatch(tenantId, remoteJid, batchItems, keys) {
   const tenant = await getTenantById(tenantId);
   if (!tenant || tenant.status !== 'active' || !tenant.is_bot_active) return;
+
+  if (tenant.expires_at && new Date(tenant.expires_at).getTime() < Date.now()) {
+    console.warn(`[SaaS Bot #${tenantId}] Suscripción vencida (${tenant.expires_at}).`);
+    return;
+  }
 
   if (tenant.monthly_message_limit > 0 && tenant.messages_used_month >= tenant.monthly_message_limit) {
     console.warn(`[SaaS Bot #${tenantId}] Límite mensual alcanzado (${tenant.messages_used_month}/${tenant.monthly_message_limit}).`);

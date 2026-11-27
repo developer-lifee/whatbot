@@ -61,6 +61,7 @@ function registerSaasBotRoutes(app) {
     try {
       await saasBotManager.ensureSaasBotTables();
       const {
+        activationCode,
         ownerName,
         businessName,
         email,
@@ -68,15 +69,41 @@ function registerSaasBotRoutes(app) {
         businessDescription = ''
       } = req.body || {};
 
+      const cleanCode = String(activationCode || '').trim().toUpperCase();
       const cleanOwner = String(ownerName || '').trim();
       const cleanBiz = String(businessName || '').trim();
       const cleanEmail = String(email || '').trim().toLowerCase();
       const cleanPass = String(password || '').trim();
 
+      if (!cleanCode) {
+        return res.status(400).json({
+          success: false,
+          message: 'Necesitas un código de activación válido para crear tu cuenta. Solicítalo a tu asesor Sheerit.'
+        });
+      }
+
       if (!cleanOwner || !cleanBiz || !cleanEmail || cleanPass.length < 6) {
         return res.status(400).json({
           success: false,
           message: 'Nombre, negocio, correo y contraseña (mínimo 6 caracteres) son obligatorios.'
+        });
+      }
+
+      const [inviteRows] = await pool.query(
+        'SELECT * FROM saas_bot_invite_codes WHERE code = ? LIMIT 1',
+        [cleanCode]
+      );
+      if (inviteRows.length === 0) {
+        return res.status(403).json({
+          success: false,
+          message: 'Código de activación inválido. Verifica que esté bien escrito.'
+        });
+      }
+      const invite = inviteRows[0];
+      if (invite.used_by_tenant_id) {
+        return res.status(409).json({
+          success: false,
+          message: 'Este código de activación ya fue utilizado.'
         });
       }
 
@@ -91,9 +118,26 @@ function registerSaasBotRoutes(app) {
 
       const [result] = await pool.query(
         `INSERT INTO saas_bot_tenants
-         (slug, owner_name, business_name, email, password_hash, plan_name, monthly_message_limit, usage_reset_month, business_description)
-         VALUES (?, ?, ?, ?, ?, 'Plan Básico 30K', 500, ?, ?)`,
-        [slug, cleanOwner, cleanBiz, cleanEmail, passwordHash, monthKey, String(businessDescription || '').trim()]
+         (slug, owner_name, business_name, email, password_hash, plan_name, monthly_message_limit, amount_paid, expires_at, usage_reset_month, business_description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY), ?, ?)`,
+        [
+          slug,
+          cleanOwner,
+          cleanBiz,
+          cleanEmail,
+          passwordHash,
+          invite.plan_name || 'Plan Básico 30K',
+          Number(invite.monthly_message_limit) || 500,
+          Number(invite.amount_paid) || 0,
+          Number(invite.duration_days) || 30,
+          monthKey,
+          String(businessDescription || '').trim()
+        ]
+      );
+
+      await pool.query(
+        'UPDATE saas_bot_invite_codes SET used_by_tenant_id = ?, used_at = NOW() WHERE id = ? AND used_by_tenant_id IS NULL',
+        [result.insertId, invite.id]
       );
 
       const tenant = await saasBotManager.getTenantById(result.insertId);
@@ -555,6 +599,78 @@ function registerSaasBotRoutes(app) {
 
       const tenant = await saasBotManager.getTenantById(result.insertId);
       res.json({ success: true, tenant: saasBotManager.sanitizeTenant(tenant) });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.get('/api/admin/saas-bots/invite-codes', async (req, res) => {
+    try {
+      const pwd = req.headers['x-admin-password'] || req.query.password;
+      if (pwd !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+      await saasBotManager.ensureSaasBotTables();
+      const [codes] = await pool.query(`
+        SELECT c.*, t.owner_name AS used_owner_name, t.business_name AS used_business_name, t.email AS used_email
+        FROM saas_bot_invite_codes c
+        LEFT JOIN saas_bot_tenants t ON c.used_by_tenant_id = t.id
+        ORDER BY c.id DESC
+      `);
+      res.json({ success: true, codes });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/saas-bots/invite-codes', express.json(), async (req, res) => {
+    try {
+      const b = req.body || {};
+      const adminPwd = b.password || req.headers['x-admin-password'];
+      if (adminPwd !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+      await saasBotManager.ensureSaasBotTables();
+      const rawCode = b.code ? String(b.code) : `BOT-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+      const cleanCode = rawCode.trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
+      if (!cleanCode) {
+        return res.status(400).json({ success: false, message: 'Código de activación inválido.' });
+      }
+
+      const [existing] = await pool.query('SELECT id FROM saas_bot_invite_codes WHERE code = ? LIMIT 1', [cleanCode]);
+      if (existing.length > 0) {
+        return res.status(409).json({ success: false, message: `El código ${cleanCode} ya existe.` });
+      }
+
+      const planName = String(b.planName || 'Plan Básico 30K').trim();
+      const amountPaid = b.amountPaid !== undefined ? Number(b.amountPaid) : 30000;
+      const monthlyLimit = b.monthlyLimit !== undefined ? Number(b.monthlyLimit) : 500;
+      const durationDays = b.durationDays !== undefined ? Number(b.durationDays) : 30;
+      const clientHint = b.clientHint ? String(b.clientHint).trim() : null;
+      const syncToCashFlow = b.syncToCashFlow !== false;
+
+      let cashFlowEntryId = null;
+      if (syncToCashFlow && amountPaid > 0) {
+        const todayBogota = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+        const desc = `Pago Bot WhatsApp SaaS (${planName}) - ${clientHint || cleanCode} [Código: ${cleanCode}]`;
+        const [cfRes] = await pool.query(
+          'INSERT INTO cash_flow_entries (type, platform, amount, description, entry_date, is_automated) VALUES (?, ?, ?, ?, ?, ?)',
+          ['income', 'BOT SAAS', amountPaid, desc, todayBogota, 1]
+        );
+        cashFlowEntryId = cfRes.insertId;
+      }
+
+      const [insRes] = await pool.query(
+        `INSERT INTO saas_bot_invite_codes
+         (code, plan_name, amount_paid, monthly_message_limit, duration_days, client_hint, cash_flow_entry_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [cleanCode, planName, amountPaid, monthlyLimit, durationDays, clientHint, cashFlowEntryId]
+      );
+
+      const [rows] = await pool.query('SELECT * FROM saas_bot_invite_codes WHERE id = ? LIMIT 1', [insRes.insertId]);
+      res.json({
+        success: true,
+        inviteCode: rows[0],
+        cashFlowEntryId
+      });
     } catch (err) {
       res.status(500).json({ success: false, message: err.message });
     }
