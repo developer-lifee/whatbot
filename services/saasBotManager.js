@@ -1143,7 +1143,14 @@ async function startTenantSession(tenantId, options = {}) {
     phone: null,
     lastError: null,
     isStarting: true,
-    manualStop: false
+    manualStop: false,
+    startupWatchdog: null
+  };
+  const clearStartupWatchdog = () => {
+    if (stateObj.startupWatchdog) {
+      clearTimeout(stateObj.startupWatchdog);
+      stateObj.startupWatchdog = null;
+    }
   };
   sessions.set(id, stateObj);
 
@@ -1183,6 +1190,7 @@ async function startTenantSession(tenantId, options = {}) {
 
     client.on('qr', async (qr) => {
       try {
+        clearStartupWatchdog();
         stateObj.qrUpdatedAt = Date.now();
         stateObj.isStarting = false;
         stateObj.lastError = null;
@@ -1200,6 +1208,7 @@ async function startTenantSession(tenantId, options = {}) {
 
     client.on('code', async (code) => {
       try {
+        clearStartupWatchdog();
         const cleanCode = String(code || '').trim();
         if (!cleanCode) return;
         stateObj.pairingCode = cleanCode;
@@ -1216,6 +1225,7 @@ async function startTenantSession(tenantId, options = {}) {
     });
 
     client.on('ready', async () => {
+      clearStartupWatchdog();
       const phone = client.info?.wid?.user ? String(client.info.wid.user).replace(/\D/g, '') : null;
       stateObj.status = 'CONNECTED';
       stateObj.isStarting = false;
@@ -1232,6 +1242,7 @@ async function startTenantSession(tenantId, options = {}) {
     });
 
     client.on('auth_failure', async (msg) => {
+      clearStartupWatchdog();
       stateObj.isStarting = false;
       stateObj.status = 'DISCONNECTED';
       stateObj.qrDataUrl = null;
@@ -1241,6 +1252,7 @@ async function startTenantSession(tenantId, options = {}) {
     });
 
     client.on('disconnected', async (reason) => {
+      clearStartupWatchdog();
       stateObj.isStarting = false;
       stateObj.qrDataUrl = null;
       const loggedOut = String(reason || '').toUpperCase().includes('LOGOUT');
@@ -1296,7 +1308,30 @@ async function startTenantSession(tenantId, options = {}) {
     });
 
     await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['CONNECTING', id]).catch(() => {});
+    clearStartupWatchdog();
+    stateObj.startupWatchdog = setTimeout(async () => {
+      stateObj.startupWatchdog = null;
+      if (stateObj.manualStop || !stateObj.isStarting || stateObj.status !== 'CONNECTING') return;
+      console.warn(`[SaaS Bot #${id}] ⏱️ Timeout iniciando WhatsApp Web (55s sin QR/ready, intento ${attempt}/3). Limpiando sesión y reintentando...`);
+      try { await client.destroy(); } catch {}
+      try {
+        const [[tRow]] = await pool.query('SELECT last_connected_at FROM saas_bot_tenants WHERE id = ? LIMIT 1', [id]);
+        if (!tRow?.last_connected_at || attempt >= 2) {
+          fs.rmSync(sessionDir, { recursive: true, force: true });
+        }
+      } catch {}
+      if (attempt < 3 && !stateObj.manualStop) {
+        startTenantSession(id, { attempt: attempt + 1, forceRestart: true }).catch(() => {});
+      } else {
+        stateObj.isStarting = false;
+        stateObj.status = 'DISCONNECTED';
+        stateObj.lastError = 'No se pudo generar el QR a tiempo. Pulsa "Reiniciar conexión" e intenta de nuevo.';
+        await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['DISCONNECTED', id]).catch(() => {});
+      }
+    }, 55000);
+
     client.initialize().catch(async (initErr) => {
+      clearStartupWatchdog();
       const errMsg = initErr?.message || 'No se pudo iniciar WhatsApp Web';
       if (!stateObj.manualStop && attempt < 3 && /Minified invariant|Execution context was destroyed|Target closed|Protocol error/i.test(errMsg)) {
         console.warn(`[SaaS Bot #${id}] ⚠️ Error transitorio al iniciar (intento ${attempt}/3): ${errMsg}. Reintentando en 2.5s...`);
@@ -1317,6 +1352,7 @@ async function startTenantSession(tenantId, options = {}) {
       console.error(`[SaaS Bot #${id}] Error en client.initialize():`, errMsg);
     });
   } catch (err) {
+    clearStartupWatchdog();
     stateObj.isStarting = false;
     stateObj.status = 'DISCONNECTED';
     stateObj.lastError = err.message;
@@ -1334,6 +1370,10 @@ async function disconnectTenantSession(tenantId) {
 
   if (mem) {
     mem.manualStop = true;
+    if (mem.startupWatchdog) {
+      clearTimeout(mem.startupWatchdog);
+      mem.startupWatchdog = null;
+    }
     mem.status = 'DISCONNECTED';
     mem.qrDataUrl = null;
     if (mem.client) {
