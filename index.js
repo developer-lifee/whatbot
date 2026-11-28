@@ -7105,6 +7105,15 @@ REGLAS:
         }
     } catch (e) { }
 
+    async function sendPaymentMethodDetails(msgObj, targetUserId, preferredMethod = null) {
+        const text =
+            `🤖 *Medios de Pago Oficiales Sheerit*\n\n` +
+            `🔑 *Llave Bre-V (Nequi / Daviplata / Bancos - Entrega inmediata ⚡):* \`0087387259\`\n` +
+            `🏦 *Bancolombia Ahorros:* \`46772753713\` (CC: \`1032936324\`)\n\n` +
+            `Una vez realices la transferencia, envíame la captura del comprobante por este mismo chat para validar tu pago de inmediato. 🙌`;
+        await msgObj.reply(text);
+    }
+
     // 0. BYPASS UNIVERSAL DE COMPROBANTE DE PAGO:
     // Si el cliente envía una imagen de comprobante bancario (ej: respondiendo a un cobro de corte manual de asesor),
     // el bot NUNCA debe silenciarse. Debe validar y procesar el pago de inmediato.
@@ -7120,8 +7129,39 @@ REGLAS:
                     const singleMediaObj = { data: media.data, mimeType: cleanMime };
                     const check = await isPaymentReceipt(singleMediaObj, hist);
                     if (check && check.isReceipt) {
-                        console.log(`[Payment Receipt Universal Bypass] 💳 Comprobante de pago detectado para @${userId} (${check.amount || 'N/A'}). Saltando bloqueo de asesor humano.`);
                         const curState = (currentStateData && typeof currentStateData === 'object') ? { ...currentStateData } : {};
+                        const isKnownStreamingInferred = /netflix|gpt|chatgpt|amazon|prime|disney|spotify|max|hbo|youtube|canva|crunchyroll|paramount|vix|claude|plex|iptv|apple|capcut|office|microsoft/i.test(String(check.inferredPlatform || ''));
+                        const hasBillingNotice = /aviso de cobro/i.test(hist || '');
+                        const clientOnlyHist = String(hist || '')
+                            .split('\n')
+                            .filter(l => !/^\s*(bot|asistente|sheerit|t[uú]|yo)\s*:/i.test(l))
+                            .join('\n');
+                        const isCustomServiceHist = !isKnownStreamingInferred && !hasBillingNotice &&
+                            /\b(bot\s+de\s+whatsapp|bot\s+con\s+ia|bot\s+studio|mi-bot|eleven\s*labs|elevenlabs|desarrollo\s+de\s+software|retailer\s+os|webhook|mensajes\s+del\s+bot)\b/i.test(clientOnlyHist);
+
+                        if (isCustomServiceHist) {
+                            console.log(`[Payment Receipt Universal Bypass] ⚠️ Comprobante (${check.amount || 'N/A'}) recibido para servicio personalizado (@${userId}). Escalando a asesor.`);
+                            try {
+                                const groupChat = await client.getChatById(GROUP_ID);
+                                if (groupChat) {
+                                    const { MessageMedia } = require('whatsapp-web.js');
+                                    const mediaToForward = new MessageMedia(singleMediaObj.mimeType || 'image/jpeg', singleMediaObj.data);
+                                    const alertText = `📸 *COMPROBANTE EN SERVICIO PERSONALIZADO* (@${userId.replace(/@.*/, '')})\n` +
+                                        `Monto OCR: ${check.amount || '?'}\n` +
+                                        `Banco: ${check.bank || 'Desconocido'}\n` +
+                                        `⚠️ No se auto-validó como streaming porque el cliente viene cotizando desarrollo/servicio personalizado.`;
+                                    await groupChat.sendMessage(mediaToForward, { caption: alertText }).catch(() => groupChat.sendMessage(alertText));
+                                }
+                            } catch (e) { }
+                            await message.reply('🤖 ¡Recibimos tu comprobante! Un asesor ya está validando tu pago y te confirma en unos minutos. 🙌').catch(() => {});
+                            const holdState = { ...curState, state: 'waiting_human', waiting_human_mode: 'advisor', lastPaymentReceiptAt: Date.now() };
+                            userStates.set(userId, holdState);
+                            if (cleanPhoneJid) userStates.set(cleanPhoneJid, holdState);
+                            await applyLabelToChat(userId, client, ['pago', 'revisión', 'manual']).catch(() => {});
+                            return;
+                        }
+
+                        console.log(`[Payment Receipt Universal Bypass] 💳 Comprobante de pago detectado para @${userId} (${check.amount || 'N/A'}). Saltando bloqueo de asesor humano.`);
                         if (!curState.items || curState.items.length === 0 || !curState.isRenewal) {
                             try {
                                 const { getAccountsByPhone } = require('./apiService');
@@ -7145,8 +7185,8 @@ REGLAS:
                                 }
                                 if (matchedRenewalAccounts.length > 0) {
                                     const { getPlatformPriceFromExcel } = require('./billingService');
-                                    const { getPlatforms } = require('./apiService');
-                                    const catalogPlatforms = await getPlatforms().catch(() => []);
+                                    const { getPlatformKnowledge } = require('./apiService');
+                                    const catalogPlatforms = await getPlatformKnowledge().catch(() => []);
                                     const calculatedRenewalTotal = matchedRenewalAccounts.reduce((sum, acc) => sum + (Number(getPlatformPriceFromExcel(acc, catalogPlatforms)) || 0), 0);
                                     curState.isRenewal = true;
                                     curState.items = matchedRenewalAccounts;
@@ -7154,8 +7194,8 @@ REGLAS:
                                     curState.realPhone = curState.realPhone || realPhone || String(lookupPhone).replace(/\D/g, '');
                                     console.log(`[Payment Receipt Universal Bypass] 🔄 Contexto de renovación reconstruido desde Excel para @${userId}: ${matchedRenewalAccounts.map(a => a.Streaming).join(', ')} (Total esperado: ${curState.total})`);
                                 } else if (check.inferredPlatform && (!curState.items || curState.items.length === 0)) {
-                                    const { getPlatforms } = require('./apiService');
-                                    const catalogPlatforms = await getPlatforms().catch(() => []);
+                                    const { getPlatformKnowledge } = require('./apiService');
+                                    const catalogPlatforms = await getPlatformKnowledge().catch(() => []);
                                     const inferredLower = String(check.inferredPlatform || '').toLowerCase().trim();
                                     const matchedPlat = (catalogPlatforms || []).find(p => {
                                         const pName = String(p.name || '').toLowerCase().trim();
