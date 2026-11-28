@@ -1115,6 +1115,106 @@ function handleIncomingTenantMessage(tenantId, msg) {
 }
 
 /**
+ * Fuerza la inicialización completa de WhatsApp Web (Store, WWebJS, ClientInfo, listeners y evento ready)
+ * para evitar sesiones autenticadas en 1.34.6 que no emiten 'ready' tras vincular.
+ */
+async function ensureTenantClientReady(id, client, stateObj) {
+  if (!client || !client.pupPage || stateObj?.manualStop) return false;
+  try {
+    await client.pupPage.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      const continueBtn = buttons.find(b => b.innerText && (
+        b.innerText.toLowerCase().includes('continuar') ||
+        b.innerText.toLowerCase().includes('aceptar') ||
+        b.innerText.toLowerCase().includes('entendido')
+      ));
+      if (continueBtn) continueBtn.click();
+    }).catch(() => {});
+
+    const hasStore = await client.pupPage.evaluate(() => typeof window.Store !== 'undefined').catch(() => false);
+    if (!hasStore) return false;
+
+    const hasWWebJS = await client.pupPage.evaluate(() => typeof window.WWebJS !== 'undefined').catch(() => false);
+    if (!hasWWebJS) {
+      const { LoadUtils } = require('whatsapp-web.js/src/util/Injected/Utils');
+      await client.pupPage.evaluate(LoadUtils);
+    }
+
+    await client.pupPage.evaluate(() => {
+      try {
+        const WAWebMsgKey = window.require ? window.require('WAWebMsgKey') : null;
+        if (WAWebMsgKey && WAWebMsgKey.prototype && !WAWebMsgKey.prototype._serialized) {
+          Object.defineProperty(WAWebMsgKey.prototype, '_serialized', {
+            get() { return this.toString(); },
+            configurable: true
+          });
+        }
+      } catch (_) {}
+    }).catch(() => {});
+
+    if (!client.info || !client.info.wid) {
+      const ClientInfo = require('whatsapp-web.js/src/structures/ClientInfo');
+      const InterfaceController = require('whatsapp-web.js/src/util/InterfaceController');
+      const infoData = await client.pupPage.evaluate(() => {
+        const user = window.Store.User ? (
+          (typeof window.Store.User.getMaybeMePnUser === 'function' && window.Store.User.getMaybeMePnUser()) ||
+          (typeof window.Store.User.getMaybeMeLidUser === 'function' && window.Store.User.getMaybeMeLidUser()) ||
+          null
+        ) : null;
+        const conn = window.Store.Conn ? window.Store.Conn.serialize() : {};
+        return { ...conn, wid: user };
+      }).catch(() => null);
+      if (infoData && infoData.wid) {
+        client.info = new ClientInfo(client, infoData);
+        client.interface = new InterfaceController(client);
+      }
+    }
+
+    const hasPageListeners = await client.pupPage.evaluate(() => Boolean(window.__whatbotListenersAttached)).catch(() => false);
+    if (!client._eventsAttached || !hasPageListeners) {
+      let attachedInPage = false;
+      try {
+        await Promise.race([
+          client.attachEventListeners(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('attachEventListeners timeout (15s)')), 15000))
+        ]);
+        attachedInPage = true;
+      } catch (attErr) {
+        console.warn(`[SaaS Bot #${id}] ⚠️ attachEventListeners falló o dio timeout:`, attErr.message);
+        attachedInPage = await client.pupPage.evaluate(() => {
+          try {
+            if (window.Store && window.Store.Msg && typeof window.onAddMessageEvent === 'function') {
+              window.Store.Msg.off('add');
+              window.Store.Msg.on('add', (msg) => {
+                if (msg && msg.isNewMsg && window.WWebJS) {
+                  window.onAddMessageEvent(window.WWebJS.getMessageModel(msg));
+                }
+              });
+              return true;
+            }
+          } catch (_) {}
+          return false;
+        }).catch(() => false);
+      }
+      if (attachedInPage) {
+        await client.pupPage.evaluate(() => { window.__whatbotListenersAttached = true; }).catch(() => {});
+        client._eventsAttached = true;
+      }
+    }
+
+    if (!client._readyEmitted) {
+      client._readyEmitted = true;
+      console.log(`[SaaS Bot #${id}] 🎉 Conexión completada tras autenticación. Emitiendo ready...`);
+      client.emit('ready');
+    }
+    return true;
+  } catch (err) {
+    console.warn(`[SaaS Bot #${id}] ⚠️ Error en ensureTenantClientReady:`, err.message);
+    return false;
+  }
+}
+
+/**
  * Inicia o recupera la sesión WhatsApp Web real (whatsapp-web.js + LocalAuth) de un cliente SaaS.
  */
 async function startTenantSession(tenantId, options = {}) {
@@ -1127,8 +1227,18 @@ async function startTenantSession(tenantId, options = {}) {
     return getTenantSessionState(id);
   }
 
-  if (existing && existing.client) {
-    try { await existing.client.destroy(); } catch {}
+  if (existing) {
+    if (existing.startupWatchdog) {
+      clearTimeout(existing.startupWatchdog);
+      existing.startupWatchdog = null;
+    }
+    if (existing.authReadyInterval) {
+      clearInterval(existing.authReadyInterval);
+      existing.authReadyInterval = null;
+    }
+    if (existing.client) {
+      try { await existing.client.destroy(); } catch {}
+    }
   }
 
   const sessionDir = getTenantSessionDir(id);
@@ -1144,12 +1254,19 @@ async function startTenantSession(tenantId, options = {}) {
     lastError: null,
     isStarting: true,
     manualStop: false,
-    startupWatchdog: null
+    startupWatchdog: null,
+    authReadyInterval: null
   };
   const clearStartupWatchdog = () => {
     if (stateObj.startupWatchdog) {
       clearTimeout(stateObj.startupWatchdog);
       stateObj.startupWatchdog = null;
+    }
+  };
+  const clearAuthReadyInterval = () => {
+    if (stateObj.authReadyInterval) {
+      clearInterval(stateObj.authReadyInterval);
+      stateObj.authReadyInterval = null;
     }
   };
   sessions.set(id, stateObj);
@@ -1224,8 +1341,45 @@ async function startTenantSession(tenantId, options = {}) {
       }
     });
 
+    client.on('loading_screen', (percent, message) => {
+      clearStartupWatchdog();
+      console.log(`[SaaS Bot #${id}] ⏳ Sincronizando chats (${percent}%${message ? ` - ${message}` : ''})...`);
+      if (stateObj.status !== 'CONNECTED') {
+        stateObj.lastError = `Sincronizando chats (${percent}%)...`;
+      }
+    });
+
+    client.on('authenticated', () => {
+      clearStartupWatchdog();
+      clearAuthReadyInterval();
+      stateObj.status = 'CONNECTING';
+      stateObj.isStarting = true;
+      stateObj.qrDataUrl = null;
+      stateObj.pairingCode = null;
+      stateObj.lastError = 'Sesión vinculada en el celular. Sincronizando chats...';
+      client._eventsAttached = false;
+      console.log(`[SaaS Bot #${id}] ✅ [AUTENTICADO] Sesión validada en WhatsApp Web. Verificando estado ready...`);
+
+      let checks = 0;
+      stateObj.authReadyInterval = setInterval(async () => {
+        checks++;
+        if (checks > 60 || stateObj.manualStop) {
+          clearAuthReadyInterval();
+          return;
+        }
+        try {
+          const ready = await ensureTenantClientReady(id, client, stateObj);
+          if (ready && client._eventsAttached) {
+            clearAuthReadyInterval();
+          }
+        } catch (_) {}
+      }, 2000);
+    });
+
     client.on('ready', async () => {
       clearStartupWatchdog();
+      clearAuthReadyInterval();
+      client._readyEmitted = true;
       const phone = client.info?.wid?.user ? String(client.info.wid.user).replace(/\D/g, '') : null;
       stateObj.status = 'CONNECTED';
       stateObj.isStarting = false;
@@ -1243,6 +1397,7 @@ async function startTenantSession(tenantId, options = {}) {
 
     client.on('auth_failure', async (msg) => {
       clearStartupWatchdog();
+      clearAuthReadyInterval();
       stateObj.isStarting = false;
       stateObj.status = 'DISCONNECTED';
       stateObj.qrDataUrl = null;
@@ -1253,6 +1408,7 @@ async function startTenantSession(tenantId, options = {}) {
 
     client.on('disconnected', async (reason) => {
       clearStartupWatchdog();
+      clearAuthReadyInterval();
       stateObj.isStarting = false;
       stateObj.qrDataUrl = null;
       const loggedOut = String(reason || '').toUpperCase().includes('LOGOUT');
@@ -1332,6 +1488,7 @@ async function startTenantSession(tenantId, options = {}) {
 
     client.initialize().catch(async (initErr) => {
       clearStartupWatchdog();
+      clearAuthReadyInterval();
       const errMsg = initErr?.message || 'No se pudo iniciar WhatsApp Web';
       if (!stateObj.manualStop && attempt < 3 && /Minified invariant|Execution context was destroyed|Target closed|Protocol error/i.test(errMsg)) {
         console.warn(`[SaaS Bot #${id}] ⚠️ Error transitorio al iniciar (intento ${attempt}/3): ${errMsg}. Reintentando en 2.5s...`);
@@ -1353,6 +1510,7 @@ async function startTenantSession(tenantId, options = {}) {
     });
   } catch (err) {
     clearStartupWatchdog();
+    clearAuthReadyInterval();
     stateObj.isStarting = false;
     stateObj.status = 'DISCONNECTED';
     stateObj.lastError = err.message;
@@ -1373,6 +1531,10 @@ async function disconnectTenantSession(tenantId) {
     if (mem.startupWatchdog) {
       clearTimeout(mem.startupWatchdog);
       mem.startupWatchdog = null;
+    }
+    if (mem.authReadyInterval) {
+      clearInterval(mem.authReadyInterval);
+      mem.authReadyInterval = null;
     }
     mem.status = 'DISCONNECTED';
     mem.qrDataUrl = null;
