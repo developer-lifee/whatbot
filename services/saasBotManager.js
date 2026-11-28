@@ -149,6 +149,9 @@ async function ensureSaasBotTables() {
   if (!colNames.has('enabled_modules')) {
     await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN enabled_modules LONGTEXT NULL');
   }
+  if (!colNames.has('store_slug')) {
+    await pool.query('ALTER TABLE saas_bot_tenants ADD COLUMN store_slug VARCHAR(120) NULL AFTER enabled_modules').catch(() => {});
+  }
 
   const [audioCols] = await pool.query('SHOW COLUMNS FROM saas_bot_audios');
   const audioColNames = new Set(audioCols.map(c => c.Field));
@@ -203,7 +206,7 @@ async function ensureSaasBotTables() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       tenant_id INT NOT NULL,
       name VARCHAR(140) NOT NULL,
-      source_type ENUM('google_sheets','uploaded_table') DEFAULT 'google_sheets',
+      source_type ENUM('google_sheets','uploaded_table','retailer_store') DEFAULT 'google_sheets',
       sheet_url VARCHAR(600) NULL,
       headers_json LONGTEXT NULL,
       rows_json LONGTEXT NULL,
@@ -215,6 +218,10 @@ async function ensureSaasBotTables() {
       INDEX idx_ds_tenant (tenant_id, is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  await pool.query(
+    "ALTER TABLE saas_bot_data_sources MODIFY COLUMN source_type ENUM('google_sheets','uploaded_table','retailer_store') DEFAULT 'google_sheets'"
+  ).catch(() => {});
 
   saasTablesReady = true;
 }
@@ -530,6 +537,153 @@ async function deleteTenantDataSource(tenantId, sourceId) {
   return { deleted: true };
 }
 
+function parseStoreProductsArray(rawProducts) {
+  let list = [];
+  if (Array.isArray(rawProducts)) {
+    list = rawProducts;
+  } else if (typeof rawProducts === 'string' && rawProducts.trim()) {
+    try {
+      const parsed = JSON.parse(rawProducts);
+      if (Array.isArray(parsed)) list = parsed;
+    } catch {}
+  }
+  return list.filter(p => p && String(p.name || '').trim() !== '');
+}
+
+async function syncRetailerStoreToTenant(tenantId, storeRow) {
+  await ensureSaasBotTables();
+  if (!storeRow || !storeRow.slug) throw new Error('Tienda inválida para sincronizar.');
+  const id = Number(tenantId);
+  const products = parseStoreProductsArray(storeRow.products_json ?? storeRow.products);
+  const headers = ['Producto', 'Categoría', 'Precio COP', 'Descripción'];
+  const rows = products.map((p) => ({
+    Producto: String(p.name || '').trim(),
+    'Categoría': String(p.category || 'General').trim(),
+    'Precio COP': `$${Number(p.price || 0).toLocaleString('es-CO')}`,
+    'Descripción': String(p.description || '').trim()
+  }));
+
+  const storeUrl = `https://sheerit.co/tienda/${storeRow.slug}`;
+  const dsName = `Catálogo Tienda: ${String(storeRow.store_name || storeRow.slug).trim()}`.slice(0, 140);
+
+  const [existingDs] = await pool.query(
+    "SELECT id FROM saas_bot_data_sources WHERE tenant_id = ? AND source_type = 'retailer_store' ORDER BY id DESC LIMIT 1",
+    [id]
+  );
+
+  if (existingDs.length > 0) {
+    await pool.query(
+      `UPDATE saas_bot_data_sources
+       SET name = ?, sheet_url = ?, headers_json = ?, rows_json = ?, row_count = ?, last_synced_at = NOW(), is_active = 1
+       WHERE id = ?`,
+      [dsName, storeUrl, JSON.stringify(headers), JSON.stringify(rows), rows.length, existingDs[0].id]
+    );
+  } else {
+    await pool.query(
+      `INSERT INTO saas_bot_data_sources
+       (tenant_id, name, source_type, sheet_url, headers_json, rows_json, row_count, last_synced_at, is_active)
+       VALUES (?, ?, 'retailer_store', ?, ?, ?, ?, NOW(), 1)`,
+      [id, dsName, storeUrl, JSON.stringify(headers), JSON.stringify(rows), rows.length]
+    );
+  }
+
+  const [[tenantRow]] = await pool.query('SELECT knowledge_base FROM saas_bot_tenants WHERE id = ? LIMIT 1', [id]);
+  if (tenantRow) {
+    const existingKb = String(tenantRow.knowledge_base || '')
+      .replace(/\[TIENDA WEB CONECTADA\][\s\S]*?\[\/TIENDA WEB CONECTADA\]\s*/g, '')
+      .trim();
+
+    const productSummaryLines = products.slice(0, 40).map((p) => {
+      const cat = p.category ? ` (${p.category})` : '';
+      const desc = p.description ? ` — ${String(p.description).trim()}` : '';
+      return `- ${String(p.name || '').trim()}${cat}: $${Number(p.price || 0).toLocaleString('es-CO')} COP${desc}`;
+    });
+
+    const storeBlock = [
+      '[TIENDA WEB CONECTADA]',
+      `Tienda: ${storeRow.store_name || storeRow.slug}${storeRow.city ? ` | Ciudad: ${storeRow.city}` : ''}`,
+      `Catálogo y compras online: ${storeUrl}`,
+      productSummaryLines.length > 0
+        ? `Productos actuales:\n${productSummaryLines.join('\n')}`
+        : 'Productos actuales: revisa el catálogo en el enlace de la tienda.',
+      '[/TIENDA WEB CONECTADA]'
+    ].join('\n');
+
+    const nextKb = existingKb ? `${existingKb}\n\n${storeBlock}` : storeBlock;
+    await pool.query('UPDATE saas_bot_tenants SET knowledge_base = ? WHERE id = ?', [nextKb, id]);
+  }
+
+  const tenantPrefix = `${id}:`;
+  for (const key of chatHistories.keys()) {
+    if (String(key).startsWith(tenantPrefix)) {
+      chatHistories.delete(key);
+    }
+  }
+
+  return { syncedProductsCount: rows.length };
+}
+
+async function getLinkedStoreForTenant(tenantId) {
+  await ensureSaasBotTables();
+  const [[tenantRow]] = await pool.query('SELECT store_slug FROM saas_bot_tenants WHERE id = ? LIMIT 1', [Number(tenantId)]);
+  const slug = tenantRow?.store_slug ? String(tenantRow.store_slug).trim() : '';
+  if (!slug) return null;
+
+  const [rows] = await pool.query(
+    'SELECT slug, store_name, business_type, owner_phone, city, products_json, status, updated_at FROM retailer_stores WHERE slug = ? LIMIT 1',
+    [slug]
+  ).catch(() => [[]]);
+  if (!rows || rows.length === 0) return null;
+
+  const s = rows[0];
+  const products = parseStoreProductsArray(s.products_json);
+  return {
+    slug: s.slug,
+    storeName: s.store_name,
+    businessType: s.business_type,
+    ownerPhone: s.owner_phone,
+    city: s.city,
+    url: `https://sheerit.co/tienda/${s.slug}`,
+    productsCount: products.length,
+    status: s.status,
+    updatedAt: s.updated_at
+  };
+}
+
+async function linkRetailerStoreToTenant(tenantId, rawSlug) {
+  await ensureSaasBotTables();
+  const id = Number(tenantId);
+  const cleanSlug = String(rawSlug || '')
+    .toLowerCase()
+    .trim()
+    .replace(/^https?:\/\/[^/]+\/tienda\//i, '')
+    .replace(/^\/?tienda\//i, '')
+    .replace(/[^a-z0-9-]/g, '');
+
+  if (!cleanSlug) {
+    throw new Error('Ingresa el identificador (slug) o enlace de tu tienda, ej: cafe-de-la-sierra.');
+  }
+
+  const [rows] = await pool.query('SELECT * FROM retailer_stores WHERE slug = ? LIMIT 1', [cleanSlug]);
+  if (!rows || rows.length === 0) {
+    throw new Error('No encontramos ninguna tienda con ese identificador (slug). Verifica el enlace de tu tienda.');
+  }
+
+  const storeRow = rows[0];
+  await pool.query('UPDATE saas_bot_tenants SET store_slug = ? WHERE id = ?', [storeRow.slug, id]);
+  const { syncedProductsCount } = await syncRetailerStoreToTenant(id, storeRow);
+  const linkedStore = await getLinkedStoreForTenant(id);
+  return { linkedStore, syncedProductsCount };
+}
+
+async function unlinkRetailerStoreFromTenant(tenantId) {
+  await ensureSaasBotTables();
+  const id = Number(tenantId);
+  await pool.query('UPDATE saas_bot_tenants SET store_slug = NULL WHERE id = ?', [id]);
+  await pool.query("UPDATE saas_bot_data_sources SET is_active = 0 WHERE tenant_id = ? AND source_type = 'retailer_store'", [id]);
+  return { unlinked: true };
+}
+
 const normDataText = (s) =>
   String(s || '')
     .toLowerCase()
@@ -537,13 +691,17 @@ const normDataText = (s) =>
     .replace(/[\u0300-\u036f]/g, '');
 
 async function buildLiveDataContextForMessage(tenant, incomingText) {
-  if (!tenant || !parseEnabledModules(tenant.enabled_modules).includes('crm_sheets')) {
-    return '';
-  }
-  const [sources] = await pool.query(
-    'SELECT * FROM saas_bot_data_sources WHERE tenant_id = ? AND is_active = 1 ORDER BY id DESC',
-    [Number(tenant.id)]
-  );
+  if (!tenant) return '';
+  const hasCrmSheets = parseEnabledModules(tenant.enabled_modules).includes('crm_sheets');
+  const [sources] = hasCrmSheets
+    ? await pool.query(
+        'SELECT * FROM saas_bot_data_sources WHERE tenant_id = ? AND is_active = 1 ORDER BY id DESC',
+        [Number(tenant.id)]
+      )
+    : await pool.query(
+        "SELECT * FROM saas_bot_data_sources WHERE tenant_id = ? AND is_active = 1 AND source_type = 'retailer_store' ORDER BY id DESC",
+        [Number(tenant.id)]
+      );
   if (!sources || sources.length === 0) return '';
 
   const fiveMinAgo = Date.now() - 5 * 60 * 1000;
@@ -2192,6 +2350,10 @@ module.exports = {
   importUploadedTableSource,
   listTenantDataSources,
   deleteTenantDataSource,
+  syncRetailerStoreToTenant,
+  linkRetailerStoreToTenant,
+  unlinkRetailerStoreFromTenant,
+  getLinkedStoreForTenant,
   generateSaasBotConfig,
   startTenantSession,
   disconnectTenantSession,

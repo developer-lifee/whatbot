@@ -221,14 +221,164 @@ function registerSaasBotRoutes(app, routeContext = {}) {
          LIMIT 40`,
         [tenant.id]
       );
+      const linkedStore = await saasBotManager.getLinkedStoreForTenant(tenant.id).catch(() => null);
       res.json({
         success: true,
         tenant: saasBotManager.sanitizeTenant(tenant),
         session: saasBotManager.getTenantSessionState(tenant.id),
         logs,
-        improvements
+        improvements,
+        linkedStore
       });
     } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
+  // ==================== CONEXIÓN BIDIRECCIONAL RETAILER OS (/crear <-> /mi-bot) ====================
+  app.post('/api/saas-bot/store/link', requireSaasTenant, express.json(), async (req, res) => {
+    try {
+      const result = await saasBotManager.linkRetailerStoreToTenant(req.tenantId, req.body?.slug);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/store/sync', requireSaasTenant, async (req, res) => {
+    try {
+      const tenant = await saasBotManager.getTenantById(req.tenantId);
+      if (!tenant || !tenant.store_slug) {
+        return res.status(400).json({ success: false, message: 'No tienes una tienda vinculada aún.' });
+      }
+      const result = await saasBotManager.linkRetailerStoreToTenant(req.tenantId, tenant.store_slug);
+      res.json({ success: true, ...result });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/store/unlink', requireSaasTenant, async (req, res) => {
+    try {
+      await saasBotManager.unlinkRetailerStoreFromTenant(req.tenantId);
+      res.json({ success: true, linkedStore: null });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/saas-bot/bootstrap-from-store', express.json(), async (req, res) => {
+    try {
+      await saasBotManager.ensureSaasBotTables();
+      const { slug, email, password, ownerName = '', activationCode = '' } = req.body || {};
+      const cleanSlug = String(slug || '').toLowerCase().trim().replace(/[^a-z0-9-]/g, '');
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      const cleanPass = String(password || '').trim();
+      const cleanOwner = String(ownerName || '').trim();
+      const cleanCode = String(activationCode || '').trim().toUpperCase();
+
+      if (!cleanSlug || !cleanEmail || cleanPass.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: 'Slug de tienda, correo y contraseña (mínimo 6 caracteres) son obligatorios.'
+        });
+      }
+
+      const [storeRows] = await pool.query('SELECT * FROM retailer_stores WHERE slug = ? LIMIT 1', [cleanSlug]).catch(() => [[]]);
+      if (!storeRows || storeRows.length === 0) {
+        return res.status(404).json({ success: false, message: 'No encontramos la tienda indicada. Guárdala primero desde /crear.' });
+      }
+      const storeRow = storeRows[0];
+
+      // Si el correo ya existe en Bot Studio, autenticar y vincular la tienda
+      const [existingUsers] = await pool.query('SELECT * FROM saas_bot_tenants WHERE email = ? LIMIT 1', [cleanEmail]);
+      if (existingUsers.length > 0) {
+        const existingUser = existingUsers[0];
+        const match = await bcrypt.compare(cleanPass, existingUser.password_hash);
+        if (!match) {
+          return res.status(401).json({ success: false, message: 'Ya existe una cuenta con ese correo, pero la contraseña no coincide.' });
+        }
+        const { linkedStore, syncedProductsCount } = await saasBotManager.linkRetailerStoreToTenant(existingUser.id, storeRow.slug);
+        const tenant = await saasBotManager.getTenantById(existingUser.id);
+        const token = signSessionToken({ role: 'saas_bot', tenantId: tenant.id, email: tenant.email });
+        return res.json({
+          success: true,
+          mode: 'linked_existing',
+          token,
+          tenant: saasBotManager.sanitizeTenant(tenant),
+          linkedStore,
+          syncedProductsCount
+        });
+      }
+
+      // Si es cuenta nueva: permitir con código de invitación válido o si la tienda ya está activa en Retailer OS
+      let invite = null;
+      if (cleanCode) {
+        const [inviteRows] = await pool.query('SELECT * FROM saas_bot_invite_codes WHERE code = ? LIMIT 1', [cleanCode]);
+        if (inviteRows.length === 0 || inviteRows[0].used_by_tenant_id) {
+          return res.status(403).json({ success: false, message: 'El código de activación es inválido o ya fue usado.' });
+        }
+        invite = inviteRows[0];
+      } else if (storeRow.status !== 'active') {
+        return res.status(403).json({
+          success: false,
+          message: 'Activa tu tienda (o ingresa un código de activación) para crear automáticamente tu Bot Studio.'
+        });
+      }
+
+      const botSlug = await resolveUniqueSlug(storeRow.store_name || cleanSlug);
+      const passwordHash = await hashPassword(cleanPass);
+      const monthKey = saasBotManager.getCurrentMonthKey();
+      const bizDesc = `Tienda online ${storeRow.store_name} (${storeRow.business_type || 'general'})${storeRow.city ? ` en ${storeRow.city}` : ''}. Catálogo web en https://sheerit.co/tienda/${storeRow.slug}.`;
+      const starterPrompt = [
+        `Eres el asistente comercial oficial de ${storeRow.store_name}${storeRow.city ? ` en ${storeRow.city}` : ''}.`,
+        `Ayuda a cada cliente a conocer los productos del catálogo en vivo, precios exactos, resolver dudas y cerrar su pedido enviándole cuando corresponda el enlace oficial de compra: https://sheerit.co/tienda/${storeRow.slug}.`,
+        'Sé amable, claro y conciso. Nunca inventes precios ni productos fuera del catálogo conectado.'
+      ].join(' ');
+
+      const [ins] = await pool.query(
+        `INSERT INTO saas_bot_tenants
+         (slug, owner_name, business_name, email, password_hash, plan_name, monthly_message_limit, amount_paid, expires_at, usage_reset_month, is_bot_active, business_description, system_prompt, store_slug)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? DAY), ?, 0, ?, ?, ?)`,
+        [
+          botSlug,
+          cleanOwner || storeRow.store_name || 'Administrador',
+          storeRow.store_name || cleanSlug,
+          cleanEmail,
+          passwordHash,
+          invite?.plan_name || 'Retailer OS + Bot',
+          Number(invite?.monthly_message_limit) || 500,
+          Number(invite?.amount_paid) || 0,
+          Number(invite?.duration_days) || 30,
+          monthKey,
+          bizDesc,
+          starterPrompt,
+          storeRow.slug
+        ]
+      );
+
+      if (invite) {
+        await pool.query(
+          'UPDATE saas_bot_invite_codes SET used_by_tenant_id = ?, used_at = NOW() WHERE id = ? AND used_by_tenant_id IS NULL',
+          [ins.insertId, invite.id]
+        );
+      }
+
+      const { syncedProductsCount } = await saasBotManager.syncRetailerStoreToTenant(ins.insertId, storeRow);
+      const tenant = await saasBotManager.getTenantById(ins.insertId);
+      const linkedStore = await saasBotManager.getLinkedStoreForTenant(ins.insertId);
+      const token = signSessionToken({ role: 'saas_bot', tenantId: tenant.id, email: tenant.email });
+
+      res.json({
+        success: true,
+        mode: 'created',
+        token,
+        tenant: saasBotManager.sanitizeTenant(tenant),
+        linkedStore,
+        syncedProductsCount
+      });
+    } catch (err) {
+      console.error('[SaaS Bot Bootstrap From Store Error]:', err.message);
       res.status(500).json({ success: false, message: err.message });
     }
   });

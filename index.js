@@ -1338,6 +1338,28 @@ app.post('/api/public/stores', express.json({ limit: '5mb' }), async (req, res) 
             ]
         );
 
+        // Sincronizar catálogo actualizado con cualquier Bot Studio vinculado a esta tienda
+        try {
+            const [linkedTenants] = await pool.query(
+                'SELECT id FROM saas_bot_tenants WHERE store_slug = ?',
+                [cleanSlug]
+            ).catch(() => [[]]);
+            if (Array.isArray(linkedTenants) && linkedTenants.length > 0) {
+                const saasBotManager = require('./services/saasBotManager');
+                const storePayload = {
+                    slug: cleanSlug,
+                    store_name: String(storeName).trim(),
+                    business_type: String(businessType),
+                    owner_phone: String(ownerPhone).trim(),
+                    city: String(city).trim(),
+                    products_json: Array.isArray(products) ? products : []
+                };
+                for (const tRow of linkedTenants) {
+                    saasBotManager.syncRetailerStoreToTenant(tRow.id, storePayload).catch(() => {});
+                }
+            }
+        } catch (_) {}
+
         res.json({
             success: true,
             slug: cleanSlug,
