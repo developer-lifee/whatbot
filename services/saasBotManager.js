@@ -2338,6 +2338,96 @@ async function simulateTenantChatTurn(tenantId, { messages = [], history = [], h
   };
 }
 
+const saasBillingLastReminderDate = new Map();
+
+function calculateTenantMonthlyTotal(tenant) {
+  const plan = String(tenant?.plan_name || '').toLowerCase();
+  let base = Number(tenant?.amount_paid || 0);
+  if (!base || base <= 0) {
+    if (plan.includes('scale') || plan.includes('60')) base = 60000;
+    else if (plan.includes('starter') || plan.includes('10')) base = 10000;
+    else base = 30000;
+  }
+  const modules = parseEnabledModules(tenant?.enabled_modules);
+  let includedSlots = 0;
+  if (plan.includes('scale') || plan.includes('60')) includedSlots = 3;
+  else if (plan.includes('pro') || plan.includes('básico') || plan.includes('basico') || plan.includes('30') || plan.includes('retailer')) includedSlots = 1;
+
+  const extraModules = Math.max(0, modules.length - includedSlots);
+  const addonCost = extraModules * 25000;
+  return base + addonCost;
+}
+
+function formatBotBillingMessage(tenant, daysLeft) {
+  const totalMonthly = calculateTenantMonthlyTotal(tenant);
+  const expStr = tenant.expires_at
+    ? new Date(tenant.expires_at).toLocaleDateString('es-CO', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'hoy';
+  const statusLine = daysLeft > 0
+    ? `tu plan *${tenant.plan_name || 'Bot Studio'}* vence en *${daysLeft} día(s)* (${expStr}).`
+    : daysLeft === 0
+      ? `tu plan *${tenant.plan_name || 'Bot Studio'}* vence *hoy* (${expStr}).`
+      : `tu plan *${tenant.plan_name || 'Bot Studio'}* venció el *${expStr}*.`;
+
+  const modules = parseEnabledModules(tenant.enabled_modules);
+  const modText = modules.length > 0 ? `\n🧩 *Módulos activos:* ${modules.join(', ')}` : '';
+
+  return (
+    `🤖 *Aviso de Renovación — Sheerit Bot Studio*\n\n` +
+    `Hola ${tenant.owner_name || tenant.business_name}! 👋 Te recordamos que ${statusLine}${modText}\n\n` +
+    `💰 *Total a transferir:* $${totalMonthly.toLocaleString('es-CO')} COP\n` +
+    `🔑 *Llave Bre-V (Nequi / Daviplata / Bancos):* \`0087387259\`\n` +
+    `🏦 *Bancolombia Ahorros:* \`46772753713\` (CC: \`1032936324\`)\n\n` +
+    `Envíanos el comprobante por aquí para renovar tus 30 días de inmediato sin interrumpir tu bot de WhatsApp. 🙌`
+  );
+}
+
+async function runSaasBillingCheck(waClient = null) {
+  await ensureSaasBotTables();
+  const [tenants] = await pool.query(
+    "SELECT * FROM saas_bot_tenants WHERE status = 'active' AND expires_at IS NOT NULL"
+  );
+  const now = new Date();
+  const bogotaTodayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(now);
+  const todayMidnight = new Date(`${bogotaTodayStr}T00:00:00-05:00`).getTime();
+
+  let reminded = 0;
+  let paused = 0;
+
+  for (const t of tenants) {
+    if (!t.expires_at) continue;
+    const expDayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date(t.expires_at));
+    const expMidnight = new Date(`${expDayStr}T00:00:00-05:00`).getTime();
+    const daysLeft = Math.round((expMidnight - todayMidnight) / 86400000);
+
+    // Auto-pausar bot si lleva más de 3 días vencido
+    if (daysLeft < -3 && Number(t.is_bot_active) === 1) {
+      await pool.query('UPDATE saas_bot_tenants SET is_bot_active = 0 WHERE id = ?', [t.id]);
+      paused++;
+      console.log(`[SaaS Billing] ⏸️ Bot SaaS #${t.id} (${t.business_name}) pausado por mora (${Math.abs(daysLeft)} días vencido).`);
+    }
+
+    // Enviar aviso automático cuando falten exactamente 2 días o el día de corte (0)
+    if ((daysLeft === 2 || daysLeft === 0) && waClient && typeof waClient.sendMessage === 'function') {
+      const lastSent = saasBillingLastReminderDate.get(t.id);
+      if (lastSent === bogotaTodayStr) continue;
+      const rawPhone = String(t.wa_phone || '').replace(/\D/g, '');
+      if (rawPhone.length < 10) continue;
+      const targetJid = rawPhone.length === 10 && rawPhone.startsWith('3') ? `57${rawPhone}@c.us` : `${rawPhone}@c.us`;
+      try {
+        await waClient.sendMessage(targetJid, formatBotBillingMessage(t, daysLeft));
+        saasBillingLastReminderDate.set(t.id, bogotaTodayStr);
+        reminded++;
+        console.log(`[SaaS Billing] 📩 Recordatorio enviado a Tenant #${t.id} (${targetJid}, daysLeft=${daysLeft}).`);
+      } catch (err) {
+        console.warn(`[SaaS Billing] Error enviando recordatorio a Tenant #${t.id}:`, err.message);
+      }
+    }
+  }
+
+  return { checked: tenants.length, reminded, paused };
+}
+
 module.exports = {
   ensureSaasBotTables,
   getTenantById,
@@ -2371,5 +2461,8 @@ module.exports = {
   acceptTenantImprovement,
   applyTenantImprovement,
   revertTenantImprovement,
-  handleEscalateCoreCommand
+  handleEscalateCoreCommand,
+  calculateTenantMonthlyTotal,
+  formatBotBillingMessage,
+  runSaasBillingCheck
 };

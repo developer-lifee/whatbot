@@ -1275,6 +1275,82 @@ function registerSaasBotRoutes(app, routeContext = {}) {
     }
   });
 
+  app.post('/api/admin/saas-bots/:id/renew', express.json(), async (req, res) => {
+    try {
+      const pwd = req.headers['x-admin-password'] || req.body?.password || req.query.password;
+      if (pwd !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+      await saasBotManager.ensureSaasBotTables();
+
+      const tenantId = Number(req.params.id);
+      const durationDays = Math.max(1, Number(req.body?.durationDays) || 30);
+      const tenantBefore = await saasBotManager.getTenantById(tenantId);
+      if (!tenantBefore) return res.status(404).json({ success: false, message: 'Cliente SaaS no encontrado.' });
+
+      const suggestedAmount = saasBotManager.calculateTenantMonthlyTotal(tenantBefore);
+      const amountPaid = req.body?.amountPaid !== undefined ? Number(req.body.amountPaid) : suggestedAmount;
+      const syncToCashFlow = req.body?.syncToCashFlow !== false;
+
+      await pool.query(
+        `UPDATE saas_bot_tenants
+         SET expires_at = DATE_ADD(GREATEST(NOW(), IFNULL(expires_at, NOW())), INTERVAL ? DAY),
+             status = 'active',
+             is_bot_active = 1
+         WHERE id = ?`,
+        [durationDays, tenantId]
+      );
+
+      let cashFlowLogged = false;
+      if (syncToCashFlow && amountPaid > 0) {
+        const todayBogota = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+        const desc = `Renovación Bot SaaS (${tenantBefore.plan_name || 'Bot Studio'}) - ${tenantBefore.business_name} (#${tenantId}, +${durationDays}d)`;
+        await pool.query(
+          'INSERT INTO cash_flow_entries (type, platform, amount, description, entry_date, is_automated) VALUES (?, ?, ?, ?, ?, ?)',
+          ['income', 'BOT SAAS', amountPaid, desc, todayBogota, 1]
+        );
+        cashFlowLogged = true;
+      }
+
+      const updated = await saasBotManager.getTenantById(tenantId);
+      res.json({ success: true, tenant: saasBotManager.sanitizeTenant(updated), cashFlowLogged, amountPaid });
+    } catch (err) {
+      res.status(400).json({ success: false, message: err.message });
+    }
+  });
+
+  app.post('/api/admin/saas-bots/:id/send-billing', express.json(), async (req, res) => {
+    try {
+      const pwd = req.headers['x-admin-password'] || req.body?.password || req.query.password;
+      if (pwd !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+      const tenant = await saasBotManager.getTenantById(Number(req.params.id));
+      if (!tenant) return res.status(404).json({ success: false, message: 'Cliente SaaS no encontrado.' });
+
+      const waClient = typeof routeContext?.getClient === 'function' ? routeContext.getClient() : null;
+      if (!waClient || typeof waClient.sendMessage !== 'function') {
+        return res.status(503).json({ success: false, message: 'WhatsApp principal no está conectado todavía.' });
+      }
+
+      const rawPhone = String(req.body?.phone || tenant.wa_phone || '').replace(/\D/g, '');
+      if (rawPhone.length < 10) {
+        return res.status(400).json({ success: false, message: 'Este cliente aún no tiene número de WhatsApp registrado; ingrésalo manualmente.' });
+      }
+      const targetJid = rawPhone.length === 10 && rawPhone.startsWith('3') ? `57${rawPhone}@c.us` : `${rawPhone}@c.us`;
+      const daysLeft = tenant.expires_at
+        ? Math.round((new Date(tenant.expires_at).getTime() - Date.now()) / 86400000)
+        : 0;
+      const msg = saasBotManager.formatBotBillingMessage(tenant, daysLeft);
+      await waClient.sendMessage(targetJid, msg);
+
+      res.json({
+        success: true,
+        sentTo: targetJid,
+        suggestedAmount: saasBotManager.calculateTenantMonthlyTotal(tenant)
+      });
+    } catch (err) {
+      res.status(500).json({ success: false, message: err.message });
+    }
+  });
+
   app.post('/api/admin/saas-bots/create', express.json(), async (req, res) => {
     try {
       const { password: adminPwd, ownerName, businessName, email, clientPassword, planName = 'Plan Básico 30K', monthlyLimit = 500, businessDescription = '' } = req.body || {};

@@ -1048,6 +1048,39 @@ app.post('/api/admin/accounting/renewals/delete', async (req, res) => {
     }
 });
 
+// Endpoints para Reembolsos Contables + Reporte Automático al Grupo Reembolsos
+app.get('/api/admin/accounting/refunds', async (req, res) => {
+    try {
+        const refunds = await accountingService.getRefunds(req.query);
+        res.json({ success: true, refunds });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/accounting/refunds/save', async (req, res) => {
+    try {
+        const { refundData, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const waClient = typeof getClient === 'function' ? getClient() : null;
+        const result = await accountingService.recordRefund(refundData || {}, waClient);
+        res.json(result);
+    } catch (e) {
+        res.status(400).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/admin/accounting/refunds/delete', async (req, res) => {
+    try {
+        const { id, password } = req.body;
+        if (password !== 'admin123') return res.status(401).json({ success: false, message: 'Unauthorized' });
+        const result = await accountingService.deleteRefund(id);
+        res.json(result);
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 
 // Endpoint to write human support schedule configuration
 app.post('/api/admin/support-schedule/save', (req, res) => {

@@ -334,6 +334,18 @@ async function recordAccountRenewal(data) {
   const cleanEmail = account_email.trim();
   const paidAmount = parseFloat(amount_paid) || 0;
 
+  // Evitar doble registro si el asesor pulsa guardar 2 veces seguidas en menos de 10 minutos
+  const [recentDup] = await pool.query(
+    `SELECT id FROM account_renewals
+     WHERE platform = ? AND LOWER(account_email) = LOWER(?) AND amount_paid = ? AND renewal_date = ?
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+     LIMIT 1`,
+    [cleanPlat, cleanEmail, paidAmount, renewal_date]
+  );
+  if (recentDup.length > 0) {
+    return { success: true, deduplicated: true, id: recentDup[0].id };
+  }
+
   let cashFlowEntryId = null;
 
   // 1. Asentar egreso real en flujo de caja contable si está marcado
@@ -495,13 +507,56 @@ async function deleteAccountRenewal(id) {
   return { success: true };
 }
 
+const REFUNDS_GROUP_ID = '120363427611461110@g.us';
+let refundsTableReady = false;
+
+async function ensureRefundsTable() {
+  if (refundsTableReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS refunds_log (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      customer_name VARCHAR(150) NOT NULL,
+      customer_phone VARCHAR(40) NULL,
+      platform VARCHAR(80) NOT NULL,
+      original_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      days_used INT NOT NULL DEFAULT 0,
+      days_refunded INT NOT NULL DEFAULT 30,
+      rule_applied VARCHAR(40) DEFAULT 'proportional',
+      apply_4x1000 TINYINT(1) DEFAULT 1,
+      fee_4x1000 DECIMAL(12,2) DEFAULT 0,
+      gross_refund_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      net_refund_amount DECIMAL(12,2) NOT NULL DEFAULT 0,
+      reason TEXT NOT NULL,
+      payment_method VARCHAR(80) NULL,
+      registered_by VARCHAR(100) NULL,
+      refund_date DATE NOT NULL,
+      cash_flow_entry_id INT NULL,
+      whatsapp_notified TINYINT(1) DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_refunds_date (refund_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  refundsTableReady = true;
+}
+
 /**
- * Registra una transacción de flujo de caja real
+ * Registra una transacción de flujo de caja real (con protección anti-duplicados por Gmail Match ID)
  */
 async function addTransaction(type, platform, amount, description, entryDate, isAutomated = 0) {
+  const cleanDesc = String(description || '');
+  const gmailMatch = cleanDesc.match(/Gmail Match\s*\(([a-zA-Z0-9_-]+)\)/i);
+  if (gmailMatch && gmailMatch[1]) {
+    const [existing] = await pool.query(
+      'SELECT id FROM cash_flow_entries WHERE type = ? AND amount = ? AND description LIKE ? LIMIT 1',
+      [type, Number(amount) || 0, `%Gmail Match (${gmailMatch[1]})%`]
+    );
+    if (existing.length > 0) {
+      return { success: true, deduplicated: true, id: existing[0].id };
+    }
+  }
   await pool.query(
     'INSERT INTO cash_flow_entries (type, platform, amount, description, entry_date, is_automated) VALUES (?, ?, ?, ?, ?, ?)',
-    [type, platform ? platform.toUpperCase() : null, amount, description, entryDate, isAutomated]
+    [type, platform ? platform.toUpperCase() : null, amount, cleanDesc, entryDate, isAutomated]
   );
   return { success: true };
 }
@@ -515,6 +570,127 @@ async function getTransactions(startDate, endDate) {
     [startDate, endDate]
   );
   return rows;
+}
+
+async function recordRefund(data, waClient = null) {
+  await ensureRefundsTable();
+  const customerName = String(data.customer_name || '').trim();
+  const customerPhone = String(data.customer_phone || '').trim();
+  const platform = String(data.platform || '').trim().toUpperCase();
+  const reason = String(data.reason || '').trim();
+
+  if (!customerName || !platform || !reason) {
+    throw new Error('Completa cliente, plataforma y razón del reembolso.');
+  }
+
+  const origAmt = Math.max(0, Number(data.original_amount) || 0);
+  const totalDays = Math.max(1, Number(data.total_days) || 30);
+  const usedDays = Math.max(0, Math.min(totalDays, Number(data.days_used) || 0));
+  const rule = ['proportional', 'full', 'manual'].includes(data.rule_applied) ? data.rule_applied : 'proportional';
+  const daysRefunded = rule === 'full' ? totalDays : Math.max(0, totalDays - usedDays);
+
+  let grossAmount = 0;
+  if (rule === 'full') {
+    grossAmount = Math.round(origAmt);
+  } else if (rule === 'manual') {
+    grossAmount = Math.max(0, Math.round(Number(data.manual_amount) || 0));
+  } else {
+    grossAmount = Math.round(origAmt * (daysRefunded / totalDays));
+  }
+
+  if (grossAmount <= 0) {
+    throw new Error('El monto bruto del reembolso debe ser mayor a $0 COP.');
+  }
+
+  const apply4x1000 = data.apply_4x1000 !== false && data.apply_4x1000 !== 0 && data.apply_4x1000 !== 'false';
+  const fee4x1000 = apply4x1000 ? Math.round(grossAmount * 0.004) : 0;
+  const netAmount = Math.max(0, grossAmount - fee4x1000);
+  const refundDate = String(data.refund_date || '').trim() || new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
+  const paymentMethod = String(data.payment_method || 'Nequi / Transferencia').trim();
+  const registeredBy = String(data.registered_by || 'Admin').trim();
+
+  const cfDesc = `Reembolso ${platform} - ${customerName}${customerPhone ? ` (${customerPhone})` : ''} | ${daysRefunded}d | ${apply4x1000 ? 'Con 4x1000' : 'Sin 4x1000'} | ${reason.slice(0, 120)}`;
+  const [cfRes] = await pool.query(
+    'INSERT INTO cash_flow_entries (type, platform, amount, description, entry_date, is_automated) VALUES (?, ?, ?, ?, ?, ?)',
+    ['expense', 'REEMBOLSO', netAmount, cfDesc, refundDate, 1]
+  );
+
+  const [insRes] = await pool.query(
+    `INSERT INTO refunds_log
+     (customer_name, customer_phone, platform, original_amount, days_used, days_refunded, rule_applied, apply_4x1000, fee_4x1000, gross_refund_amount, net_refund_amount, reason, payment_method, registered_by, refund_date, cash_flow_entry_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      customerName,
+      customerPhone || null,
+      platform,
+      origAmt,
+      usedDays,
+      daysRefunded,
+      rule,
+      apply4x1000 ? 1 : 0,
+      fee4x1000,
+      grossAmount,
+      netAmount,
+      reason,
+      paymentMethod,
+      registeredBy,
+      refundDate,
+      cfRes.insertId
+    ]
+  );
+
+  let whatsappNotified = false;
+  if (waClient && typeof waClient.sendMessage === 'function') {
+    const ruleLabel = rule === 'full' ? 'Total 100%' : rule === 'manual' ? 'Monto manual' : `Proporcional (${daysRefunded}/${totalDays} días)`;
+    const groupMsg =
+      `💸 *REGISTRO DE REEMBOLSO (#${insRes.insertId})*\n\n` +
+      `👤 *Cliente:* ${customerName}${customerPhone ? ` (${customerPhone})` : ''}\n` +
+      `📺 *Plataforma:* ${platform}\n` +
+      `📅 *Fecha:* ${refundDate}\n` +
+      `📝 *Razón:* ${reason}\n\n` +
+      `📊 *Cálculo Aplicado:*\n` +
+      `• Valor original: $${origAmt.toLocaleString('es-CO')} COP\n` +
+      `• Regla: ${ruleLabel}\n` +
+      `• Días usados / a reembolsar: ${usedDays} usados → *${daysRefunded} días* a devolver\n` +
+      `• Bruto reembolso: $${grossAmount.toLocaleString('es-CO')} COP\n` +
+      `• Descuento 4×1.000: ${apply4x1000 ? `-$${fee4x1000.toLocaleString('es-CO')} COP (0.4%)` : '$0 (No aplicado)'}\n` +
+      `✅ *TOTAL NETO A DEVOLVER:* *$${netAmount.toLocaleString('es-CO')} COP*\n\n` +
+      `💳 *Medio:* ${paymentMethod} | *Registrado por:* ${registeredBy}`;
+
+    try {
+      await waClient.sendMessage(REFUNDS_GROUP_ID, groupMsg);
+      whatsappNotified = true;
+      await pool.query('UPDATE refunds_log SET whatsapp_notified = 1 WHERE id = ?', [insRes.insertId]);
+    } catch (waErr) {
+      console.warn('[Refunds] No se pudo enviar reporte al grupo reembolsos:', waErr.message);
+    }
+  }
+
+  const [[saved]] = await pool.query('SELECT * FROM refunds_log WHERE id = ? LIMIT 1', [insRes.insertId]);
+  return { success: true, refund: saved, whatsapp_notified: whatsappNotified };
+}
+
+async function getRefunds(filters = {}) {
+  await ensureRefundsTable();
+  let query = 'SELECT * FROM refunds_log WHERE 1=1';
+  const params = [];
+  if (filters.platform) {
+    query += ' AND platform = ?';
+    params.push(String(filters.platform).trim().toUpperCase());
+  }
+  query += ' ORDER BY refund_date DESC, id DESC LIMIT 120';
+  const [rows] = await pool.query(query, params);
+  return rows;
+}
+
+async function deleteRefund(id) {
+  await ensureRefundsTable();
+  const [rows] = await pool.query('SELECT cash_flow_entry_id FROM refunds_log WHERE id = ? LIMIT 1', [id]);
+  if (rows.length > 0 && rows[0].cash_flow_entry_id) {
+    await pool.query('DELETE FROM cash_flow_entries WHERE id = ?', [rows[0].cash_flow_entry_id]);
+  }
+  await pool.query('DELETE FROM refunds_log WHERE id = ?', [id]);
+  return { success: true };
 }
 
 function normalizePlatformKey(raw) {
@@ -675,15 +851,26 @@ async function calculateDailyAccounting() {
       distinctMasterEmailsByPlat[platKey].add(rawEmail);
 
       const invKey = `${platKey}::${rawEmail}`;
+      const rowHasPass = Boolean(String(c['contraseña'] || c.contrasena || '').trim());
+      const expDateObj = getJsDateFromExcel(c.vencimiento || c.deben);
+      const expMs = expDateObj && !isNaN(expDateObj.getTime()) ? expDateObj.getTime() : 0;
+
       if (!masterAccountsInventory[invKey]) {
         masterAccountsInventory[invKey] = {
           platform: platKey,
           email: (c.correo || '').toString().trim(),
           total_slots: 0,
           occupied_slots: 0,
+          has_password: false,
+          latest_exp_ms: 0,
           expiration_date: c.vencimiento || null,
           clients: []
         };
+      }
+      if (rowHasPass) masterAccountsInventory[invKey].has_password = true;
+      if (expMs > masterAccountsInventory[invKey].latest_exp_ms) {
+        masterAccountsInventory[invKey].latest_exp_ms = expMs;
+        masterAccountsInventory[invKey].expiration_date = c.vencimiento || masterAccountsInventory[invKey].expiration_date;
       }
       masterAccountsInventory[invKey].total_slots += 1;
     }
@@ -901,8 +1088,17 @@ async function calculateDailyAccounting() {
       const slots = costInfo.profile_slots || 1;
       const duration = costInfo.duration_days || 30;
       const theoreticalAccounts = item.active_profiles > 0 ? Math.ceil(item.active_profiles / slots) : 0;
-      // Contar cuántas cuentas maestras reales (correos únicos en Excel) existen para esta plataforma
-      const realEmailsCount = distinctMasterEmailsByPlat[plat] ? distinctMasterEmailsByPlat[plat].size : 0;
+      const todayStartMs = now.getTime();
+      const isMasterAccountBillable = (inv) => Boolean(
+        inv && (inv.occupied_slots > 0 || (inv.has_password && inv.latest_exp_ms >= todayStartMs))
+      );
+      // Contar únicamente cuentas maestras vigentes o con clientes ocupados (excluyendo vacías sin contraseña/vencidas)
+      const billableMasterCount = Object.values(masterAccountsInventory)
+        .filter(inv => inv.platform === plat && isMasterAccountBillable(inv))
+        .length;
+      const realEmailsCount = billableMasterCount > 0
+        ? billableMasterCount
+        : (distinctMasterEmailsByPlat[plat] ? distinctMasterEmailsByPlat[plat].size : 0);
       // Si la plataforma es de múltiples perfiles por correo (slots > 1) y tiene correos maestros en Excel, usar el conteo real de cuentas en Excel
       const accountsNeeded = item.active_profiles > 0
         ? (slots > 1 && realEmailsCount > 0 ? realEmailsCount : theoreticalAccounts)
@@ -917,8 +1113,10 @@ async function calculateDailyAccounting() {
 
   // Construir auditoría de Red Flags para todas las cuentas matriz con pérdida o sub-facturación en subplanes
   const redFlags = [];
+  const todayRedFlagMs = now.getTime();
   Object.values(masterAccountsInventory).forEach(inv => {
     if (IMPLICIT_COST_PLATFORMS.has(inv.platform) || inv.platform === 'NETFLIX EXTRA' || inv.platform === 'PLATZI') return;
+    if (inv.occupied_slots === 0 && (!inv.has_password || inv.latest_exp_ms < todayRedFlagMs)) return;
     const isAiPlat = inv.platform.includes('CLAUDE') || inv.platform.includes('GPT') || inv.platform.includes('CHATGPT') || (inv.platform === 'GEMINI');
     const costInfo = costMap[inv.platform] || { total_cost: 85000, profile_slots: inv.total_slots || 5, duration_days: 30 };
     if (!costInfo.total_cost || costInfo.total_cost <= 0) return;
@@ -1063,7 +1261,8 @@ async function calculateDailyAccounting() {
   }
 
   const projectedSalariesAmount = salariesProjection ? salariesProjection.projected_monthly : 2600000;
-  const monthlyProfitPostSalaries = globalMonthlyProfit - projectedSalariesAmount;
+  const fixedInfraMonthly = 46000; // VPS Hostinger anual ($20.000/mes) + DeepSeek API (~$26.000/mes)
+  const monthlyProfitPostSalaries = globalMonthlyProfit - projectedSalariesAmount - fixedInfraMonthly;
   const dailyProfitPostSalaries = monthlyProfitPostSalaries / 30;
 
   return {
@@ -1078,6 +1277,8 @@ async function calculateDailyAccounting() {
       mensual_ingreso: globalMonthlyIncome,
       mensual_egreso: globalMonthlyCost,
       mensual_utilidad: globalMonthlyProfit,
+      fixed_infra_monthly: fixedInfraMonthly,
+      fixed_infra_breakdown: { vps: 20000, deepseek: 26000 },
       salaries_projection: salariesProjection,
       mensual_utilidad_post_salarios: monthlyProfitPostSalaries,
       diario_utilidad_post_salarios: dailyProfitPostSalaries
@@ -1309,5 +1510,9 @@ module.exports = {
   recordAccountRenewal,
   getAccountRenewals,
   deleteAccountRenewal,
+  ensureRefundsTable,
+  recordRefund,
+  getRefunds,
+  deleteRefund,
   getUsdToCopRate
 };

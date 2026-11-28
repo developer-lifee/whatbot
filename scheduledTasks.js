@@ -153,6 +153,17 @@ function initDailyAutomation(client, userStates, pendingConfirmations, groupId) 
         }
     });
 
+    // 5. COBROS AUTOMÁTICOS BOT SAAS (/mi-bot) (10:00 AM)
+    schedule.scheduleJob('0 10 * * *', async () => {
+        console.log('🚀 [10:00 AM] Verificando vencimientos de clientes Bot SaaS (/mi-bot)...');
+        try {
+            const { runSaasBillingCheck } = require('./services/saasBotManager');
+            await runSaasBillingCheck(client);
+        } catch (err) {
+            console.error('❌ Error en tarea de cobros Bot SaaS:', err.message);
+        }
+    });
+
     console.log('✅ [AUTOMATION] Tareas programadas con éxito.');
 }
 
