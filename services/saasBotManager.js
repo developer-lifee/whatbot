@@ -1117,11 +1117,13 @@ function handleIncomingTenantMessage(tenantId, msg) {
 /**
  * Inicia o recupera la sesión WhatsApp Web real (whatsapp-web.js + LocalAuth) de un cliente SaaS.
  */
-async function startTenantSession(tenantId) {
+async function startTenantSession(tenantId, options = {}) {
   await ensureSaasBotTables();
   const id = Number(tenantId);
+  const attempt = Number(options.attempt || 1);
+  const forceRestart = Boolean(options.forceRestart);
   const existing = sessions.get(id);
-  if (existing && (existing.isStarting || existing.status === 'CONNECTED' || existing.status === 'QR_READY' || existing.status === 'PAIRING_CODE_READY')) {
+  if (!forceRestart && existing && (existing.isStarting || existing.status === 'CONNECTED' || existing.status === 'QR_READY' || existing.status === 'PAIRING_CODE_READY')) {
     return getTenantSessionState(id);
   }
 
@@ -1295,11 +1297,24 @@ async function startTenantSession(tenantId) {
 
     await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['CONNECTING', id]).catch(() => {});
     client.initialize().catch(async (initErr) => {
+      const errMsg = initErr?.message || 'No se pudo iniciar WhatsApp Web';
+      if (!stateObj.manualStop && attempt < 3 && /Minified invariant|Execution context was destroyed|Target closed|Protocol error/i.test(errMsg)) {
+        console.warn(`[SaaS Bot #${id}] ⚠️ Error transitorio al iniciar (intento ${attempt}/3): ${errMsg}. Reintentando en 2.5s...`);
+        stateObj.status = 'CONNECTING';
+        stateObj.isStarting = true;
+        stateObj.lastError = 'Reiniciando conexión con WhatsApp Web...';
+        try { await client.destroy(); } catch {}
+        await sleep(2500);
+        if (!stateObj.manualStop) {
+          startTenantSession(id, { attempt: attempt + 1, forceRestart: true }).catch(() => {});
+        }
+        return;
+      }
       stateObj.isStarting = false;
       stateObj.status = 'DISCONNECTED';
-      stateObj.lastError = initErr?.message || 'No se pudo iniciar WhatsApp Web';
+      stateObj.lastError = errMsg;
       await pool.query('UPDATE saas_bot_tenants SET wa_status = ? WHERE id = ?', ['DISCONNECTED', id]).catch(() => {});
-      console.error(`[SaaS Bot #${id}] Error en client.initialize():`, initErr?.message);
+      console.error(`[SaaS Bot #${id}] Error en client.initialize():`, errMsg);
     });
   } catch (err) {
     stateObj.isStarting = false;
@@ -1355,31 +1370,47 @@ async function requestTenantPairingCode(tenantId, rawPhone) {
     throw new Error('Tu WhatsApp ya está conectado.');
   }
 
-  // Esperar hasta 25s a que WhatsApp Web inicialice la página antes de pedir el código de 8 dígitos
-  const deadline = Date.now() + 25000;
+  // Esperar hasta 45s a que WhatsApp Web alcance la pantalla de autenticación (QR_READY / PAIRING_CODE_READY)
+  // antes de invocar requestPairingCode, evitando condiciones de carrera con Store/MasterKey (#56367).
+  const deadline = Date.now() + 45000;
   while (Date.now() < deadline) {
     mem = sessions.get(id);
     if (mem && mem.status === 'CONNECTED') {
       throw new Error('Tu WhatsApp ya está conectado.');
     }
-    if (mem && mem.client && (mem.status === 'QR_READY' || mem.status === 'PAIRING_CODE_READY' || mem.client.pupPage)) {
+    if (mem && mem.client && (mem.status === 'QR_READY' || mem.status === 'PAIRING_CODE_READY')) {
+      break;
+    }
+    if (mem && mem.status === 'DISCONNECTED' && !mem.isStarting) {
       break;
     }
     await sleep(500);
   }
 
   mem = sessions.get(id);
-  if (!mem || !mem.client) {
-    throw new Error('WhatsApp Web aún está iniciando. Intenta nuevamente en unos segundos.');
+  if (!mem || !mem.client || (mem.status !== 'QR_READY' && mem.status !== 'PAIRING_CODE_READY')) {
+    throw new Error(mem?.lastError || 'WhatsApp Web aún está terminando de cargar. Espera unos segundos e intenta nuevamente.');
   }
 
   try {
-    const code = await mem.client.requestPairingCode(cleanPhone);
+    let code;
+    try {
+      code = await mem.client.requestPairingCode(cleanPhone);
+    } catch (firstErr) {
+      const firstMsg = firstErr?.message || String(firstErr);
+      if (/Minified invariant|56367|Cannot read properties of undefined/i.test(firstMsg)) {
+        await sleep(2500);
+        code = await mem.client.requestPairingCode(cleanPhone);
+      } else {
+        throw firstErr;
+      }
+    }
     if (!code) {
       throw new Error('WhatsApp no devolvió código numérico en este intento.');
     }
     mem.pairingCode = String(code).trim();
     mem.qrDataUrl = null;
+    mem.qrUpdatedAt = Date.now();
     mem.status = 'PAIRING_CODE_READY';
     mem.isStarting = false;
     mem.lastError = null;
@@ -1390,7 +1421,9 @@ async function requestTenantPairingCode(tenantId, rawPhone) {
     let msg = err?.message || String(err);
     let serialized = '';
     try { serialized = JSON.stringify(err); } catch {}
-    if (msg === 't' || serialized.includes('rate-overlimit') || serialized.includes('429') || err?.name === 'CompanionHelloError') {
+    if (/Minified invariant|56367/i.test(msg)) {
+      msg = 'WhatsApp Web todavía estaba terminando de iniciar (error interno temporal). Espera 5 segundos e intenta de nuevo, o usa el código QR.';
+    } else if (msg === 't' || serialized.includes('rate-overlimit') || serialized.includes('429') || err?.name === 'CompanionHelloError') {
       msg = 'WhatsApp limitó temporalmente las solicitudes para este número (429). Espera 3 a 5 minutos o intenta con el código QR.';
     }
     mem.lastError = msg;
